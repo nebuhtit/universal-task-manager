@@ -26,9 +26,15 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.2.3', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.2.4', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '×' }).click();
+  await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
+  await page.getByRole('button', { name: 'Save item' }).click();
+  const priority = page.getByRole('button', { name: 'Priority 3: High. Edit item' }).first();
+  await expect(priority).toHaveAttribute('title', 'Priority 3: High. Click to edit.');
+  await priority.click();
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close item editor' }).click();
 
   await page.getByRole('button', { name: 'Lock' }).click();
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -44,7 +50,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.2.3', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.2.4', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 

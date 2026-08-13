@@ -104,6 +104,8 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   </main>;
 }
 
+const priorityNames: Record<NonNullable<UniversalItem['priority']>, string> = { 0: 'None', 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
+
 function ItemCard({ item, onEdit, onState }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void }) {
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
   return <article className={`item-card state-${item.state}`}>
@@ -120,7 +122,7 @@ function ItemCard({ item, onEdit, onState }: { item: UniversalItem; onEdit: () =
         {item.closure?.reason === 'auto_renew' && <span className="auto-pill">auto-closed</span>}
       </span>
     </button>
-    {item.priority ? <span className={`priority p${item.priority}`} title={`Priority ${item.priority}`}>!</span> : null}
+    {item.priority ? <button className={`priority p${item.priority}`} title={`Priority ${item.priority}: ${priorityNames[item.priority]}. Click to edit.`} aria-label={`Priority ${item.priority}: ${priorityNames[item.priority]}. Edit item`} onClick={onEdit}>{priorityNames[item.priority]}</button> : null}
   </article>;
 }
 
@@ -221,7 +223,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor">
-      <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" onClick={onClose}>×</button></header>
+      <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}>×</button></header>
       <div className="editor-scroll">
         <label>Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} /></label>
         <div className="segmented" aria-label="Preset">{(['task', 'event', 'habit', 'blank'] as ItemPreset[]).map((preset) => <button className={item.preset === preset ? 'active' : ''} key={preset} onClick={() => patchItem({ preset })}>{preset}</button>)}</div>
@@ -229,7 +231,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         {item.bodyMarkdown && <details><summary>Markdown preview</summary><div className="markdown preview"><ReactMarkdown>{item.bodyMarkdown}</ReactMarkdown></div></details>}
         <div className="form-grid three">
           <label>Status<select value={item.state} onChange={(event) => patchItem({ state: event.target.value as UniversalItem['state'] })}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state}>{state}</option>)}</select></label>
-          <label>Priority<select value={item.priority ?? 0} onChange={(event) => patchItem({ priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{[0, 1, 2, 3, 4].map((priority) => <option key={priority} value={priority}>{priority || 'None'}</option>)}</select></label>
+          <label>Priority<select value={item.priority ?? 0} onChange={(event) => patchItem({ priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{([0, 1, 2, 3, 4] as NonNullable<UniversalItem['priority']>[]).map((priority) => <option key={priority} value={priority}>{priority ? `${priority} — ${priorityNames[priority]}` : 'None'}</option>)}</select></label>
           <label>Estimate<input value={item.schedule?.estimatedDuration ?? ''} onChange={(event) => patchSchedule({ estimatedDuration: event.target.value })} placeholder="PT45M" /></label>
         </div>
         <label>Tags<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="work, deep-focus" /></label>
