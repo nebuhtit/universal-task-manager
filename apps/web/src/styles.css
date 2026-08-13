@@ -94,15 +94,16 @@ a { color: var(--moss); }
 .habit-grid strong { font-size: 26px; color: var(--moss); }
 .habit-grid span { font-weight: 700; font-size: 12px; }
 .habit-grid small { color: var(--muted); }
-.calendar-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(130px, 1fr); gap: 8px; overflow: auto; padding-bottom: 5px; }
-.calendar-strip button { border: 1px solid var(--line); background: #f8f6ef; border-radius: 13px; padding: 12px; text-align: left; cursor: pointer; }
+.calendar-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 320px); justify-content: start; gap: 10px; overflow-x: auto; padding: 1px 1px 6px; }
+.calendar-strip button { min-height: 88px; border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 14px 15px; text-align: left; cursor: pointer; transition: background .15s, border-color .15s, transform .15s; }
+.calendar-strip button:hover { background: var(--soft); border-color: #cfcfcf; transform: translateY(-1px); }
 .calendar-strip time, .calendar-strip span { display: block; }
-.calendar-strip time { font-family: "DM Mono"; color: var(--moss); font-size: 10px; text-transform: uppercase; margin-bottom: 9px; }
-.calendar-strip span { font-weight: 700; font-size: 12px; }
+.calendar-strip time { color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 12px; }
+.calendar-strip span { color: var(--ink); font-weight: 650; font-size: 13px; }
 .mini-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; overflow: auto; }
-.mini-board section { background: #f4f1e9; border-radius: 12px; padding: 10px; min-width: 130px; }
-.mini-board h4 { font-size: 10px; font-family: "DM Mono"; text-transform: uppercase; color: var(--muted); }
-.mini-board button { display: block; border: 0; background: var(--card); border-radius: 7px; margin: 5px 0; padding: 8px; width: 100%; text-align: left; font-size: 11px; cursor: pointer; }
+.mini-board section { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-width: 130px; }
+.mini-board h4 { font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.mini-board button { display: block; border: 1px solid var(--line); background: #fff; border-radius: 8px; margin: 6px 0; padding: 9px; width: 100%; text-align: left; font-size: 11px; cursor: pointer; }
 .add-widget { min-height: 110px; border: 1px dashed #b8b2a6; background: transparent; border-radius: 20px; color: var(--muted); cursor: pointer; }
 .add-widget:hover { border-color: var(--moss); color: var(--moss); }
 
