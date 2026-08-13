@@ -35,7 +35,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.2.8', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.2.9', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -65,7 +65,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.2.8', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.2.9', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -79,6 +79,43 @@ test('mobile shell stays usable at phone width', async ({ page }) => {
   await expect(page.locator('.bottom-nav svg.line-icon')).toHaveCount(5);
   await page.getByRole('button', { name: '+ New item' }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+});
+
+test('edited view parameters change results and survive reload', async ({ page }) => {
+  const password = 'correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('Persistent views');
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await page.getByPlaceholder('Capture anything…').fill('Visible open item');
+  await page.getByPlaceholder('Capture anything…').press('Enter');
+
+  await page.getByRole('button', { name: 'Views' }).click();
+  let view = page.locator('.view-section').filter({ hasText: 'Now' });
+  await view.getByRole('button', { name: 'Edit view' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Done only');
+  await page.getByRole('combobox', { name: 'Field' }).selectOption('state');
+  await page.getByRole('combobox', { name: 'Operator' }).selectOption('==');
+  await page.getByRole('textbox', { name: 'Value' }).fill('done');
+  await page.getByRole('combobox', { name: 'Renderer' }).selectOption('table');
+  await expect(page.getByText('This condition will replace the DSL expression when you save.')).toBeVisible();
+  await page.getByRole('button', { name: 'Save view' }).click();
+
+  view = page.locator('.view-section').filter({ hasText: 'Done only' });
+  await expect(view.getByText('state == "done"', { exact: true })).toBeVisible();
+  await expect(view.getByText('table', { exact: true })).toBeVisible();
+  await expect(view.getByText('0 matching items', { exact: true })).toBeVisible();
+  await expect(view.getByText('Visible open item', { exact: true })).toBeHidden();
+
+  await page.waitForTimeout(300);
+  await page.reload();
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await page.getByRole('button', { name: 'Views' }).click();
+  view = page.locator('.view-section').filter({ hasText: 'Done only' });
+  await expect(view.getByText('state == "done"', { exact: true })).toBeVisible();
+  await expect(view.getByText('table', { exact: true })).toBeVisible();
+  await expect(view.getByText('0 matching items', { exact: true })).toBeVisible();
 });
 
 test('recurring item accepts Due as its schedule anchor and explains missing dates', async ({ page }) => {

@@ -330,14 +330,70 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
 }) {
   const [editing, setEditing] = useState<SavedView | null>(null);
   const [error, setError] = useState('');
-  const addClause = (field: string, operator: string, value: string) => {
-    if (!editing) return;
-    const literal = ['true', 'false', 'null'].includes(value) || !Number.isNaN(Number(value)) && value.trim() !== '' ? value : JSON.stringify(value);
-    setEditing({ ...editing, query: { source: `${editing.query.source ? `${editing.query.source} && ` : ''}${field} ${operator} ${literal}` } });
+  const [visualField, setVisualField] = useState('state');
+  const [visualOperator, setVisualOperator] = useState('==');
+  const [visualValue, setVisualValue] = useState('open');
+  const [visualDirty, setVisualDirty] = useState(false);
+
+  const literal = (value: string) => ['true', 'false', 'null'].includes(value) || (!Number.isNaN(Number(value)) && value.trim() !== '') ? value : JSON.stringify(value);
+  const visualClause = () => `${visualField} ${visualOperator} ${literal(visualValue)}`;
+  const beginEditing = (view: SavedView) => {
+    const copy = clean(view);
+    const firstClause = /^\s*([\w.]+)\s*(==|!=|>|<|in)\s*("(?:[^"\\]|\\.)*"|true|false|null|-?\d+(?:\.\d+)?)/.exec(copy.query.source);
+    setEditing(copy);
+    setVisualField(firstClause?.[1] ?? 'state');
+    setVisualOperator(firstClause?.[2] ?? '==');
+    if (firstClause?.[3]) {
+      try { setVisualValue(String(JSON.parse(firstClause[3]))); }
+      catch { setVisualValue(firstClause[3]); }
+    } else setVisualValue('open');
+    setVisualDirty(false);
+    setError('');
   };
-  return <section className="page-section"><div className="page-title"><div><p className="eyebrow">PROGRAMMABLE LISTS</p><h1>Views</h1><p>Every section below is a live result of its visual clauses or DSL expression.</p></div><button className="primary" onClick={() => setEditing({ id: createId(), name: 'New view', query: { source: 'state == "open"' }, renderer: 'list', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] })}>+ New view</button></div>
-    <div className="views-stack">{Object.values(workspace.views).map((view) => <SavedViewSection key={view.id} view={view} workspace={workspace} onEditView={() => setEditing(clean(view))} onEditItem={onEditItem} onState={onState} />)}</div>
-    {editing && <div className="modal-backdrop"><section className="dialog view-editor"><header><div><p className="dialog-kicker">SAVED VIEW</p><h2>Edit view</h2></div><button className="icon-button" aria-label="Close view editor" onClick={() => setEditing(null)}>×</button></header><label>Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label><fieldset className="query-builder"><legend>Visual condition</legend><div className="form-grid three"><label>Field<select id="query-field"><option>state</option><option>preset</option><option>role</option><option>priority</option><option>schedule.dueAt</option><option>title</option></select></label><label>Operator<select id="query-operator"><option>==</option><option>!=</option><option>&gt;</option><option>&lt;</option><option>in</option></select></label><label>Value<input id="query-value" defaultValue="open" /></label></div><button className="secondary compact-action" onClick={() => addClause((document.getElementById('query-field') as HTMLSelectElement).value, (document.getElementById('query-operator') as HTMLSelectElement).value, (document.getElementById('query-value') as HTMLInputElement).value)}>+ Add condition</button></fieldset><label className="dsl-field">DSL expression<span className="hint">Safe typed expression</span><textarea className="dsl-input" spellCheck={false} rows={5} value={editing.query.source} onChange={(event) => setEditing({ ...editing, query: { source: event.target.value } })} /></label><label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>{error && <p className="error">{error}</p>}<footer><button className="secondary" onClick={() => setEditing(null)}>Cancel</button><button className="primary" onClick={() => { try { parseExpression(editing.query.source); commit('Save view', (draft) => { draft.views[editing.id] = clean(editing); }); setEditing(null); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }}>Save view</button></footer></section></div>}
+  const changeVisual = (part: 'field' | 'operator' | 'value', value: string) => {
+    if (part === 'field') setVisualField(value);
+    if (part === 'operator') setVisualOperator(value);
+    if (part === 'value') setVisualValue(value);
+    setVisualDirty(true);
+  };
+  const applyVisual = (append: boolean) => {
+    if (!editing) return;
+    const clause = visualClause();
+    setEditing({ ...editing, query: { source: append && editing.query.source ? `${editing.query.source} && ${clause}` : clause } });
+    setVisualDirty(false);
+  };
+  const save = () => {
+    if (!editing) return;
+    const result = visualDirty ? { ...editing, query: { source: visualClause() } } : editing;
+    try {
+      parseExpression(result.query.source);
+      commit('Save view', (draft) => { draft.views[result.id] = clean(result); });
+      setEditing(null);
+      setError('');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  };
+  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: 'state == "open"' }, renderer: 'list', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
+
+  return <section className="page-section">
+    <div className="page-title"><div><p className="eyebrow">PROGRAMMABLE LISTS</p><h1>Views</h1><p>Every section below is a live result of its visual clauses or DSL expression.</p></div><button className="primary" onClick={newView}>+ New view</button></div>
+    <div className="views-stack">{Object.values(workspace.views).map((view) => <SavedViewSection key={view.id} view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} />)}</div>
+    {editing && <div className="modal-backdrop"><section className="dialog view-editor">
+      <header><div><p className="dialog-kicker">SAVED VIEW</p><h2>Edit view</h2></div><button className="icon-button" aria-label="Close view editor" onClick={() => setEditing(null)}><CloseIcon /></button></header>
+      <label>Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
+      <fieldset className="query-builder"><legend>Visual condition</legend>
+        <div className="form-grid three">
+          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option>role</option><option>priority</option><option>schedule.dueAt</option><option>title</option></select></label>
+          <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}><option>==</option><option>!=</option><option>&gt;</option><option>&lt;</option><option>in</option></select></label>
+          <label>Value<input value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} /></label>
+        </div>
+        <p className="builder-status">{visualDirty ? 'This condition will replace the DSL expression when you save.' : 'Visual condition and DSL are synchronized.'}</p>
+        <div className="builder-actions"><button className="secondary compact-action" onClick={() => applyVisual(false)}>Apply condition</button><button className="secondary compact-action" onClick={() => applyVisual(true)}>+ Add AND condition</button></div>
+      </fieldset>
+      <label className="dsl-field">DSL expression<span className="hint">Safe typed expression</span><textarea className="dsl-input" spellCheck={false} rows={5} value={editing.query.source} onChange={(event) => { setEditing({ ...editing, query: { source: event.target.value } }); setVisualDirty(false); }} /></label>
+      <label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>
+      {error && <p className="error">{error}</p>}
+      <footer><button className="secondary" onClick={() => setEditing(null)}>Cancel</button><button className="primary" onClick={save}>Save view</button></footer>
+    </section></div>}
   </section>;
 }
 
@@ -393,6 +449,7 @@ export default function App() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [toast, setToast] = useState('');
   const [quick, setQuick] = useState('');
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => { void hasLocalWorkspace().then((exists) => setBoot(exists ? 'locked' : 'empty')); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3500); return () => window.clearTimeout(timer); }, [toast]);
@@ -430,7 +487,8 @@ export default function App() {
     if (!session) return;
     const document = Automerge.change(session.document, message, (draft) => { mutation(draft as unknown as WorkspaceDocument); draft.updatedAt = new Date().toISOString(); });
     const next = { ...session, document };
-    setSession(next); void saveLocalWorkspace(document, session.dataKey).catch((reason) => setToast(`Save failed: ${String(reason)}`));
+    setSession(next);
+    saveQueue.current = saveQueue.current.then(() => saveLocalWorkspace(document, session.dataKey)).catch((reason) => { setToast(`Save failed: ${String(reason)}`); });
   };
 
   const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => commit('Change item state', (draft) => {
