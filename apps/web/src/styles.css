@@ -245,8 +245,10 @@ dd { margin: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 .log-line { display: flex; gap: 10px; align-items: start; padding: 10px 2px; border-top: 1px solid var(--line); }
 .log-line strong, .log-line small { display: block; font-size: 10px; }
 .log-line small { color: var(--muted); margin-top: 3px; }
-.empty-panel { border: 1px dashed #bdbdbd; border-radius: 15px; padding: 40px; text-align: center; color: var(--muted); }
-.empty-panel .icon { font-size: 30px; }
+.empty-panel { border: 1px dashed #bdbdbd; border-radius: 15px; padding: 38px 24px; text-align: center; color: var(--muted); }
+.automation-empty-icon { display: block; width: 27px; height: 27px; margin: 0 auto 14px; color: #707070; }
+.empty-panel h3 { margin: 0 0 6px; color: #444; font-size: 16px; font-weight: 500; }
+.empty-panel p { margin: 0; font-size: 13px; }
 .all-sections { border: 1px solid var(--line); border-radius: 18px; background: var(--card); padding: 0 20px; }
 .all-sections details summary { min-height: 46px; align-items: center; color: var(--muted); text-transform: capitalize; font-size: 13px; font-weight: 500; letter-spacing: .015em; }
 .all-sections details[open] summary { color: #444; }
