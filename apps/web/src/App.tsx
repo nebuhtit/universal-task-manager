@@ -356,10 +356,11 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
     if (part === 'value') setVisualValue(value);
     setVisualDirty(true);
   };
-  const applyVisual = (append: boolean) => {
+  const applyVisual = (join: 'replace' | 'and' | 'or') => {
     if (!editing) return;
     const clause = visualClause();
-    setEditing({ ...editing, query: { source: append && editing.query.source ? `${editing.query.source} && ${clause}` : clause } });
+    const connector = join === 'and' ? '&&' : '||';
+    setEditing({ ...editing, query: { source: join !== 'replace' && editing.query.source ? `${editing.query.source} ${connector} ${clause}` : clause } });
     setVisualDirty(false);
   };
   const save = () => {
@@ -387,7 +388,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
           <label>Value<input value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} /></label>
         </div>
         <p className="builder-status">{visualDirty ? 'This condition will replace the DSL expression when you save.' : 'Visual condition and DSL are synchronized.'}</p>
-        <div className="builder-actions"><button className="secondary compact-action" onClick={() => applyVisual(false)}>Apply condition</button><button className="secondary compact-action" onClick={() => applyVisual(true)}>+ Add AND condition</button></div>
+        <div className="builder-actions"><button className="secondary compact-action" onClick={() => applyVisual('replace')}>Apply condition</button><button className="secondary compact-action" onClick={() => applyVisual('and')}>+ Add AND condition</button><button className="secondary compact-action" onClick={() => applyVisual('or')}>+ Add OR condition</button></div>
       </fieldset>
       <label className="dsl-field">DSL expression<span className="hint">Safe typed expression</span><textarea className="dsl-input" spellCheck={false} rows={5} value={editing.query.source} onChange={(event) => { setEditing({ ...editing, query: { source: event.target.value } }); setVisualDirty(false); }} /></label>
       <label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>

@@ -40,7 +40,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.3.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.3.1', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -70,7 +70,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.3.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.3.1', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -121,6 +121,37 @@ test('edited view parameters change results and survive reload', async ({ page }
   await expect(view.getByText('state == "done"', { exact: true })).toBeVisible();
   await expect(view.getByText('table', { exact: true })).toBeVisible();
   await expect(view.getByText('0 matching items', { exact: true })).toBeVisible();
+});
+
+test('visual view builder supports OR conditions', async ({ page }) => {
+  const password = 'correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('OR views');
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+
+  await page.getByRole('button', { name: '+ New item' }).click();
+  await page.getByLabel('Title', { exact: true }).fill('Priority two item');
+  await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '2 — Medium' });
+  await page.getByRole('button', { name: 'Save item' }).click();
+
+  await page.getByRole('button', { name: 'Views' }).click();
+  await page.getByRole('button', { name: '+ New view' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Priority OR');
+  await page.getByRole('combobox', { name: 'Field' }).selectOption('priority');
+  await page.getByRole('combobox', { name: 'Operator' }).selectOption('==');
+  await page.getByRole('textbox', { name: 'Value' }).fill('3');
+  await page.getByRole('button', { name: 'Apply condition' }).click();
+  await page.getByRole('combobox', { name: 'Operator' }).selectOption('<');
+  await page.getByRole('textbox', { name: 'Value' }).fill('3');
+  await page.getByRole('button', { name: '+ Add OR condition' }).click();
+  await expect(page.getByLabel('DSL expression')).toHaveValue('priority == 3 || priority < 3');
+  await page.getByRole('button', { name: 'Save view' }).click();
+
+  const view = page.locator('.view-section').filter({ hasText: 'Priority OR' });
+  await expect(view.getByText('priority == 3 || priority < 3', { exact: true })).toBeVisible();
+  await expect(view.getByText('1 matching items', { exact: true })).toBeVisible();
+  await expect(view.getByText('Priority two item', { exact: true })).toBeVisible();
 });
 
 test('recurring item accepts Due as its schedule anchor and explains missing dates', async ({ page }) => {

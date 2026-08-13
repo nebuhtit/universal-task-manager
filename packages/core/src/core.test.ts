@@ -14,6 +14,8 @@ describe('safe expression language', () => {
     expect(Number.isNaN(new Date(APP_RELEASED_AT).getTime())).toBe(false);
     item.tags = ['work', 'writing']; item.priority = 4;
     expect(compileQuery('state == "open" && priority >= 3 && includes(tags, "work")')(item)).toBe(true);
+    item.priority = 2;
+    expect(compileQuery('priority == 3 || priority < 3')(item)).toBe(true);
     expect(() => parseExpression('globalThis.fetch("https://example.com")')).not.toThrow();
     expect(() => compileQuery('globalThis.fetch("https://example.com")')(item)).toThrow('Function is not allowed');
   });
