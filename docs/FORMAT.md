@@ -6,6 +6,8 @@
 
 An item has a `role` (`standalone`, `series_template`, or `occurrence`) and a UI `preset` (`task`, `event`, `habit`, or `blank`). Presets never change the wire type. Occurrence IDs are deterministic from the series ID and recurrence anchor.
 
+Every item stores an immutable `createdWithVersion` value. It records the app version that materialized that exact item or occurrence and is preserved by edits and merges. Workspaces created before version 0.2.0 are backfilled with `0.1.0` when first unlocked by a newer app.
+
 Closure states distinguish manual completion from automation:
 
 - `done` — completed by the user or an explicit automation.

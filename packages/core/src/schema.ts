@@ -29,6 +29,7 @@ export const workspaceJsonSchema = {
       properties: {
         id: { type: 'string', minLength: 1 },
         schemaVersion: { const: SCHEMA_VERSION },
+        createdWithVersion: { type: 'string', minLength: 1 },
         revision: { type: 'integer', minimum: 1 },
         role: { enum: ['standalone', 'series_template', 'occurrence'] },
         preset: { enum: ['task', 'event', 'habit', 'blank'] },

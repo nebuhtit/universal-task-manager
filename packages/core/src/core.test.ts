@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  compileQuery, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
+  APP_VERSION, backfillItemCreationVersions, compileQuery, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
   parseExpression, reconcileRecurrences, runAutomationEvents, toICS, validateWorkspace,
 } from './index.js';
 import type { AutomationRule, DomainEvent } from './types.js';
@@ -8,6 +8,7 @@ import type { AutomationRule, DomainEvent } from './types.js';
 describe('safe expression language', () => {
   it('filters items without evaluating JavaScript', () => {
     const item = createItem('Prepare material');
+    expect(item.createdWithVersion).toBe(APP_VERSION);
     item.tags = ['work', 'writing']; item.priority = 4;
     expect(compileQuery('state == "open" && priority >= 3 && includes(tags, "work")')(item)).toBe(true);
     expect(() => parseExpression('globalThis.fetch("https://example.com")')).not.toThrow();
@@ -20,6 +21,18 @@ describe('safe expression language', () => {
       { id: 'b', key: 'b', label: 'B', kind: 'formula', required: false, formula: 'custom.a + 1' },
     ]);
     expect(Object.values(result.errors).join(' ')).toContain('cycle');
+  });
+
+  it('backfills legacy creation versions without changing existing values', () => {
+    const workspace = createWorkspace();
+    const legacy = createItem('Legacy');
+    delete (legacy as { createdWithVersion?: string }).createdWithVersion;
+    const current = createItem('Current');
+    workspace.items[legacy.id] = legacy;
+    workspace.items[current.id] = current;
+    expect(backfillItemCreationVersions(workspace)).toBe(1);
+    expect(legacy.createdWithVersion).toBe('0.1.0');
+    expect(current.createdWithVersion).toBe(APP_VERSION);
   });
 });
 
@@ -37,6 +50,7 @@ describe('recurrence and auto-renew', () => {
     expect(occurrences.filter((item) => item.state === 'auto_closed')).toHaveLength(4);
     expect(occurrences.filter((item) => item.state === 'open')).toHaveLength(1);
     expect(occurrences.filter((item) => item.closure?.actor === 'system')).toHaveLength(4);
+    expect(occurrences.every((item) => item.createdWithVersion === APP_VERSION)).toBe(true);
 
     const second = reconcileRecurrences(workspace, new Date('2026-07-30T12:00:00.000Z'));
     expect(second.created).toHaveLength(0);

@@ -1,4 +1,6 @@
 export const SCHEMA_VERSION = '1.0.0';
+export const APP_VERSION = '0.2.0';
+export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
 export type ItemPreset = 'task' | 'event' | 'habit' | 'blank';
@@ -77,6 +79,7 @@ export interface LinkAttachment { id: string; url: string; title?: string; mimeT
 export interface UniversalItem {
   id: string;
   schemaVersion: string;
+  readonly createdWithVersion: string;
   revision: number;
   role: ItemRole;
   preset: ItemPreset;
@@ -229,6 +232,15 @@ export function createId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+export function backfillItemCreationVersions(workspace: WorkspaceDocument, legacyVersion = LEGACY_APP_VERSION): number {
+  let changed = 0;
+  for (const item of Object.values(workspace.items)) {
+    const mutable = item as UniversalItem & { createdWithVersion?: string };
+    if (!mutable.createdWithVersion) { mutable.createdWithVersion = legacyVersion; changed += 1; }
+  }
+  return changed;
+}
+
 export function createWorkspace(name = 'My workspace', now = new Date()): WorkspaceDocument {
   const timestamp = now.toISOString();
   const inboxId = createId();
@@ -276,6 +288,7 @@ export function createItem(
   const item: UniversalItem = {
     id: createId(),
     schemaVersion: SCHEMA_VERSION,
+    createdWithVersion: APP_VERSION,
     revision: 1,
     role: 'standalone',
     preset,

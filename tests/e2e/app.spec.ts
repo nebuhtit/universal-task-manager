@@ -22,13 +22,26 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByPlaceholder('Capture anything…').press('Enter');
   await expect(page.getByText('Prepare material by Thursday')).toBeVisible();
 
+  await page.getByText('Prepare material by Thursday', { exact: true }).click();
+  await page.getByText('System metadata', { exact: true }).click();
+  await expect(page.getByText('v0.2.0', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '×' }).click();
+
   await page.getByRole('button', { name: 'Lock' }).click();
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.getByText('Prepare material by Thursday')).toBeVisible();
   await page.getByRole('button', { name: 'Views' }).click();
-  await expect(page.locator('.view-section').getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
+  const nowSection = page.locator('.view-section').filter({ hasText: 'Now' });
+  await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
+  await nowSection.getByRole('heading', { name: 'Now' }).click();
+  await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeHidden();
+  await nowSection.getByRole('heading', { name: 'Now' }).click();
+  await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByText('v0.2.0', { exact: true })).toBeVisible();
 });
 
 test('mobile shell stays usable at phone width', async ({ page }) => {
@@ -38,6 +51,7 @@ test('mobile shell stays usable at phone width', async ({ page }) => {
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await expect(page.locator('.bottom-nav')).toBeVisible();
+  await expect(page.locator('.bottom-nav svg.line-icon')).toHaveCount(5);
   await page.getByRole('button', { name: '+ New item' }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
 });
@@ -56,18 +70,24 @@ test('recurring item accepts Due as its schedule anchor and explains missing dat
   await expect(page.getByRole('alert')).toHaveText('A recurring item needs a Start or Due date.');
 
   await page.getByText('Schedule & deadline', { exact: true }).click();
-  await page.getByLabel('Due', { exact: true }).fill('2030-08-15T18:30');
-  await expect(page.getByLabel('Due', { exact: true })).toHaveValue('2030-08-15T18:30');
+  const dueInOneHour = await page.evaluate(() => {
+    const date = new Date(Date.now() + 3_600_000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  await page.getByLabel('Due', { exact: true }).fill(dueInOneHour);
+  await expect(page.getByLabel('Due', { exact: true })).toHaveValue(dueInOneHour);
   await page.getByRole('button', { name: 'Save item' }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
 
   await page.getByRole('button', { name: 'All items' }).click();
   await page.getByText('series templates', { exact: true }).click();
-  await expect(page.getByText('Weekly due-only item', { exact: true })).toBeVisible();
+  const templatesSection = page.locator('.all-sections details').filter({ has: page.getByText('series templates', { exact: true }) });
+  await expect(templatesSection.getByText('Weekly due-only item', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Views' }).click();
   await page.getByRole('button', { name: '+ New view' }).click();
   await expect(page.getByLabel('DSL expression')).toHaveValue('state == "open"');
+  await expect(page.getByLabel('DSL expression')).toHaveCSS('font-family', /monospace|Menlo|Monaco|Consolas/i);
   await page.getByLabel('Name').fill('Open items');
   await page.getByRole('button', { name: 'Save view' }).click();
   const openItemsView = page.locator('.view-section').filter({ hasText: 'Open items' });

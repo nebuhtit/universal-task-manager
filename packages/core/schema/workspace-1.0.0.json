@@ -44,7 +44,7 @@
       "type": "object",
       "required": ["id", "schemaVersion", "revision", "role", "preset", "title", "bodyMarkdown", "state", "createdAt", "updatedAt", "contexts", "tags", "reminders", "relations", "attachments", "custom"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 }, "schemaVersion": { "const": "1.0.0" }, "revision": { "type": "integer", "minimum": 1 },
+        "id": { "type": "string", "minLength": 1 }, "schemaVersion": { "const": "1.0.0" }, "createdWithVersion": { "type": "string", "minLength": 1 }, "revision": { "type": "integer", "minimum": 1 },
         "role": { "enum": ["standalone", "series_template", "occurrence"] }, "preset": { "enum": ["task", "event", "habit", "blank"] },
         "title": { "type": "string" }, "bodyMarkdown": { "type": "string" },
         "state": { "enum": ["open", "done", "cancelled", "auto_closed", "archived"] },
