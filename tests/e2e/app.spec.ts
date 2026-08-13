@@ -35,7 +35,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.2.7', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.2.8', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -43,7 +43,13 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(priority).toHaveAttribute('title', 'Priority 3: High. Click to edit.');
   await priority.click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
-  await page.getByRole('button', { name: 'Close item editor' }).click();
+  const closeEditor = page.getByRole('button', { name: 'Close item editor' });
+  await expect(closeEditor.locator('svg.close-icon')).toBeVisible();
+  await expect(closeEditor).toHaveCSS('display', 'grid');
+  await expect(closeEditor).toHaveCSS('align-items', 'center');
+  await expect(closeEditor).toHaveCSS('justify-items', 'center');
+  await expect(page.getByRole('button', { name: 'Delete' })).toHaveCSS('background-color', 'rgb(243, 243, 243)');
+  await closeEditor.click();
 
   await page.getByRole('button', { name: 'Lock' }).click();
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -59,7 +65,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.2.7', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.2.8', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 

@@ -42,6 +42,7 @@ async function reconcileOffMainThread(workspace: WorkspaceDocument, now: Date): 
 }
 
 function Icon({ children }: { children: ReactNode }) { return <span className="icon" aria-hidden>{children}</span>; }
+function CloseIcon() { return <svg className="close-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M4 4l12 12M16 4 4 16" /></svg>; }
 
 type LineIconName = 'home' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer';
 function LineIcon({ name }: { name: LineIconName }) {
@@ -168,7 +169,7 @@ function Widget({ widget, workspace, onEdit, onState, onRemove }: {
     return <div className="item-list">{items.length ? items.slice(0, 20).map((item) => <ItemCard key={item.id} item={item} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />) : <p className="empty">This view is clear.</p>}</div>;
   })();
   return <section className={`widget span-${widget.width}`}>
-    <header><div><p className="eyebrow">{widget.type.replace('_', ' ')}</p><h2>{widget.title}</h2></div><button className="icon-button subtle" onClick={onRemove} aria-label={`Remove ${widget.title}`}>×</button></header>
+    <header><div><p className="eyebrow">{widget.type.replace('_', ' ')}</p><h2>{widget.title}</h2></div><button className="icon-button subtle" onClick={onRemove} aria-label={`Remove ${widget.title}`}><CloseIcon /></button></header>
     {content}
   </section>;
 }
@@ -223,7 +224,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor">
-      <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}>×</button></header>
+      <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
       <div className="editor-scroll">
         <label>Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} /></label>
         <div className="segmented" aria-label="Preset">{(['task', 'event', 'habit', 'blank'] as ItemPreset[]).map((preset) => <button className={item.preset === preset ? 'active' : ''} key={preset} onClick={() => patchItem({ preset })}>{preset}</button>)}</div>
@@ -265,14 +266,14 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         </div></details>
 
         <details><summary>Reminders</summary><div className="details-body">
-          {item.reminders.map((reminder, index) => <div className="inline-row" key={reminder.id}><input type="datetime-local" value={dateInput(reminder.at)} onInput={(event) => patchItem({ reminders: item.reminders.map((entry, at) => { if (at !== index) return entry; const next = { ...entry }; const value = fromDateInput(event.currentTarget.value); if (value) next.at = value; else delete next.at; return next; }) })} /><select value={reminder.urgency} onChange={(event) => patchItem({ reminders: item.reminders.map((entry, at) => at === index ? { ...entry, urgency: event.target.value as typeof entry.urgency } : entry) })}><option>normal</option><option>urgent</option><option>critical</option></select><button onClick={() => patchItem({ reminders: item.reminders.filter((_, at) => at !== index) })}>×</button></div>)}
+          {item.reminders.map((reminder, index) => <div className="inline-row" key={reminder.id}><input type="datetime-local" value={dateInput(reminder.at)} onInput={(event) => patchItem({ reminders: item.reminders.map((entry, at) => { if (at !== index) return entry; const next = { ...entry }; const value = fromDateInput(event.currentTarget.value); if (value) next.at = value; else delete next.at; return next; }) })} /><select value={reminder.urgency} onChange={(event) => patchItem({ reminders: item.reminders.map((entry, at) => at === index ? { ...entry, urgency: event.target.value as typeof entry.urgency } : entry) })}><option>normal</option><option>urgent</option><option>critical</option></select><button aria-label="Remove reminder" onClick={() => patchItem({ reminders: item.reminders.filter((_, at) => at !== index) })}><CloseIcon /></button></div>)}
           <button className="secondary" onClick={() => patchItem({ reminders: [...item.reminders, { id: createId(), mode: 'absolute', at: new Date(Date.now() + 3_600_000).toISOString(), urgency: 'normal', repeatUntilAcknowledged: false }] })}>+ Add reminder</button>
         </div></details>
 
         <details><summary>Relations & links</summary><div className="details-body">
-          {item.relations.map((relation) => <div className="chip" key={relation.id}>{relation.type}: {workspace.items[relation.targetId]?.title ?? relation.targetId}<button onClick={() => patchItem({ relations: item.relations.filter((entry) => entry.id !== relation.id) })}>×</button></div>)}
+          {item.relations.map((relation) => <div className="chip" key={relation.id}>{relation.type}: {workspace.items[relation.targetId]?.title ?? relation.targetId}<button aria-label="Remove relation" onClick={() => patchItem({ relations: item.relations.filter((entry) => entry.id !== relation.id) })}><CloseIcon /></button></div>)}
           <div className="inline-row"><select id="relation-target" defaultValue=""><option value="">Choose related item…</option>{Object.values(workspace.items).filter((candidate) => candidate.id !== item.id && !candidate.deletedAt).map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.title}</option>)}</select><button className="secondary" onClick={() => { const select = document.getElementById('relation-target') as HTMLSelectElement; if (select.value) patchItem({ relations: [...item.relations, { id: createId(), targetId: select.value, type: 'related' }] }); }}>Link</button></div>
-          {item.attachments.map((attachment) => <div className="chip" key={attachment.id}><a href={attachment.url} target="_blank" rel="noreferrer">{attachment.title ?? attachment.url}</a><button onClick={() => patchItem({ attachments: item.attachments.filter((entry) => entry.id !== attachment.id) })}>×</button></div>)}
+          {item.attachments.map((attachment) => <div className="chip" key={attachment.id}><a href={attachment.url} target="_blank" rel="noreferrer">{attachment.title ?? attachment.url}</a><button aria-label="Remove link" onClick={() => patchItem({ attachments: item.attachments.filter((entry) => entry.id !== attachment.id) })}><CloseIcon /></button></div>)}
           <button className="secondary" onClick={() => { const url = window.prompt('Link URL'); if (url) patchItem({ attachments: [...item.attachments, { id: createId(), url }] }); }}>+ Add link</button>
         </div></details>
 
