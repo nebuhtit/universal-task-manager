@@ -26,7 +26,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('v0.2.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.2.1', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '×' }).click();
 
   await page.getByRole('button', { name: 'Lock' }).click();
@@ -43,7 +43,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.2.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.2.1', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
