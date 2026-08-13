@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, compileQuery, compileSort, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
-  parseExpression, parseSortSource, reconcileRecurrences, runAutomationEvents, serializeSortRules, toICS, validateWorkspace,
+  parseExpression, parseSortSource, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, serializeSortRules, toICS, validateWorkspace,
 } from './index.js';
 import type { AutomationRule, DomainEvent } from './types.js';
 
@@ -55,6 +55,17 @@ describe('safe expression language', () => {
     expect(() => parseSortSource('priority sideways')).toThrow('Invalid sort rule');
     expect(() => parseSortSource('fetch(title) asc')).not.toThrow();
     expect(() => [low, high].sort(compileSort('fetch(title) asc'))).toThrow('Function is not allowed');
+  });
+
+  it('removes reminder duplicates that resolve to the same visible minute', () => {
+    const item = createItem('Reminder');
+    item.reminders = [
+      { id: 'first', mode: 'absolute', at: '2026-08-13T09:00:05.000Z', urgency: 'urgent', repeatUntilAcknowledged: false },
+      { id: 'duplicate', mode: 'absolute', at: '2026-08-13T09:00:55.000Z', urgency: 'urgent', repeatUntilAcknowledged: false },
+      { id: 'different', mode: 'absolute', at: '2026-08-13T09:00:55.000Z', urgency: 'critical', repeatUntilAcknowledged: false },
+    ];
+    expect(removeDuplicateReminders(item)).toBe(1);
+    expect(item.reminders.map((reminder) => reminder.id)).toEqual(['first', 'different']);
   });
 });
 

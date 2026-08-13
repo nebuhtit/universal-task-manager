@@ -3,7 +3,7 @@ import * as Automerge from '@automerge/automerge';
 import ReactMarkdown from 'react-markdown';
 import {
   APP_NAME, APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, collectScheduledEvents, compileQuery, compileSort, createId, createItem, evaluateFormulas, makeSeries,
-  parseExpression, parseSortSource, reconcileRecurrences, runAutomationEvents, serializeSortRules,
+  parseExpression, parseSortSource, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, serializeSortRules,
   type AutomationAction, type AutomationRule, type CustomFieldDefinition,
   type DomainEvent, type ItemPreset, type SavedView, type Schedule, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
   type ReconcileResult,
@@ -259,6 +259,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         });
       }
       if (!recurring) { result.role = 'standalone'; delete result.recurrence; }
+      removeDuplicateReminders(result);
       onSave(clean(result));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -573,8 +574,10 @@ export default function App() {
   const activate = async (unlocked: UnlockedWorkspace) => {
     let notifications: Array<{ title: string; body: string; itemId?: string }> = [];
     const now = new Date();
-    const migratedDocument = Automerge.change(unlocked.document, 'Backfill item creation versions', (draft) => {
-      backfillItemCreationVersions(draft as unknown as WorkspaceDocument);
+    const migratedDocument = Automerge.change(unlocked.document, 'Migrate workspace metadata and reminders', (draft) => {
+      const workspace = draft as unknown as WorkspaceDocument;
+      backfillItemCreationVersions(workspace);
+      Object.values(workspace.items).forEach(removeDuplicateReminders);
     });
     let reconciliation: ReconcileResult;
     try { reconciliation = await reconcileOffMainThread(migratedDocument as WorkspaceDocument, now); }

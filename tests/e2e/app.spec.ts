@@ -50,7 +50,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.4.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.4.2', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -100,7 +100,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.4.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.4.2', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -291,6 +291,7 @@ test('notifications auto-hide, close individually, and remain in the bell center
   const reminderInputs = page.locator('.inline-row input[type="datetime-local"]');
   await reminderInputs.nth(0).fill(past);
   await reminderInputs.nth(1).fill(past);
+  await page.locator('.inline-row select').nth(1).selectOption('critical');
   await page.getByRole('button', { name: 'Save item' }).click();
   await page.getByRole('button', { name: 'Lock' }).click();
   await page.getByLabel('Password').fill(password);
@@ -311,6 +312,39 @@ test('notifications auto-hide, close individually, and remain in the bell center
   await expect(center.locator('.notice-card')).toHaveCount(1);
   await center.getByRole('button', { name: 'Close notification center' }).click();
   await expect(center).toBeHidden();
+});
+
+test('identical reminders are stored and displayed only once', async ({ page }) => {
+  const password = 'correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('Reminder deduplication');
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+
+  await page.getByRole('button', { name: 'All items' }).click();
+  await page.getByRole('button', { name: '+ New item' }).click();
+  await page.getByLabel('Title', { exact: true }).fill('One urgent reminder');
+  await page.getByText('Reminders', { exact: true }).click();
+  await page.getByRole('button', { name: '+ Add reminder' }).click();
+  await page.getByRole('button', { name: '+ Add reminder' }).click();
+  const past = await page.evaluate(() => {
+    const date = new Date(Date.now() - 3_600_000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  const rows = page.locator('.inline-row').filter({ has: page.locator('input[type="datetime-local"]') });
+  await rows.nth(0).locator('input').fill(past);
+  await rows.nth(1).locator('input').fill(past);
+  await rows.nth(0).locator('select').selectOption('urgent');
+  await rows.nth(1).locator('select').selectOption('urgent');
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await page.getByRole('button', { name: 'Lock' }).click();
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+
+  await expect(page.locator('.notice-popups .notice-card')).toHaveCount(1);
+  await expect(page.locator('.notice-button b')).toHaveText('1');
+  await page.getByRole('button', { name: 'Notifications' }).click();
+  await expect(page.getByRole('complementary', { name: 'Notification center' }).locator('.notice-card')).toHaveCount(1);
 });
 
 test('recurring item accepts Due as its schedule anchor and explains missing dates', async ({ page }) => {

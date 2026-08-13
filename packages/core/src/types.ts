@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.0.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.4.1';
-export const APP_RELEASED_AT = '2026-08-13T12:02:00+03:00';
+export const APP_VERSION = '0.4.2';
+export const APP_RELEASED_AT = '2026-08-13T12:12:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -73,6 +73,41 @@ export interface Reminder {
   repeatEvery?: ISODuration;
   repeatUntilAcknowledged: boolean;
   acknowledgedAt?: ISODateTime;
+}
+
+function reminderMoment(value?: ISODateTime): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  date.setUTCSeconds(0, 0);
+  return date.toISOString();
+}
+
+export function reminderSignature(reminder: Reminder): string {
+  return JSON.stringify({
+    mode: reminder.mode,
+    at: reminderMoment(reminder.at),
+    relativeTo: reminder.relativeTo ?? '',
+    offset: reminder.offset ?? '',
+    urgency: reminder.urgency,
+    repeatEvery: reminder.repeatEvery ?? '',
+    repeatUntilAcknowledged: reminder.repeatUntilAcknowledged,
+    acknowledgedAt: reminderMoment(reminder.acknowledgedAt),
+  });
+}
+
+/** Removes semantic duplicates in-place and preserves the first reminder ID. */
+export function removeDuplicateReminders(item: UniversalItem): number {
+  const seen = new Set<string>();
+  let removed = 0;
+  for (let index = 0; index < item.reminders.length; index += 1) {
+    const signature = reminderSignature(item.reminders[index]!);
+    if (!seen.has(signature)) { seen.add(signature); continue; }
+    item.reminders.splice(index, 1);
+    index -= 1;
+    removed += 1;
+  }
+  return removed;
 }
 
 export type RelationType = 'parent' | 'blocks' | 'blocked_by' | 'related' | 'duplicate' | 'custom';
