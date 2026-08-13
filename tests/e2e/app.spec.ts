@@ -27,6 +27,8 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.getByText('Prepare material by Thursday')).toBeVisible();
+  await page.getByRole('button', { name: 'Views' }).click();
+  await expect(page.locator('.view-section').getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 });
 
 test('mobile shell stays usable at phone width', async ({ page }) => {
