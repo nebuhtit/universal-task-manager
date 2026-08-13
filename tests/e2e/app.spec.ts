@@ -50,7 +50,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.4.2', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.5.0', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -100,7 +100,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.4.2', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.5.0', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -135,7 +135,7 @@ test('edited view parameters change results and survive reload', async ({ page }
   await page.getByLabel('Name', { exact: true }).fill('Done only');
   await page.getByRole('combobox', { name: 'Field' }).selectOption('state');
   await page.getByRole('combobox', { name: 'Operator' }).selectOption('==');
-  await page.getByRole('textbox', { name: 'Value' }).fill('done');
+  await page.getByRole('combobox', { name: 'Value', exact: true }).selectOption('done');
   await page.getByRole('combobox', { name: 'Renderer' }).selectOption('table');
   await expect(page.getByText('This condition will replace the DSL expression when you save.')).toBeVisible();
   await page.getByRole('button', { name: 'Save view' }).click();
@@ -174,10 +174,10 @@ test('visual view builder supports OR and inclusive comparison operators', async
   await page.getByLabel('Name', { exact: true }).fill('Priority OR');
   await page.getByRole('combobox', { name: 'Field' }).selectOption('priority');
   await page.getByRole('combobox', { name: 'Operator' }).selectOption('==');
-  await page.getByRole('textbox', { name: 'Value' }).fill('3');
+  await page.getByRole('combobox', { name: 'Value', exact: true }).selectOption('3');
   await page.getByRole('button', { name: 'Apply condition' }).click();
   await page.getByRole('combobox', { name: 'Operator' }).selectOption('<');
-  await page.getByRole('textbox', { name: 'Value' }).fill('3');
+  await page.getByRole('combobox', { name: 'Value', exact: true }).selectOption('3');
   await page.getByRole('button', { name: '+ Add OR condition' }).click();
   await expect(page.getByLabel('DSL expression')).toHaveValue('priority == 3 || priority < 3');
   await page.getByRole('button', { name: 'Save view' }).click();
@@ -190,10 +190,10 @@ test('visual view builder supports OR and inclusive comparison operators', async
   await view.getByRole('button', { name: 'Edit view' }).click();
   const operator = page.getByRole('combobox', { name: 'Operator' });
   await operator.selectOption({ label: '>=' });
-  await page.getByRole('textbox', { name: 'Value' }).fill('2');
+  await page.getByRole('combobox', { name: 'Value', exact: true }).selectOption('2');
   await page.getByRole('button', { name: 'Apply condition' }).click();
   await operator.selectOption({ label: '<=' });
-  await page.getByRole('textbox', { name: 'Value' }).fill('2');
+  await page.getByRole('combobox', { name: 'Value', exact: true }).selectOption('2');
   await page.getByRole('button', { name: '+ Add AND condition' }).click();
   await expect(page.getByLabel('DSL expression')).toHaveValue('priority >= 2 && priority <= 2');
   await page.getByRole('button', { name: 'Save view' }).click();

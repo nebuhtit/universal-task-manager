@@ -206,6 +206,19 @@ label.check input { width: 18px; height: 18px; }
 .dialog footer { display: flex; gap: 10px; margin-top: 20px; }
 .code-area, code, .mono, .dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 .dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important; font-size: 14px !important; font-weight: 500; line-height: 1.65; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; color: #1f1f1f; background: #f7f7f8; border-color: #d7d7d7; }
+.syntax-editor { position: relative; width: 100%; border: 1px solid #d7d7d7; border-radius: 10px; background: #f7f7f8; overflow: hidden; }
+.syntax-editor:focus-within { border-color: #8d8d8d; box-shadow: 0 0 0 3px rgba(13,13,13,.06); }
+.syntax-editor pre, .syntax-editor textarea { width: 100%; min-height: 100%; margin: 0; border: 0; border-radius: 0; padding: 11px 12px; overflow: auto; white-space: pre; overflow-wrap: normal; font: 500 14px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; }
+.syntax-editor pre { position: absolute; inset: 0; pointer-events: none; color: #555; background: transparent; }
+.syntax-editor textarea { position: relative; z-index: 1; display: block; resize: vertical; color: transparent; -webkit-text-fill-color: transparent; caret-color: #050505; background: transparent; box-shadow: none; }
+.syntax-editor textarea::selection { background: rgba(0,0,0,.18); }
+.syntax-editor textarea::placeholder { color: #777; -webkit-text-fill-color: #777; }
+.syntax-key, .syntax-identifier { color: #111; font-weight: 600; }
+.syntax-function, .syntax-operator { color: #000; font-weight: 700; }
+.syntax-string { color: #555; font-weight: 400; }
+.syntax-number { color: #333; font-weight: 600; }
+.syntax-keyword { color: #747474; font-weight: 600; font-style: italic; }
+.syntax-space, .syntax-plain { color: #555; }
 .dsl-field { margin-top: 20px; }
 .dsl-field > .hint { margin-top: -4px; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11px; }
 .dialog-kicker { margin: 0 0 5px; color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: .09em; }
@@ -243,6 +256,19 @@ label.check input { width: 18px; height: 18px; }
 .builder-status { margin: 3px 0 11px; color: var(--muted); font-size: 11px; }
 .builder-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .compact-action { padding: 7px 10px; font-size: 12px; }
+.json-editor .syntax-editor { min-height: 220px; background: #fff; }
+.json-editor .syntax-editor pre, .json-editor .syntax-editor textarea { font-size: 11px; font-weight: 400; }
+.view-export-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: -5px 0 12px; }
+.view-export-actions span { color: var(--muted); font-size: 10px; margin-right: 3px; }
+.view-export-actions button { border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 5px 8px; font-size: 10px; cursor: pointer; }
+.view-export-actions button:hover { background: var(--soft); }
+.import-preview > section { margin-top: 18px; }
+.import-preview h3 { margin: 0 0 8px; font-size: 13px; font-weight: 500; }
+.import-row { min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 180px; align-items: center; gap: 9px; border-top: 1px solid var(--line); padding: 7px 0; }
+.import-row strong, .import-row small { display: block; }
+.import-row strong { font-size: 12px; font-weight: 500; }
+.import-row small { color: var(--muted); font-size: 10px; }
+.import-row input, .import-row select { margin: 0; padding: 7px 8px; font-size: 11px; }
 .error { color: #333 !important; background: #eeeeee; border: 1px solid #d6d6d6; border-radius: 9px; padding: 9px 11px; font-size: 12px; }
 .transfer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 
@@ -276,6 +302,8 @@ label.check input { width: 18px; height: 18px; }
 .setting-row small { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 3px; }
 .setting-row > span:last-child { color: var(--muted); font-size: 11px; }
 .settings-card hr { border: 0; border-top: 1px solid var(--line); margin: 25px 0; }
+.settings-actions { display: grid; gap: 7px; }
+.settings-actions .secondary { display: flex; align-items: center; justify-content: center; gap: 7px; }
 dl div { display: flex; justify-content: space-between; gap: 20px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 11px; }
 dd { margin: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 
@@ -383,6 +411,8 @@ tbody tr:hover { background: var(--soft); }
   .sort-rule { grid-template-columns: 1fr 1fr; }
   .sort-rule > label:first-child, .rule-order { grid-column: 1 / -1; }
   .field-groups { grid-template-columns: 1fr; }
+  .import-row { grid-template-columns: 1fr; gap: 5px; padding: 10px 0; }
+  .view-export-actions { justify-content: flex-start; overflow-x: auto; }
   .drawer-head, .editor-scroll, .drawer-actions { padding-left: 17px; padding-right: 17px; }
   .editor-error { margin-left: 17px; margin-right: 17px; }
   .drawer { width: 100%; top: 4vh; border-radius: 20px 20px 0 0; }

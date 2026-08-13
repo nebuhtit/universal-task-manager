@@ -1,6 +1,6 @@
 {
   "name": "@utm/web",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,11 +12,13 @@
   },
   "dependencies": {
     "@automerge/automerge": "^3.1.2",
+    "@fullcalendar/react": "^7.0.2",
     "@utm/core": "workspace:*",
     "@utm/sdk": "workspace:*",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
+    "temporal-polyfill": "^1.0.3",
     "workbox-window": "^7.4.1"
   },
   "devDependencies": {

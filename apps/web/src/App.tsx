@@ -2,9 +2,12 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import * as Automerge from '@automerge/automerge';
 import ReactMarkdown from 'react-markdown';
 import {
-  APP_NAME, APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, collectScheduledEvents, compileQuery, compileSort, createId, createItem, evaluateFormulas, makeSeries,
-  parseExpression, parseSortSource, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, serializeSortRules,
+  APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
+  collectItemDependencies, collectScheduledEvents, compileQuery, compileSort, createId, createItem, createPortablePackage,
+  evaluateFormulas, makeSeries, migrateItem, migrateView, migrateWorkspace, parseExpression, parsePortablePackage, parseSortSource,
+  reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, serializePortablePackage, serializeSortRules,
   type AutomationAction, type AutomationRule, type CustomFieldDefinition,
+  type PortableImportPreview,
   type DomainEvent, type ItemPreset, type SavedView, type Schedule, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
   type ReconcileResult,
 } from '@utm/core';
@@ -15,7 +18,7 @@ import {
 } from '@utm/sdk';
 
 type Page = 'home' | 'all' | 'automations' | 'settings';
-type Notice = { id: string; title: string; body: string; at: string };
+type Notice = { id: string; title: string; body: string; at: string; itemId?: string };
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const dateInput = (value?: string) => {
@@ -35,6 +38,17 @@ const parseFriendlyDuration = (value?: string): { amount: number; unit: Friendly
   return { amount, unit: code === 'W' ? 'weeks' : code === 'H' ? 'hours' : code === 'M' ? 'minutes' : 'days' };
 };
 const toIsoDuration = (amount: number, unit: FriendlyDurationUnit) => unit === 'weeks' ? `P${amount}W` : unit === 'days' ? `P${amount}D` : unit === 'hours' ? `PT${amount}H` : `PT${amount}M`;
+const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date()) => {
+  const item = createItem(title, preset, now);
+  item.schedule = { ...item.schedule, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, startAt: now.toISOString() };
+  return item;
+};
+const safeFilename = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'universal';
+const downloadText = (content: string, filename: string, type = 'application/json') => {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
+};
+const confirmPlaintextDownload = (message = 'This JSON export is plaintext and may contain private item data. Download it now?') => window.confirm(message);
 
 async function reconcileOffMainThread(workspace: WorkspaceDocument, now: Date): Promise<ReconcileResult> {
   if (typeof Worker === 'undefined') return reconcileRecurrences(clean(workspace), now);
@@ -52,6 +66,37 @@ async function reconcileOffMainThread(workspace: WorkspaceDocument, now: Date): 
 
 function Icon({ children }: { children: ReactNode }) { return <span className="icon" aria-hidden>{children}</span>; }
 function CloseIcon() { return <svg className="close-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M4 4l12 12M16 4 4 16" /></svg>; }
+
+type CodeLanguage = 'dsl' | 'json';
+function highlightedCode(source: string, language: CodeLanguage): ReactNode[] {
+  const pattern = language === 'json'
+    ? /("(?:\\.|[^"\\])*")(?=\s*:)|("(?:\\.|[^"\\])*")|\b(true|false|null)\b|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[{}[\],:]|\s+|[^\s{}[\],:]+/g
+    : /("(?:\\.|[^"\\])*")|\b(true|false|null|in)\b|-?\b\d+(?:\.\d+)?\b|&&|\|\||==|!=|>=|<=|[><!+*/%-]|[()[\],.]|\s+|[A-Za-z_][\w.]*/g;
+  const tokens = source.match(pattern) ?? [source];
+  let cursor = 0;
+  return tokens.map((token) => {
+    const at = source.indexOf(token, cursor); cursor = at + token.length;
+    const rest = source.slice(cursor);
+    let kind = 'plain';
+    if (/^\s+$/.test(token)) kind = 'space';
+    else if (/^"/.test(token)) kind = language === 'json' && /^\s*:/.test(rest) ? 'key' : 'string';
+    else if (/^(?:true|false|null|in)$/.test(token)) kind = 'keyword';
+    else if (/^-?\d/.test(token)) kind = 'number';
+    else if (/^(?:&&|\|\||==|!=|>=|<=|[><!+*/%\-]|[{}[\],:().])$/.test(token)) kind = 'operator';
+    else if (language === 'dsl' && /^[A-Za-z_]/.test(token)) kind = rest.trimStart().startsWith('(') ? 'function' : 'identifier';
+    return <span className={`syntax-${kind}`} key={`${cursor}-${token}`}>{token}</span>;
+  });
+}
+
+function CodeEditor({ value, onChange, language, rows = 8, ariaLabel }: {
+  value: string; onChange: (value: string) => void; language: CodeLanguage; rows?: number; ariaLabel?: string;
+}) {
+  const backdrop = useRef<HTMLPreElement>(null);
+  return <div className={`syntax-editor syntax-${language}`}>
+    <pre ref={backdrop} aria-hidden>{highlightedCode(value, language)}{value.endsWith('\n') ? ' ' : null}</pre>
+    <textarea aria-label={ariaLabel} spellCheck={false} rows={rows} value={value} onChange={(event) => onChange(event.target.value)} onScroll={(event) => { if (backdrop.current) { backdrop.current.scrollTop = event.currentTarget.scrollTop; backdrop.current.scrollLeft = event.currentTarget.scrollLeft; } }} />
+  </div>;
+}
 
 type LineIconName = 'home' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer';
 function LineIcon({ name }: { name: LineIconName }) {
@@ -188,6 +233,36 @@ function ItemCard({ item, onEdit, onState, fields, workspace }: { item: Universa
   </article>;
 }
 
+function PortableImportDialog({ workspace, source, onApply, onClose }: {
+  workspace: WorkspaceDocument; source: string; onApply: (preview: PortableImportPreview) => void; onClose: () => void;
+}) {
+  const [preview, setPreview] = useState<PortableImportPreview | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    try { setPreview(buildPortableImportPreview(source, workspace)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  }, [source, workspace]);
+  const update = (mutation: (next: PortableImportPreview) => void) => setPreview((current) => {
+    if (!current) return current; const next = clean(current); mutation(next); return next;
+  });
+  const unresolved = preview?.customFields.some((field) => field.choice === 'unresolved') ?? false;
+  return <div className="modal-backdrop"><section className="dialog wide-dialog import-preview" role="dialog" aria-modal="true" aria-label="Import preview">
+    <header><div><p className="dialog-kicker">NO CHANGES YET</p><h2>Import preview</h2></div><button className="icon-button" aria-label="Close import preview" onClick={onClose}><CloseIcon /></button></header>
+    {error && <p className="error" role="alert">{error}</p>}
+    {preview && <>
+      <p>{preview.package.items.length} items · {preview.package.views.length} views · {preview.customFields.length} custom fields</p>
+      {preview.resolvedWarnings.length > 0 && <details><summary>Compatibility notes ({preview.resolvedWarnings.length})</summary><ul>{preview.resolvedWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></details>}
+      {preview.errors.length > 0 && <div className="error"><strong>Import is blocked</strong>{preview.errors.map((entry) => <p key={entry}>{entry}</p>)}</div>}
+      {preview.customFields.some((field) => field.conflict) && <section><h3>Custom field conflicts</h3>{preview.customFields.filter((field) => field.conflict).map((field, index) => {
+        const actual = preview.customFields.indexOf(field); return <div className="import-row" key={field.source.id}><span><strong>{field.source.label}</strong><small>custom.{field.source.key}</small></span><select value={field.choice} onChange={(event) => update((next) => { next.customFields[actual]!.choice = event.target.value as typeof field.choice; })}><option value="unresolved">Choose…</option><option value="rename">Rename imported</option><option value="use_local">Use local</option></select>{field.choice === 'rename' && <input aria-label={`New key for ${field.source.label}`} placeholder={`${field.source.key}_imported`} value={field.renamedKey ?? ''} onChange={(event) => update((next) => { next.customFields[actual]!.renamedKey = event.target.value; })} />}</div>;
+      })}</section>}
+      {preview.items.length > 0 && <section><h3>Items</h3>{preview.items.map((plan, index) => <div className="import-row" key={`${plan.source.id}-${index}`}><span><strong>{plan.source.title}</strong><small>{plan.conflict ? 'ID already exists' : 'New item'}</small></span><select value={plan.choice} onChange={(event) => update((next) => { next.items[index]!.choice = event.target.value as typeof plan.choice; })}><option value="add" disabled={plan.conflict}>Add</option><option value="copy">Copy with new ID</option><option value="skip">Skip</option></select></div>)}</section>}
+      {preview.views.length > 0 && <section><h3>Views</h3>{preview.views.map((plan, index) => <div className="import-row" key={`${plan.source.id}-${index}`}><span><strong>{plan.source.name}</strong><small>{plan.conflict ? 'ID already exists' : 'New view'}</small></span><select value={plan.choice} onChange={(event) => update((next) => { next.views[index]!.choice = event.target.value as typeof plan.choice; })}><option value="add" disabled={plan.conflict}>Add</option><option value="copy">Copy with new ID</option><option value="skip">Skip</option></select></div>)}</section>}
+      <footer><button className="secondary" onClick={onClose}>Cancel</button><span/><button className="primary" disabled={Boolean(preview.errors.length || unresolved)} onClick={() => onApply(preview)}>Import in one transaction</button></footer>
+    </>}
+  </section></div>;
+}
+
 function filteredItems(workspace: WorkspaceDocument, view?: SavedView): UniversalItem[] {
   // Series templates are recurrence configuration, not user-facing rows. Views
   // operate on logical items (standalone items and materialized occurrences),
@@ -210,6 +285,9 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
   const [contexts, setContexts] = useState(item.contexts.join(', '));
   const [recurring, setRecurring] = useState(item.role === 'series_template');
   const [error, setError] = useState('');
+  const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(initial, null, 2));
+  const [jsonDirty, setJsonDirty] = useState(false);
+  const importJsonRef = useRef<HTMLInputElement>(null);
   const definitions = Object.values(workspace.customFields);
   const formulas = evaluateFormulas(item, definitions);
   const patchItem = (patch: { [Key in keyof UniversalItem]?: UniversalItem[Key] | undefined }) => setItem((current) => {
@@ -237,6 +315,50 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
   const repeatInterval = Number(rruleMap().get('INTERVAL') ?? 1);
   const repeatDays = (rruleMap().get('BYDAY') ?? '').split(',').filter(Boolean);
   const activation = parseFriendlyDuration(item.recurrence?.activationOffset);
+  useEffect(() => { if (!jsonDirty) setJsonDraft(JSON.stringify(item, null, 2)); }, [item, jsonDirty]);
+
+  const readImportedItem = (source: string): UniversalItem => {
+    const parsed = JSON.parse(source) as unknown;
+    if (parsed && typeof parsed === 'object' && (parsed as { format?: string }).format === 'utm-portable') {
+      const portable = parsePortablePackage(source).package;
+      if (!portable.items[0]) throw new Error('The package contains no items.');
+      return portable.items[0];
+    }
+    return migrateItem(parsed, 'editor:json').value;
+  };
+  const applyJson = () => {
+    setError('');
+    try {
+      const parsed = readImportedItem(jsonDraft);
+      const existing = workspace.items[item.id];
+      const next = clean(parsed);
+      if (existing) {
+        next.id = existing.id; next.schemaVersion = existing.schemaVersion;
+        const mutable = next as UniversalItem & { createdWithAppId: string; createdWithAppName: string; createdWithVersion: string };
+        mutable.createdWithAppId = existing.createdWithAppId; mutable.createdWithAppName = existing.createdWithAppName;
+        mutable.createdWithVersion = existing.createdWithVersion; next.createdAt = existing.createdAt;
+        next.updatedAt = existing.updatedAt; next.revision = existing.revision;
+        if (existing.deletedAt) next.deletedAt = existing.deletedAt; else delete next.deletedAt;
+        if (existing.role === 'occurrence') { next.role = existing.role; next.occurrence = clean(existing.occurrence!); }
+      }
+      setItem(next); setTags(next.tags.join(', ')); setContexts(next.contexts.join(', ')); setRecurring(next.role === 'series_template');
+      setJsonDirty(false); setJsonDraft(JSON.stringify(next, null, 2));
+    } catch (reason) { setError(`JSON was not applied: ${reason instanceof Error ? reason.message : String(reason)}`); }
+  };
+  const importAsNew = async (file: File) => {
+    try {
+      const imported = clean(readImportedItem(await file.text())); const now = new Date().toISOString();
+      imported.id = createId(); imported.createdAt = now; imported.updatedAt = now; imported.revision = 1; delete imported.deletedAt;
+      if (imported.role === 'occurrence') { imported.role = 'standalone'; delete imported.occurrence; }
+      setItem(imported); setTags(imported.tags.join(', ')); setContexts(imported.contexts.join(', ')); setRecurring(imported.role === 'series_template'); setJsonDraft(JSON.stringify(imported, null, 2)); setJsonDirty(false); setError('');
+    } catch (reason) { setError(`Could not import item: ${reason instanceof Error ? reason.message : String(reason)}`); }
+    finally { if (importJsonRef.current) importJsonRef.current.value = ''; }
+  };
+  const exportItemJson = () => {
+    if (!confirmPlaintextDownload()) return;
+    const portable = createPortablePackage(workspace, { kind: 'items', items: collectItemDependencies(workspace, [item]), selection: { type: 'single_item', itemId: item.id } });
+    downloadText(serializePortablePackage(portable), `${safeFilename(item.title)}.utm-items.json`);
+  };
 
   const save = () => {
     setError('');
@@ -324,6 +446,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         </div></details>
 
         {definitions.length > 0 && <details><summary>Custom fields</summary><div className="details-body">{definitions.map((field) => <label key={field.id}>{field.label}{field.kind === 'formula' ? <output className="formula-output">{String(formulas.values[field.key] ?? formulas.errors[field.key] ?? '—')}</output> : <input value={String(item.custom[field.key] ?? '')} onChange={(event) => patchItem({ custom: { ...item.custom, [field.key]: field.kind === 'number' ? Number(event.target.value) : field.kind === 'boolean' ? event.target.value === 'true' : event.target.value } })} />}</label>)}</div></details>}
+        <details><summary>Item JSON</summary><div className="details-body json-editor"><p className="hint">Edit the same item draft as the form. Protected identity, provenance, timestamps and occurrence fields are preserved when updating an existing item.</p><CodeEditor language="json" ariaLabel="Item JSON" rows={18} value={jsonDraft} onChange={(value) => { setJsonDraft(value); setJsonDirty(true); }} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => { setJsonDraft(JSON.stringify(item, null, 2)); setJsonDirty(false); }}>Refresh from form</button><button className="secondary compact-action" onClick={applyJson}>Apply JSON to form</button><button className="secondary compact-action" onClick={exportItemJson}>Export JSON</button><button className="secondary compact-action" onClick={() => importJsonRef.current?.click()}>Import JSON as new item</button><input ref={importJsonRef} hidden type="file" accept=".json,application/json" onChange={(event) => event.target.files?.[0] && void importAsNew(event.target.files[0])} /></div></div></details>
         <details><summary>System metadata</summary><div className="details-body metadata-grid"><div><span>Created at</span><output><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></output></div><div><span>Last modified</span><output><time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleString()}</time></output></div><div><span>Created by application</span><output>{item.createdWithAppName} v{item.createdWithVersion}</output></div><div><span>Application ID</span><output className="mono">{item.createdWithAppId}</output></div><div><span>Item schema</span><output>{item.schemaVersion}</output></div><div><span>Item ID</span><output>{item.id}</output></div></div></details>
       </div>
       {error && <p className="editor-error error" role="alert">{error}</p>}
@@ -354,14 +477,15 @@ function ViewResults({ view, workspace, onEdit, onState }: {
   return <div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} fields={visibleFields} workspace={workspace} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />)}</div>;
 }
 
-function SavedViewSection({ view, workspace, onEditView, onEditItem, onState }: {
+function SavedViewSection({ view, workspace, onEditView, onEditItem, onState, onExport }: {
   view: SavedView; workspace: WorkspaceDocument; onEditView: () => void; onEditItem: (item: UniversalItem) => void;
   onState: (item: UniversalItem, state: UniversalItem['state']) => void;
+  onExport: (mode: 'definition' | 'results' | 'bundle') => void;
 }) {
   const [open, setOpen] = useState(true);
   return <details className="view-section" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="view-section-summary"><div><span className="view-renderer">{view.renderer}</span><h2>{view.name}</h2><code>{view.query.source}</code>{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{filteredItems(workspace, view).length} matching items</p></div><button className="secondary" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onEditView(); }}>Edit view</button></summary>
-    <div className="view-section-body"><ViewResults view={view} workspace={workspace} onEdit={onEditItem} onState={onState} /></div>
+    <summary className="view-section-summary"><div><span className="view-renderer">{view.renderer}</span><h2>{view.name}</h2><code>{view.query.source.trim() || 'All items'}</code>{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{filteredItems(workspace, view).length} matching items</p></div><button className="secondary" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onEditView(); }}>Edit view</button></summary>
+    <div className="view-section-body"><div className="view-export-actions"><span>Export</span><button onClick={() => onExport('definition')}>Definition</button><button onClick={() => onExport('results')}>Results</button><button onClick={() => onExport('bundle')}>Definition + results</button></div><ViewResults view={view} workspace={workspace} onEdit={onEditItem} onState={onState} /></div>
   </details>;
 }
 
@@ -379,9 +503,15 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
   const [sortSource, setSortSource] = useState('');
   const [manualField, setManualField] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [viewJson, setViewJson] = useState('');
+  const viewJsonRef = useRef<HTMLInputElement>(null);
 
   const literal = (value: string) => ['true', 'false', 'null'].includes(value) || (!Number.isNaN(Number(value)) && value.trim() !== '') ? value : JSON.stringify(value);
   const visualClause = () => `${visualField} ${visualOperator} ${literal(visualValue)}`;
+  const visualOptions: Record<string, string[]> = {
+    state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'],
+    role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
+  };
   const beginEditing = (view: SavedView) => {
     const copy = clean(view);
     copy.fields ??= [];
@@ -400,10 +530,11 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
     try { setSortRules(parseSortSource(source)); } catch { setSortRules([]); }
     setManualField('');
     setConfirmDelete(false);
+    setViewJson(JSON.stringify(copy, null, 2));
     setError('');
   };
   const changeVisual = (part: 'field' | 'operator' | 'value', value: string) => {
-    if (part === 'field') setVisualField(value);
+    if (part === 'field') { setVisualField(value); if (visualOptions[value]?.length) setVisualValue(visualOptions[value]![0]!); }
     if (part === 'operator') setVisualOperator(value);
     if (part === 'value') setVisualValue(value);
     setVisualDirty(true);
@@ -443,7 +574,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
     if (!editing) return;
     const result = visualDirty ? { ...editing, query: { source: visualClause() } } : editing;
     try {
-      parseExpression(result.query.source);
+      parseExpression(result.query.source.trim() || 'true');
       const parsedSort = parseSortSource(sortSource);
       compileSort(sortSource);
       const saved = { ...result, sortSource: serializeSortRules(parsedSort), sort: parsedSort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) };
@@ -453,10 +584,31 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: 'state == "open"' }, renderer: 'list', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
+  const applyViewJson = (source = viewJson) => {
+    if (!editing) return;
+    try {
+      const raw = JSON.parse(source) as unknown;
+      const imported = migrateView(raw && typeof raw === 'object' && (raw as { format?: string }).format === 'utm-portable' ? parsePortablePackage(source).package.views[0] : raw, 'editor:view-json').value;
+      const next = { ...imported, id: editing.id };
+      beginEditing(next); setViewJson(JSON.stringify(next, null, 2)); setError('');
+    } catch (reason) { setError(`View JSON was not applied: ${reason instanceof Error ? reason.message : String(reason)}`); }
+  };
+  const importViewTemplate = async (file: File) => { try { const source = await file.text(); setViewJson(source); applyViewJson(source); } finally { if (viewJsonRef.current) viewJsonRef.current.value = ''; } };
+  const exportView = (view: SavedView, mode: 'definition' | 'results' | 'bundle') => {
+    if (!confirmPlaintextDownload()) return;
+    const results = filteredItems(workspace, view); const dependencies = collectItemDependencies(workspace, results);
+    const portable = createPortablePackage(workspace, {
+      kind: mode === 'definition' ? 'views' : mode === 'results' ? 'items' : 'view_bundle',
+      views: mode === 'results' ? [] : [view], items: mode === 'definition' ? [] : dependencies,
+      selection: mode === 'definition' ? { type: 'view_definition', viewId: view.id, viewName: view.name } : { type: 'view_results', viewId: view.id, viewName: view.name },
+      dependencyItemIds: dependencies.filter((item) => !results.some((result) => result.id === item.id)).map((item) => item.id),
+    });
+    downloadText(serializePortablePackage(portable), `${safeFilename(view.name)}-${mode}.json`);
+  };
 
   return <section className="page-section">
     <div className="page-title"><div><p className="eyebrow">PROGRAMMABLE LISTS</p><h1>Views</h1><p>Every section below is a live result of its visual clauses or DSL expression.</p></div><button className="primary" onClick={newView}>+ New view</button></div>
-    <div className="views-stack">{Object.values(workspace.views).map((view) => <SavedViewSection key={view.id} view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} />)}</div>
+    <div className="views-stack">{Object.values(workspace.views).map((view) => <SavedViewSection key={view.id} view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onExport={(mode) => exportView(view, mode)} />)}</div>
     {editing && <div className="modal-backdrop"><section className="dialog view-editor">
       <header><div><p className="dialog-kicker">SAVED VIEW</p><h2>Edit view</h2></div><button className="icon-button" aria-label="Close view editor" onClick={() => setEditing(null)}><CloseIcon /></button></header>
       <label>Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
@@ -464,13 +616,21 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
         <div className="form-grid three">
           <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option>role</option><option>priority</option><option>schedule.dueAt</option><option>title</option></select></label>
           <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}><option>==</option><option>!=</option><option>&gt;</option><option>&gt;=</option><option>&lt;</option><option>&lt;=</option><option>in</option></select></label>
-          <label>Value<input value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} /></label>
+          <label>Value{visualOptions[visualField] ? <select value={visualValue} onChange={(event) => changeVisual('value', event.target.value)}>{visualOptions[visualField]!.map((value) => <option key={value}>{value}</option>)}</select> : <input type={visualField === 'schedule.dueAt' ? 'datetime-local' : 'text'} list={visualField === 'title' ? 'view-title-values' : undefined} value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} />}</label>
         </div>
+        <datalist id="view-title-values">{[...new Set(Object.values(workspace.items).map((entry) => entry.title))].map((title) => <option value={title} key={title} />)}</datalist>
         <p className="builder-status">{visualDirty ? 'This condition will replace the DSL expression when you save.' : 'Visual condition and DSL are synchronized.'}</p>
         <div className="builder-actions"><button className="secondary compact-action" onClick={() => applyVisual('replace')}>Apply condition</button><button className="secondary compact-action" onClick={() => applyVisual('and')}>+ Add AND condition</button><button className="secondary compact-action" onClick={() => applyVisual('or')}>+ Add OR condition</button></div>
       </fieldset>
-      <label className="dsl-field">DSL expression<span className="hint">Safe typed expression</span><textarea className="dsl-input" spellCheck={false} rows={5} value={editing.query.source} onChange={(event) => { setEditing({ ...editing, query: { source: event.target.value } }); setVisualDirty(false); }} /></label>
+      <label className="dsl-field">DSL expression<span className="hint">Safe typed expression</span><CodeEditor language="dsl" ariaLabel="DSL expression" rows={5} value={editing.query.source} onChange={(value) => { setEditing({ ...editing, query: { source: value } }); setVisualDirty(false); }} /></label>
       <label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>
+      <fieldset className="query-builder fields-builder"><legend>Displayed fields</legend>
+        <p className="builder-status">Choose any item properties. Their order below is also their display order.</p>
+        <div className="builder-actions"><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: viewFieldOptions(workspace).map((field) => field.path) })}>Select all</button><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: [] })}>Hide all</button></div>
+        <div className="field-groups">{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <details key={group}><summary>{group}</summary><div className="field-options">{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <label className="check" key={field.path}><input type="checkbox" checked={editing.fields.includes(field.path)} onChange={() => toggleField(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div>
+        <div className="manual-field"><input aria-label="Custom field path" placeholder="Any path, e.g. custom.client" value={manualField} onChange={(event) => setManualField(event.target.value)} /><button className="secondary compact-action" disabled={!manualField.trim() || editing.fields.includes(manualField.trim())} onClick={() => { const path = manualField.trim(); setEditing({ ...editing, fields: [...editing.fields, path] }); setManualField(''); }}>+ Add path</button></div>
+        {editing.fields.length > 0 && <div className="selected-fields"><span className="selected-fields-title">Display order</span>{editing.fields.map((field, index) => <div key={field}><code>{field}</code><div><button aria-label={`Move ${field} up`} disabled={index === 0} onClick={() => moveField(index, -1)}>↑</button><button aria-label={`Move ${field} down`} disabled={index === editing.fields.length - 1} onClick={() => moveField(index, 1)}>↓</button><button aria-label={`Hide ${field}`} onClick={() => toggleField(field)}><CloseIcon /></button></div></div>)}</div>}
+      </fieldset>
       <fieldset className="query-builder sort-builder"><legend>Sorting</legend>
         <p className="builder-status">Rules run from top to bottom. Later rules break ties from earlier ones.</p>
         <datalist id="view-sort-fields">{viewFieldOptions(workspace).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</datalist>
@@ -481,15 +641,9 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
           <div className="rule-order"><button className="secondary compact-action" aria-label={`Move sort ${index + 1} up`} disabled={index === 0} onClick={() => moveSortRule(index, -1)}>↑</button><button className="secondary compact-action" aria-label={`Move sort ${index + 1} down`} disabled={index === sortRules.length - 1} onClick={() => moveSortRule(index, 1)}>↓</button><button className="secondary compact-action" aria-label={`Remove sort ${index + 1}`} onClick={() => updateSortRules(sortRules.filter((_rule, ruleIndex) => ruleIndex !== index))}><CloseIcon /></button></div>
         </div>)}</div>
         <button className="secondary compact-action" onClick={() => updateSortRules([...sortRules, { expression: 'updatedAt', direction: 'desc', nulls: 'last' }])}>+ Add sort rule</button>
-        <label className="dsl-field sort-dsl">Sort DSL<span className="hint">One rule per line. Expressions can use safe functions, for example: lower(title) asc nulls last</span><textarea className="dsl-input" spellCheck={false} rows={4} value={sortSource} onChange={(event) => { const source = event.target.value; setSortSource(source); try { setSortRules(parseSortSource(source)); } catch { /* Keep the text editable until save reports the exact error. */ } }} /></label>
+        <label className="dsl-field sort-dsl">Sort DSL<span className="hint">One rule per line. Expressions can use safe functions, for example: lower(title) asc nulls last</span><CodeEditor language="dsl" ariaLabel="Sort DSL" rows={4} value={sortSource} onChange={(source) => { setSortSource(source); try { setSortRules(parseSortSource(source)); } catch { /* Keep the text editable until save reports the exact error. */ } }} /></label>
       </fieldset>
-      <fieldset className="query-builder fields-builder"><legend>Displayed fields</legend>
-        <p className="builder-status">Choose any item properties. Their order below is also their display order.</p>
-        <div className="builder-actions"><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: viewFieldOptions(workspace).map((field) => field.path) })}>Select all</button><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: [] })}>Hide all</button></div>
-        <div className="field-groups">{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <details key={group}><summary>{group}</summary><div className="field-options">{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <label className="check" key={field.path}><input type="checkbox" checked={editing.fields.includes(field.path)} onChange={() => toggleField(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div>
-        <div className="manual-field"><input aria-label="Custom field path" placeholder="Any path, e.g. custom.client" value={manualField} onChange={(event) => setManualField(event.target.value)} /><button className="secondary compact-action" disabled={!manualField.trim() || editing.fields.includes(manualField.trim())} onClick={() => { const path = manualField.trim(); setEditing({ ...editing, fields: [...editing.fields, path] }); setManualField(''); }}>+ Add path</button></div>
-        {editing.fields.length > 0 && <div className="selected-fields"><span className="selected-fields-title">Display order</span>{editing.fields.map((field, index) => <div key={field}><code>{field}</code><div><button aria-label={`Move ${field} up`} disabled={index === 0} onClick={() => moveField(index, -1)}>↑</button><button aria-label={`Move ${field} down`} disabled={index === editing.fields.length - 1} onClick={() => moveField(index, 1)}>↓</button><button aria-label={`Hide ${field}`} onClick={() => toggleField(field)}><CloseIcon /></button></div></div>)}</div>}
-      </fieldset>
+      <fieldset className="query-builder json-editor"><legend>View JSON</legend><p className="builder-status">This is the complete SavedView draft. Imported JSON is applied as a template and keeps this view ID.</p><CodeEditor language="json" ariaLabel="View JSON" rows={16} value={viewJson} onChange={setViewJson} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => setViewJson(JSON.stringify({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, null, 2))}>Refresh from visual editor</button><button className="secondary compact-action" onClick={() => applyViewJson()}>Apply JSON</button><button className="secondary compact-action" onClick={() => viewJsonRef.current?.click()}>Import as template</button><input ref={viewJsonRef} hidden type="file" accept=".json,application/json" onChange={(event) => event.target.files?.[0] && void importViewTemplate(event.target.files[0])} /></div></fieldset>
       {error && <p className="error">{error}</p>}
       <footer><button className="danger" onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return; } commit('Delete view', (draft) => { delete draft.views[editing.id]; Object.values(draft.dashboards).forEach((dashboard) => { for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) if (dashboard.widgets[index]?.viewId === editing.id) dashboard.widgets.splice(index, 1); }); }); setEditing(null); setConfirmDelete(false); }}>{confirmDelete ? 'Confirm delete' : 'Delete view'}</button><span /><button className="secondary" onClick={() => setEditing(null)}>Cancel</button><button className="primary" onClick={save}>Save view</button></footer>
     </section></div>}
@@ -507,11 +661,20 @@ function AutomationsPage({ workspace, commit }: { workspace: WorkspaceDocument; 
   </section>;
 }
 
-function SettingsPage({ workspace, commit, onNotify }: { workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void; onNotify: () => void }) {
+function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportJson }: {
+  workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
+  onNotify: () => void; onTransfer: () => void; onImportJson: (source: string) => void;
+}) {
   const [field, setField] = useState<CustomFieldDefinition | null>(null);
+  const jsonInput = useRef<HTMLInputElement>(null);
+  const exportAll = () => {
+    if (!confirmPlaintextDownload('This export contains every non-deleted item in readable plaintext JSON. Download it now?')) return;
+    const items = Object.values(workspace.items).filter((item) => !item.deletedAt);
+    downloadText(serializePortablePackage(createPortablePackage(workspace, { kind: 'items', items, selection: { type: 'all_items' } })), `${safeFilename(workspace.name)}-all-items.json`);
+  };
   return <section className="page-section"><div className="page-title"><div><p className="eyebrow">SHAPE YOUR SYSTEM</p><h1>Settings</h1><p>Fields and capabilities belong to you, not to a hard-coded task type.</p></div></div>
     <div className="settings-columns"><section className="settings-card"><header><div><p className="eyebrow">DATA MODEL</p><h2>Custom fields</h2></div><button className="secondary" onClick={() => setField({ id: createId(), key: '', label: '', kind: 'text', required: false })}>+ Add</button></header>{Object.values(workspace.customFields).map((entry) => <button className="setting-row" key={entry.id} onClick={() => setField(clean(entry))}><span><strong>{entry.label}</strong><small>custom.{entry.key}</small></span><span>{entry.kind}</span></button>)}{!Object.keys(workspace.customFields).length && <p className="empty">No custom fields yet.</p>}</section>
-    <section className="settings-card"><p className="eyebrow">DEVICE</p><h2>Notifications</h2><p>While this local-only PWA is open, due reminders can use system notifications. Closed-app delivery is not guaranteed.</p><button className="secondary" onClick={onNotify}>Request permission</button><hr/><p className="eyebrow">APPLICATION</p><h2>{APP_NAME}</h2><dl><div><dt>Version</dt><dd>v{APP_VERSION}</dd></div><div><dt>Released</dt><dd><time dateTime={APP_RELEASED_AT}>{new Date(APP_RELEASED_AT).toLocaleString()}</time></dd></div></dl><hr/><p className="eyebrow">WORKSPACE</p><h2>{workspace.name}</h2><dl><div><dt>Schema</dt><dd>{workspace.schemaVersion}</dd></div><div><dt>Items</dt><dd>{Object.keys(workspace.items).length}</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div></dl></section></div>
+    <section className="settings-card"><p className="eyebrow">PORTABILITY</p><h2>Move your data</h2><p>Encrypted Transfer is safe for complete workspace merge. Portable JSON is readable and supports add/copy import with preview.</p><div className="settings-actions"><button className="secondary" onClick={onTransfer}><LineIcon name="transfer"/> Encrypted Transfer</button><button className="secondary" onClick={exportAll}>Export all items JSON</button><button className="secondary" onClick={() => jsonInput.current?.click()}>Import items or views JSON</button><input ref={jsonInput} hidden type="file" accept=".json,application/json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void file.text().then(onImportJson); event.currentTarget.value = ''; }} /></div><hr/><p className="eyebrow">DEVICE</p><h2>Notifications</h2><p>While this local-only PWA is open, due reminders can use system notifications. Closed-app delivery is not guaranteed.</p><button className="secondary" onClick={onNotify}>Request permission</button><hr/><p className="eyebrow">APPLICATION</p><h2>{APP_NAME}</h2><dl><div><dt>Version</dt><dd>v{APP_VERSION}</dd></div><div><dt>Released</dt><dd><time dateTime={APP_RELEASED_AT}>{new Date(APP_RELEASED_AT).toLocaleString()}</time></dd></div></dl><hr/><p className="eyebrow">WORKSPACE</p><h2>{workspace.name}</h2><dl><div><dt>Schema</dt><dd>{workspace.schemaVersion}</dd></div><div><dt>Items</dt><dd>{Object.keys(workspace.items).length}</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div></dl></section></div>
     {field && <div className="modal-backdrop"><section className="dialog"><header><h2>Custom field</h2><button className="icon-button" onClick={() => setField(null)}>×</button></header><label>Label<input value={field.label} onChange={(event) => setField({ ...field, label: event.target.value, key: field.key || event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_') })} /></label><label>Key<input value={field.key} pattern="[a-z][a-z0-9_]*" onChange={(event) => setField({ ...field, key: event.target.value })} /></label><label>Type<select value={field.kind} onChange={(event) => setField({ ...field, kind: event.target.value as CustomFieldDefinition['kind'] })}>{['text', 'number', 'boolean', 'date', 'datetime', 'duration', 'enum', 'multi_enum', 'url', 'item_ref', 'formula'].map((kind) => <option key={kind}>{kind}</option>)}</select></label>{field.kind === 'formula' && <label>Formula DSL<input value={field.formula ?? ''} onChange={(event) => setField({ ...field, formula: event.target.value })} placeholder="custom.rate * custom.hours" /></label>}<footer><button className="danger" onClick={() => { commit('Delete custom field', (draft) => { delete draft.customFields[field.id]; }); setField(null); }}>Delete</button><span/><button className="primary" disabled={!field.label || !/^[a-z][a-z0-9_]*$/.test(field.key)} onClick={() => { if (field.formula) parseExpression(field.formula); commit('Save custom field', (draft) => { draft.customFields[field.id] = clean(field); }); setField(null); }}>Save field</button></footer></section></div>}
   </section>;
 }
@@ -550,6 +713,7 @@ export default function App() {
   const [noticeCenterOpen, setNoticeCenterOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [quick, setQuick] = useState('');
+  const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const seenNoticeIds = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, number>());
@@ -574,8 +738,14 @@ export default function App() {
   const activate = async (unlocked: UnlockedWorkspace) => {
     let notifications: Array<{ title: string; body: string; itemId?: string }> = [];
     const now = new Date();
+    const migration = migrateWorkspace(clean(unlocked.document as WorkspaceDocument));
     const migratedDocument = Automerge.change(unlocked.document, 'Migrate workspace metadata and reminders', (draft) => {
       const workspace = draft as unknown as WorkspaceDocument;
+      if (workspace.schemaVersion !== migration.value.schemaVersion) {
+        const target = workspace as unknown as Record<string, unknown>;
+        Object.keys(target).forEach((key) => { delete target[key]; });
+        Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); });
+      }
       backfillItemCreationVersions(workspace);
       Object.values(workspace.items).forEach(removeDuplicateReminders);
     });
@@ -590,15 +760,22 @@ export default function App() {
       events.push(...collectScheduledEvents(workspace, now));
       notifications = runAutomationEvents(workspace, events, { now }).notifications;
     });
+    const reminderGroups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical' }>();
+    const urgencyRank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) {
       for (const reminder of item.reminders) {
-        if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) notifications.push({ title: item.title, body: `Reminder · ${reminder.urgency}`, itemId: item.id });
+        if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) {
+          const group = reminderGroups.get(item.id);
+          if (!group) reminderGroups.set(item.id, { count: 1, urgency: reminder.urgency });
+          else { group.count += 1; if (urgencyRank[reminder.urgency] > urgencyRank[group.urgency]) group.urgency = reminder.urgency; }
+        }
       }
     }
+    reminderGroups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId }); });
     await saveLocalWorkspace(updated, unlocked.dataKey);
     setSession({ ...unlocked, document: updated }); setBoot('ready');
-    setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString() })));
-    if (Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: notice.itemId } : {}) }));
+    setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}) })));
+    if (Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
   };
 
   const workspace = session?.document as WorkspaceDocument | undefined;
@@ -630,7 +807,7 @@ export default function App() {
     setNotices((current) => current.filter((notice) => notice.id !== id));
   };
   const openNoticeItem = (notice: Notice) => {
-    const item = Object.values(workspace?.items ?? {}).find((candidate) => candidate.title === notice.title);
+    const item = notice.itemId ? workspace?.items[notice.itemId] : Object.values(workspace?.items ?? {}).find((candidate) => candidate.title === notice.title);
     if (item) setEditor(item);
   };
 
@@ -642,7 +819,7 @@ export default function App() {
   const openItems = Object.values(workspace.items).filter((item) => item.state === 'open' && item.role !== 'series_template' && !item.deletedAt).length;
   const captureQuickItem = () => {
     if (!quick.trim()) return;
-    const item = createItem(quick.trim());
+    const item = createUiItem(quick.trim());
     commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
     setQuick('');
   };
@@ -654,14 +831,15 @@ export default function App() {
       {!noticeCenterOpen && popupNoticeIds.length > 0 && <div className="notice-tray notice-popups">{popupNoticeIds.slice(-3).reverse().map((id) => notices.find((notice) => notice.id === id)).filter((notice): notice is Notice => Boolean(notice)).map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Close notification" onClick={() => dismissPopupNotice(notice.id)}><CloseIcon /></button></article>)}</div>}
       {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Delete notification" onClick={() => deleteNotice(notice.id)}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
       {page === 'home' && <><section className="page-section home-summary"><div className="home-hero"><div><p className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}</p><h1>{openItems ? `${openItems} active ${openItems === 1 ? 'item' : 'items'}` : 'Everything is clear'}</h1><p>Active means not completed, cancelled, archived, or automatically closed.</p></div></div></section><ViewsPage workspace={workspace} commit={commit} onEditItem={setEditor} onState={changeItemState} /></>}
-      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.deletedAt); return <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && item.role !== 'series_template' && !item.deletedAt); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div></section>; })()}
+      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.deletedAt); return <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createUiItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && item.role !== 'series_template' && !item.deletedAt); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div></section>; })()}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
-      {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} />}
+      {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportJson={setPortableImportSource} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} />}
     </main>
     <div className="capture-dock"><div className="quick-capture"><input value={quick} onChange={(event) => setQuick(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && captureQuickItem()} placeholder="Add new task" aria-label="Add new task"/><button aria-label="Add task" disabled={!quick.trim()} onClick={captureQuickItem}>↵</button></div></div>
     <nav className="bottom-nav">{nav.map(([target, icon, label]) => <button aria-label={label} key={target} className={page === target ? 'active' : ''} onClick={() => setPage(target)}><LineIcon name={icon}/><span>{label === 'Automations' ? 'Rules' : label}</span></button>)}</nav>
     {editor && <ItemEditor initial={editor} workspace={workspace} onClose={() => setEditor(null)} onSave={(item) => { const isNew = !workspace.items[item.id]; commit(isNew ? 'Create item' : 'Update item', (draft) => { draft.items[item.id] = clean(item); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event]); if (item.role === 'series_template') reconcileRecurrences(draft); }); setEditor(null); }} onDelete={(item) => { commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = new Date().toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); setEditor(null); }} />}
     {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onMerged={(next, message) => { setSession(next); setToast(message); }} />}
+    {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }

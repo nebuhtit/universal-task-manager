@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.0.0';
+export const SCHEMA_VERSION = '1.1.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.4.2';
-export const APP_RELEASED_AT = '2026-08-13T12:12:00+03:00';
+export const APP_VERSION = '0.5.0';
+export const APP_RELEASED_AT = '2026-08-13T13:20:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -142,6 +142,8 @@ export interface UniversalItem {
   relations: ItemRelation[];
   attachments: LinkAttachment[];
   custom: Record<string, CustomValue>;
+  /** Namespaced data from a newer or foreign schema that this version cannot interpret. */
+  extensions?: Record<string, unknown>;
 }
 
 export type CustomFieldKind =
@@ -181,6 +183,36 @@ export interface SavedView {
   sortSource?: string;
   groupBy?: string;
   fields: string[];
+  /** Namespaced data from a newer or foreign schema that this version cannot interpret. */
+  extensions?: Record<string, unknown>;
+}
+
+export interface PortableSource {
+  appId: string;
+  appName: string;
+  appVersion: string;
+  workspaceId: string;
+}
+
+export type PortableSelection =
+  | { type: 'single_item'; itemId: string }
+  | { type: 'view_results'; viewId: string; viewName: string }
+  | { type: 'all_items' }
+  | { type: 'view_definition'; viewId: string; viewName: string };
+
+export interface PortablePackage {
+  format: 'utm-portable';
+  formatVersion: 1;
+  kind: 'items' | 'views' | 'view_bundle';
+  schemaVersion: string;
+  exportedAt: ISODateTime;
+  source: PortableSource;
+  customFields: Record<string, CustomFieldDefinition>;
+  items: UniversalItem[];
+  views: SavedView[];
+  selection?: PortableSelection;
+  dependencyItemIds: string[];
+  extensions?: Record<string, unknown>;
 }
 
 export interface DashboardWidget {

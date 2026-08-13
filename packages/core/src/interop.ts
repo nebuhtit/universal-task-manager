@@ -1,5 +1,5 @@
 import { APP_ID, APP_NAME, createItem, SCHEMA_VERSION } from './types.js';
-import { validateWorkspace } from './schema.js';
+import { migrateWorkspace, validateWorkspace } from './schema.js';
 import type { UniversalItem, WorkspaceDocument } from './types.js';
 
 export interface InteropWarning { itemId?: string; field: string; message: string }
@@ -13,9 +13,7 @@ export function toCanonicalJSON(workspace: WorkspaceDocument, pretty = true): st
 
 export function fromCanonicalJSON(source: string): WorkspaceDocument {
   const parsed: unknown = JSON.parse(source);
-  const validation = validateWorkspace(parsed);
-  if (!validation.valid) throw new Error(`Invalid workspace: ${validation.errors.join('; ')}`);
-  return parsed as WorkspaceDocument;
+  return migrateWorkspace(parsed).value;
 }
 
 function escapeText(value: string): string {

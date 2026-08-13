@@ -1,5 +1,5 @@
 import * as Automerge from '@automerge/automerge';
-import { fromCanonicalJSON, toCanonicalJSON, toICS, validateWorkspace } from '@utm/core';
+import { fromCanonicalJSON, migrateWorkspace, toCanonicalJSON, toICS, validateWorkspace } from '@utm/core';
 import type { WorkspaceDocument } from '@utm/core';
 import { decryptBytes, digest, encryptBytes, fromBase64, toBase64, type EncryptedEnvelope } from './crypto.js';
 
@@ -57,15 +57,22 @@ export async function unlock(source: string, password: string): Promise<{ payloa
   try { payload = JSON.parse(decoder.decode(plaintext)) as UtmPayload; }
   catch { throw new Error('Decrypted container payload is not valid JSON'); }
   if (payload.format !== 'utm-workspace' || payload.workspaceId !== payload.snapshot?.workspaceId) throw new Error('Container manifest does not match its snapshot');
-  const validation = validateWorkspace(payload.snapshot);
-  if (!validation.valid) throw new Error(`Invalid workspace in container: ${validation.errors.join('; ')}`);
   const binary = fromBase64(payload.automerge);
-  const snapshotDigest = await digest(encoder.encode(toCanonicalJSON(payload.snapshot, false)));
+  const snapshotDigest = await digest(encoder.encode(JSON.stringify(payload.snapshot)));
   if (snapshotDigest !== payload.manifest.snapshotDigest || await digest(binary) !== payload.manifest.automergeDigest) throw new Error('Container manifest integrity check failed');
   let document: Automerge.Doc<WorkspaceDocument>;
   try { document = Automerge.load<WorkspaceDocument>(binary); }
   catch { throw new Error('Automerge history is damaged'); }
   if (document.workspaceId !== payload.workspaceId) throw new Error('Automerge history belongs to another workspace');
+  const migratedSnapshot = migrateWorkspace(payload.snapshot).value;
+  if (document.schemaVersion !== migratedSnapshot.schemaVersion) {
+    document = Automerge.change(document, 'Migrate imported workspace schema', (draft) => {
+      const next = migratedSnapshot as unknown as Record<string, unknown>;
+      for (const key of Object.keys(draft as unknown as Record<string, unknown>)) delete (draft as unknown as Record<string, unknown>)[key];
+      for (const [key, value] of Object.entries(next)) (draft as unknown as Record<string, unknown>)[key] = value;
+    });
+  }
+  payload = { ...payload, schemaVersion: migratedSnapshot.schemaVersion, snapshot: migratedSnapshot };
   return { payload, document };
 }
 

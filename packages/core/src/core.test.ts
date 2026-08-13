@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, compileQuery, compileSort, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
-  parseExpression, parseSortSource, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, serializeSortRules, toICS, validateWorkspace,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
+  compileQuery, compileSort, createId, createItem, createPortablePackage, createWorkspace, evaluateFormulas, fromCanonicalJSON, fromICS, makeSeries,
+  migrateItem, parseExpression, parsePortablePackage, parseSortSource, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents,
+  serializePortablePackage, serializeSortRules, toICS, validateWorkspace,
 } from './index.js';
-import type { AutomationRule, DomainEvent } from './types.js';
+import type { AutomationRule, DomainEvent, UniversalItem } from './types.js';
 
 describe('safe expression language', () => {
   it('filters items without evaluating JavaScript', () => {
@@ -135,6 +137,38 @@ describe('automation engine', () => {
 });
 
 describe('interoperability', () => {
+  it('migrates 1.0 JSON and keeps unknown item fields in a namespaced extension', () => {
+    const old = createWorkspace();
+    old.schemaVersion = '1.0.0';
+    const item = createItem('Old item') as UniversalItem & { foreignFlag?: string };
+    item.schemaVersion = '1.0.0'; item.foreignFlag = 'preserve me'; old.items[item.id] = item;
+    const migrated = fromCanonicalJSON(JSON.stringify(old));
+    expect(migrated.schemaVersion).toBe('1.1.0');
+    expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
+    expect(validateWorkspace(migrated).valid).toBe(true);
+  });
+
+  it('exports a validated portable package and imports conflicts only as copies', () => {
+    const source = createWorkspace('Source'); const item = createItem('Portable'); source.items[item.id] = item;
+    source.customFields.price = { id: 'price', key: 'price', label: 'Price', kind: 'number', required: false };
+    item.custom.price = 42;
+    const json = serializePortablePackage(createPortablePackage(source, { kind: 'items', items: [item], selection: { type: 'single_item', itemId: item.id } }));
+    expect(parsePortablePackage(json).package.items).toHaveLength(1);
+    const target = createWorkspace('Target'); target.items[item.id] = createItem('Local');
+    const preview = buildPortableImportPreview(json, target);
+    expect(preview.items[0]!.choice).toBe('skip');
+    preview.items[0]!.choice = 'copy';
+    const result = applyPortableImport(target, preview);
+    expect(result.copiedItems).toBe(1);
+    expect(Object.values(target.items).some((entry) => entry.title === 'Portable' && entry.id !== item.id)).toBe(true);
+  });
+
+  it('validates an individual item after moving unknown JSON into extensions', () => {
+    const item = { ...createItem('Foreign'), futureField: { useful: true } };
+    const migrated = migrateItem(item, 'vendor:test').value;
+    expect(migrated.extensions?.['vendor:test']).toEqual({ futureField: { useful: true } });
+  });
+
   it('validates and re-imports iCalendar by stable UID', () => {
     const source = createWorkspace();
     const item = createItem('Calendar item', 'event');

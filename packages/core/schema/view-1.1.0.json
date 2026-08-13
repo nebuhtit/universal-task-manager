@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-task-manager.dev/schema/view-1.1.0.json",
+  "title": "Universal Task Manager saved view",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "query", "renderer", "sort", "fields"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "query": { "type": "object", "required": ["source"], "properties": { "source": { "type": "string" }, "ast": { "type": "object" } } },
+    "renderer": { "enum": ["list", "table", "calendar", "board"] },
+    "sort": { "type": "array", "items": { "type": "object", "required": ["field", "direction"] } },
+    "sortSource": { "type": "string" },
+    "groupBy": { "type": "string" },
+    "fields": { "type": "array", "items": { "type": "string" } },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

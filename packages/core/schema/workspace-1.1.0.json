@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-task-manager.dev/schema/workspace-1.1.0.json",
+  "title": "Universal Task Manager workspace",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "workspaceId", "name", "createdAt", "updatedAt", "items", "customFields", "views", "dashboards", "automations", "automationLog", "tombstones"],
+  "properties": {
+    "schemaVersion": { "const": "1.1.0" },
+    "workspaceId": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "items": { "type": "object", "additionalProperties": { "$ref": "item-1.1.0.json" } },
+    "customFields": { "type": "object" },
+    "views": { "type": "object", "additionalProperties": { "$ref": "view-1.1.0.json" } },
+    "dashboards": { "type": "object" },
+    "automations": { "type": "object" },
+    "automationLog": { "type": "array" },
+    "tombstones": { "type": "object", "additionalProperties": { "type": "string", "format": "date-time" } }
+  }
+}
