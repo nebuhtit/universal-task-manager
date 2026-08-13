@@ -87,7 +87,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       <div className="brand-mark">U</div>
       <p className="eyebrow">UNIVERSAL TASK MANAGER</p>
       <h1>{exists ? 'Unlock your workspace' : 'Build your own system'}</h1>
-      <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery.</p>
+      <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
       <form onSubmit={submit}>
         {!exists && <label>Workspace name<input value={name} onChange={(event) => setName(event.target.value)} required /></label>}
         <label>Password<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists ? 'current-password' : 'new-password'} required /></label>
