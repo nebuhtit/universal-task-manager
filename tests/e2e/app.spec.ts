@@ -64,4 +64,12 @@ test('recurring item accepts Due as its schedule anchor and explains missing dat
   await page.getByRole('button', { name: 'All items' }).click();
   await page.getByText('series templates', { exact: true }).click();
   await expect(page.getByText('Weekly due-only item', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Views' }).click();
+  await page.getByRole('button', { name: '+ New view' }).click();
+  await expect(page.getByLabel('DSL expression')).toHaveValue('state == "open"');
+  await page.getByLabel('Name').fill('Open items');
+  await page.getByRole('button', { name: 'Save view' }).click();
+  const openItemsView = page.locator('.view-section').filter({ hasText: 'Open items' });
+  await expect(openItemsView.getByText('Weekly due-only item', { exact: true })).toHaveCount(1);
 });
