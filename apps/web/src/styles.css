@@ -237,7 +237,30 @@ th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 9px; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--soft); }
 
-.lock-shell, .splash { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 15%, rgba(214,255,99,.25), transparent 26%), radial-gradient(circle at 85% 80%, rgba(169,216,255,.32), transparent 27%), var(--paper); }
+.lock-shell, .splash {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background-color: #fafafa;
+  background-image:
+    radial-gradient(circle, rgba(255, 153, 153, .17) 0, transparent 64%),
+    radial-gradient(circle, rgba(255, 194, 128, .16) 0, transparent 64%),
+    radial-gradient(circle, rgba(246, 224, 132, .14) 0, transparent 64%),
+    radial-gradient(circle, rgba(145, 218, 174, .17) 0, transparent 64%),
+    radial-gradient(circle, rgba(125, 211, 226, .16) 0, transparent 64%),
+    radial-gradient(circle, rgba(139, 177, 237, .17) 0, transparent 64%),
+    radial-gradient(circle, rgba(190, 153, 229, .16) 0, transparent 64%);
+  background-repeat: no-repeat;
+  background-size: 62% 62%;
+  background-position: -12% -15%, 38% -24%, 102% -8%, 112% 52%, 76% 112%, 22% 118%, -18% 68%;
+  animation: ambient-spectrum 24s ease-in-out infinite alternate;
+}
+@keyframes ambient-spectrum {
+  0% { background-position: -12% -15%, 38% -24%, 102% -8%, 112% 52%, 76% 112%, 22% 118%, -18% 68%; }
+  50% { background-position: 10% 18%, 82% -12%, 112% 42%, 78% 106%, 22% 112%, -14% 68%, -8% 4%; }
+  100% { background-position: 62% -20%, 108% 18%, 96% 94%, 38% 116%, -18% 86%, -12% 24%, 26% -18%; }
+}
 .lock-card { width: min(440px, 100%); background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 24px; padding: 34px; box-shadow: var(--shadow); }
 .lock-card .brand-mark { margin-bottom: 25px; }
 .lock-card h1 { font-size: 34px; letter-spacing: -.05em; margin: 7px 0 10px; }
@@ -290,4 +313,7 @@ tbody tr:hover { background: var(--soft); }
   .import-lock button { margin-top: 6px; }
 }
 
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  .lock-shell, .splash { animation: none; }
+}

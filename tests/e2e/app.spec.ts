@@ -12,6 +12,14 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
 });
 
+test('lock screen uses a muted animated spectrum', async ({ page }) => {
+  const lockScreen = page.locator('.lock-shell');
+  await expect(lockScreen).toHaveCSS('animation-name', 'ambient-spectrum');
+  await expect(lockScreen).toHaveCSS('background-image', /radial-gradient/);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(lockScreen).toHaveCSS('animation-name', 'none');
+});
+
 test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('My system');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
@@ -27,7 +35,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.2.6', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.2.7', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -51,7 +59,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.2.6', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.2.7', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
