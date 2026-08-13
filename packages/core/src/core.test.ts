@@ -3,7 +3,7 @@ import {
   APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
   compileQuery, compileSort, createId, createItem, createPortablePackage, createWorkspace, evaluateFormulas, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
-  projectOccurrences, reconcileRecurrences, removeDuplicateReminders, restoreCalendarSchedules, runAutomationEvents,
+  projectOccurrences, reconcileRecurrences, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
   serializePortablePackage, serializeSortRules, toICS, validateWorkspace,
 } from './index.js';
 import type { AutomationRule, DomainEvent, UniversalItem } from './types.js';
@@ -130,6 +130,15 @@ describe('calendar projection and mutations', () => {
     expect(timed.schedule.startAt).toContain('2026-08-13'); expect(due.schedule.dueAt).toContain('2026-08-14');
   });
 
+  it('resizes both visible boundaries of a timed item', () => {
+    const workspace = createWorkspace(); const item = createItem('Resizable');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-13T08:00:00Z', endAt: '2026-08-13T09:00:00Z' };
+    workspace.items[item.id] = item;
+    resizeCalendarItem(workspace, item.id, '2026-08-13T10:00:00Z', new Date('2026-08-13T07:00:00Z'), '2026-08-13T07:30:00Z');
+    expect(item.schedule.startAt).toBe('2026-08-13T07:30:00Z');
+    expect(item.schedule.endAt).toBe('2026-08-13T10:00:00Z');
+  });
+
   it('supports this occurrence and this-and-future recurrence moves', () => {
     const workspace = createWorkspace(); const item = createItem('Series'); item.schedule = { timezone: 'UTC', startAt: '2026-08-13T08:00:00Z' };
     const series = makeSeries(item, 'FREQ=WEEKLY;COUNT=8'); workspace.items[series.id] = series;
@@ -175,10 +184,12 @@ describe('interoperability', () => {
   it('migrates 1.0 JSON and keeps unknown item fields in a namespaced extension', () => {
     const old = createWorkspace();
     old.schemaVersion = '1.0.0';
+    delete (old.calendarPreferences as Partial<typeof old.calendarPreferences>).sleepSchedule;
     const item = createItem('Old item') as UniversalItem & { foreignFlag?: string };
     item.schemaVersion = '1.0.0'; item.foreignFlag = 'preserve me'; old.items[item.id] = item;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.schemaVersion).toBe('1.2.0');
+    expect(migrated.schemaVersion).toBe('1.3.0');
+    expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
     expect(validateWorkspace(migrated).valid).toBe(true);
   });

@@ -12,6 +12,8 @@ Every item stores immutable provenance in `createdWithAppId`, `createdWithAppNam
 
 Schema 1.2 adds encrypted `CalendarPreferences`, virtual `ProjectedOccurrence` values, and recurrence override metadata. Projecting a visible range is read-only: an occurrence enters the Automerge document only when it is opened, completed, activated, dragged, or resized.
 
+Schema 1.3 adds `calendarPreferences.sleepSchedule` with `wake` and `sleep` wall-clock values. Calendar time grids always retain the full 24-hour day; this schedule only controls the subdued night shading and the initial scroll position. Existing 1.2 workspaces derive the values from their former working-hour bounds.
+
 Closure states distinguish manual completion from automation:
 
 - `done` — completed by the user or an explicit automation.

@@ -95,10 +95,10 @@ export function moveCalendarItems(workspace: WorkspaceDocument, itemIds: string[
   return { before, changedIds };
 }
 
-export function resizeCalendarItem(workspace: WorkspaceDocument, itemId: string, endAt: string, now = new Date()): CalendarMutationResult {
+export function resizeCalendarItem(workspace: WorkspaceDocument, itemId: string, endAt: string, now = new Date(), startAt?: string): CalendarMutationResult {
   const item = workspace.items[itemId]; if (!item) throw new Error('Calendar item no longer exists');
   const before = { [itemId]: item.schedule ? clone(item.schedule) : undefined };
-  item.schedule = { timezone: workspace.calendarPreferences.timezone, ...item.schedule, endAt };
+  item.schedule = { timezone: workspace.calendarPreferences.timezone, ...item.schedule, ...(startAt ? { startAt } : {}), endAt };
   item.updatedAt = now.toISOString(); item.revision += 1; workspace.updatedAt = now.toISOString();
   return { before, changedIds: [itemId] };
 }

@@ -50,7 +50,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.6.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.6.1', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -100,7 +100,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.6.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.6.1', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -126,9 +126,19 @@ test('calendar switches modes and creates a timed universal item', async ({ page
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await page.getByRole('button', { name: 'Calendar' }).click();
   await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
+  await page.getByRole('button', { name: 'Calendar settings' }).click();
+  await expect(page.getByLabel('Wake time')).toHaveValue('08:00');
+  await expect(page.getByLabel('Sleep time')).toHaveValue('22:00');
+  await page.getByLabel('Wake time').fill('07:00');
+  await page.getByLabel('Sleep time').fill('23:00');
+  await page.getByRole('button', { name: 'Close calendar settings' }).click();
   if (testInfo.project.name === 'desktop') await expect(page.getByRole('grid', { name: /August 2026/ })).toBeVisible();
   else await expect(page.locator('.calendar-modes').getByRole('button', { name: 'day', exact: true })).toHaveClass(/active/);
   await page.locator('.calendar-modes').getByRole('button', { name: 'day', exact: true }).click();
+  await expect(page.locator('[data-time="08:00:00"]').filter({ hasText: '8:00' }).first()).toBeVisible();
+  await expect(page.locator('[data-time="06:00:00"].calendar-sleep-slot')).toHaveCount(1);
+  await expect(page.locator('[data-time="07:00:00"].calendar-sleep-slot')).toHaveCount(0);
+  await expect(page.locator('[data-time="23:00:00"].calendar-sleep-slot')).toHaveCount(1);
   const timedGrid = page.getByRole('row', { name: 'Timed' }).getByRole('gridcell');
   await expect(timedGrid).toBeVisible();
   await timedGrid.click({ position: { x: 80, y: 80 } });
@@ -136,6 +146,9 @@ test('calendar switches modes and creates a timed universal item', async ({ page
   await page.getByLabel('Title', { exact: true }).fill('Calendar-created task');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Calendar-created task', { exact: true })).toBeVisible();
+  const calendarEvent = page.locator('.calendar-time-event').filter({ hasText: 'Calendar-created task' });
+  await expect(calendarEvent).toHaveCount(1);
+  await expect(calendarEvent).toHaveCSS('border-top-width', '1px');
 });
 
 test('edited view parameters change results and survive reload', async ({ page }) => {

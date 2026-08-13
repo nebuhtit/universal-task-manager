@@ -9,7 +9,7 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.2.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.3.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -108,7 +108,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.2.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.3.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -132,7 +132,7 @@ const customFieldSchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.2.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.3.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -155,7 +155,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.2.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.3.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences'],
   properties: {
@@ -166,10 +166,11 @@ export const workspaceJsonSchema = {
     automationLog: { type: 'array' }, tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
     calendarPreferences: {
       type: 'object', additionalProperties: false,
-      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'includeStates'],
+      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'includeStates'],
       properties: {
         timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
         workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
+        sleepSchedule: { type: 'object', additionalProperties: false, required: ['wake', 'sleep'], properties: { wake: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, sleep: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' } } },
         weekends: { type: 'boolean' }, snapMinutes: { type: 'integer', minimum: 1 }, defaultDurationMinutes: { type: 'integer', minimum: 1 },
         timeFormat: { const: '24h' }, selectedViewId: { type: 'string' },
         includeStates: { type: 'array', items: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] } },
@@ -267,8 +268,11 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.calendarPreferences ??= {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, weekends: true,
-    snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', includeStates: ['open', 'done'],
+    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', includeStates: ['open', 'done'],
   };
+  const calendarPreferences = source.calendarPreferences as Record<string, unknown>;
+  const legacyWorkingHours = calendarPreferences.workingHours as { start?: string; end?: string } | undefined;
+  calendarPreferences.sleepSchedule ??= { wake: legacyWorkingHours?.start ?? '08:00', sleep: legacyWorkingHours?.end ?? '22:00' };
   const validation = validateWorkspace(source);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   if (previous !== SCHEMA_VERSION) warnings.unshift(`Migrated workspace schema ${previous} to ${SCHEMA_VERSION}`);

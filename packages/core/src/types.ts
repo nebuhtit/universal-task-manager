@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.2.0';
+export const SCHEMA_VERSION = '1.3.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.6.0';
-export const APP_RELEASED_AT = '2026-08-13T14:15:00+03:00';
+export const APP_VERSION = '0.6.1';
+export const APP_RELEASED_AT = '2026-08-13T14:21:38+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -299,6 +299,7 @@ export interface CalendarPreferences {
   lastMode: CalendarViewMode;
   weekStartsOn: 0 | 1;
   workingHours: { start: string; end: string };
+  sleepSchedule: { wake: string; sleep: string };
   weekends: boolean;
   snapMinutes: number;
   defaultDurationMinutes: number;
@@ -400,7 +401,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     tombstones: {},
     calendarPreferences: {
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' },
+      lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, sleepSchedule: { wake: '08:00', sleep: '22:00' },
       weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h',
       includeStates: ['open', 'done'],
     },
