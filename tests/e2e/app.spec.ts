@@ -48,7 +48,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.3.2', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.3.3', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -78,7 +78,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.3.2', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.3.3', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -135,7 +135,7 @@ test('edited view parameters change results and survive reload', async ({ page }
   await expect(view.getByText('0 matching items', { exact: true })).toBeVisible();
 });
 
-test('visual view builder supports OR conditions', async ({ page }) => {
+test('visual view builder supports OR and inclusive comparison operators', async ({ page }) => {
   const password = 'correct horse battery staple';
   await page.getByLabel('Workspace name').fill('OR views');
   await page.getByLabel('Password', { exact: true }).fill(password);
@@ -162,6 +162,20 @@ test('visual view builder supports OR conditions', async ({ page }) => {
 
   const view = page.locator('.view-section').filter({ hasText: 'Priority OR' });
   await expect(view.getByText('priority == 3 || priority < 3', { exact: true })).toBeVisible();
+  await expect(view.getByText('1 matching items', { exact: true })).toBeVisible();
+  await expect(view.getByText('Priority two item', { exact: true })).toBeVisible();
+
+  await view.getByRole('button', { name: 'Edit view' }).click();
+  const operator = page.getByRole('combobox', { name: 'Operator' });
+  await operator.selectOption({ label: '>=' });
+  await page.getByRole('textbox', { name: 'Value' }).fill('2');
+  await page.getByRole('button', { name: 'Apply condition' }).click();
+  await operator.selectOption({ label: '<=' });
+  await page.getByRole('textbox', { name: 'Value' }).fill('2');
+  await page.getByRole('button', { name: '+ Add AND condition' }).click();
+  await expect(page.getByLabel('DSL expression')).toHaveValue('priority >= 2 && priority <= 2');
+  await page.getByRole('button', { name: 'Save view' }).click();
+  await expect(view.getByText('priority >= 2 && priority <= 2', { exact: true })).toBeVisible();
   await expect(view.getByText('1 matching items', { exact: true })).toBeVisible();
   await expect(view.getByText('Priority two item', { exact: true })).toBeVisible();
 });

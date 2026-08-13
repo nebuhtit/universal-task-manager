@@ -339,7 +339,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
   const visualClause = () => `${visualField} ${visualOperator} ${literal(visualValue)}`;
   const beginEditing = (view: SavedView) => {
     const copy = clean(view);
-    const firstClause = /^\s*([\w.]+)\s*(==|!=|>|<|in)\s*("(?:[^"\\]|\\.)*"|true|false|null|-?\d+(?:\.\d+)?)/.exec(copy.query.source);
+    const firstClause = /^\s*([\w.]+)\s*(==|!=|>=|<=|>|<|in)\s*("(?:[^"\\]|\\.)*"|true|false|null|-?\d+(?:\.\d+)?)/.exec(copy.query.source);
     setEditing(copy);
     setVisualField(firstClause?.[1] ?? 'state');
     setVisualOperator(firstClause?.[2] ?? '==');
@@ -384,7 +384,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState }: {
       <fieldset className="query-builder"><legend>Visual condition</legend>
         <div className="form-grid three">
           <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option>role</option><option>priority</option><option>schedule.dueAt</option><option>title</option></select></label>
-          <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}><option>==</option><option>!=</option><option>&gt;</option><option>&lt;</option><option>in</option></select></label>
+          <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}><option>==</option><option>!=</option><option>&gt;</option><option>&gt;=</option><option>&lt;</option><option>&lt;=</option><option>in</option></select></label>
           <label>Value<input value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} /></label>
         </div>
         <p className="builder-status">{visualDirty ? 'This condition will replace the DSL expression when you save.' : 'Visual condition and DSL are synchronized.'}</p>
