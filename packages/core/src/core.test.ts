@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, compileQuery, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
-  parseExpression, reconcileRecurrences, runAutomationEvents, toICS, validateWorkspace,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, compileQuery, compileSort, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
+  parseExpression, parseSortSource, reconcileRecurrences, runAutomationEvents, serializeSortRules, toICS, validateWorkspace,
 } from './index.js';
 import type { AutomationRule, DomainEvent } from './types.js';
 
@@ -42,6 +42,19 @@ describe('safe expression language', () => {
     expect(legacy.createdWithAppId).toBe(APP_ID);
     expect(legacy.createdWithAppName).toBe(APP_NAME);
     expect(current.createdWithVersion).toBe(APP_VERSION);
+  });
+
+  it('sorts by multiple safe DSL expressions with explicit null placement', () => {
+    const low = createItem('item 10'); low.priority = 2;
+    const high = createItem('Item 2'); high.priority = 4;
+    const missing = createItem('No priority');
+    const source = 'priority desc nulls last\nlower(title) asc nulls last';
+    const rules = parseSortSource(source);
+    expect(serializeSortRules(rules)).toBe(source);
+    expect([missing, low, high].sort(compileSort(source)).map((item) => item.title)).toEqual(['Item 2', 'item 10', 'No priority']);
+    expect(() => parseSortSource('priority sideways')).toThrow('Invalid sort rule');
+    expect(() => parseSortSource('fetch(title) asc')).not.toThrow();
+    expect(() => [low, high].sort(compileSort('fetch(title) asc'))).toThrow('Function is not allowed');
   });
 });
 

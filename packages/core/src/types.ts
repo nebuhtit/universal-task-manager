@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.0.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.3.5';
-export const APP_RELEASED_AT = '2026-08-13T11:40:00+03:00';
+export const APP_VERSION = '0.4.0';
+export const APP_RELEASED_AT = '2026-08-13T11:38:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -129,12 +129,21 @@ export interface QuerySpec {
   ast?: Expression;
 }
 
+export interface ViewSortRule {
+  expression: string;
+  direction: 'asc' | 'desc';
+  nulls: 'first' | 'last';
+}
+
 export interface SavedView {
   id: string;
   name: string;
   query: QuerySpec;
   renderer: 'list' | 'table' | 'calendar' | 'board';
-  sort: Array<{ field: string; direction: 'asc' | 'desc' }>;
+  /** Legacy structured form retained for portable older workspaces. */
+  sort: Array<{ field: string; direction: 'asc' | 'desc'; nulls?: 'first' | 'last' }>;
+  /** One safe DSL expression per line: `<expression> asc|desc nulls first|last`. */
+  sortSource?: string;
   groupBy?: string;
   fields: string[];
 }

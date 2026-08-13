@@ -1,4 +1,4 @@
-import type { CustomFieldDefinition, CustomValue, Expression, Scalar, UniversalItem } from './types.js';
+import type { CustomFieldDefinition, CustomValue, Expression, Scalar, UniversalItem, ViewSortRule } from './types.js';
 
 type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'paren' | 'comma' | 'eof';
 interface Token { kind: TokenKind; value: string; at: number }
@@ -211,6 +211,47 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
 export function compileQuery(source: string): (item: UniversalItem, now?: Date) => boolean {
   const ast = parseExpression(source);
   return (item, now) => Boolean(evaluateExpression(ast, { item, ...(now ? { now } : {}) }));
+}
+
+export function parseSortSource(source: string): ViewSortRule[] {
+  return source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#')).map((line, index) => {
+    const match = /^(.*?)\s+(asc|desc)(?:\s+nulls\s+(first|last))?$/i.exec(line);
+    if (!match?.[1] || !match[2]) throw new DslSyntaxError(`Invalid sort rule on line ${index + 1}`, 0);
+    const expression = match[1].trim();
+    parseExpression(expression);
+    return {
+      expression,
+      direction: match[2].toLowerCase() as ViewSortRule['direction'],
+      nulls: (match[3]?.toLowerCase() ?? 'last') as ViewSortRule['nulls'],
+    };
+  });
+}
+
+export function serializeSortRules(rules: ViewSortRule[]): string {
+  return rules.map((rule) => `${rule.expression} ${rule.direction} nulls ${rule.nulls}`).join('\n');
+}
+
+function compareSortValues(left: unknown, right: unknown): number {
+  if (typeof left === 'number' && typeof right === 'number') return left - right;
+  if (typeof left === 'boolean' && typeof right === 'boolean') return Number(left) - Number(right);
+  return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+export function compileSort(source: string): (left: UniversalItem, right: UniversalItem, now?: Date) => number {
+  const rules = parseSortSource(source).map((rule) => ({ ...rule, ast: parseExpression(rule.expression) }));
+  return (left, right, now = new Date()) => {
+    for (const rule of rules) {
+      const leftValue = evaluateExpression(rule.ast, { item: left, now });
+      const rightValue = evaluateExpression(rule.ast, { item: right, now });
+      const leftNull = leftValue === undefined || leftValue === null || leftValue === '';
+      const rightNull = rightValue === undefined || rightValue === null || rightValue === '';
+      if (leftNull !== rightNull) return leftNull === (rule.nulls === 'first') ? -1 : 1;
+      if (leftNull && rightNull) continue;
+      const comparison = compareSortValues(leftValue, rightValue);
+      if (comparison) return rule.direction === 'asc' ? comparison : -comparison;
+    }
+    return left.id.localeCompare(right.id);
+  };
 }
 
 export interface FormulaResult { values: Record<string, CustomValue>; errors: Record<string, string> }
