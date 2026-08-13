@@ -37,10 +37,18 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(page.getByText('Prepare material by Thursday')).toBeVisible();
 
   await page.getByText('Prepare material by Thursday', { exact: true }).click();
+  const scheduleSection = page.getByText('Schedule & deadline', { exact: true });
+  await expect(scheduleSection).toHaveCSS('font-size', '13px');
+  await expect(scheduleSection).toHaveCSS('font-weight', '500');
+  await page.getByText('Reminders', { exact: true }).click();
+  const addReminder = page.getByRole('button', { name: '+ Add reminder' });
+  await expect(addReminder).toHaveCSS('font-size', '13px');
+  await expect(addReminder).toHaveCSS('font-weight', '400');
+  await expect(addReminder).toHaveCSS('padding-top', '8px');
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.3.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.3.2', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -70,7 +78,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.3.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.3.2', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -97,7 +105,11 @@ test('edited view parameters change results and survive reload', async ({ page }
 
   await page.getByRole('button', { name: 'Views' }).click();
   let view = page.locator('.view-section').filter({ hasText: 'Now' });
-  await view.getByRole('button', { name: 'Edit view' }).click();
+  const editView = view.getByRole('button', { name: 'Edit view' });
+  await expect(editView).toHaveCSS('font-size', '13px');
+  await expect(editView).toHaveCSS('font-weight', '400');
+  await expect(editView).toHaveCSS('padding-top', '8px');
+  await editView.click();
   await page.getByLabel('Name', { exact: true }).fill('Done only');
   await page.getByRole('combobox', { name: 'Field' }).selectOption('state');
   await page.getByRole('combobox', { name: 'Operator' }).selectOption('==');
@@ -152,6 +164,47 @@ test('visual view builder supports OR conditions', async ({ page }) => {
   await expect(view.getByText('priority == 3 || priority < 3', { exact: true })).toBeVisible();
   await expect(view.getByText('1 matching items', { exact: true })).toBeVisible();
   await expect(view.getByText('Priority two item', { exact: true })).toBeVisible();
+});
+
+test('notifications auto-hide, close individually, and remain in the bell center', async ({ page }) => {
+  const password = 'correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('Notifications');
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+
+  await page.getByRole('button', { name: '+ New item' }).click();
+  await page.getByLabel('Title', { exact: true }).fill('Reminder item');
+  await page.getByText('Reminders', { exact: true }).click();
+  await page.getByRole('button', { name: '+ Add reminder' }).click();
+  await page.getByRole('button', { name: '+ Add reminder' }).click();
+  const past = await page.evaluate(() => {
+    const date = new Date(Date.now() - 3_600_000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  const reminderInputs = page.locator('.inline-row input[type="datetime-local"]');
+  await reminderInputs.nth(0).fill(past);
+  await reminderInputs.nth(1).fill(past);
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await page.getByRole('button', { name: 'Lock' }).click();
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+
+  const popups = page.locator('.notice-popups .notice-card');
+  await expect(popups).toHaveCount(2);
+  await page.getByRole('button', { name: 'Close notification' }).first().click();
+  await expect(popups).toHaveCount(1);
+  await page.waitForTimeout(3_200);
+  await expect(page.locator('.notice-popups')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Notifications' }).click();
+  const center = page.getByRole('complementary', { name: 'Notification center' });
+  await expect(center).toBeVisible();
+  await expect(center.locator('.notice-card')).toHaveCount(2);
+  await center.getByRole('button', { name: 'Delete notification' }).first().click();
+  await expect(center.locator('.notice-card')).toHaveCount(1);
+  await center.getByRole('button', { name: 'Close notification center' }).click();
+  await expect(center).toBeHidden();
 });
 
 test('recurring item accepts Due as its schedule anchor and explains missing dates', async ({ page }) => {

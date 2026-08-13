@@ -448,12 +448,30 @@ export default function App() {
   const [editor, setEditor] = useState<UniversalItem | null>(null);
   const [transfer, setTransfer] = useState(false);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [popupNoticeIds, setPopupNoticeIds] = useState<string[]>([]);
+  const [noticeCenterOpen, setNoticeCenterOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [quick, setQuick] = useState('');
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const seenNoticeIds = useRef(new Set<string>());
+  const noticeTimers = useRef(new Map<string, number>());
 
   useEffect(() => { void hasLocalWorkspace().then((exists) => setBoot(exists ? 'locked' : 'empty')); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3500); return () => window.clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    const fresh = notices.filter((notice) => !seenNoticeIds.current.has(notice.id));
+    if (!fresh.length) return;
+    fresh.forEach((notice) => {
+      seenNoticeIds.current.add(notice.id);
+      const timer = window.setTimeout(() => {
+        setPopupNoticeIds((current) => current.filter((id) => id !== notice.id));
+        noticeTimers.current.delete(notice.id);
+      }, 3_000);
+      noticeTimers.current.set(notice.id, timer);
+    });
+    setPopupNoticeIds((current) => [...current, ...fresh.map((notice) => notice.id)]);
+  }, [notices]);
+  useEffect(() => () => { noticeTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
 
   const activate = async (unlocked: UnlockedWorkspace) => {
     let notifications: Array<{ title: string; body: string; itemId?: string }> = [];
@@ -501,6 +519,20 @@ export default function App() {
     const result = runAutomationEvents(draft, [event]);
     if (result.notifications.length) setNotices((current) => [...current, ...result.notifications.map((notice) => ({ ...notice, id: createId(), at: new Date().toISOString() }))]);
   });
+  const dismissPopupNotice = (id: string) => {
+    const timer = noticeTimers.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    noticeTimers.current.delete(id);
+    setPopupNoticeIds((current) => current.filter((candidate) => candidate !== id));
+  };
+  const deleteNotice = (id: string) => {
+    dismissPopupNotice(id);
+    setNotices((current) => current.filter((notice) => notice.id !== id));
+  };
+  const openNoticeItem = (notice: Notice) => {
+    const item = Object.values(workspace?.items ?? {}).find((candidate) => candidate.title === notice.title);
+    if (item) setEditor(item);
+  };
 
   if (boot === 'checking') return <main className="splash"><div className="brand-mark">U</div><p>Opening encrypted workspace…</p></main>;
   if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={(readySession) => void activate(readySession)} />;
@@ -513,8 +545,9 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar"><div className="sidebar-brand"><div className="brand-mark small">U</div><span>Universal</span></div><nav>{nav.map(([target, icon, label]) => <button key={target} className={page === target ? 'active' : ''} onClick={() => setPage(target)}><LineIcon name={icon}/><span>{label}</span>{target === 'all' && <b>{openItems}</b>}</button>)}</nav><div className="sidebar-bottom"><button onClick={() => setTransfer(true)}><LineIcon name="transfer"/><span>Transfer</span></button><button onClick={() => { lock(session); setSession(null); setBoot('locked'); }}><LineIcon name="lock"/><span>Lock</span></button></div></aside>
     <main className="content">
-      <header className="topbar"><div><span className="mobile-brand">Universal</span><span className="sync-state"><i /> Encrypted locally</span></div><div className="top-actions"><button className="mobile-only-lock" aria-label="Lock" onClick={() => { lock(session); setSession(null); setBoot('locked'); }}><LineIcon name="lock"/></button><button className="notice-button" onClick={() => setNotices([])} title="Clear notifications"><LineIcon name="bell"/>{notices.length > 0 && <b>{notices.length}</b>}</button><button className="primary compact" onClick={() => setEditor(createItem('', 'task'))}>+ New item</button></div></header>
-      {notices.length > 0 && <div className="notice-tray">{notices.slice(-3).reverse().map((notice) => <button key={notice.id} onClick={() => { const item = Object.values(workspace.items).find((candidate) => candidate.title === notice.title); if (item) setEditor(item); }}><strong>{notice.title}</strong><span>{notice.body}</span></button>)}</div>}
+      <header className="topbar"><div><span className="mobile-brand">Universal</span><span className="sync-state"><i /> Encrypted locally</span></div><div className="top-actions"><button className="mobile-only-lock" aria-label="Lock" onClick={() => { lock(session); setSession(null); setBoot('locked'); }}><LineIcon name="lock"/></button><button className="notice-button" aria-label="Notifications" aria-expanded={noticeCenterOpen} onClick={() => { setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} title="Notifications"><LineIcon name="bell"/>{notices.length > 0 && <b>{notices.length}</b>}</button><button className="primary compact" onClick={() => setEditor(createItem('', 'task'))}>+ New item</button></div></header>
+      {!noticeCenterOpen && popupNoticeIds.length > 0 && <div className="notice-tray notice-popups">{popupNoticeIds.slice(-3).reverse().map((id) => notices.find((notice) => notice.id === id)).filter((notice): notice is Notice => Boolean(notice)).map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Close notification" onClick={() => dismissPopupNotice(notice.id)}><CloseIcon /></button></article>)}</div>}
+      {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Delete notification" onClick={() => deleteNotice(notice.id)}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
       {page === 'home' && <section className="page-section"><div className="home-hero"><div><p className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}</p><h1>{openItems ? `${openItems} open ${openItems === 1 ? 'item' : 'items'}` : 'Everything is clear'}</h1><p>Your dashboard is a view of the system, not another inbox.</p></div><div className="quick-capture"><input value={quick} onChange={(event) => setQuick(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && quick.trim()) { const item = createItem(quick.trim()); commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); }); setQuick(''); } }} placeholder="Capture anything…"/><span>↵</span></div></div><div className="dashboard-grid">{dashboard?.widgets.slice().sort((a, b) => a.order - b.order).map((widget) => <Widget key={widget.id} widget={widget} workspace={workspace} onEdit={setEditor} onState={changeItemState} onRemove={() => commit('Remove dashboard widget', (draft) => { draft.dashboards[dashboard.id]!.widgets = draft.dashboards[dashboard.id]!.widgets.filter((entry) => entry.id !== widget.id); })} />)}<button className="add-widget" onClick={() => { const type = window.prompt('Widget type: smart_list, table, calendar, board, habit_summary, markdown', 'smart_list') as DashboardWidget['type'] | null; if (!type || !['smart_list', 'table', 'calendar', 'board', 'habit_summary', 'markdown'].includes(type)) return; const viewId = Object.keys(workspace.views)[0]; commit('Add dashboard widget', (draft) => { draft.dashboards[dashboard!.id]!.widgets.push({ id: createId(), type, title: type.replace('_', ' '), ...(type !== 'habit_summary' && type !== 'markdown' ? { viewId } : {}), ...(type === 'markdown' ? { markdown: '## A flexible space\nWrite anything here.' } : {}), width: type === 'habit_summary' ? 1 : 2, order: dashboard!.widgets.length }); }); }}>+ Add widget</button></div></section>}
       {page === 'all' && <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && item.role !== 'series_template' && !item.deletedAt); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{state.replace('_', ' ')}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details><summary><span>series templates</span><b>{Object.values(workspace.items).filter((item) => item.role === 'series_template').length}</b></summary><div className="item-list">{Object.values(workspace.items).filter((item) => item.role === 'series_template').map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details></div></section>}
       {page === 'views' && <ViewsPage workspace={workspace} commit={commit} onEditItem={setEditor} onState={changeItemState} />}
