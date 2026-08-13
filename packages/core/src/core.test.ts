@@ -19,6 +19,8 @@ describe('safe expression language', () => {
     expect(compileQuery('state == "open" && priority >= 3 && includes(tags, "work")')(item)).toBe(true);
     item.priority = 2;
     expect(compileQuery('priority == 3 || priority < 3')(item)).toBe(true);
+    const withoutPriority = createItem('No priority');
+    expect(compileQuery('priority < 3')(withoutPriority)).toBe(false);
     expect(() => parseExpression('globalThis.fetch("https://example.com")')).not.toThrow();
     expect(() => compileQuery('globalThis.fetch("https://example.com")')(item)).toThrow('Function is not allowed');
   });

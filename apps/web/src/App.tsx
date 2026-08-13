@@ -248,6 +248,18 @@ function ItemCard({ item, onEdit, onState, fields, workspace }: { item: Universa
   </article>;
 }
 
+function DeletedItemsList({ items, onRestore }: { items: UniversalItem[]; onRestore: (item: UniversalItem) => void }) {
+  const sorted = [...items].sort((left, right) => new Date(right.deletedAt!).getTime() - new Date(left.deletedAt!).getTime());
+  return <details className="trash-section" open={sorted.length > 0}>
+    <summary><span>Trash</span><b>{sorted.length}</b></summary>
+    <p className="section-help">Deleted items stay here until you restore them.</p>
+    <div className="trash-list">{sorted.length ? sorted.map((item) => <article className="trash-item" key={item.id}>
+      <div><span className="trash-title">{item.title || 'Untitled'}</span><span className="item-meta"><span className={`preset ${item.preset}`}>{item.preset}</span><span>{stateNames[item.state]}</span><span>Deleted {new Date(item.deletedAt!).toLocaleString()}</span></span></div>
+      <button className="secondary compact-action" aria-label={`Restore ${item.title || 'Untitled'}`} onClick={() => onRestore(item)}>Restore</button>
+    </article>) : <p className="empty">Trash is empty.</p>}</div>
+  </details>;
+}
+
 function PortableImportDialog({ workspace, source, onApply, onClose }: {
   workspace: WorkspaceDocument; source: string; onApply: (preview: PortableImportPreview) => void; onClose: () => void;
 }) {
@@ -696,7 +708,7 @@ function CalendarPage({ workspace, commit, onEditItem }: {
           const source = workspace.items[row.materializedItemId ?? row.sourceItemId];
           if (!source) return false;
           const logical = row.virtual ? { ...clean(source), role: 'occurrence' as const, state: row.state, schedule: row.schedule } : source;
-          return compiled(logical);
+          try { return compiled(logical); } catch { return false; }
         };
       } catch { return (_row: ProjectedOccurrence) => false; }
     })() : (_row: ProjectedOccurrence) => true;
@@ -995,6 +1007,13 @@ export default function App() {
 
   const nav: Array<[Page, LineIconName, string]> = [['home', 'home', 'Home'], ['calendar', 'calendar', 'Calendar'], ['all', 'items', 'All items'], ['automations', 'rules', 'Automations'], ['settings', 'settings', 'Settings']];
   const openItems = Object.values(workspace.items).filter((item) => item.state === 'open' && item.role !== 'series_template' && !item.deletedAt).length;
+  const deletedItems = Object.values(workspace.items).filter((item) => Boolean(item.deletedAt));
+  const restoreItem = (item: UniversalItem) => commit('Restore item from trash', (draft) => {
+    const target = draft.items[item.id]; if (!target?.deletedAt) return;
+    delete target.deletedAt; delete draft.tombstones[item.id];
+    target.updatedAt = new Date().toISOString(); target.revision += 1;
+    if (target.role === 'series_template') reconcileRecurrences(draft);
+  });
   const captureQuickItem = () => {
     if (!quick.trim()) return;
     const item = createUiItem(quick.trim());
@@ -1010,7 +1029,7 @@ export default function App() {
       {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Delete notification" onClick={() => deleteNotice(notice.id)}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
       {page === 'home' && <><section className="page-section home-summary"><div className="home-hero"><div><p className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}</p><h1>{openItems ? `${openItems} active ${openItems === 1 ? 'item' : 'items'}` : 'Everything is clear'}</h1><p>Active means not completed, cancelled, archived, or automatically closed.</p></div></div></section><ViewsPage workspace={workspace} commit={commit} onEditItem={setEditor} onState={changeItemState} onOpenCalendar={(viewId) => { commit('Open view in Calendar', (draft) => { draft.calendarPreferences.selectedViewId = viewId; }); setPage('calendar'); }} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} onEditItem={setEditor} />}
-      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.deletedAt); return <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createUiItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && item.role !== 'series_template' && !item.deletedAt); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div></section>; })()}
+      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.deletedAt); return <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createUiItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && item.role !== 'series_template' && !item.deletedAt); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div><DeletedItemsList items={deletedItems} onRestore={restoreItem} /></section>; })()}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportJson={setPortableImportSource} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} />}
     </main>

@@ -50,7 +50,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.6.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.6.2', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -100,7 +100,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.6.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.6.2', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -124,7 +124,7 @@ test('calendar switches modes and creates a timed universal item', async ({ page
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await page.getByRole('button', { name: 'Calendar' }).click();
+  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
   await page.getByRole('button', { name: 'Calendar settings' }).click();
   await expect(page.getByLabel('Wake time')).toHaveValue('08:00');
@@ -149,6 +149,43 @@ test('calendar switches modes and creates a timed universal item', async ({ page
   const calendarEvent = page.locator('.calendar-time-event').filter({ hasText: 'Calendar-created task' });
   await expect(calendarEvent).toHaveCount(1);
   await expect(calendarEvent).toHaveCSS('border-top-width', '1px');
+  await page.getByRole('button', { name: 'Home' }).click();
+  await page.getByRole('button', { name: '+ New view' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Items below priority 3');
+  await page.getByLabel('DSL expression').fill('priority < 3');
+  await page.getByRole('button', { name: 'Save view' }).click();
+  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Saved view' }).selectOption({ label: 'Items below priority 3' });
+  await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Saved view' })).toHaveValue(/.+/);
+});
+
+test('deleted items appear in Trash and can be restored', async ({ page }) => {
+  const password = 'correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('Trash workspace');
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await page.getByRole('button', { name: /^All items/ }).click();
+  await page.getByRole('button', { name: '+ New item' }).click();
+  await page.getByLabel('Title', { exact: true }).fill('Recover this item');
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await page.getByText('Recover this item', { exact: true }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+
+  const trash = page.locator('.trash-section');
+  await expect(trash.getByText('Recover this item', { exact: true })).toBeVisible();
+  await expect(trash.locator('.trash-item').getByText(/^Deleted /)).toBeVisible();
+  await trash.getByRole('button', { name: 'Restore Recover this item' }).click();
+  await expect(trash.locator('summary b')).toHaveText('0');
+  await expect(page.locator('.all-sections').getByText('Recover this item', { exact: true })).toBeVisible();
+
+  await page.reload();
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await page.getByRole('button', { name: /^All items/ }).click();
+  await expect(page.locator('.all-sections').getByText('Recover this item', { exact: true })).toBeVisible();
+  await expect(page.locator('.trash-section summary b')).toHaveText('0');
 });
 
 test('edited view parameters change results and survive reload', async ({ page }) => {

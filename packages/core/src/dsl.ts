@@ -210,7 +210,13 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
 
 export function compileQuery(source: string): (item: UniversalItem, now?: Date) => boolean {
   const ast = parseExpression(source);
-  return (item, now) => Boolean(evaluateExpression(ast, { item, ...(now ? { now } : {}) }));
+  return (item, now) => {
+    try { return Boolean(evaluateExpression(ast, { item, ...(now ? { now } : {}) })); }
+    catch (reason) {
+      if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;
+      throw reason;
+    }
+  };
 }
 
 export function parseSortSource(source: string): ViewSortRule[] {

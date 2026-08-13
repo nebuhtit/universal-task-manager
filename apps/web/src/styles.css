@@ -334,6 +334,13 @@ dd { margin: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 .all-sections .item-list { padding: 0 0 7px; }
 .all-sections .section-help { margin: -2px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .all-sections .recurring-items summary span { color: #333; }
+.trash-section { margin-top: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 0 20px; }
+.trash-section summary { min-height: 46px; align-items: center; color: #555; font-size: 13px; font-weight: 500; }
+.trash-section summary b { min-width: 24px; margin-left: 8px; border-radius: 99px; background: #f1f1f1; padding: 3px 7px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 500; }
+.trash-section .section-help { margin: -2px 0 10px; color: var(--muted); font-size: 11px; }
+.trash-list { display: grid; gap: 2px; padding: 0 0 10px; }
+.trash-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 54px; padding: 7px 8px; border-top: 1px solid #eeeeee; }
+.trash-title { display: block; color: #444; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-wrap { overflow: auto; }
 .state-column { width: 38px; padding-left: 8px !important; padding-right: 4px !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
