@@ -8,6 +8,8 @@ An item has a `role` (`standalone`, `series_template`, or `occurrence`) and a UI
 
 Every item stores an immutable `createdWithVersion` value. It records the app version that materialized that exact item or occurrence and is preserved by edits and merges. Workspaces created before version 0.2.0 are backfilled with `0.1.0` when first unlocked by a newer app.
 
+`createdAt` is immutable creation metadata. `updatedAt` is system-managed and changes whenever the item changes; neither timestamp is directly editable in the item editor.
+
 Closure states distinguish manual completion from automation:
 
 - `done` — completed by the user or an explicit automation.

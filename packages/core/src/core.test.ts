@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_VERSION, backfillItemCreationVersions, compileQuery, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
+  APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, compileQuery, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
   parseExpression, reconcileRecurrences, runAutomationEvents, toICS, validateWorkspace,
 } from './index.js';
 import type { AutomationRule, DomainEvent } from './types.js';
@@ -9,6 +9,7 @@ describe('safe expression language', () => {
   it('filters items without evaluating JavaScript', () => {
     const item = createItem('Prepare material');
     expect(item.createdWithVersion).toBe(APP_VERSION);
+    expect(Number.isNaN(new Date(APP_RELEASED_AT).getTime())).toBe(false);
     item.tags = ['work', 'writing']; item.priority = 4;
     expect(compileQuery('state == "open" && priority >= 3 && includes(tags, "work")')(item)).toBe(true);
     expect(() => parseExpression('globalThis.fetch("https://example.com")')).not.toThrow();
