@@ -248,8 +248,11 @@ dd { margin: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 .empty-panel { border: 1px dashed #bdbdbd; border-radius: 15px; padding: 40px; text-align: center; color: var(--muted); }
 .empty-panel .icon { font-size: 30px; }
 .all-sections { border: 1px solid var(--line); border-radius: 18px; background: var(--card); padding: 0 20px; }
-.all-sections details summary { text-transform: capitalize; font-size: 16px; font-weight: 600; }
-.all-sections details summary b { font-size: 11px; background: #eeeeee; padding: 3px 8px; border-radius: 99px; }
+.all-sections details summary { min-height: 46px; align-items: center; color: var(--muted); text-transform: capitalize; font-size: 13px; font-weight: 500; letter-spacing: .015em; }
+.all-sections details[open] summary { color: #444; }
+.all-sections details summary b { min-width: 24px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 500; background: #f1f1f1; padding: 3px 7px; border-radius: 99px; }
+.all-sections details summary::after { font-size: 14px; font-weight: 400; }
+.all-sections .item-list { padding: 0 0 7px; }
 .table-wrap { overflow: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 11px; }
 th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 9px; }

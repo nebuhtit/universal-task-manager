@@ -48,7 +48,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.3.3', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.3.4', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -69,6 +69,14 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.getByText('Prepare material by Thursday')).toBeVisible();
+  await page.getByRole('button', { name: 'All items' }).click();
+  const openSection = page.locator('.all-sections details').filter({ has: page.getByText('open', { exact: true }) }).first();
+  const openLabel = openSection.locator('summary > span');
+  await expect(openLabel).toHaveCSS('font-size', '13px');
+  await expect(openLabel).toHaveCSS('font-weight', '500');
+  await expect(openLabel).toHaveCSS('color', 'rgb(68, 68, 68)');
+  await expect(openSection.locator('.item-title')).toHaveCSS('font-size', '15px');
+  await expect(openSection.locator('.item-title')).toHaveCSS('color', 'rgb(13, 13, 13)');
   await page.getByRole('button', { name: 'Views' }).click();
   const nowSection = page.locator('.view-section').filter({ hasText: 'Now' });
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
@@ -78,7 +86,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.3.3', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.3.4', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
