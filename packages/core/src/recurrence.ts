@@ -1,6 +1,6 @@
 import { RRule, RRuleSet } from 'rrule';
 import { durationToMs } from './dsl.js';
-import { APP_VERSION } from './types.js';
+import { APP_ID, APP_NAME, APP_VERSION } from './types.js';
 import type { ReconcileResult, UniversalItem, WorkspaceDocument } from './types.js';
 
 function shiftIso(value: string | undefined, deltaMs: number): string | undefined {
@@ -58,6 +58,8 @@ function createOccurrence(series: UniversalItem, anchor: Date, sequence: number)
   return {
     ...snapshot,
     id: deterministicOccurrenceId(series.id, recurrenceId),
+    createdWithAppId: APP_ID,
+    createdWithAppName: APP_NAME,
     createdWithVersion: APP_VERSION,
     role: 'occurrence',
     revision: 1,

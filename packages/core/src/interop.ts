@@ -1,4 +1,4 @@
-import { createItem, SCHEMA_VERSION } from './types.js';
+import { APP_ID, APP_NAME, createItem, SCHEMA_VERSION } from './types.js';
 import { validateWorkspace } from './schema.js';
 import type { UniversalItem, WorkspaceDocument } from './types.js';
 
@@ -69,6 +69,9 @@ export function toICS(workspace: WorkspaceDocument): { ics: string; warnings: In
     lines.push(`X-UTM-ID:${escapeText(item.id)}`);
     lines.push(`X-UTM-STATE:${item.state}`);
     lines.push(`X-UTM-PRESET:${item.preset}`);
+    lines.push(`X-UTM-CREATED-WITH-APP-ID:${escapeText(item.createdWithAppId)}`);
+    lines.push(`X-UTM-CREATED-WITH-APP-NAME:${escapeText(item.createdWithAppName)}`);
+    lines.push(`X-UTM-CREATED-WITH-VERSION:${escapeText(item.createdWithVersion)}`);
     lines.push(`X-UTM-CREATED-WITH:${escapeText(item.createdWithVersion)}`);
     if (item.recurrence) lines.push(`X-UTM-AUTORENEW:${item.recurrence.autoRenew ? 'TRUE' : 'FALSE'}`);
     if (item.tags.length) lines.push(`CATEGORIES:${item.tags.map(escapeText).join(',')}`);
@@ -104,7 +107,16 @@ export function fromICS(source: string, workspace: WorkspaceDocument): ImportRes
     item.title = unescapeText(props.get('SUMMARY') ?? item.title);
     item.bodyMarkdown = unescapeText(props.get('DESCRIPTION') ?? '');
     item.schemaVersion = SCHEMA_VERSION;
-    if (!existing && props.get('X-UTM-CREATED-WITH')) (item as { createdWithVersion: string }).createdWithVersion = props.get('X-UTM-CREATED-WITH')!;
+    if (!existing) {
+      const provenance = item as unknown as {
+        createdWithAppId: string;
+        createdWithAppName: string;
+        createdWithVersion: string;
+      };
+      provenance.createdWithAppId = props.get('X-UTM-CREATED-WITH-APP-ID') ?? APP_ID;
+      provenance.createdWithAppName = props.get('X-UTM-CREATED-WITH-APP-NAME') ?? APP_NAME;
+      provenance.createdWithVersion = props.get('X-UTM-CREATED-WITH-VERSION') ?? props.get('X-UTM-CREATED-WITH') ?? item.createdWithVersion;
+    }
     item.role = props.has('RRULE') ? 'series_template' : 'standalone';
     item.preset = (props.get('X-UTM-PRESET') as UniversalItem['preset'] | undefined) ?? (kind === 'VEVENT' ? 'event' : 'task');
     const start = props.get('DTSTART');

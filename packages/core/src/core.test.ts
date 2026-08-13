@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, compileQuery, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, backfillItemCreationVersions, compileQuery, createId, createItem, createWorkspace, evaluateFormulas, fromICS, makeSeries,
   parseExpression, reconcileRecurrences, runAutomationEvents, toICS, validateWorkspace,
 } from './index.js';
 import type { AutomationRule, DomainEvent } from './types.js';
@@ -8,6 +8,8 @@ import type { AutomationRule, DomainEvent } from './types.js';
 describe('safe expression language', () => {
   it('filters items without evaluating JavaScript', () => {
     const item = createItem('Prepare material');
+    expect(item.createdWithAppId).toBe(APP_ID);
+    expect(item.createdWithAppName).toBe(APP_NAME);
     expect(item.createdWithVersion).toBe(APP_VERSION);
     expect(Number.isNaN(new Date(APP_RELEASED_AT).getTime())).toBe(false);
     item.tags = ['work', 'writing']; item.priority = 4;
@@ -27,12 +29,16 @@ describe('safe expression language', () => {
   it('backfills legacy creation versions without changing existing values', () => {
     const workspace = createWorkspace();
     const legacy = createItem('Legacy');
+    delete (legacy as { createdWithAppId?: string }).createdWithAppId;
+    delete (legacy as { createdWithAppName?: string }).createdWithAppName;
     delete (legacy as { createdWithVersion?: string }).createdWithVersion;
     const current = createItem('Current');
     workspace.items[legacy.id] = legacy;
     workspace.items[current.id] = current;
     expect(backfillItemCreationVersions(workspace)).toBe(1);
     expect(legacy.createdWithVersion).toBe('0.1.0');
+    expect(legacy.createdWithAppId).toBe(APP_ID);
+    expect(legacy.createdWithAppName).toBe(APP_NAME);
     expect(current.createdWithVersion).toBe(APP_VERSION);
   });
 });
@@ -109,10 +115,16 @@ describe('interoperability', () => {
     item.schedule = { timezone: 'UTC', startAt: '2026-08-12T10:00:00.000Z', endAt: '2026-08-12T11:00:00.000Z' };
     source.items[item.id] = item;
     const ics = toICS(source).ics;
+    expect(ics).toContain(`X-UTM-CREATED-WITH-APP-ID:${APP_ID}`);
+    expect(ics).toContain(`X-UTM-CREATED-WITH-APP-NAME:${APP_NAME}`);
+    expect(ics).toContain(`X-UTM-CREATED-WITH-VERSION:${APP_VERSION}`);
     const target = createWorkspace();
     expect(fromICS(ics, target).imported).toBe(1);
     expect(fromICS(ics, target).updated).toBe(1);
     expect(Object.keys(target.items)).toHaveLength(1);
+    expect(target.items[item.id]?.createdWithAppId).toBe(APP_ID);
+    expect(target.items[item.id]?.createdWithAppName).toBe(APP_NAME);
+    expect(target.items[item.id]?.createdWithVersion).toBe(APP_VERSION);
     expect(validateWorkspace(target).valid).toBe(true);
   });
 });

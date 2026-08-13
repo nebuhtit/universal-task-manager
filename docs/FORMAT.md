@@ -6,7 +6,7 @@
 
 An item has a `role` (`standalone`, `series_template`, or `occurrence`) and a UI `preset` (`task`, `event`, `habit`, or `blank`). Presets never change the wire type. Occurrence IDs are deterministic from the series ID and recurrence anchor.
 
-Every item stores an immutable `createdWithVersion` value. It records the app version that materialized that exact item or occurrence and is preserved by edits and merges. Workspaces created before version 0.2.0 are backfilled with `0.1.0` when first unlocked by a newer app.
+Every item stores immutable provenance in `createdWithAppId`, `createdWithAppName`, and `createdWithVersion`. The stable app ID supports machine-readable interchange while the name and version make provenance understandable to people. These values identify the application that materialized that exact item or occurrence and are preserved by edits and merges. Existing items are backfilled with the Universal Task Manager identity while retaining their original creation version.
 
 `createdAt` is immutable creation metadata. `updatedAt` is system-managed and changes whenever the item changes; neither timestamp is directly editable in the item editor.
 
@@ -42,6 +42,6 @@ Only identical `workspaceId` values may merge. Automerge combines concurrent his
 
 ## iCalendar
 
-Exports use `VEVENT` for bounded scheduled items and `VTODO` otherwise. Stable identity uses `UID` plus `X-UTM-ID`; recurrence maps to `RRULE`, `RDATE`, and `EXDATE`. UTM-only semantics use `X-UTM-STATE`, `X-UTM-PRESET`, and `X-UTM-AUTORENEW`.
+Exports use `VEVENT` for bounded scheduled items and `VTODO` otherwise. Stable identity uses `UID` plus `X-UTM-ID`; recurrence maps to `RRULE`, `RDATE`, and `EXDATE`. UTM-only semantics use `X-UTM-STATE`, `X-UTM-PRESET`, `X-UTM-AUTORENEW`, and the `X-UTM-CREATED-WITH-*` provenance fields.
 
 Custom fields, relations, habit configuration, automation rules, dashboards, and rich reminder behavior are not fully representable in RFC 5545. The SDK reports these losses as warnings.

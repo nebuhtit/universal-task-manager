@@ -1,6 +1,8 @@
 export const SCHEMA_VERSION = '1.0.0';
-export const APP_VERSION = '0.2.2';
-export const APP_RELEASED_AT = '2026-08-13T10:19:39+03:00';
+export const APP_ID = 'dev.universal-task-manager';
+export const APP_NAME = 'Universal Task Manager';
+export const APP_VERSION = '0.2.3';
+export const APP_RELEASED_AT = '2026-08-13T10:31:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -80,6 +82,8 @@ export interface LinkAttachment { id: string; url: string; title?: string; mimeT
 export interface UniversalItem {
   id: string;
   schemaVersion: string;
+  readonly createdWithAppId: string;
+  readonly createdWithAppName: string;
   readonly createdWithVersion: string;
   revision: number;
   role: ItemRole;
@@ -236,8 +240,12 @@ export function createId(): string {
 export function backfillItemCreationVersions(workspace: WorkspaceDocument, legacyVersion = LEGACY_APP_VERSION): number {
   let changed = 0;
   for (const item of Object.values(workspace.items)) {
-    const mutable = item as UniversalItem & { createdWithVersion?: string };
-    if (!mutable.createdWithVersion) { mutable.createdWithVersion = legacyVersion; changed += 1; }
+    const mutable = item as UniversalItem & { createdWithAppId?: string; createdWithAppName?: string; createdWithVersion?: string };
+    let itemChanged = false;
+    if (!mutable.createdWithAppId) { mutable.createdWithAppId = APP_ID; itemChanged = true; }
+    if (!mutable.createdWithAppName) { mutable.createdWithAppName = APP_NAME; itemChanged = true; }
+    if (!mutable.createdWithVersion) { mutable.createdWithVersion = legacyVersion; itemChanged = true; }
+    if (itemChanged) changed += 1;
   }
   return changed;
 }
@@ -289,6 +297,8 @@ export function createItem(
   const item: UniversalItem = {
     id: createId(),
     schemaVersion: SCHEMA_VERSION,
+    createdWithAppId: APP_ID,
+    createdWithAppName: APP_NAME,
     createdWithVersion: APP_VERSION,
     revision: 1,
     role: 'standalone',
