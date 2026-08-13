@@ -9,7 +9,7 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.1.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.2.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -62,6 +62,10 @@ export const itemJsonSchema = {
         sequence: { type: 'integer', minimum: 0 }, templateRevision: { type: 'integer', minimum: 1 },
       },
     },
+    recurrenceOverride: {
+      type: 'object', additionalProperties: false, required: ['kind', 'sourceSeriesId', 'recurrenceId'],
+      properties: { kind: { enum: ['this_occurrence', 'future_split'] }, sourceSeriesId: { type: 'string' }, recurrenceId: { type: 'string', format: 'date-time' } },
+    },
     progress: {
       type: 'object', additionalProperties: false, required: ['mode', 'current', 'target'],
       properties: { mode: { enum: ['boolean', 'percent', 'counter'] }, current: { type: 'number' }, target: { type: 'number' }, unit: { type: 'string' } },
@@ -104,7 +108,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.1.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.2.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -128,7 +132,7 @@ const customFieldSchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.1.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.2.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -151,15 +155,26 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.1.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.2.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones'],
+  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences'],
   properties: {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
     items: { type: 'object', additionalProperties: itemJsonSchema }, customFields: { type: 'object', additionalProperties: customFieldSchema },
     views: { type: 'object', additionalProperties: viewJsonSchema }, dashboards: { type: 'object' }, automations: { type: 'object' },
     automationLog: { type: 'array' }, tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
+    calendarPreferences: {
+      type: 'object', additionalProperties: false,
+      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'includeStates'],
+      properties: {
+        timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
+        workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
+        weekends: { type: 'boolean' }, snapMinutes: { type: 'integer', minimum: 1 }, defaultDurationMinutes: { type: 'integer', minimum: 1 },
+        timeFormat: { const: '24h' }, selectedViewId: { type: 'string' },
+        includeStates: { type: 'array', items: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] } },
+      },
+    },
   },
 } as const;
 
@@ -249,6 +264,11 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   }));
   source.schemaVersion = SCHEMA_VERSION;
   source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.tombstones ??= {};
+  source.calendarPreferences ??= {
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, weekends: true,
+    snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', includeStates: ['open', 'done'],
+  };
   const validation = validateWorkspace(source);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   if (previous !== SCHEMA_VERSION) warnings.unshift(`Migrated workspace schema ${previous} to ${SCHEMA_VERSION}`);

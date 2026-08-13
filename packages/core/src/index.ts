@@ -5,3 +5,4 @@ export * from './recurrence.js';
 export * from './automation.js';
 export * from './interop.js';
 export * from './portability.js';
+export * from './calendar.js';

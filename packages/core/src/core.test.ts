@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
   compileQuery, compileSort, createId, createItem, createPortablePackage, createWorkspace, evaluateFormulas, fromCanonicalJSON, fromICS, makeSeries,
-  migrateItem, parseExpression, parsePortablePackage, parseSortSource, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents,
+  materializeProjectedOccurrence, migrateItem, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
+  projectOccurrences, reconcileRecurrences, removeDuplicateReminders, restoreCalendarSchedules, runAutomationEvents,
   serializePortablePackage, serializeSortRules, toICS, validateWorkspace,
 } from './index.js';
 import type { AutomationRule, DomainEvent, UniversalItem } from './types.js';
@@ -106,6 +107,40 @@ describe('recurrence and auto-renew', () => {
   });
 });
 
+describe('calendar projection and mutations', () => {
+  it('projects future recurrence without creating workspace items, then materializes on interaction', () => {
+    const workspace = createWorkspace(); const item = createItem('Weekly');
+    item.schedule = { timezone: 'Europe/Moscow', startAt: '2026-10-20T07:00:00.000Z', endAt: '2026-10-20T08:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=WEEKLY;COUNT=4'); workspace.items[series.id] = series;
+    const before = Object.keys(workspace.items).length;
+    const rows = projectOccurrences(workspace, new Date('2026-10-19T00:00:00Z'), new Date('2026-11-20T00:00:00Z'));
+    expect(rows).toHaveLength(4); expect(rows.every((row) => row.virtual)).toBe(true); expect(Object.keys(workspace.items)).toHaveLength(before);
+    const materialized = materializeProjectedOccurrence(workspace, rows[1]!);
+    expect(materialized.role).toBe('occurrence'); expect(Object.keys(workspace.items)).toHaveLength(before + 1);
+  });
+
+  it('moves a mixed calendar group by one delta and restores it atomically', () => {
+    const workspace = createWorkspace();
+    const timed = createItem('Timed'); timed.schedule = { timezone: 'UTC', startAt: '2026-08-13T08:00:00Z', endAt: '2026-08-13T09:00:00Z' };
+    const due = createItem('Due'); due.schedule = { timezone: 'UTC', dueAt: '2026-08-14T10:00:00Z' };
+    workspace.items[timed.id] = timed; workspace.items[due.id] = due;
+    const result = moveCalendarItems(workspace, [timed.id, due.id], 86_400_000);
+    expect(timed.schedule.startAt).toContain('2026-08-14'); expect(due.schedule.dueAt).toContain('2026-08-15');
+    restoreCalendarSchedules(workspace, result.before);
+    expect(timed.schedule.startAt).toContain('2026-08-13'); expect(due.schedule.dueAt).toContain('2026-08-14');
+  });
+
+  it('supports this occurrence and this-and-future recurrence moves', () => {
+    const workspace = createWorkspace(); const item = createItem('Series'); item.schedule = { timezone: 'UTC', startAt: '2026-08-13T08:00:00Z' };
+    const series = makeSeries(item, 'FREQ=WEEKLY;COUNT=8'); workspace.items[series.id] = series;
+    const projected = projectOccurrences(workspace, new Date('2026-08-01'), new Date('2026-10-31'));
+    moveRecurringOccurrence(workspace, projected[1]!, 3_600_000, 'this_occurrence');
+    expect(Object.values(workspace.items).some((entry) => entry.recurrenceOverride?.kind === 'this_occurrence')).toBe(true);
+    moveRecurringOccurrence(workspace, projected[3]!, 86_400_000, 'this_and_future');
+    expect(Object.values(workspace.items).some((entry) => entry.recurrenceOverride?.kind === 'future_split')).toBe(true);
+  });
+});
+
 describe('automation engine', () => {
   it('applies allowlisted actions and logs an idempotent run', () => {
     const workspace = createWorkspace();
@@ -143,7 +178,7 @@ describe('interoperability', () => {
     const item = createItem('Old item') as UniversalItem & { foreignFlag?: string };
     item.schemaVersion = '1.0.0'; item.foreignFlag = 'preserve me'; old.items[item.id] = item;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.schemaVersion).toBe('1.1.0');
+    expect(migrated.schemaVersion).toBe('1.2.0');
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
     expect(validateWorkspace(migrated).valid).toBe(true);
   });

@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.1.0';
+export const SCHEMA_VERSION = '1.2.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.5.0';
-export const APP_RELEASED_AT = '2026-08-13T13:20:00+03:00';
+export const APP_VERSION = '0.6.0';
+export const APP_RELEASED_AT = '2026-08-13T14:15:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -48,6 +48,12 @@ export interface OccurrenceInfo {
   recurrenceId: ISODateTime;
   sequence: number;
   templateRevision: number;
+}
+
+export interface RecurrenceOverride {
+  kind: 'this_occurrence' | 'future_split';
+  sourceSeriesId: string;
+  recurrenceId: ISODateTime;
 }
 
 export interface Progress {
@@ -133,6 +139,7 @@ export interface UniversalItem {
   schedule?: Schedule;
   recurrence?: RecurrenceRule;
   occurrence?: OccurrenceInfo;
+  recurrenceOverride?: RecurrenceOverride;
   progress?: Progress;
   habit?: Habit;
   priority?: 0 | 1 | 2 | 3 | 4;
@@ -283,6 +290,36 @@ export interface WorkspaceDocument {
   automations: Record<string, AutomationRule>;
   automationLog: AutomationLogEntry[];
   tombstones: Record<string, ISODateTime>;
+  calendarPreferences: CalendarPreferences;
+}
+
+export type CalendarViewMode = 'month' | 'week' | 'day' | 'three_day' | 'agenda';
+export interface CalendarPreferences {
+  timezone: string;
+  lastMode: CalendarViewMode;
+  weekStartsOn: 0 | 1;
+  workingHours: { start: string; end: string };
+  weekends: boolean;
+  snapMinutes: number;
+  defaultDurationMinutes: number;
+  timeFormat: '24h';
+  selectedViewId?: string;
+  includeStates: ItemState[];
+}
+
+export interface ProjectedOccurrence {
+  id: string;
+  sourceItemId: string;
+  materializedItemId?: string;
+  seriesId?: string;
+  recurrenceId?: ISODateTime;
+  virtual: boolean;
+  title: string;
+  state: ItemState;
+  preset: ItemPreset;
+  priority?: 0 | 1 | 2 | 3 | 4;
+  schedule: Schedule;
+  dueOnly: boolean;
 }
 
 export type Expression =
@@ -361,6 +398,12 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     automations: {},
     automationLog: [],
     tombstones: {},
+    calendarPreferences: {
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' },
+      weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h',
+      includeStates: ['open', 'done'],
+    },
   };
 }
 

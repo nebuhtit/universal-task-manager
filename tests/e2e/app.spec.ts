@@ -50,7 +50,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.5.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.6.0', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -76,7 +76,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.getByText('Prepare material by Thursday')).toBeVisible();
-  await page.getByRole('button', { name: 'All items' }).click();
+  await page.getByRole('button', { name: /^All items/ }).click();
   const openSection = page.locator('.all-sections details').filter({ has: page.getByText('Active', { exact: true }) }).first();
   const openLabel = openSection.locator('summary > span');
   await expect(openLabel).toHaveCSS('font-size', '13px');
@@ -100,7 +100,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.5.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.6.0', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -111,10 +111,31 @@ test('mobile shell stays usable at phone width', async ({ page }) => {
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await expect(page.locator('.bottom-nav')).toBeVisible();
-  await expect(page.locator('.bottom-nav svg.line-icon')).toHaveCount(4);
-  await page.getByRole('button', { name: 'All items' }).click();
+  await expect(page.locator('.bottom-nav svg.line-icon')).toHaveCount(5);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('button', { name: /Encrypted Transfer/ })).toBeVisible();
+  await page.getByRole('button', { name: /^All items/ }).click();
   await page.getByRole('button', { name: '+ New item' }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+});
+
+test('calendar switches modes and creates a timed universal item', async ({ page }, testInfo) => {
+  await page.getByLabel('Workspace name').fill('Calendar workspace');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await page.getByRole('button', { name: 'Calendar' }).click();
+  await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
+  if (testInfo.project.name === 'desktop') await expect(page.getByRole('grid', { name: /August 2026/ })).toBeVisible();
+  else await expect(page.locator('.calendar-modes').getByRole('button', { name: 'day', exact: true })).toHaveClass(/active/);
+  await page.locator('.calendar-modes').getByRole('button', { name: 'day', exact: true }).click();
+  const timedGrid = page.getByRole('row', { name: 'Timed' }).getByRole('gridcell');
+  await expect(timedGrid).toBeVisible();
+  await timedGrid.click({ position: { x: 80, y: 80 } });
+  await expect(page.getByRole('heading', { name: 'New calendar item' })).toBeVisible();
+  await page.getByLabel('Title', { exact: true }).fill('Calendar-created task');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Calendar-created task', { exact: true })).toBeVisible();
 });
 
 test('edited view parameters change results and survive reload', async ({ page }) => {
@@ -298,18 +319,20 @@ test('notifications auto-hide, close individually, and remain in the bell center
   await page.getByRole('button', { name: 'Unlock' }).click();
 
   const popups = page.locator('.notice-popups .notice-card');
-  await expect(popups).toHaveCount(2);
-  await page.getByRole('button', { name: 'Close notification' }).first().click();
   await expect(popups).toHaveCount(1);
+  await expect(popups.getByText('Reminders · 2 · critical', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close notification' }).click();
+  await expect(popups).toHaveCount(0);
   await page.waitForTimeout(3_200);
   await expect(page.locator('.notice-popups')).toBeHidden();
 
   await page.getByRole('button', { name: 'Notifications' }).click();
   const center = page.getByRole('complementary', { name: 'Notification center' });
   await expect(center).toBeVisible();
-  await expect(center.locator('.notice-card')).toHaveCount(2);
-  await center.getByRole('button', { name: 'Delete notification' }).first().click();
   await expect(center.locator('.notice-card')).toHaveCount(1);
+  await expect(center.getByText('Reminders · 2 · critical', { exact: true })).toBeVisible();
+  await center.getByRole('button', { name: 'Delete notification' }).click();
+  await expect(center.locator('.notice-card')).toHaveCount(0);
   await center.getByRole('button', { name: 'Close notification center' }).click();
   await expect(center).toBeHidden();
 });
@@ -356,6 +379,9 @@ test('recurring item accepts Due as its schedule anchor and explains missing dat
   await page.getByRole('button', { name: 'All items' }).click();
   await page.getByRole('button', { name: '+ New item' }).click();
   await page.getByLabel('Title', { exact: true }).fill('Weekly due-only item');
+  await page.getByText('Schedule & deadline', { exact: true }).click();
+  await expect(page.getByLabel('Start', { exact: true })).not.toHaveValue('');
+  await page.getByLabel('Start', { exact: true }).fill('');
   await page.getByText('Recurrence & auto-renew', { exact: true }).click();
   await page.getByLabel('Make this a recurring series').check();
   await page.getByLabel('Repeat frequency').selectOption('WEEKLY');
@@ -369,7 +395,6 @@ test('recurring item accepts Due as its schedule anchor and explains missing dat
   await page.getByRole('button', { name: 'Save item' }).click();
   await expect(page.getByRole('alert')).toHaveText('A recurring item needs a Start or Due date.');
 
-  await page.getByText('Schedule & deadline', { exact: true }).click();
   const dueInOneHour = await page.evaluate(() => {
     const date = new Date(Date.now() + 3_600_000);
     return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);

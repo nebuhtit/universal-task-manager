@@ -1,13 +1,13 @@
 import { RRule, RRuleSet } from 'rrule';
 import { durationToMs } from './dsl.js';
 import { APP_ID, APP_NAME, APP_VERSION } from './types.js';
-import type { ReconcileResult, UniversalItem, WorkspaceDocument } from './types.js';
+import type { ProjectedOccurrence, ReconcileResult, UniversalItem, WorkspaceDocument } from './types.js';
 
 function shiftIso(value: string | undefined, deltaMs: number): string | undefined {
   return value ? new Date(new Date(value).getTime() + deltaMs).toISOString() : undefined;
 }
 
-function deterministicOccurrenceId(seriesId: string, anchor: string): string {
+export function deterministicOccurrenceId(seriesId: string, anchor: string): string {
   return `occ_${seriesId}_${anchor.replace(/[-:.TZ]/g, '')}`;
 }
 
@@ -19,7 +19,7 @@ function addDates(rule: RRuleSet, values: string[], exclude = false): void {
   }
 }
 
-function buildRule(series: UniversalItem): RRuleSet {
+export function buildRecurrenceRule(series: UniversalItem): RRuleSet {
   if (!series.recurrence || !series.schedule?.startAt) throw new Error(`Series ${series.id} has no recurrence start`);
   const value = series.recurrence.rrule.replace(/^RRULE:/, '');
   const parsed = RRule.fromString(value);
@@ -35,7 +35,7 @@ function buildRule(series: UniversalItem): RRuleSet {
   return set;
 }
 
-function createOccurrence(series: UniversalItem, anchor: Date, sequence: number): UniversalItem {
+export function createOccurrence(series: UniversalItem, anchor: Date, sequence: number): UniversalItem {
   // Automerge draft values are document proxies. Copying their nested fields into
   // a new item would create forbidden cross-document references, so occurrences
   // are always materialized from a detached snapshot.
@@ -86,7 +86,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
     (item) => item.role === 'series_template' && item.recurrence && item.schedule?.startAt && !item.deletedAt,
   );
   for (const series of templates) {
-    const rule = buildRule(series);
+    const rule = buildRecurrenceRule(series);
     const start = new Date(series.schedule!.startAt!);
     const next = rule.after(now, true);
     const anchors = rule.between(new Date(start.getTime() - 1), now, true);

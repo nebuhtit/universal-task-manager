@@ -12,6 +12,8 @@ An English-only, installable, local-first PWA built around one universal item in
 - Password-locked local storage and encrypted `.utm` transfer files using Argon2id and XChaCha20-Poly1305.
 - Automerge history inside `.utm` files for deterministic manual merging between devices.
 - Canonical JSON, JSON Schema, iCalendar import/export, and a CLI/SDK.
+- Versioned plaintext packages for items, View definitions/results, and bundles, with conflict preview before atomic import.
+- A responsive Month/Week/Day/3-day/Agenda calendar with View filtering, virtual recurrence projection, drag/resize, multi-selection, keyboard move, and Undo.
 
 ## Run locally
 
@@ -33,7 +35,7 @@ pnpm test
 pnpm test:e2e
 ```
 
-The core test suite covers weekly auto-renew catch-up, end-of-month recurrence, exclusions, idempotency, formula cycles, automation loops, encrypted-container tampering, wrong passwords, CRDT merge, and iCalendar re-import.
+The core test suite also covers portable JSON migration, calendar projection/materialization, mixed group moves and recurrence scopes alongside auto-renew, automation, encryption, merge, and iCalendar behavior.
 
 ## CLI
 
@@ -48,7 +50,7 @@ pnpm utm merge device-a.utm device-b.utm > merged.utm
 pnpm utm from-json workspace.json > workspace.utm
 ```
 
-Redirecting JSON or ICS output to a file is an explicit creation of plaintext data. The PWA itself exports only encrypted `.utm` containers.
+Redirecting JSON or ICS output to a file is an explicit creation of plaintext data. The PWA warns before every portable plaintext JSON download; complete workspace transfer remains encrypted as `.utm`.
 
 ## Repository
 
