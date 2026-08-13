@@ -304,6 +304,8 @@ dd { margin: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 .all-sections details summary b { min-width: 24px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 500; background: #f1f1f1; padding: 3px 7px; border-radius: 99px; }
 .all-sections details summary::after { font-size: 14px; font-weight: 400; }
 .all-sections .item-list { padding: 0 0 7px; }
+.all-sections .section-help { margin: -2px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.all-sections .recurring-items summary span { color: #333; }
 .table-wrap { overflow: auto; }
 .state-column { width: 38px; padding-left: 8px !important; padding-right: 4px !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

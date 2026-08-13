@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.0.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.4.0';
-export const APP_RELEASED_AT = '2026-08-13T11:38:00+03:00';
+export const APP_VERSION = '0.4.1';
+export const APP_RELEASED_AT = '2026-08-13T12:02:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';

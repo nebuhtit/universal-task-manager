@@ -35,6 +35,8 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByPlaceholder('Add new task').fill('Prepare material by Thursday');
   await page.getByPlaceholder('Add new task').press('Enter');
   await expect(page.getByText('Prepare material by Thursday')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '1 active item' })).toBeVisible();
+  await expect(page.getByText('Active means not completed, cancelled, archived, or automatically closed.')).toBeVisible();
 
   await page.getByText('Prepare material by Thursday', { exact: true }).click();
   const scheduleSection = page.getByText('Schedule & deadline', { exact: true });
@@ -48,7 +50,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.4.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.4.1', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -75,7 +77,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.getByText('Prepare material by Thursday')).toBeVisible();
   await page.getByRole('button', { name: 'All items' }).click();
-  const openSection = page.locator('.all-sections details').filter({ has: page.getByText('open', { exact: true }) }).first();
+  const openSection = page.locator('.all-sections details').filter({ has: page.getByText('Active', { exact: true }) }).first();
   const openLabel = openSection.locator('summary > span');
   await expect(openLabel).toHaveCSS('font-size', '13px');
   await expect(openLabel).toHaveCSS('font-weight', '500');
@@ -98,7 +100,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.4.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.4.1', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -344,8 +346,9 @@ test('recurring item accepts Due as its schedule anchor and explains missing dat
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
 
   await page.getByRole('button', { name: 'All items' }).click();
-  await page.getByText('series templates', { exact: true }).click();
-  const templatesSection = page.locator('.all-sections details').filter({ has: page.getByText('series templates', { exact: true }) });
+  const templatesSection = page.locator('.all-sections details').filter({ has: page.getByText('Recurring items', { exact: true }) });
+  await expect(templatesSection).toHaveAttribute('open', '');
+  await expect(templatesSection.getByText('These are the repeating source items. Each scheduled cycle appears separately in the status sections above.')).toBeVisible();
   await expect(templatesSection.getByText('Weekly due-only item', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Home' }).click();
