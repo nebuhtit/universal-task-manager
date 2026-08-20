@@ -1213,6 +1213,7 @@ export default function App() {
     const item = createUiItem(quick.trim());
     commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
     setQuick('');
+    setEditor(item);
   };
 
   return <div className="app-shell">
