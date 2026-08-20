@@ -486,6 +486,14 @@ function isHabitOccurrence(workspace: WorkspaceDocument, item: UniversalItem): b
   return item.role === 'occurrence' && Boolean(item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit);
 }
 function isItemTemplate(item: UniversalItem): boolean { return item.extensions?.['utm:template'] === true; }
+function withoutTemplateMarker(item: UniversalItem): UniversalItem {
+  const next = clean(item);
+  if (next.extensions) {
+    delete next.extensions['utm:template'];
+    if (Object.keys(next.extensions).length === 0) delete next.extensions;
+  }
+  return next;
+}
 
 function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onClose }: {
   initial: UniversalItem; workspace: WorkspaceDocument; isNew?: boolean; onSave: (item: UniversalItem) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string) => UniversalItem; onToggleSubtask: (id: string) => void; onClose: () => void;
@@ -504,8 +512,8 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
   const applyTemplate = (template: UniversalItem) => {
     const identity = { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, revision: item.revision, createdWithAppId: item.createdWithAppId, createdWithAppName: item.createdWithAppName, createdWithVersion: item.createdWithVersion };
     const next = clean({ ...template, ...identity, state: 'open' as const, role: 'standalone' as const, extensions: { ...template.extensions } });
-    if (next.extensions) delete next.extensions['utm:template'];
-    setItem(next); setTags(next.tags.join(', ')); setContexts(next.contexts.join(', ')); setRecurring(false); setIsTemplate(false); setJsonDraft(JSON.stringify(next, null, 2)); setJsonDirty(false);
+    const cleanNext = withoutTemplateMarker(next);
+    setItem(cleanNext); setTags(cleanNext.tags.join(', ')); setContexts(cleanNext.contexts.join(', ')); setRecurring(false); setIsTemplate(false); setJsonDraft(JSON.stringify(cleanNext, null, 2)); setJsonDirty(false);
   };
   const importJsonRef = useRef<HTMLInputElement>(null);
   const definitions = Object.values(workspace.customFields);
@@ -593,6 +601,7 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
     try {
       if (!item.title.trim()) throw new Error('Add a title before saving.');
       let result = { ...item, title: item.title.trim(), tags: commaList(tags), contexts: commaList(contexts), updatedAt: new Date().toISOString(), revision: item.revision + (workspace.items[item.id] ? 1 : 0) };
+      result = withoutTemplateMarker(result);
       result.extensions = { ...result.extensions };
       if (isTemplate) result.extensions['utm:template'] = true; else delete result.extensions['utm:template'];
       const existing = workspace.items[item.id];
