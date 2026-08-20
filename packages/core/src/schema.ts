@@ -237,8 +237,10 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   item.revision ??= 1; item.bodyMarkdown ??= ''; item.contexts ??= []; item.tags ??= []; item.reminders ??= []; item.relations ??= []; item.attachments ??= []; item.custom ??= {};
   if (item.preset === 'habit') {
     item.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
-    if (item.habit && typeof item.habit === 'object' && !Array.isArray(item.habit)) (item.habit as Record<string, unknown>).completedDates ??= [];
   }
+  // Older workspaces could enable habit tracking on any preset. Backfill the
+  // history field before strict validation regardless of the item's preset.
+  if (item.habit && typeof item.habit === 'object' && !Array.isArray(item.habit)) (item.habit as Record<string, unknown>).completedDates ??= [];
   const validation = validateItem(item);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   return { value: item as unknown as UniversalItem, warnings };

@@ -209,10 +209,15 @@ describe('interoperability', () => {
     delete (old.calendarPreferences as Partial<typeof old.calendarPreferences>).sleepSchedule;
     const item = createItem('Old item') as UniversalItem & { foreignFlag?: string };
     item.schemaVersion = '1.0.0'; item.foreignFlag = 'preserve me'; old.items[item.id] = item;
+    const legacyHabit = createItem('Legacy habit');
+    legacyHabit.habit = { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
+    delete (legacyHabit.habit as Partial<NonNullable<UniversalItem['habit']>>).completedDates;
+    old.items[legacyHabit.id] = legacyHabit;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
     expect(migrated.schemaVersion).toBe('1.4.0');
     expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
+    expect(migrated.items[legacyHabit.id]!.habit?.completedDates).toEqual([]);
     expect(validateWorkspace(migrated).valid).toBe(true);
   });
 
