@@ -13,6 +13,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       includeAssets: ['icon.svg'],
       manifest: {
         id: base,
@@ -25,10 +28,7 @@ export default defineConfig({
         start_url: base,
         icons: [{ src: `${base}icon.svg`, sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
       },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
-        cleanupOutdatedCaches: true,
-        navigateFallback: '/index.html',
+      injectManifest: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
       },
     }),

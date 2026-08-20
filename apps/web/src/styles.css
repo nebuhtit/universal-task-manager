@@ -381,6 +381,11 @@ label.check input { width: 18px; height: 18px; }
 .settings-card hr { border: 0; border-top: 1px solid var(--line); margin: 25px 0; }
 .settings-actions { display: grid; gap: 7px; }
 .settings-actions .secondary { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.background-push { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 13px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.background-push strong, .background-push small { display: block; }
+.background-push small, .push-privacy + .hint { color: var(--muted); font-size: 11px; margin-top: 3px; }
+.push-privacy { margin-top: 12px; }
+.push-privacy select { margin-top: 5px; }
 .inline-menu { position: relative; display: inline-block; }
 .inline-menu > summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 9px; background: var(--card); padding: 7px 11px; font-size: 12px; }
 .inline-menu > summary::-webkit-details-marker { display: none; }

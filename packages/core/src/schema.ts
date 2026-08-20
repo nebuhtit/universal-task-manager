@@ -9,7 +9,7 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.5.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.6.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -108,7 +108,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.5.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.6.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -132,7 +132,7 @@ const customFieldSchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.5.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.6.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -155,9 +155,9 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.5.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.6.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences'],
+  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
@@ -174,6 +174,14 @@ export const workspaceJsonSchema = {
         weekends: { type: 'boolean' }, snapMinutes: { type: 'integer', minimum: 1 }, defaultDurationMinutes: { type: 'integer', minimum: 1 },
         timeFormat: { const: '24h' }, language: { enum: ['en', 'ru', 'es', 'de', 'fr', 'ko'] }, selectedViewId: { type: 'string' },
         includeStates: { type: 'array', items: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] } },
+      },
+    },
+    pushPreferences: {
+      type: 'object', additionalProperties: false, required: ['enabled', 'contentMode'],
+      properties: {
+        enabled: { type: 'boolean' }, serviceUrl: { type: 'string', format: 'uri' },
+        deviceId: { type: 'string', minLength: 1 }, deviceSecret: { type: 'string', minLength: 16 },
+        contentMode: { enum: ['generic', 'detailed'] }, lastSyncedAt: { type: 'string', format: 'date-time' }, lastError: { type: 'string' },
       },
     },
   },
@@ -271,6 +279,10 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   }));
   source.schemaVersion = SCHEMA_VERSION;
   source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.tombstones ??= {};
+  source.pushPreferences ??= { enabled: false, contentMode: 'generic' };
+  const pushPreferences = source.pushPreferences as Record<string, unknown>;
+  pushPreferences.enabled = pushPreferences.enabled === true;
+  pushPreferences.contentMode = pushPreferences.contentMode === 'detailed' ? 'detailed' : 'generic';
   source.calendarPreferences ??= {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, weekends: true,

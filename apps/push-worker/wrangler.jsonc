@@ -1,0 +1,18 @@
+{
+  "name": "universal-task-manager-push",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "universal-task-manager-push",
+      "database_id": "b3ef1328-9932-4337-9650-53d10d052388"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://nebuhtit.github.io,http://127.0.0.1:5173,http://localhost:5173",
+    "VAPID_SUBJECT": "mailto:admin@example.invalid"
+  }
+}

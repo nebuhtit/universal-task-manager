@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.5.0';
+export const SCHEMA_VERSION = '1.6.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.8.6';
-export const APP_RELEASED_AT = '2026-08-20T14:45:00+03:00';
+export const APP_VERSION = '0.9.0';
+export const APP_RELEASED_AT = '2026-08-20T15:30:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -293,6 +293,8 @@ export interface WorkspaceDocument {
   automationLog: AutomationLogEntry[];
   tombstones: Record<string, ISODateTime>;
   calendarPreferences: CalendarPreferences;
+  /** Encrypted credentials and preferences for optional background Web Push. */
+  pushPreferences: PushPreferences;
 }
 
 export type CalendarViewMode = 'month' | 'week' | 'day' | 'three_day' | 'agenda';
@@ -311,6 +313,21 @@ export interface CalendarPreferences {
   language: WorkspaceLanguage;
   selectedViewId?: string;
   includeStates: ItemState[];
+}
+
+export interface PushPreferences {
+  /** Background delivery is opt-in; local reminders work without this service. */
+  enabled: boolean;
+  /** Public Worker origin. It never receives the workspace password or database. */
+  serviceUrl?: string;
+  /** Random per-device identity, stored only inside the encrypted workspace. */
+  deviceId?: string;
+  /** Random bearer secret for the device identity, also encrypted at rest. */
+  deviceSecret?: string;
+  /** Whether notification title/body may leave this device for lock-screen display. */
+  contentMode: 'generic' | 'detailed';
+  lastSyncedAt?: ISODateTime;
+  lastError?: string;
 }
 
 export interface ProjectedOccurrence {
@@ -410,6 +427,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en',
       includeStates: ['open', 'done'],
     },
+    pushPreferences: { enabled: false, contentMode: 'generic' },
   };
 }
 
