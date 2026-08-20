@@ -78,26 +78,37 @@ function closingBoundary(current: UniversalItem, nextActivation: Date | undefine
   return nextActivation;
 }
 
+/** Converts legacy materialized Habit cycles into a compact completed-date log. */
+export function consolidateHabitOccurrences(workspace: WorkspaceDocument, now = new Date()): number {
+  let removed = 0;
+  const habits = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.preset === 'habit' && !item.deletedAt);
+  for (const series of habits) {
+    series.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
+    series.habit.completedDates ??= [];
+    const legacyOccurrences = Object.values(workspace.items).filter((item) => item.occurrence?.seriesId === series.id);
+    for (const occurrence of legacyOccurrences) {
+      if (occurrence.state === 'done') series.habit.completedDates.push(occurrence.occurrence!.recurrenceId.slice(0, 10));
+      workspace.tombstones[occurrence.id] = now.toISOString();
+      delete workspace.items[occurrence.id];
+      removed += 1;
+    }
+    series.habit.completedDates = [...new Set(series.habit.completedDates)].sort();
+    series.state = 'open';
+    delete series.closure;
+  }
+  return removed;
+}
+
 export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Date()): ReconcileResult {
   const created: UniversalItem[] = [];
   const autoClosed: UniversalItem[] = [];
   let untouched = 0;
+  consolidateHabitOccurrences(workspace, now);
   const templates = Object.values(workspace.items).filter(
     (item) => item.role === 'series_template' && item.recurrence && item.schedule?.startAt && !item.deletedAt,
   );
   for (const series of templates) {
     if (series.preset === 'habit') {
-      series.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
-      series.habit.completedDates ??= [];
-      const legacyOccurrences = Object.values(workspace.items).filter((item) => item.occurrence?.seriesId === series.id);
-      for (const occurrence of legacyOccurrences) {
-        if (occurrence.state === 'done') series.habit.completedDates.push(occurrence.occurrence!.recurrenceId.slice(0, 10));
-        workspace.tombstones[occurrence.id] = now.toISOString();
-        delete workspace.items[occurrence.id];
-      }
-      series.habit.completedDates = [...new Set(series.habit.completedDates)].sort();
-      series.state = 'open';
-      delete series.closure;
       untouched += 1;
       continue;
     }

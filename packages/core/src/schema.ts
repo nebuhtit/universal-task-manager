@@ -9,7 +9,7 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.3.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.4.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -108,7 +108,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.3.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.4.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -132,7 +132,7 @@ const customFieldSchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.3.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.4.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -155,7 +155,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.3.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.4.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences'],
   properties: {

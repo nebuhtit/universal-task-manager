@@ -210,7 +210,7 @@ describe('interoperability', () => {
     const item = createItem('Old item') as UniversalItem & { foreignFlag?: string };
     item.schemaVersion = '1.0.0'; item.foreignFlag = 'preserve me'; old.items[item.id] = item;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.schemaVersion).toBe('1.3.0');
+    expect(migrated.schemaVersion).toBe('1.4.0');
     expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
     expect(validateWorkspace(migrated).valid).toBe(true);

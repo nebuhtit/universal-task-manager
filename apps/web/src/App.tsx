@@ -11,7 +11,7 @@ import '@fullcalendar/react/skeleton.css';
 import {
   APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
   collectItemDependencies, collectScheduledEvents, compileQuery, compileSort, createId, createItem, createPortablePackage,
-  evaluateFormulas, makeSeries, materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems,
+  consolidateHabitOccurrences, evaluateFormulas, makeSeries, materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems,
   moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource, projectOccurrences, reconcileRecurrences,
   removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents, serializePortablePackage, serializeSortRules,
   type AutomationAction, type AutomationRule, type CustomFieldDefinition,
@@ -128,7 +128,7 @@ function LineIcon({ name }: { name: LineIconName }) {
   return <svg className="line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;
 }
 
-function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace) => void }) {
+function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace) => Promise<void> }) {
   const [name, setName] = useState('My workspace');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -140,14 +140,14 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     event.preventDefault(); setError(''); setBusy(true);
     try {
       if (!exists && password !== confirm) throw new Error('Passwords do not match');
-      onReady(exists ? await unlockLocalWorkspace(password) : await createLocalWorkspace(password, name));
+      await onReady(exists ? await unlockLocalWorkspace(password) : await createLocalWorkspace(password, name));
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
 
   const importWorkspace = async (file: File) => {
     setBusy(true); setError('');
-    try { onReady(await importAsLocalWorkspace(await file.text(), password)); }
+    try { await onReady(await importAsLocalWorkspace(await file.text(), password)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
@@ -956,6 +956,7 @@ export default function App() {
       }
       backfillItemCreationVersions(workspace);
       Object.values(workspace.items).forEach(removeDuplicateReminders);
+      consolidateHabitOccurrences(workspace, now);
     });
     let reconciliation: ReconcileResult;
     try { reconciliation = await reconcileOffMainThread(migratedDocument as WorkspaceDocument, now); }
@@ -1038,7 +1039,7 @@ export default function App() {
   };
 
   if (boot === 'checking') return <main className="splash"><div className="brand-mark">U</div><p>Opening encrypted workspace…</p></main>;
-  if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={(readySession) => void activate(readySession)} />;
+  if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={activate} />;
   if (!workspace || !session) return null;
 
   const nav: Array<[Page, LineIconName, string]> = [['home', 'home', 'Home'], ['calendar', 'calendar', 'Calendar'], ['all', 'items', 'All items'], ['automations', 'rules', 'Automations'], ['settings', 'settings', 'Settings']];
