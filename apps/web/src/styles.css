@@ -342,6 +342,8 @@ label.check input { width: 18px; height: 18px; }
 .install-guide p { margin: 8px 0; line-height: 1.45; }
 .install-guide strong { color: var(--ink); font-weight: 500; }
 .install-guide code { font-family: var(--code-font); font-size: .92em; }
+.language-picker { display: grid; gap: 7px; margin: 18px 0; font-size: 14px; font-weight: 500; }
+.language-picker select { min-height: 40px; }
 .views-stack { display: grid; gap: 16px; }
 .home-summary { padding: 10px 32px 0; }
 .home-summary p { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 11px; text-transform: capitalize; }

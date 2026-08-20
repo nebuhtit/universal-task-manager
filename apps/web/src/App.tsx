@@ -19,7 +19,7 @@ import {
   createWorkspace, fromICS, packageToTabular, parseCsv, tabularToPackage, toCsv, toICS,
   type AutomationAction, type AutomationRule, type CustomFieldDefinition,
   type CalendarViewMode, type PortableImportPreview, type ProjectedOccurrence, type RecurrenceEditScope,
-  type DomainEvent, type ItemPreset, type PortableSelection, type SavedView, type Schedule, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
+  type DomainEvent, type ItemPreset, type PortableSelection, type SavedView, type Schedule, type UniversalItem, type ViewSortRule, type WorkspaceDocument, type WorkspaceLanguage,
   type ReconcileResult,
 } from '@utm/core';
 import {
@@ -196,26 +196,32 @@ function LineIcon({ name }: { name: LineIconName }) {
   return <svg className="line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;
 }
 
-function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace) => Promise<void> }) {
+function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void> }) {
   const [name, setName] = useState('My workspace');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
+    const browserLanguage = navigator.language.slice(0, 2) as WorkspaceLanguage;
+    return interfaceLanguages.some((option) => option.value === browserLanguage) ? browserLanguage : 'en';
+  });
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => installDomLocalization(language), [language]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setBusy(true);
     try {
       if (!exists && password !== confirm) throw new Error('Passwords do not match');
-      await onReady(exists ? await unlockLocalWorkspace(password) : await createLocalWorkspace(password, name));
+      await onReady(exists ? await unlockLocalWorkspace(password) : await createLocalWorkspace(password, name, language), language);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
 
   const importWorkspace = async (file: File) => {
     setBusy(true); setError('');
-    try { await onReady(await importAsLocalWorkspace(await file.text(), password)); }
+    try { await onReady(await importAsLocalWorkspace(await file.text(), password), language); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
@@ -226,6 +232,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       <p className="eyebrow">UNIVERSAL TASK MANAGER</p>
       <h1>{exists ? 'Unlock your workspace' : 'Build your own system'}</h1>
       <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
+      <label className="language-picker">Language<select value={language} onChange={(event) => setLanguage(event.target.value as WorkspaceLanguage)}>{interfaceLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <form onSubmit={submit}>
         {!exists && <label>Workspace name<input value={name} onChange={(event) => setName(event.target.value)} required /></label>}
         <label>Password<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists ? 'current-password' : 'new-password'} required /></label>
@@ -1098,7 +1105,7 @@ export default function App() {
   }, [notices]);
   useEffect(() => () => { noticeTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
 
-  const activate = async (unlocked: UnlockedWorkspace) => {
+  const activate = async (unlocked: UnlockedWorkspace, selectedLanguage?: WorkspaceLanguage) => {
     let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
     const now = new Date();
     const migration = migrateWorkspace(clean(unlocked.document as WorkspaceDocument));
@@ -1109,6 +1116,7 @@ export default function App() {
         Object.keys(target).forEach((key) => { delete target[key]; });
         Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); });
       }
+      if (selectedLanguage) workspace.calendarPreferences.language = selectedLanguage;
       backfillItemCreationVersions(workspace);
       Object.values(workspace.items).forEach(removeDuplicateReminders);
       consolidateHabitOccurrences(workspace, now);

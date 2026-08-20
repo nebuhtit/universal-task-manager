@@ -1,6 +1,6 @@
 import * as Automerge from '@automerge/automerge';
 import { createWorkspace } from '@utm/core';
-import type { WorkspaceDocument } from '@utm/core';
+import type { WorkspaceDocument, WorkspaceLanguage } from '@utm/core';
 import {
   decryptWithKey, encryptWithKey, fromBase64, randomKey, ready, toBase64, unwrapKey, wrapKey,
   type EncryptedEnvelope,
@@ -53,11 +53,13 @@ async function putRecords(records: Array<[string, unknown]>): Promise<void> {
 
 export async function hasLocalWorkspace(): Promise<boolean> { return Boolean(await getRecord<LocalMetadata>(META_KEY)); }
 
-export async function createLocalWorkspace(password: string, name = 'My workspace'): Promise<UnlockedWorkspace> {
+export async function createLocalWorkspace(password: string, name = 'My workspace', language: WorkspaceLanguage = 'en'): Promise<UnlockedWorkspace> {
   if (await hasLocalWorkspace()) throw new Error('A local workspace already exists');
   const dataKey = await randomKey();
   const wrappedKey = await wrapKey(dataKey, password);
-  const document = createAutomergeDocument(createWorkspace(name));
+  const workspace = createWorkspace(name);
+  workspace.calendarPreferences.language = language;
+  const document = createAutomergeDocument(workspace);
   const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
   const metadata: LocalMetadata = { version: 1, wrappedKey, createdAt: new Date().toISOString() };
   await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies LocalBlock]]);
