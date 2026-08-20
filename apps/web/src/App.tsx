@@ -190,6 +190,14 @@ const priorityNames: Record<NonNullable<UniversalItem['priority']>, string> = { 
 const stateNames: Record<UniversalItem['state'], string> = { open: 'Active', done: 'Completed', auto_closed: 'Auto closed', cancelled: 'Cancelled', archived: 'Archived' };
 
 type ViewFieldOption = { path: string; label: string; group: string };
+const defaultBoardStates = ['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const;
+type BoardSettings = { states: Array<(typeof defaultBoardStates)[number]>; showEmpty: boolean };
+const boardSettingsFor = (view: SavedView): BoardSettings => {
+  const raw = view.extensions?.['utm:board'];
+  const candidate = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const states = Array.isArray(candidate.states) ? candidate.states.filter((state): state is BoardSettings['states'][number] => typeof state === 'string' && defaultBoardStates.includes(state as BoardSettings['states'][number])) : [];
+  return { states: states.length ? states : [...defaultBoardStates], showEmpty: candidate.showEmpty === true };
+};
 const builtInViewFields: ViewFieldOption[] = [
   { path: 'title', label: 'Title', group: 'Core' }, { path: 'bodyMarkdown', label: 'Description', group: 'Core' },
   { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
@@ -571,7 +579,9 @@ function ViewResults({ view, workspace, onEdit, onState }: {
     return dated.length ? <div className="calendar-strip">{dated.map((item) => <article className={`calendar-item state-${item.state}`} key={item.id}><button className="state-toggle" aria-label={item.state === 'open' ? `Complete ${item.title}` : `Reopen ${item.title}`} onClick={() => onState(item, item.state === 'open' ? 'done' : 'open')}>{item.state === 'open' ? '' : '✓'}</button><button className="calendar-main" onClick={() => onEdit(item)}><time>{new Date(item.schedule?.startAt ?? item.schedule!.dueAt!).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</time>{fieldContent(item, ['schedule.startAt', 'schedule.dueAt'])}</button></article>)}</div> : <p className="empty">Matching items have no dates.</p>;
   }
   if (view.renderer === 'board') {
-    return <div className="mini-board">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => <section key={state}><h4>{state.replace('_', ' ')}</h4>{items.filter((item) => item.state === state).map((item) => <article className={`board-item state-${item.state}`} key={item.id}><button className="state-toggle" aria-label={item.state === 'open' ? `Complete ${item.title}` : `Reopen ${item.title}`} onClick={() => onState(item, item.state === 'open' ? 'done' : 'open')}>{item.state === 'open' ? '' : '✓'}</button><button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}</div>;
+    const settings = boardSettingsFor(view);
+    const columns = settings.states.map((state) => ({ state, items: items.filter((item) => item.state === state) })).filter((column) => settings.showEmpty || column.items.length > 0);
+    return columns.length ? <div className="mini-board">{columns.map(({ state, items: columnItems }) => <section key={state}><h4>{stateNames[state]}</h4>{columnItems.map((item) => <article className={`board-item state-${item.state}`} key={item.id}><button className="state-toggle" aria-label={item.state === 'open' ? `Complete ${item.title}` : `Reopen ${item.title}`} onClick={() => onState(item, item.state === 'open' ? 'done' : 'open')}>{item.state === 'open' ? '' : '✓'}</button><button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}</div> : <p className="empty">No items match this board.</p>;
   }
   if (view.renderer === 'table') {
     const fields = visibleFields.length ? visibleFields : ['title', 'state', 'schedule.dueAt', 'priority'];
@@ -580,14 +590,14 @@ function ViewResults({ view, workspace, onEdit, onState }: {
   return <div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} fields={visibleFields} workspace={workspace} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />)}</div>;
 }
 
-function SavedViewSection({ view, workspace, onEditView, onEditItem, onState }: {
+function SavedViewSection({ view, workspace, onEditView, onEditItem, onState, onRendererChange }: {
   view: SavedView; workspace: WorkspaceDocument; onEditView: () => void; onEditItem: (item: UniversalItem) => void;
-  onState: (item: UniversalItem, state: UniversalItem['state']) => void;
+  onState: (item: UniversalItem, state: UniversalItem['state']) => void; onRendererChange: (renderer: SavedView['renderer']) => void;
 }) {
   const [open, setOpen] = useState(true);
   const matchingItems = filteredItems(workspace, view).length;
   return <details className="view-section" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="view-section-summary"><div><span className="view-renderer">{view.renderer}</span><h2>{view.name}</h2></div><button className="secondary" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onEditView(); }}>Edit view</button></summary>
+    <summary className="view-section-summary"><div><select className="view-renderer view-renderer-select" aria-label={`Renderer for ${view.name}`} value={view.renderer} onClick={(event) => event.stopPropagation()} onChange={(event) => onRendererChange(event.target.value as SavedView['renderer'])}><option value="list">List</option><option value="table">Table</option><option value="board">Board</option></select><h2>{view.name}</h2></div><button className="secondary" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onEditView(); }}>Edit view</button></summary>
     <div className="view-section-body"><details className="view-query-details"><summary>View details</summary><div className="view-query-details-body"><code>{view.query.source.trim() || 'All items'}</code>{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{matchingItems} matching items</p></div></details><ViewResults view={view} workspace={workspace} onEdit={onEditItem} onState={onState} /></div>
   </details>;
 }
@@ -681,6 +691,17 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
     fields.splice(fields.indexOf(targetField), 0, field);
     setEditing({ ...editing, fields });
   };
+  const updateBoardSettings = (patch: Partial<BoardSettings>) => {
+    if (!editing) return;
+    const current = boardSettingsFor(editing);
+    setEditing({ ...editing, extensions: { ...editing.extensions, 'utm:board': { ...current, ...patch } } });
+  };
+  const moveBoardState = (index: number, offset: number) => {
+    if (!editing) return;
+    const settings = boardSettingsFor(editing); const target = index + offset;
+    if (target < 0 || target >= settings.states.length) return;
+    const states = [...settings.states]; [states[index], states[target]] = [states[target]!, states[index]!]; updateBoardSettings({ states });
+  };
   const save = () => {
     if (!editing) return;
     const result = visualDirty ? { ...editing, query: { source: visualClause() } } : editing;
@@ -719,7 +740,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
 
   return <section className="page-section views-page">
     <div className="views-toolbar"><button className="primary compact" onClick={newView}>+ New view</button></div>
-    <div className="views-stack">{Object.values(workspace.views).map((view) => <div key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} /></div>)}</div>
+    <div className="views-stack">{Object.values(workspace.views).map((view) => <div key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>)}</div>
     {editing && <div className="modal-backdrop"><section className="dialog view-editor">
       <header><div><p className="dialog-kicker">SAVED VIEW</p><h2>Edit view</h2></div><button className="icon-button" aria-label="Close view editor" onClick={() => setEditing(null)}><CloseIcon /></button></header>
       <label>Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
@@ -736,6 +757,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       </fieldset>
       <label className="dsl-field">DSL expression<span className="hint">Safe typed expression</span><CodeEditor language="dsl" ariaLabel="DSL expression" rows={5} value={editing.query.source} onChange={(value) => { setEditing({ ...editing, query: { source: value } }); setVisualDirty(false); }} /></label>
       <label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>
+      {editing.renderer === 'board' && <fieldset className="query-builder board-builder"><legend>Board columns</legend><p className="builder-status">Empty columns are hidden by default. Choose the statuses and their left-to-right order.</p><label className="check"><input type="checkbox" checked={boardSettingsFor(editing).showEmpty} onChange={(event) => updateBoardSettings({ showEmpty: event.target.checked })} />Show empty columns</label><div className="board-column-settings">{boardSettingsFor(editing).states.map((state, index) => <div key={state}><label className="check"><input type="checkbox" checked onChange={() => updateBoardSettings({ states: boardSettingsFor(editing).states.filter((entry) => entry !== state) })} />{stateNames[state]}</label><div><button className="secondary compact-action" aria-label={`Move ${stateNames[state]} left`} disabled={index === 0} onClick={() => moveBoardState(index, -1)}>←</button><button className="secondary compact-action" aria-label={`Move ${stateNames[state]} right`} disabled={index === boardSettingsFor(editing).states.length - 1} onClick={() => moveBoardState(index, 1)}>→</button></div></div>)}</div><div className="builder-actions">{defaultBoardStates.filter((state) => !boardSettingsFor(editing).states.includes(state)).map((state) => <button className="secondary compact-action" key={state} onClick={() => updateBoardSettings({ states: [...boardSettingsFor(editing).states, state] })}>+ {stateNames[state]}</button>)}</div></fieldset>}
       <fieldset className="query-builder fields-builder"><legend>Displayed fields</legend>
         <p className="builder-status">Choose any item properties. Their order below is also their display order.</p>
         <details className="display-fields-example"><summary>Preview with a fully filled example item</summary><p className="display-fields-help">Drag a field to change its order, or hide it with ×.</p><div>{editing.fields.length ? editing.fields.map((field) => <span key={field} draggable onDragStart={() => setDraggedField(field)} onDragEnd={() => setDraggedField(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedField) moveFieldTo(draggedField, field); setDraggedField(null); }}><button className="preview-field-remove" aria-label={`Hide ${viewFieldLabel(workspace, field)}`} onClick={() => toggleField(field)}><CloseIcon /></button><small>{viewFieldLabel(workspace, field)}</small>{exampleViewFieldValue(field)}</span>) : <p>Select fields below to preview them here.</p>}</div></details>
