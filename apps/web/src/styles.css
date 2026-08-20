@@ -210,7 +210,7 @@ textarea { resize: vertical; line-height: 1.5; }
 .segmented button:hover { background: #e7e7e7; color: var(--ink); }
 .segmented button.active { background: var(--card); box-shadow: 0 2px 7px rgba(0,0,0,.08); font-weight: 500; }
 details { border-top: 1px solid var(--line); }
-details summary { list-style: none; cursor: pointer; padding: 13px 2px; font-size: 13px; font-weight: 500; display: flex; justify-content: space-between; }
+details summary { list-style: none; cursor: pointer; padding: 13px 2px; font-size: 13px; font-weight: 550; display: flex; justify-content: space-between; }
 details summary::-webkit-details-marker { display: none; }
 details summary::after { content: '+'; color: var(--muted); }
 details[open] summary::after { content: '−'; }
@@ -223,7 +223,7 @@ details[open] summary::after { content: '−'; }
 .section-guide li + li { margin-top: 4px; }
 .section-guide code { color: var(--ink); font-family: var(--code-font); font-size: .95em; }
 .editor-scroll > details { margin-top: 3px; }
-.editor-scroll > details > summary { min-height: 44px; align-items: center; }
+.editor-scroll > details > summary { min-height: 44px; align-items: center; font-weight: 550; }
 .editor-scroll > details[open] > summary { color: #222; }
 .schedule-explainer { margin: 0 0 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .schedule-grid label small { margin-top: -2px; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.4; }
