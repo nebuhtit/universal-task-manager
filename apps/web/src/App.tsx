@@ -574,8 +574,11 @@ function ViewResults({ view, workspace, onEdit, onState }: {
   })}</span>;
   if (!items.length) return <p className="empty">No items match this view.</p>;
   if (view.renderer === 'calendar') {
-    const dated = items.filter((item) => item.schedule?.startAt || item.schedule?.dueAt);
-    return dated.length ? <div className="calendar-strip">{dated.map((item) => <article className={`calendar-item state-${item.state}`} key={item.id}><button className="state-toggle" aria-label={item.state === 'open' ? `Complete ${item.title}` : `Reopen ${item.title}`} onClick={() => onState(item, item.state === 'open' ? 'done' : 'open')}>{item.state === 'open' ? '' : '✓'}</button><button className="calendar-main" onClick={() => onEdit(item)}><time>{new Date(item.schedule?.startAt ?? item.schedule!.dueAt!).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</time>{fieldContent(item, ['schedule.startAt', 'schedule.dueAt'])}</button></article>)}</div> : <p className="empty">Matching items have no dates.</p>;
+    const dated = items.flatMap((item) => {
+      const date = item.schedule?.startAt ?? item.schedule?.dueAt;
+      return date ? [{ item, date }] : [];
+    });
+    return dated.length ? <div className="calendar-strip">{dated.map(({ item, date }) => <article className={`calendar-item state-${item.state}`} key={item.id}><button className="state-toggle" aria-label={item.state === 'open' ? `Complete ${item.title}` : `Reopen ${item.title}`} onClick={() => onState(item, item.state === 'open' ? 'done' : 'open')}>{item.state === 'open' ? '' : '✓'}</button><button className="calendar-main" onClick={() => onEdit(item)}><time dateTime={date}>{new Date(date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</time>{fieldContent(item, ['schedule.startAt', 'schedule.dueAt'])}</button></article>)}</div> : <p className="empty">Matching items have no dates.</p>;
   }
   if (view.renderer === 'board') {
     const settings = boardSettingsFor(view);
@@ -596,7 +599,7 @@ function SavedViewSection({ view, workspace, onEditView, onEditItem, onState, on
   const [open, setOpen] = useState(true);
   const matchingItems = filteredItems(workspace, view).length;
   return <details className="view-section" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="view-section-summary"><div><select className="view-renderer view-renderer-select" aria-label={`Renderer for ${view.name}`} value={view.renderer} onClick={(event) => event.stopPropagation()} onChange={(event) => onRendererChange(event.target.value as SavedView['renderer'])}><option value="list">List</option><option value="table">Table</option><option value="board">Board</option></select><h2>{view.name}</h2></div><button className="secondary" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onEditView(); }}>Edit view</button></summary>
+    <summary className="view-section-summary"><div><select className="view-renderer view-renderer-select" aria-label={`Renderer for ${view.name}`} value={view.renderer} onClick={(event) => event.stopPropagation()} onChange={(event) => onRendererChange(event.target.value as SavedView['renderer'])}><option value="list">List</option><option value="table">Table</option><option value="calendar">Calendar</option><option value="board">Board</option></select><h2>{view.name}</h2></div><button className="secondary" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onEditView(); }}>Edit view</button></summary>
     <div className="view-section-body"><details className="view-query-details"><summary>View details</summary><div className="view-query-details-body"><code>{view.query.source.trim() || 'All items'}</code>{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{matchingItems} matching items</p></div></details><ViewResults view={view} workspace={workspace} onEdit={onEditItem} onState={onState} /></div>
   </details>;
 }
