@@ -245,19 +245,19 @@ label.check input { width: 18px; height: 18px; }
 .dialog h2 { margin: 0 0 20px; font-size: 20px; font-weight: 600; letter-spacing: -.015em; }
 .dialog footer { display: flex; gap: 10px; margin-top: 20px; }
 .code-area, code, .mono, .dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
-.dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important; font-size: 14px !important; font-weight: 500; line-height: 1.65; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; color: #1f1f1f; background: #f7f7f8; border-color: #d7d7d7; }
+.dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important; font-size: 14px !important; font-weight: 400; line-height: 1.65; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; color: #1f1f1f; background: #f7f7f8; border-color: #d7d7d7; }
 .syntax-editor { position: relative; width: 100%; border: 1px solid #d7d7d7; border-radius: 10px; background: #f7f7f8; overflow: hidden; }
 .syntax-editor:focus-within { border-color: #8d8d8d; box-shadow: 0 0 0 3px rgba(13,13,13,.06); }
-.syntax-editor pre, .syntax-editor textarea { width: 100%; min-height: 100%; margin: 0; border: 0; border-radius: 0; padding: 11px 12px; overflow: auto; white-space: pre; overflow-wrap: normal; font: 500 14px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; }
+.syntax-editor pre, .syntax-editor textarea { width: 100%; min-height: 100%; margin: 0; border: 0; border-radius: 0; padding: 11px 12px; overflow: auto; white-space: pre; overflow-wrap: normal; font: 400 14px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; }
 .syntax-editor pre { position: absolute; inset: 0; pointer-events: none; color: #555; background: transparent; }
 .syntax-editor textarea { position: relative; z-index: 1; display: block; resize: vertical; color: transparent; -webkit-text-fill-color: transparent; caret-color: #050505; background: transparent; box-shadow: none; }
 .syntax-editor textarea::selection { background: rgba(0,0,0,.18); }
 .syntax-editor textarea::placeholder { color: #777; -webkit-text-fill-color: #777; }
-.syntax-key, .syntax-identifier { color: #111; font-weight: 600; }
-.syntax-function, .syntax-operator { color: #000; font-weight: 700; }
+.syntax-key, .syntax-identifier { color: #111; font-weight: 400; }
+.syntax-function, .syntax-operator { color: #000; font-weight: 400; }
 .syntax-string { color: #555; font-weight: 400; }
-.syntax-number { color: #333; font-weight: 600; }
-.syntax-keyword { color: #747474; font-weight: 600; font-style: italic; }
+.syntax-number { color: #333; font-weight: 400; }
+.syntax-keyword { color: #747474; font-weight: 400; font-style: italic; }
 .syntax-space, .syntax-plain { color: #555; }
 .dsl-field { margin-top: 20px; }
 .dsl-field > .hint { margin-top: -4px; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11px; }
