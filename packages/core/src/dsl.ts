@@ -224,7 +224,7 @@ export function compileQuery(source: string): (item: UniversalItem, now?: Date) 
     const due = item.schedule?.dueAt ? new Date(item.schedule.dueAt).getTime() : undefined;
     const activeRange = (start === undefined || Number.isNaN(start) || current.getTime() >= start)
       && (due === undefined || Number.isNaN(due) || current.getTime() <= due);
-    try { return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), activeRange }, now: current })); }
+    try { return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange }, now: current })); }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;
       throw reason;

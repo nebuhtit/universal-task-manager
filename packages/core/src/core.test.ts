@@ -319,9 +319,10 @@ describe('interoperability', () => {
     delete (legacyHabit.habit as Partial<NonNullable<UniversalItem['habit']>>).completedDates;
     old.items[legacyHabit.id] = legacyHabit;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.schemaVersion).toBe('1.6.0');
+    expect(migrated.schemaVersion).toBe('1.7.0');
     expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
     expect(migrated.calendarPreferences.language).toBe('en');
+    expect(migrated.calendarPreferences.appearance).toEqual({ mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: false });
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
     expect(migrated.items[legacyHabit.id]!.habit?.completedDates).toEqual([]);
     expect(validateWorkspace(migrated).valid).toBe(true);

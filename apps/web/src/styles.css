@@ -18,6 +18,43 @@
   --shadow: 0 12px 36px rgba(0, 0, 0, .08);
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: #f1f1f1;
+  background: #151515;
+  --ink: #f1f1f1;
+  --paper: #151515;
+  --card: #1d1d1d;
+  --line: #373737;
+  --muted: #a7a7a7;
+  --acid: #dedede;
+  --moss: #dedede;
+  --orange: #dedede;
+  --blue: #292929;
+  --soft: #242424;
+  --shadow: 0 12px 36px rgba(0, 0, 0, .38);
+}
+:root[data-theme="dark"] .sidebar,
+:root[data-theme="dark"] .topbar,
+:root[data-theme="dark"] .drawer,
+:root[data-theme="dark"] .dialog,
+:root[data-theme="dark"] .notification-center,
+:root[data-theme="dark"] .notice-card,
+:root[data-theme="dark"] .settings-card,
+:root[data-theme="dark"] .view-section,
+:root[data-theme="dark"] .widget,
+:root[data-theme="dark"] .calendar-main-panel { background: var(--card); }
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] .secondary,
+:root[data-theme="dark"] .timezone-button,
+:root[data-theme="dark"] .weekday-picker button { background: #202020; color: var(--ink); border-color: var(--line); }
+:root[data-theme="dark"] .sidebar button:hover,
+:root[data-theme="dark"] .sidebar button.active,
+:root[data-theme="dark"] .danger,
+:root[data-theme="dark"] .tag-collection button.active { background: #303030; color: var(--ink); }
+
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
 button, input, textarea, select { font: inherit; }
@@ -206,6 +243,8 @@ textarea { resize: vertical; line-height: 1.5; }
 .active-window-summary > span { padding: 9px 10px; border-radius: 9px; background: var(--soft); color: #333; font-size: 10px; }
 .active-window-summary small { display: block; margin-bottom: 3px; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
 .active-window-summary.incomplete > span { outline: 1px dashed #aaa; }
+/* Templates are ordinary items; the dedicated legacy list stays out of the UI. */
+.all-sections > .recurring-items:last-child { display: none; }
 .segmented { display: grid; grid-template-columns: repeat(4, 1fr); background: #f1f1f1; border: 1px solid #e3e3e3; border-radius: 9px; padding: 2px; margin-bottom: 18px; }
 .segmented button { min-height: 30px; border: 0; background: transparent; padding: 5px 8px; border-radius: 7px; text-transform: capitalize; cursor: pointer; color: #555; font-size: 12px; font-weight: 400; }
 .segmented button:hover { background: #e7e7e7; color: var(--ink); }

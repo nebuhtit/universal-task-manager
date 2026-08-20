@@ -41,6 +41,21 @@ const dateInput = (value?: string) => {
 };
 const fromDateInput = (value: string) => (value ? new Date(value).toISOString() : undefined) as string;
 const clockMinutes = (value: string) => { const [hours = 0, minutes = 0] = value.split(':').map(Number); return hours * 60 + minutes; };
+const scheduledTheme = (lightAt: string, darkAt: string, now = new Date()) => {
+  const minute = now.getHours() * 60 + now.getMinutes(); const light = clockMinutes(lightAt); const dark = clockMinutes(darkAt);
+  if (light === dark) return 'light';
+  return light < dark ? (minute >= light && minute < dark ? 'light' : 'dark') : (minute >= light || minute < dark ? 'light' : 'dark');
+};
+const playTickSound = () => {
+  try {
+    const Audio = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Audio) return;
+    const context = new Audio(); const oscillator = context.createOscillator(); const gain = context.createGain();
+    oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(740, context.currentTime); oscillator.frequency.exponentialRampToValueAtTime(1040, context.currentTime + .07);
+    gain.gain.setValueAtTime(.0001, context.currentTime); gain.gain.exponentialRampToValueAtTime(.12, context.currentTime + .008); gain.gain.exponentialRampToValueAtTime(.0001, context.currentTime + .11);
+    oscillator.connect(gain).connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + .12); oscillator.onended = () => void context.close();
+  } catch { /* Sound is optional and must never block completing an item. */ }
+};
 const isSleepTime = (date: Date, schedule: WorkspaceDocument['calendarPreferences']['sleepSchedule']) => {
   const minute = date.getHours() * 60 + date.getMinutes(); const wake = clockMinutes(schedule.wake); const sleep = clockMinutes(schedule.sleep);
   if (wake === sleep) return false;
@@ -430,7 +445,8 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
 }
 
 function filteredItems(workspace: WorkspaceDocument, view?: SavedView, now = new Date()): UniversalItem[] {
-  const available = Object.values(workspace.items).filter((item) => !item.deletedAt && item.extensions?.['utm:template'] !== true && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
+  const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
+  const available = Object.values(workspace.items).filter((item) => !item.deletedAt && (templateFilterRequested || !isItemTemplate(item)) && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
   let items: UniversalItem[];
   if (view) {
     try {
@@ -779,7 +795,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
   const literal = (value: string) => ['true', 'false', 'null'].includes(value) || (!Number.isNaN(Number(value)) && value.trim() !== '') ? value : JSON.stringify(value);
   const visualOptions: Record<string, string[]> = {
     state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'],
-    isHabit: ['true', 'false'], activeRange: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
+    isHabit: ['true', 'false'], isTemplate: ['true', 'false'], activeRange: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
   };
   const visualFieldKinds: Record<string, 'enum' | 'boolean' | 'number' | 'date' | 'text' | 'multi'> = {
     state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', activeRange: 'boolean', priority: 'number',
@@ -892,7 +908,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       setError('');
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
-  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && role != "series_template"' }, renderer: 'table', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
+  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && role != "series_template" && isTemplate != true' }, renderer: 'table', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
   const applyViewJson = (source = viewJson) => {
     if (!editing) return;
     try {
@@ -924,7 +940,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       <fieldset className="query-builder"><legend>Visual condition</legend>
         <p className="builder-status">Choose a field and only the operators that make sense for its type. Active range uses Event opens through Due.</p>
         <div className="form-grid three">
-          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option value="isHabit">Habit tracking</option><option>activeRange</option><option>role</option><option>priority</option><option>schedule.startAt</option><option>schedule.endAt</option><option>schedule.dueAt</option><option>schedule.availableFrom</option><option>title</option><option>description</option><option>tags</option><option>contexts</option><option>reminders</option></select></label>
+          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option value="isHabit">Habit tracking</option><option value="isTemplate">Template</option><option>activeRange</option><option>role</option><option>priority</option><option>schedule.startAt</option><option>schedule.endAt</option><option>schedule.dueAt</option><option>schedule.availableFrom</option><option>title</option><option>description</option><option>tags</option><option>contexts</option><option>reminders</option></select></label>
           <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}>{visualOperators(visualField).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</select></label>
           <label>Value{visualOptions[visualField] ? <select value={visualValue} onChange={(event) => changeVisual('value', event.target.value)}>{visualOptions[visualField]!.map((value) => <option key={value} value={value}>{visualField === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</select> : <input type={visualField.startsWith('schedule.') ? 'datetime-local' : 'text'} list={visualField === 'title' ? 'view-title-values' : visualField === 'tags' || visualField === 'contexts' ? 'view-tag-values' : undefined} placeholder={visualField === 'tags' || visualField === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} />}</label>
         </div>
@@ -1147,6 +1163,7 @@ function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile, o
     exportPortable(workspace, createPortablePackage(workspace, { kind: 'items', items, views: format === 'xlsx' ? Object.values(workspace.views) : [], selection: { type: 'all_items' } }), `${safeFilename(workspace.name)}-all-items`, format, metadata);
   };
   return <section className="page-section"><div className="page-title"><div><h1>Settings</h1></div></div>
+    <section className="settings-card"><p className="eyebrow">APPEARANCE</p><h2>Theme</h2><p>Choose a light, dark or system theme. Scheduled mode switches automatically using the times below.</p><label>Theme<select value={workspace.calendarPreferences.appearance.mode} onChange={(event) => commit('Change theme mode', (draft) => { draft.calendarPreferences.appearance.mode = event.target.value as WorkspaceDocument['calendarPreferences']['appearance']['mode']; })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option><option value="scheduled">Scheduled</option></select></label>{workspace.calendarPreferences.appearance.mode === 'scheduled' && <div className="form-grid two"><label>Light theme starts<input type="time" value={workspace.calendarPreferences.appearance.lightAt} onChange={(event) => commit('Change light theme schedule', (draft) => { draft.calendarPreferences.appearance.lightAt = event.target.value; })} /></label><label>Dark theme starts<input type="time" value={workspace.calendarPreferences.appearance.darkAt} onChange={(event) => commit('Change dark theme schedule', (draft) => { draft.calendarPreferences.appearance.darkAt = event.target.value; })} /></label></div>}<hr/><p className="eyebrow">SOUND</p><h2>Completion sound</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.tickSound} onChange={(event) => commit('Toggle completion sound', (draft) => { draft.calendarPreferences.appearance.tickSound = event.target.checked; })} />Play a short sound when an item is completed</label></section>
     <div className="settings-columns"><section className="settings-card"><header><div><p className="eyebrow">DATA MODEL</p><h2>Custom fields</h2></div><button className="secondary" onClick={() => setField({ id: createId(), key: '', label: '', kind: 'text', required: false })}>+ Add</button></header>{Object.values(workspace.customFields).map((entry) => <button className="setting-row" key={entry.id} onClick={() => setField(clean(entry))}><span><strong>{entry.label}</strong><small>custom.{entry.key}</small></span><span>{entry.kind}</span></button>)}{!Object.keys(workspace.customFields).length && <p className="empty">No custom fields yet.</p>}</section>
     <section className="settings-card"><p className="eyebrow">INTERFACE</p><h2>Interface language</h2><p>Choose the language used by the app on this device. Item titles and your data are never translated.</p><label>Language<select value={workspace.calendarPreferences.language} onChange={(event) => commit('Change interface language', (draft) => { draft.calendarPreferences.language = event.target.value as WorkspaceDocument['calendarPreferences']['language']; })}>{interfaceLanguages.map((language) => <option value={language.value} key={language.value}>{language.label}</option>)}</select></label><hr/><p className="eyebrow">PORTABILITY</p><h2>Move your data</h2><p>Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.</p><div className="settings-actions"><button className="secondary" onClick={onTransfer}><LineIcon name="transfer"/> Encrypted Transfer</button><details className="inline-menu"><summary>Export all…</summary><div><button onClick={() => exportAll('json')}>JSON</button><button onClick={() => exportAll('csv')}>CSV</button><button onClick={() => exportAll('xlsx')}>Excel</button><button onClick={() => exportAll('ics')}>iCalendar</button><button onClick={() => exportAll('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary" onClick={() => jsonInput.current?.click()}>Import data…</button><input ref={jsonInput} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportFile(file); event.currentTarget.value = ''; }} /></div><hr/><p className="eyebrow">DEVICE</p><h2>Notifications</h2><p>Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.</p><button className="secondary" onClick={onNotify}>Allow local notifications</button><div className="background-push"><div><strong>Background notifications</strong><small>{workspace.pushPreferences.enabled ? 'Enabled for this encrypted workspace copy.' : 'Off — reminders stay only on this device while the app is open.'}</small></div>{workspace.pushPreferences.enabled ? <button className="secondary" onClick={onDisableBackground}>Disable</button> : <button className="secondary" onClick={onEnableBackground}>Enable background delivery</button>}</div>{workspace.pushPreferences.enabled && <label className="push-privacy">Lock-screen content<select value={workspace.pushPreferences.contentMode} onChange={(event) => onBackgroundContent(event.target.value as WorkspaceDocument['pushPreferences']['contentMode'])}><option value="generic">Generic — no task title leaves this device</option><option value="detailed">Show task title and urgency</option></select></label>}<p className="hint">For iPhone, install Universal to the Home Screen, then enable this from the installed app. The Worker never receives your password or encrypted database.</p><hr/><p className="eyebrow">APPLICATION</p><h2>{APP_NAME}</h2><dl><div><dt>Version</dt><dd>v{APP_VERSION}</dd></div><div><dt>Released</dt><dd><time dateTime={APP_RELEASED_AT}>{new Date(APP_RELEASED_AT).toLocaleString()}</time></dd></div></dl><hr/><p className="eyebrow">WORKSPACE</p><h2>{workspace.name}</h2><dl><div><dt>Schema</dt><dd>{workspace.schemaVersion}</dd></div><div><dt>Items</dt><dd>{Object.keys(workspace.items).length}</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div></dl></section></div>
     {field && <div className="modal-backdrop"><section className="dialog"><header><h2>Custom field</h2><button className="icon-button" onClick={() => setField(null)}>×</button></header><label>Label<input value={field.label} onChange={(event) => setField({ ...field, label: event.target.value, key: field.key || event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_') })} /></label><label>Key<input value={field.key} pattern="[a-z][a-z0-9_]*" onChange={(event) => setField({ ...field, key: event.target.value })} /></label><label>Type<select value={field.kind} onChange={(event) => setField({ ...field, kind: event.target.value as CustomFieldDefinition['kind'] })}>{['text', 'number', 'boolean', 'date', 'datetime', 'duration', 'enum', 'multi_enum', 'url', 'item_ref', 'formula'].map((kind) => <option key={kind}>{kind}</option>)}</select></label>{field.kind === 'formula' && <label>Formula DSL<input value={field.formula ?? ''} onChange={(event) => setField({ ...field, formula: event.target.value })} placeholder="custom.rate * custom.hours" /></label>}<footer><button className="danger" onClick={() => { commit('Delete custom field', (draft) => { delete draft.customFields[field.id]; }); setField(null); }}>Delete</button><span/><button className="primary" disabled={!field.label || !/^[a-z][a-z0-9_]*$/.test(field.key)} onClick={() => { if (field.formula) parseExpression(field.formula); commit('Save custom field', (draft) => { draft.customFields[field.id] = clean(field); }); setField(null); }}>Save field</button></footer></section></div>}
@@ -1266,6 +1283,19 @@ export default function App() {
   const workspace = session?.document as WorkspaceDocument | undefined;
   useEffect(() => workspace ? installDomLocalization(workspace.calendarPreferences.language) : undefined, [workspace?.calendarPreferences.language]);
   useEffect(() => {
+    const appearance = workspace?.calendarPreferences.appearance;
+    if (!appearance) return;
+    const apply = () => {
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = appearance.mode === 'system' ? (systemDark ? 'dark' : 'light') : appearance.mode === 'scheduled' ? scheduledTheme(appearance.lightAt, appearance.darkAt) : appearance.mode;
+      document.documentElement.dataset.theme = theme;
+    };
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    apply(); media.addEventListener('change', apply);
+    const timer = window.setInterval(apply, 30_000);
+    return () => { media.removeEventListener('change', apply); window.clearInterval(timer); };
+  }, [workspace?.calendarPreferences.appearance.mode, workspace?.calendarPreferences.appearance.lightAt, workspace?.calendarPreferences.appearance.darkAt]);
+  useEffect(() => {
     const itemId = new URLSearchParams(window.location.search).get('item');
     if (!itemId || !workspace?.items[itemId]) return;
     setEditor(workspace.items[itemId]);
@@ -1320,6 +1350,7 @@ export default function App() {
   };
 
   const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => {
+    if (state === 'done' && workspace?.calendarPreferences.appearance.tickSound) playTickSound();
     if (state === 'done') recentlyDoneUntil.set(item.id, Date.now() + 10_000);
     else recentlyDoneUntil.delete(item.id);
     commit('Change item state', (draft) => {
