@@ -598,10 +598,10 @@ function SavedViewSection({ view, workspace, onEditView, onEditItem, onState, on
 }) {
   const [open, setOpen] = useState(true);
   const matchingItems = filteredItems(workspace, view).length;
-  return <details className="view-section" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="view-section-summary"><div><select className="view-renderer view-renderer-select" aria-label={`Renderer for ${view.name}`} value={view.renderer} onClick={(event) => event.stopPropagation()} onChange={(event) => onRendererChange(event.target.value as SavedView['renderer'])}><option value="list">List</option><option value="table">Table</option><option value="calendar">Calendar</option><option value="board">Board</option></select><h2>{view.name}</h2></div><button className="secondary" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onEditView(); }}>Edit view</button></summary>
-    <div className="view-section-body"><details className="view-query-details"><summary>View details</summary><div className="view-query-details-body"><code>{view.query.source.trim() || 'All items'}</code>{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{matchingItems} matching items</p></div></details><ViewResults view={view} workspace={workspace} onEdit={onEditItem} onState={onState} /></div>
-  </details>;
+  return <section className="view-section">
+    <header className="view-section-summary"><div><select className="view-renderer view-renderer-select" aria-label={`Renderer for ${view.name}`} value={view.renderer} onChange={(event) => onRendererChange(event.target.value as SavedView['renderer'])}><option value="list">List</option><option value="table">Table</option><option value="calendar">Calendar</option><option value="board">Board</option></select><h2>{view.name}</h2></div><div className="view-section-actions"><button type="button" className="secondary" onClick={onEditView}>Edit view</button><button type="button" className="view-collapse-button" aria-label={`${open ? 'Collapse' : 'Expand'} ${view.name}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>{open ? '−' : '+'}</button></div></header>
+    {open && <div className="view-section-body"><details className="view-query-details"><summary>View details</summary><div className="view-query-details-body"><code>{view.query.source.trim() || 'All items'}</code>{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{matchingItems} matching items</p></div></details><ViewResults view={view} workspace={workspace} onEdit={onEditItem} onState={onState} /></div>}
+  </section>;
 }
 
 function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
