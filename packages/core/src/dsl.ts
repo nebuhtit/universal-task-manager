@@ -208,7 +208,8 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
   }
 }
 
-export function compileQuery(source: string): (item: UniversalItem, now?: Date) => boolean {
+export interface QueryRelationContext { isSubtask?: boolean; isParent?: boolean; parentDepth?: number; childDepth?: number }
+export function compileQuery(source: string, relationContext?: (item: UniversalItem) => QueryRelationContext): (item: UniversalItem, now?: Date) => boolean {
   // Compatibility for early Views: before habits became a universal capability,
   // the visual builder expressed them as `preset == "habit"`.
   const normalizedSource = source
@@ -224,7 +225,10 @@ export function compileQuery(source: string): (item: UniversalItem, now?: Date) 
     const due = item.schedule?.dueAt ? new Date(item.schedule.dueAt).getTime() : undefined;
     const activeRange = (start === undefined || Number.isNaN(start) || current.getTime() >= start)
       && (due === undefined || Number.isNaN(due) || current.getTime() <= due);
-    try { return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange }, now: current })); }
+    try {
+      const relations = relationContext?.(item) ?? {};
+      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current }));
+    }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;
       throw reason;

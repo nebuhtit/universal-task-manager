@@ -75,6 +75,9 @@
 :root[data-theme="dark"] .json-editor .syntax-editor { background: var(--card); border-color: var(--line); color: var(--ink); }
 :root[data-theme="dark"] .dsl-input,
 :root[data-theme="dark"] .syntax-editor textarea { background: #202020; color: var(--ink); border-color: var(--line); }
+:root[data-theme="dark"] .syntax-editor pre { color: #e5e5e5; }
+:root[data-theme="dark"] .syntax-editor pre code { color: #e5e5e5; }
+:root[data-theme="dark"] .syntax-editor textarea { caret-color: #fff; -webkit-text-fill-color: transparent; }
 :root[data-theme="dark"] .view-editor,
 :root[data-theme="dark"] .view-editor fieldset,
 :root[data-theme="dark"] .view-editor details { color: var(--ink); }

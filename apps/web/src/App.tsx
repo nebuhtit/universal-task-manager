@@ -452,7 +452,7 @@ function filteredItems(workspace: WorkspaceDocument, view?: SavedView, now = new
   let items: UniversalItem[];
   if (view) {
     try {
-      const predicate = compileQuery(view.query.source || 'true');
+      const predicate = compileQuery(view.query.source || 'true', (item) => relationContext(workspace, item));
       const matchingRows = available.filter((item) => {
         const visibleByQuery = item.role !== 'series_template' ? predicate(item, now) : Boolean(item.habit) && predicate({ ...item, role: 'standalone' }, now);
         const grace = item.state === 'done' && (recentlyDoneUntil.get(item.id) ?? 0) > now.getTime();
@@ -486,6 +486,14 @@ function isHabitOccurrence(workspace: WorkspaceDocument, item: UniversalItem): b
   return item.role === 'occurrence' && Boolean(item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit);
 }
 function isItemTemplate(item: UniversalItem): boolean { return item.extensions?.['utm:template'] === true; }
+function relationContext(workspace: WorkspaceDocument, item: UniversalItem) {
+  const parents = new Map<string, string[]>();
+  Object.values(workspace.items).forEach((candidate) => candidate.relations.filter((relation) => relation.type === 'parent').forEach((relation) => parents.set(relation.targetId, [...(parents.get(relation.targetId) ?? []), candidate.id])));
+  const children = (id: string) => Object.values(workspace.items).filter((candidate) => candidate.relations.some((relation) => relation.type === 'parent' && relation.targetId === id)).map((candidate) => candidate.id);
+  const distance = (start: string, next: (id: string) => string[]) => { const seen = new Set([start]); let frontier = [start]; for (let depth = 1; depth <= 3; depth += 1) { frontier = frontier.flatMap(next).filter((id) => !seen.has(id)); frontier.forEach((id) => seen.add(id)); if (frontier.length) return depth; } return 0; };
+  const parentDepth = distance(item.id, (id) => parents.get(id) ?? []); const childDepth = distance(item.id, children);
+  return { isSubtask: parentDepth > 0, isParent: childDepth > 0, parentDepth, childDepth };
+}
 function withoutTemplateMarker(item: UniversalItem): UniversalItem {
   const next = clean(item);
   if (next.extensions) {
@@ -806,7 +814,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
   const literal = (value: string) => ['true', 'false', 'null'].includes(value) || (!Number.isNaN(Number(value)) && value.trim() !== '') ? value : JSON.stringify(value);
   const visualOptions: Record<string, string[]> = {
     state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'],
-    isHabit: ['true', 'false'], isTemplate: ['true', 'false'], activeRange: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
+    isHabit: ['true', 'false'], isTemplate: ['true', 'false'], isSubtask: ['true', 'false'], isParent: ['true', 'false'], activeRange: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
   };
   const visualFieldKinds: Record<string, 'enum' | 'boolean' | 'number' | 'date' | 'text' | 'multi'> = {
     state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', activeRange: 'boolean', priority: 'number',
