@@ -238,6 +238,14 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
         <button className="text-button" disabled={!password || busy} onClick={() => fileRef.current?.click()}>Import .utm</button>
         <input ref={fileRef} hidden type="file" accept=".utm,application/json" onChange={(event) => event.target.files?.[0] && void importWorkspace(event.target.files[0])} />
       </div>}
+      <details className="install-guide">
+        <summary>Install on your phone</summary>
+        <div>
+          <p><strong>iPhone or iPad:</strong> open this page in Safari, tap Share, then choose <em>Add to Home Screen</em>.</p>
+          <p><strong>Android:</strong> open it in Chrome, tap the menu, then choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
+          <p>Each device has its own encrypted workspace. Use an encrypted <code>.utm</code> transfer file to move or merge your data between devices.</p>
+        </div>
+      </details>
     </section>
   </main>;
 }

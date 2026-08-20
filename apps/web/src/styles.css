@@ -336,6 +336,12 @@ label.check input { width: 18px; height: 18px; }
 .settings-card h3 { margin: 12px 0 9px; }
 .settings-card code { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--soft); border-radius: 8px; padding: 9px; font-size: 10px; }
 .settings-card p { color: var(--muted); font-size: 12px; }
+.install-guide { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; color: var(--muted); font-size: 13px; }
+.install-guide summary { color: var(--ink); font-weight: 500; cursor: pointer; }
+.install-guide div { padding-top: 7px; }
+.install-guide p { margin: 8px 0; line-height: 1.45; }
+.install-guide strong { color: var(--ink); font-weight: 500; }
+.install-guide code { font-family: var(--code-font); font-size: .92em; }
 .views-stack { display: grid; gap: 16px; }
 .home-summary { padding: 10px 32px 0; }
 .home-summary p { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 11px; text-transform: capitalize; }
