@@ -61,12 +61,35 @@ const common: Record<Exclude<WorkspaceLanguage, 'en'>, Record<string, string>> =
   },
 };
 
+const onboarding: Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary> = {
+  ru: {
+    'Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.': 'Ваши данные остаются на этом устройстве в зашифрованном виде. Здесь нет аккаунта и восстановления пароля. Пожалуйста, запомните пароль.',
+    'Install on your phone': 'Установить на телефон', 'iPhone or iPad:': 'iPhone или iPad:', 'open this page in Safari, tap Share, then choose': 'откройте эту страницу в Safari, нажмите «Поделиться», затем выберите', 'Add to Home Screen': '«На экран Домой»', 'Android:': 'Android:', 'open it in Chrome, tap the menu, then choose': 'откройте страницу в Chrome, нажмите меню, затем выберите', 'Install app': '«Установить приложение»', or: 'или', 'Add to Home screen': '«Добавить на главный экран»', 'Each device has its own encrypted workspace. Use an encrypted': 'На каждом устройстве создаётся своё зашифрованное пространство. Используйте зашифрованный файл', 'transfer file to move or merge your data between devices.': 'для переноса или объединения данных между устройствами.',
+  },
+  es: {
+    'Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.': 'Tus datos permanecen cifrados en este dispositivo. No hay cuenta ni recuperación de contraseña. Recuerda tu contraseña.',
+    'Install on your phone': 'Instalar en tu teléfono', 'iPhone or iPad:': 'iPhone o iPad:', 'open this page in Safari, tap Share, then choose': 'abre esta página en Safari, toca Compartir y elige', 'Add to Home Screen': 'Añadir a pantalla de inicio', 'Android:': 'Android:', 'open it in Chrome, tap the menu, then choose': 'ábrela en Chrome, toca el menú y elige', 'Install app': 'Instalar aplicación', or: 'o', 'Add to Home screen': 'Añadir a pantalla de inicio', 'Each device has its own encrypted workspace. Use an encrypted': 'Cada dispositivo tiene su propio espacio cifrado. Usa un archivo cifrado', 'transfer file to move or merge your data between devices.': 'para mover o combinar tus datos entre dispositivos.',
+  },
+  de: {
+    'Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.': 'Deine Daten bleiben verschlüsselt auf diesem Gerät. Es gibt kein Konto und keine Passwortwiederherstellung. Bitte merke dir dein Passwort.',
+    'Install on your phone': 'Auf dem Smartphone installieren', 'iPhone or iPad:': 'iPhone oder iPad:', 'open this page in Safari, tap Share, then choose': 'öffne diese Seite in Safari, tippe auf Teilen und wähle', 'Add to Home Screen': 'Zum Home-Bildschirm', 'Android:': 'Android:', 'open it in Chrome, tap the menu, then choose': 'öffne sie in Chrome, tippe auf das Menü und wähle', 'Install app': 'App installieren', or: 'oder', 'Add to Home screen': 'Zum Startbildschirm hinzufügen', 'Each device has its own encrypted workspace. Use an encrypted': 'Jedes Gerät hat seinen eigenen verschlüsselten Arbeitsbereich. Verwende eine verschlüsselte', 'transfer file to move or merge your data between devices.': 'Datei, um Daten zwischen Geräten zu übertragen oder zusammenzuführen.',
+  },
+  fr: {
+    'Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.': 'Vos données restent chiffrées sur cet appareil. Il n’y a ni compte ni récupération de mot de passe. Gardez bien votre mot de passe.',
+    'Install on your phone': 'Installer sur votre téléphone', 'iPhone or iPad:': 'iPhone ou iPad :', 'open this page in Safari, tap Share, then choose': 'ouvrez cette page dans Safari, touchez Partager puis choisissez', 'Add to Home Screen': 'Sur l’écran d’accueil', 'Android:': 'Android :', 'open it in Chrome, tap the menu, then choose': 'ouvrez-la dans Chrome, touchez le menu puis choisissez', 'Install app': 'Installer l’application', or: 'ou', 'Add to Home screen': 'Ajouter à l’écran d’accueil', 'Each device has its own encrypted workspace. Use an encrypted': 'Chaque appareil possède son propre espace chiffré. Utilisez un fichier chiffré', 'transfer file to move or merge your data between devices.': 'pour transférer ou fusionner vos données entre appareils.',
+  },
+  ko: {
+    'Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.': '데이터는 이 기기에 암호화된 상태로 저장됩니다. 계정과 비밀번호 복구 기능은 없습니다. 비밀번호를 꼭 기억하세요.',
+    'Install on your phone': '휴대폰에 설치', 'iPhone or iPad:': 'iPhone 또는 iPad:', 'open this page in Safari, tap Share, then choose': 'Safari에서 이 페이지를 열고 공유를 누른 다음 선택하세요', 'Add to Home Screen': '홈 화면에 추가', 'Android:': 'Android:', 'open it in Chrome, tap the menu, then choose': 'Chrome에서 열고 메뉴를 누른 다음 선택하세요', 'Install app': '앱 설치', or: '또는', 'Add to Home screen': '홈 화면에 추가', 'Each device has its own encrypted workspace. Use an encrypted': '각 기기에는 별도의 암호화된 작업 공간이 있습니다. 암호화된', 'transfer file to move or merge your data between devices.': '파일을 사용해 기기 간 데이터를 이동하거나 병합하세요.',
+  },
+};
+
 const originals = new WeakMap<Text, string>();
 const attributeOriginals = new WeakMap<Element, Map<string, string>>();
 const translatableAttributes = ['aria-label', 'placeholder', 'title'] as const;
 
 function translated(value: string, language: WorkspaceLanguage) {
-  return language === 'en' ? value : common[language][value] ?? value;
+  return language === 'en' ? value : onboarding[language][value] ?? common[language][value] ?? value;
 }
 
 function shouldSkip(node: Text) {
