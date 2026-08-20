@@ -30,6 +30,18 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
   await expect(lockScreen).toHaveCSS('animation-name', 'none');
 });
 
+test('archives Calendar and Automations while marking All items as beta', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Beta labels');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  const desktopBadges = page.locator('.sidebar .nav-beta');
+  const badges = await desktopBadges.first().isVisible() ? desktopBadges : page.locator('.bottom-nav .nav-beta');
+  await expect(badges).toHaveText(['Beta']);
+  await expect(page.getByRole('button', { name: 'Calendar', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Automations', exact: true })).toHaveCount(0);
+});
+
 test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('My system');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
@@ -67,7 +79,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.6.9', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.6.11', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -117,7 +129,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.6.9', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.6.11', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 

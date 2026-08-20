@@ -37,6 +37,8 @@ a { color: var(--moss); }
 .sidebar button.active { color: var(--ink); background: #e7e7e7; font-weight: 500; }
 .sidebar button b { margin-left: auto; font-size: 11px; background: #dedede; padding: 2px 7px; border-radius: 99px; }
 .sidebar button.active b { background: #d4d4d4; }
+.nav-beta { margin-left: auto; padding: 2px 5px; border: 1px solid #c9c9c9; border-radius: 99px; color: #707070; font-size: 9px; font-style: normal; font-weight: 500; letter-spacing: .04em; line-height: 1.1; text-transform: uppercase; }
+.sidebar button b + .nav-beta, .sidebar .nav-beta + b { margin-left: 0; }
 .icon { width: 20px; min-width: 20px; display: inline-grid; place-items: center; font-size: 18px; }
 .line-icon { width: 20px; height: 20px; min-width: 20px; display: block; }
 .sidebar-bottom { margin-top: auto; border-top: 1px solid var(--line); padding-top: 10px; }
@@ -525,10 +527,11 @@ tbody tr:hover { background: var(--soft); }
   .mobile-brand { display: block; }
   .mobile-only-lock { display: grid; place-items: center; }
   .sync-state { display: none; }
-  .bottom-nav { position: fixed; z-index: 50; inset: auto 0 0; height: calc(64px + env(safe-area-inset-bottom)); padding: 6px 7px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(5, 1fr); background: rgba(255,255,255,.96); border-top: 1px solid var(--line); backdrop-filter: blur(18px); }
+  .bottom-nav { position: fixed; z-index: 50; inset: auto 0 0; height: calc(64px + env(safe-area-inset-bottom)); padding: 6px 7px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(3, 1fr); background: rgba(255,255,255,.96); border-top: 1px solid var(--line); backdrop-filter: blur(18px); }
   .bottom-nav button { border: 0; background: transparent; color: #777; display: grid; place-items: center; align-content: center; gap: 3px; font-size: 10px; border-radius: 9px; }
   .bottom-nav button.active { color: var(--ink); font-weight: 500; }
   .bottom-nav .line-icon { width: 21px; height: 21px; }
+  .bottom-nav .nav-beta { display: inline-block; margin: 0 0 0 3px; padding: 1px 3px; font-size: 7px; vertical-align: 1px; }
   .capture-dock { left: 0; bottom: calc(72px + env(safe-area-inset-bottom)); padding: 0 12px; }
   .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .widget.span-3 { grid-column: span 2; }
