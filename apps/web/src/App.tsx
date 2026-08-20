@@ -263,6 +263,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
 
 const priorityNames: Record<NonNullable<UniversalItem['priority']>, string> = { 0: 'None', 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
 const stateNames: Record<UniversalItem['state'], string> = { open: 'Active', done: 'Completed', auto_closed: 'Auto closed', cancelled: 'Cancelled', archived: 'Archived' };
+const recentlyDoneUntil = new Map<string, number>();
 
 type ViewFieldOption = { path: string; label: string; group: string };
 const defaultBoardStates = ['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const;
@@ -278,8 +279,8 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
   { path: 'role', label: 'Role', group: 'Core' }, { path: 'priority', label: 'Priority', group: 'Core' },
   { path: 'tags', label: 'Tags', group: 'Core' }, { path: 'contexts', label: 'Contexts', group: 'Core' },
-  { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Scheduled start', group: 'Schedule' },
-  { path: 'schedule.endAt', label: 'Scheduled end', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Deadline', group: 'Schedule' },
+  { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Event opens', group: 'Schedule' },
+  { path: 'schedule.endAt', label: 'Event ends', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Due / Active range ends', group: 'Schedule' },
   { path: 'schedule.estimatedDuration', label: 'Estimated duration', group: 'Schedule' }, { path: 'schedule.actualDuration', label: 'Actual duration', group: 'Schedule' },
   { path: 'schedule.timezone', label: 'Timezone', group: 'Schedule' }, { path: 'schedule.allDay', label: 'All day', group: 'Schedule' },
   { path: 'recurrence.rrule', label: 'RRULE', group: 'Recurrence' }, { path: 'recurrence.rdates', label: 'Additional dates', group: 'Recurrence' },
@@ -428,14 +429,18 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
   </section></div>;
 }
 
-function filteredItems(workspace: WorkspaceDocument, view?: SavedView): UniversalItem[] {
+function filteredItems(workspace: WorkspaceDocument, view?: SavedView, now = new Date()): UniversalItem[] {
   const available = Object.values(workspace.items).filter((item) => !item.deletedAt && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
   let items: UniversalItem[];
   if (view) {
     try {
       const predicate = compileQuery(view.query.source || 'true');
-      const matchingRows = available.filter((item) => item.role !== 'series_template' ? predicate(item) : Boolean(item.habit) && predicate({ ...item, role: 'standalone' }));
-      const matchingSeries = available.filter((item) => item.role === 'series_template' && !item.habit && predicate(item));
+      const matchingRows = available.filter((item) => {
+        const visibleByQuery = item.role !== 'series_template' ? predicate(item, now) : Boolean(item.habit) && predicate({ ...item, role: 'standalone' }, now);
+        const grace = item.state === 'done' && (recentlyDoneUntil.get(item.id) ?? 0) > now.getTime();
+        return visibleByQuery || grace;
+      });
+      const matchingSeries = available.filter((item) => item.role === 'series_template' && !item.habit && predicate(item, now));
       const standalone = matchingRows.filter((item) => item.role !== 'occurrence');
       const occurrencesBySeries = new Map<string, UniversalItem[]>();
       matchingRows.filter((item) => item.role === 'occurrence').forEach((item) => {
@@ -454,7 +459,7 @@ function filteredItems(workspace: WorkspaceDocument, view?: SavedView): Universa
     }
     catch { return []; }
     const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
-    if (sortSource.trim()) items.sort(compileSort(sortSource));
+    if (sortSource.trim()) items.sort((left, right) => compileSort(sortSource)(left, right, now));
   } else items = available.filter((item) => item.role !== 'series_template');
   return items;
 }
@@ -502,7 +507,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
   const repeatInterval = Number(rruleMap().get('INTERVAL') ?? 1);
   const repeatDays = (rruleMap().get('BYDAY') ?? '').split(',').filter(Boolean);
   const activation = parseFriendlyDuration(item.recurrence?.activationOffset);
-  const activeWindow = recurring && Boolean(item.recurrence?.autoRenew) && item.recurrence?.closeAt === 'due' && activation.amount === 0;
+  const activeRange = recurring && Boolean(item.recurrence?.autoRenew) && item.recurrence?.closeAt === 'due' && activation.amount === 0;
   const estimate = item.schedule?.estimatedDuration ? parseEstimateDuration(item.schedule.estimatedDuration) : { amount: 45, unit: 'minutes' as FriendlyDurationUnit };
   const knownTags = [...new Set(Object.values(workspace.items).flatMap((entry) => entry.tags))].sort((left, right) => left.localeCompare(right));
   const collectedTags = [...new Set([...knownTags, ...commaList(tags)])];
@@ -569,7 +574,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
       if (recurring) {
         const anchor = result.schedule?.startAt ?? result.schedule?.dueAt;
         if (!anchor) throw new Error('A recurring item needs a Scheduled start or Deadline.');
-        if (activeWindow && (!result.schedule?.startAt || !result.schedule?.dueAt)) throw new Error('Active window needs both Window opens and Window closes.');
+        if (activeRange && (!result.schedule?.startAt || !result.schedule?.dueAt)) throw new Error('Active range needs both Event opens and Due / Active range ends.');
         result = { ...result, schedule: { ...result.schedule!, startAt: anchor } };
         result = makeSeries(result, result.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1', {
           ...result.recurrence,
@@ -596,13 +601,13 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         <label className="item-title-field">Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
         <details open><summary>Dates &amp; time</summary><div className="details-body">
           <p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p>
-          <SectionGuide title="Which date should I use?"><ul><li><strong>Scheduled start</strong> is when an item begins.</li><li><strong>Scheduled end</strong> is only the end of a calendar block.</li><li><strong>Deadline</strong> is the latest acceptable completion time.</li><li><strong>Available to work from</strong> is optional; it keeps reminders quiet before that time.</li></ul></SectionGuide>
+          <SectionGuide title="Which date should I use?"><ul><li><strong>Event opens</strong> is when the item becomes active and starts its calendar block.</li><li><strong>Event ends</strong> is only the end of the calendar block.</li><li><strong>Due / Active range ends</strong> is the latest completion time and can close the active range.</li><li><strong>Available to work from</strong> is optional; it keeps reminders quiet before that time.</li></ul></SectionGuide>
+          <details className="optional-field"><summary>Available to work from <span>Optional</span></summary><div className="details-body"><label><input aria-label="Available to work from" type="datetime-local" value={dateInput(item.schedule?.availableFrom)} onInput={(event) => patchSchedule({ availableFrom: fromDateInput(event.currentTarget.value) })} /><small>Earliest intended time to begin; not a deadline.</small></label></div></details>
           <div className="form-grid two schedule-grid">
-            <label><span>{activeWindow ? 'Window opens' : 'Scheduled start'}</span><input aria-label="Scheduled start" type="datetime-local" value={dateInput(item.schedule?.startAt)} onInput={(event) => patchSchedule({ startAt: fromDateInput(event.currentTarget.value) })} /><small>{activeWindow ? 'The item becomes active and visible at this time.' : 'When it begins and appears in the calendar.'}</small></label>
-            <label><span>Scheduled end</span><input aria-label="Scheduled end" type="datetime-local" value={dateInput(item.schedule?.endAt)} onInput={(event) => patchSchedule({ endAt: fromDateInput(event.currentTarget.value) })} /><small>When the calendar block ends. Use with start.</small></label>
-            <label><span>{activeWindow ? 'Window closes' : 'Deadline'}</span><input aria-label="Deadline" type="datetime-local" value={dateInput(item.schedule?.dueAt)} onInput={(event) => patchSchedule({ dueAt: fromDateInput(event.currentTarget.value) })} /><small>{activeWindow ? 'If still open, the item is automatically closed and hidden.' : 'Latest acceptable completion time; not a duration.'}</small></label>
+            <label><span>Event opens</span><input aria-label="Event opens" type="datetime-local" value={dateInput(item.schedule?.startAt)} onInput={(event) => patchSchedule({ startAt: fromDateInput(event.currentTarget.value) })} /><small>When it begins and appears in the calendar.</small></label>
+            <label><span>Event ends</span><input aria-label="Event ends" type="datetime-local" value={dateInput(item.schedule?.endAt)} onInput={(event) => patchSchedule({ endAt: fromDateInput(event.currentTarget.value) })} /><small>When the calendar block ends. Use with Event opens.</small></label>
+            <label><span>Due / Active range ends</span><input aria-label="Due / Active range ends" type="datetime-local" value={dateInput(item.schedule?.dueAt)} onInput={(event) => patchSchedule({ dueAt: fromDateInput(event.currentTarget.value) })} /><small>Latest acceptable completion time.</small></label>
           </div>
-          <details className="optional-field" open={Boolean(item.schedule?.availableFrom)}><summary>Available to work from <span>Optional</span></summary><div className="details-body"><label><input aria-label="Available to work from" type="datetime-local" value={dateInput(item.schedule?.availableFrom)} onInput={(event) => patchSchedule({ availableFrom: fromDateInput(event.currentTarget.value) })} /><small>Earliest intended time to begin; not a deadline.</small></label></div></details>
           <div className="schedule-tools"><button className="timezone-button" aria-expanded={timezoneOpen} onClick={() => setTimezoneOpen((current) => !current)}><span>Timezone</span><strong>{item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}</strong><i aria-hidden>{timezoneOpen ? '−' : '+'}</i></button></div>
           {timezoneOpen && <div className="timezone-panel"><label>Timezone<input autoFocus list="iana-timezones" value={item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} onChange={(event) => patchSchedule({ timezone: event.target.value })} /></label><small>Used for recurrence and daylight-saving calculations.</small><datalist id="iana-timezones">{typeof Intl.supportedValuesOf === 'function' && Intl.supportedValuesOf('timeZone').map((timezone) => <option value={timezone} key={timezone} />)}</datalist></div>}
         </div></details>
@@ -622,17 +627,17 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         </div>
         <label>Tags<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Add tags separated by commas" /></label>
         {collectedTags.length > 0 && <div className="tag-collection" aria-label="Available tags">{collectedTags.map((tag) => <button className={commaList(tags).includes(tag) ? 'active' : ''} key={tag} onClick={() => toggleTag(tag)}>#{tag}</button>)}</div>}
-        <details open={item.state !== 'open'}><summary>Status</summary><div className="details-body"><label>Item status<select value={item.state} onChange={(event) => { const state = event.target.value as UniversalItem['state']; patchItem({ state, closure: state === 'open' ? undefined : { at: item.closure?.at ?? new Date().toISOString(), actor: item.closure?.actor ?? 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' } }); }}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state}>{state}</option>)}</select><small>Status normally changes through completion, cancellation, auto-renew or archiving.</small></label>{(item.state === 'done' || item.state === 'cancelled') && <label>Actually {item.state === 'done' ? 'completed' : 'cancelled'} at<input type="datetime-local" value={dateInput(item.closure?.at)} onInput={(event) => { const at = fromDateInput(event.currentTarget.value); if (at) patchItem({ closure: { at, actor: item.closure?.actor ?? 'user', reason: item.state === 'cancelled' ? 'cancelled' : 'manual' } }); }} /><small>Defaults to now. Change this when you are recording the item after it happened. For a completion-anchored series, the next cycle uses this time when this cycle is first closed.</small></label>}</div></details>
+        <details open={item.state !== 'open'}><summary>Status</summary><div className="details-body"><label>Item status<select value={item.state} onChange={(event) => { const state = event.target.value as UniversalItem['state']; patchItem({ state, closure: state === 'open' ? undefined : { at: item.closure?.at ?? new Date().toISOString(), actor: item.closure?.actor ?? 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' } }); }}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state} value={state}>{stateNames[state as UniversalItem['state']]}</option>)}</select><small>Status normally changes through completion, cancellation, auto-renew or archiving.</small></label>{(item.state === 'done' || item.state === 'cancelled') && <label>Actually {item.state === 'done' ? 'completed' : 'cancelled'} at<input type="datetime-local" value={dateInput(item.closure?.at)} onInput={(event) => { const at = fromDateInput(event.currentTarget.value); if (at) patchItem({ closure: { at, actor: item.closure?.actor ?? 'user', reason: item.state === 'cancelled' ? 'cancelled' : 'manual' } }); }} /><small>Defaults to now. Change this when you are recording the item after it happened. For a completion-anchored series, the next cycle uses this time when this cycle is first closed.</small></label>}</div></details>
         <details open={commaList(contexts).length > 0}><summary>Contexts</summary><div className="details-body"><label>Contexts<input value={contexts} onChange={(event) => setContexts(event.target.value)} placeholder="office, laptop" /></label></div></details>
 
         <details open={recurring}><summary>Recurrence & auto-renew</summary><div className="details-body">
           <label className="check"><input type="checkbox" checked={recurring} onChange={(event) => setRecurring(event.target.checked)} /> Make this a recurring series</label>
           {recurring && <>
-            <SectionGuide title="How recurring items work"><ul><li>A series is one source item; each cycle has its own history.</li><li><strong>Only show during the active window</strong> uses Scheduled start and Deadline: complete once during that period, then the next cycle waits until it opens.</li><li>Most weekly tasks only need Repeat and, optionally, the active window. Advanced settings are for unusual activation and auto-close rules.</li></ul></SectionGuide>
+            <SectionGuide title="How recurring items work"><ul><li>A series is one source item; each cycle has its own history.</li><li><strong>Only show during the active range</strong> uses Event opens and Due: complete once during that period, then the next cycle waits until it opens.</li><li>Most weekly tasks only need Repeat and, optionally, the active range. Advanced settings are for unusual activation and auto-close rules.</li></ul></SectionGuide>
             <div className="form-grid two"><label>Repeat<select aria-label="Repeat frequency" value={repeatFrequency} onChange={(event) => updateRrule({ FREQ: event.target.value, BYDAY: event.target.value === 'WEEKLY' ? (repeatDays.join(',') || undefined) : undefined })}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option></select></label><label>Every<input type="number" min="1" aria-label="Repeat interval" value={repeatInterval} onChange={(event) => updateRrule({ INTERVAL: String(Math.max(1, Number(event.target.value) || 1)) })} /><span className="field-suffix">{repeatFrequency === 'DAILY' ? 'day(s)' : repeatFrequency === 'WEEKLY' ? 'week(s)' : repeatFrequency === 'MONTHLY' ? 'month(s)' : 'year(s)'}</span></label></div>
             {repeatFrequency === 'WEEKLY' && <div className="weekday-picker" aria-label="Repeat on weekdays">{[['MO', 'M'], ['TU', 'T'], ['WE', 'W'], ['TH', 'T'], ['FR', 'F'], ['SA', 'S'], ['SU', 'S']].map(([value, label]) => <button className={repeatDays.includes(value!) ? 'active' : ''} aria-label={`Repeat on ${value}`} key={value} onClick={() => { const days = repeatDays.includes(value!) ? repeatDays.filter((day) => day !== value) : [...repeatDays, value!]; updateRrule({ BYDAY: days.length ? days.join(',') : undefined }); }}>{label}</button>)}</div>}
-            <label className="active-window-toggle"><input type="checkbox" checked={activeWindow} onChange={(event) => patchRecurrence(event.target.checked ? { activationOffset: 'PT0M', closeAt: 'due', autoRenew: true } : { closeAt: 'next_activation' })} /><span><strong>Only show during the active window</strong><small>Complete once between Scheduled start and Deadline. Outside that window, no open item is shown.</small></span></label>
-            {activeWindow && <div className={`active-window-summary ${item.schedule?.startAt && item.schedule?.dueAt ? '' : 'incomplete'}`}><span><small>Opens</small>{item.schedule?.startAt ? new Date(item.schedule.startAt).toLocaleString() : 'Set Scheduled start'}</span><span><small>Closes</small>{item.schedule?.dueAt ? new Date(item.schedule.dueAt).toLocaleString() : 'Set Deadline'}</span></div>}
+            <label className="active-window-toggle"><input type="checkbox" checked={activeRange} onChange={(event) => patchRecurrence(event.target.checked ? { activationOffset: 'PT0M', closeAt: 'due', autoRenew: true } : { closeAt: 'next_activation' })} /><span><strong>Only show during the active range</strong><small>Complete once between Event opens and Due / Active range ends. Outside that range, no active item is shown.</small></span></label>
+            {activeRange && <div className={`active-window-summary ${item.schedule?.startAt && item.schedule?.dueAt ? '' : 'incomplete'}`}><span><small>Event opens</small>{item.schedule?.startAt ? new Date(item.schedule.startAt).toLocaleString() : 'Set Event opens'}</span><span><small>Active range ends</small>{item.schedule?.dueAt ? new Date(item.schedule.dueAt).toLocaleString() : 'Set Due'}</span></div>}
             <details className="advanced-recurrence"><summary>Advanced recurrence behavior</summary><div className="details-body"><div className="form-grid two"><label>Activate before<div className="duration-control"><input type="number" min="0" aria-label="Activation amount" value={activation.amount} onChange={(event) => patchRecurrence({ activationOffset: toIsoDuration(Math.max(0, Number(event.target.value) || 0), activation.unit) })} /><select aria-label="Activation unit" value={activation.unit} onChange={(event) => patchRecurrence({ activationOffset: toIsoDuration(activation.amount, event.target.value as FriendlyDurationUnit) })}><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="weeks">Weeks</option></select></div></label><label>Auto-close<select value={item.recurrence?.closeAt ?? 'next_activation'} onChange={(event) => patchRecurrence({ closeAt: event.target.value as NonNullable<UniversalItem['recurrence']>['closeAt'] })}><option value="next_activation">At next activation</option><option value="due">At due time</option><option value="never">Never</option></select></label></div><label>Next cycle starts from<select value={item.recurrence?.anchor ?? 'schedule'} onChange={(event) => patchRecurrence({ anchor: event.target.value as NonNullable<UniversalItem['recurrence']>['anchor'] })}><option value="schedule">Scheduled time</option><option value="completion">Actual completion or cancellation</option></select><small>Choose actual completion when the next interval should be counted from the time you finished, rather than the original schedule.</small></label><label className="check"><input type="checkbox" checked={item.recurrence?.autoRenew ?? true} onChange={(event) => patchRecurrence({ autoRenew: event.target.checked })} /> Auto-close untouched cycles</label><label>Repeat rule <span className="hint">RRULE — Recurrence Rule</span><input className="mono" value={item.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1'} onChange={(event) => patchRecurrence({ rrule: event.target.value })} /></label><label>Activation duration <span className="hint">ISO 8601</span><input className="mono" value={item.recurrence?.activationOffset ?? 'P7D'} onChange={(event) => patchRecurrence({ activationOffset: event.target.value })} /></label></div></details>
           </>}
         </div></details>
@@ -706,6 +711,29 @@ function SavedViewSection({ view, workspace, onEditView, onEditItem, onState, on
   </section>;
 }
 
+function toSqlExpression(source: string): string {
+  const trimmed = source.trim();
+  if (!trimmed) return 'TRUE';
+  return trimmed
+    .replace(/\bactiveRange\b/g, 'active_range')
+    .replace(/\bstate\b/g, 'state')
+    .replace(/==/g, '=')
+    .replace(/!=/g, '<>')
+    .replace(/&&/g, ' AND ')
+    .replace(/\|\|/g, ' OR ')
+    .replace(/\btrue\b/gi, 'TRUE')
+    .replace(/\bfalse\b/gi, 'FALSE')
+    .replace(/\bnull\b/gi, 'NULL')
+    .replace(/includes\(([^,]+),\s*([^\)]+)\)/g, '$2 = ANY($1)')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toSqlSort(source: string): string {
+  const rules = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return rules.length ? `ORDER BY ${rules.map((line) => line.replace(/\s+(asc|desc)(?:\s+nulls\s+(first|last))?$/i, (_m, direction: string, nulls?: string) => ` ${direction.toUpperCase()}${nulls ? ` NULLS ${nulls.toUpperCase()}` : ''}`)).join(', ')}` : 'ORDER BY updatedAt DESC NULLS LAST';
+}
+
 function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
   workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
   onEditItem: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state']) => void;
@@ -726,10 +754,32 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
   const viewJsonRef = useRef<HTMLInputElement>(null);
 
   const literal = (value: string) => ['true', 'false', 'null'].includes(value) || (!Number.isNaN(Number(value)) && value.trim() !== '') ? value : JSON.stringify(value);
-  const visualClause = () => `${visualField} ${visualOperator} ${literal(visualValue)}`;
   const visualOptions: Record<string, string[]> = {
     state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'],
-    isHabit: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
+    isHabit: ['true', 'false'], activeRange: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
+  };
+  const visualFieldKinds: Record<string, 'enum' | 'boolean' | 'number' | 'date' | 'text' | 'multi'> = {
+    state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', activeRange: 'boolean', priority: 'number',
+    'schedule.startAt': 'date', 'schedule.endAt': 'date', 'schedule.dueAt': 'date', 'schedule.availableFrom': 'date',
+    title: 'text', description: 'text', tags: 'multi', contexts: 'multi',
+  };
+  const visualOperators = (field: string): string[] => {
+    const kind = visualFieldKinds[field] ?? 'text';
+    if (kind === 'number' || kind === 'date') return ['==', '!=', '>', '>=', '<', '<='];
+    if (kind === 'boolean' || kind === 'enum') return ['==', '!=', 'in'];
+    if (kind === 'multi') return ['has any', 'has all', 'has none'];
+    return ['==', '!=', 'contains'];
+  };
+  const visualClause = () => {
+    if (visualField === 'tags' || visualField === 'contexts') {
+      const values = commaList(visualValue);
+      if (!values.length) return 'true';
+      const checks = values.map((value) => `includes(${visualField}, ${JSON.stringify(value)})`);
+      if (visualOperator === 'has all') return checks.join(' && ');
+      if (visualOperator === 'has none') return `!(${checks.join(' || ')})`;
+      return `(${checks.join(' || ')})`;
+    }
+    return `${visualField} ${visualOperator === 'contains' ? 'in' : visualOperator} ${literal(visualValue)}`;
   };
   const beginEditing = (view: SavedView) => {
     const copy = clean(view);
@@ -743,7 +793,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
     if (firstClause?.[3]) {
       try { setVisualValue(String(JSON.parse(firstClause[3]))); }
       catch { setVisualValue(firstClause[3]); }
-    } else setVisualValue('open');
+    } else setVisualValue(firstClause?.[1] === 'activeRange' ? 'true' : 'open');
     setVisualDirty(false);
     setSortSource(source);
     try { setSortRules(parseSortSource(source)); } catch { setSortRules([]); }
@@ -753,7 +803,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
     setError('');
   };
   const changeVisual = (part: 'field' | 'operator' | 'value', value: string) => {
-    if (part === 'field') { setVisualField(value); if (visualOptions[value]?.length) setVisualValue(visualOptions[value]![0]!); }
+    if (part === 'field') { setVisualField(value); const options = visualOperators(value); setVisualOperator(options[0]!); if (visualOptions[value]?.length) setVisualValue(visualOptions[value]![0]!); else setVisualValue(''); }
     if (part === 'operator') setVisualOperator(value);
     if (part === 'value') setVisualValue(value);
     setVisualDirty(true);
@@ -819,7 +869,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       setError('');
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
-  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: 'state == "open"' }, renderer: 'table', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
+  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && role != "series_template"' }, renderer: 'table', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
   const applyViewJson = (source = viewJson) => {
     if (!editing) return;
     try {
@@ -849,16 +899,19 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       <label>Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
       <SectionGuide title="How views work"><ul><li>A view is a saved, live list; it never copies items.</li><li>Use the visual condition for simple choices. Use DSL for combinations such as <code>priority &gt;= 3 &amp;&amp; state == "open"</code>.</li><li>An empty DSL means all items except recurring source templates.</li><li>Displayed fields control what is visible; sorting only controls order.</li></ul></SectionGuide>
       <fieldset className="query-builder"><legend>Visual condition</legend>
+        <p className="builder-status">Choose a field and only the operators that make sense for its type. Active range uses Event opens through Due.</p>
         <div className="form-grid three">
-          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option value="isHabit">Habit tracking</option><option>role</option><option>priority</option><option>schedule.dueAt</option><option>title</option></select></label>
-          <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}><option>==</option><option>!=</option><option>&gt;</option><option>&gt;=</option><option>&lt;</option><option>&lt;=</option><option>in</option></select></label>
-          <label>Value{visualOptions[visualField] ? <select value={visualValue} onChange={(event) => changeVisual('value', event.target.value)}>{visualOptions[visualField]!.map((value) => <option key={value}>{value}</option>)}</select> : <input type={visualField === 'schedule.dueAt' ? 'datetime-local' : 'text'} list={visualField === 'title' ? 'view-title-values' : undefined} value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} />}</label>
+          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option value="isHabit">Habit tracking</option><option>activeRange</option><option>role</option><option>priority</option><option>schedule.startAt</option><option>schedule.endAt</option><option>schedule.dueAt</option><option>schedule.availableFrom</option><option>title</option><option>description</option><option>tags</option><option>contexts</option><option>reminders</option></select></label>
+          <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}>{visualOperators(visualField).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</select></label>
+          <label>Value{visualOptions[visualField] ? <select value={visualValue} onChange={(event) => changeVisual('value', event.target.value)}>{visualOptions[visualField]!.map((value) => <option key={value} value={value}>{visualField === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</select> : <input type={visualField.startsWith('schedule.') ? 'datetime-local' : 'text'} list={visualField === 'title' ? 'view-title-values' : visualField === 'tags' || visualField === 'contexts' ? 'view-tag-values' : undefined} placeholder={visualField === 'tags' || visualField === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} />}</label>
         </div>
         <datalist id="view-title-values">{[...new Set(Object.values(workspace.items).map((entry) => entry.title))].map((title) => <option value={title} key={title} />)}</datalist>
+        <datalist id="view-tag-values">{[...new Set(Object.values(workspace.items).flatMap((entry) => [...entry.tags, ...entry.contexts]))].sort().map((tag) => <option value={tag} key={tag} />)}</datalist>
+        <p className="condition-readable">Showing items where <strong>{visualField === 'activeRange' ? 'Active range' : visualField}</strong> {visualOperator} <strong>{visualValue || 'any value'}</strong>.</p>
         <p className="builder-status">{visualDirty ? 'This condition will replace the DSL expression when you save.' : 'Visual condition and DSL are synchronized.'}</p>
         <div className="builder-actions"><button className="secondary compact-action" onClick={() => applyVisual('replace')}>Apply condition</button><button className="secondary compact-action" onClick={() => applyVisual('and')}>+ Add AND condition</button><button className="secondary compact-action" onClick={() => applyVisual('or')}>+ Add OR condition</button></div>
       </fieldset>
-      <label className="dsl-field">DSL expression<span className="hint">Safe typed expression</span><CodeEditor language="dsl" ariaLabel="DSL expression" rows={5} value={editing.query.source} onChange={(value) => { setEditing({ ...editing, query: { source: value } }); setVisualDirty(false); }} /></label>
+      <label className="dsl-field">SQL-like filter<span className="hint">Safe typed expression; SQL preview: {toSqlExpression(editing.query.source)}</span><CodeEditor language="dsl" ariaLabel="DSL expression" rows={5} value={editing.query.source} onChange={(value) => { setEditing({ ...editing, query: { source: value } }); setVisualDirty(false); }} /></label>
       <label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>
       {editing.renderer === 'board' && <fieldset className="query-builder board-builder"><legend>Board columns</legend><p className="builder-status">Empty columns are hidden by default. Choose the statuses and their left-to-right order.</p><label className="check"><input type="checkbox" checked={boardSettingsFor(editing).showEmpty} onChange={(event) => updateBoardSettings({ showEmpty: event.target.checked })} />Show empty columns</label><div className="board-column-settings">{boardSettingsFor(editing).states.map((state, index) => <div key={state}><label className="check"><input type="checkbox" checked onChange={() => updateBoardSettings({ states: boardSettingsFor(editing).states.filter((entry) => entry !== state) })} />{stateNames[state]}</label><div><button className="secondary compact-action" aria-label={`Move ${stateNames[state]} left`} disabled={index === 0} onClick={() => moveBoardState(index, -1)}>←</button><button className="secondary compact-action" aria-label={`Move ${stateNames[state]} right`} disabled={index === boardSettingsFor(editing).states.length - 1} onClick={() => moveBoardState(index, 1)}>→</button></div></div>)}</div><div className="builder-actions">{defaultBoardStates.filter((state) => !boardSettingsFor(editing).states.includes(state)).map((state) => <button className="secondary compact-action" key={state} onClick={() => updateBoardSettings({ states: [...boardSettingsFor(editing).states, state] })}>+ {stateNames[state]}</button>)}</div></fieldset>}
       <fieldset className="query-builder fields-builder"><legend>Displayed fields</legend>
@@ -879,7 +932,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
           <div className="rule-order"><button className="secondary compact-action" aria-label={`Move sort ${index + 1} up`} disabled={index === 0} onClick={() => moveSortRule(index, -1)}>↑</button><button className="secondary compact-action" aria-label={`Move sort ${index + 1} down`} disabled={index === sortRules.length - 1} onClick={() => moveSortRule(index, 1)}>↓</button><button className="secondary compact-action" aria-label={`Remove sort ${index + 1}`} onClick={() => updateSortRules(sortRules.filter((_rule, ruleIndex) => ruleIndex !== index))}><CloseIcon /></button></div>
         </div>)}</div>
         <button className="secondary compact-action" onClick={() => updateSortRules([...sortRules, { expression: 'updatedAt', direction: 'desc', nulls: 'last' }])}>+ Add sort rule</button>
-        <label className="dsl-field sort-dsl">Sort DSL<span className="hint">One rule per line. Expressions can use safe functions, for example: lower(title) asc nulls last</span><CodeEditor language="dsl" ariaLabel="Sort DSL" rows={4} value={sortSource} onChange={(source) => { setSortSource(source); try { setSortRules(parseSortSource(source)); } catch { /* Keep the text editable until save reports the exact error. */ } }} /></label>
+        <label className="dsl-field sort-dsl">SQL-like sorting<span className="hint">One rule per line. SQL preview: {toSqlSort(sortSource)}</span><CodeEditor language="dsl" ariaLabel="SQL-like sorting" rows={4} value={sortSource} onChange={(source) => { setSortSource(source); try { setSortRules(parseSortSource(source)); } catch { /* Keep the text editable until save reports the exact error. */ } }} /></label>
       </fieldset>
       <details className="query-builder json-editor view-json-editor"><summary>View JSON</summary><div className="details-body"><p className="builder-status">This is the complete SavedView draft. Imported JSON is applied as a template and keeps this view ID.</p><CodeEditor language="json" ariaLabel="View JSON" rows={16} value={viewJson} onChange={setViewJson} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => setViewJson(JSON.stringify({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, null, 2))}>Refresh from visual editor</button><button className="secondary compact-action" onClick={() => applyViewJson()}>Apply JSON</button><button className="secondary compact-action" onClick={() => viewJsonRef.current?.click()}>Import as template</button><input ref={viewJsonRef} hidden type="file" accept=".json,application/json" onChange={(event) => event.target.files?.[0] && void importViewTemplate(event.target.files[0])} /></div></div></details>
       <details className="query-builder view-export-details"><summary>Export view</summary><div className="details-body"><p className="builder-status">Definitions use JSON. Results can also be opened in spreadsheets or calendar apps.</p><div className="builder-actions"><button className="secondary compact-action" onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'definition')}>Definition JSON</button><details className="inline-menu"><summary>Results…</summary><div><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results')}>JSON</button><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results', 'csv')}>CSV</button><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results', 'xlsx')}>Excel</button><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results', 'ics')}>iCalendar</button><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results', 'ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary compact-action" onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'bundle', 'xlsx')}>Definition + results Excel</button></div></div></details>
@@ -1112,6 +1165,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [quick, setQuick] = useState('');
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
+  const [, refreshClock] = useState(() => Date.now());
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const seenNoticeIds = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, number>());
@@ -1119,6 +1173,11 @@ export default function App() {
 
   useEffect(() => { void hasLocalWorkspace().then((exists) => setBoot(exists ? 'locked' : 'empty')); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3500); return () => window.clearTimeout(timer); }, [toast]);
+  // Views using activeRange are time-sensitive; refresh their predicates without a reload.
+  useEffect(() => {
+    const timer = window.setInterval(() => refreshClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
     const fresh = notices.filter((notice) => !seenNoticeIds.current.has(notice.id));
     if (!fresh.length) return;
@@ -1238,6 +1297,8 @@ export default function App() {
   };
 
   const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => {
+    if (state === 'done') recentlyDoneUntil.set(item.id, Date.now() + 10_000);
+    else recentlyDoneUntil.delete(item.id);
     commit('Change item state', (draft) => {
       let target = draft.items[item.id]; if (!target) return;
       if (item.habit || (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]?.habit)) {

@@ -213,10 +213,18 @@ export function compileQuery(source: string): (item: UniversalItem, now?: Date) 
   // the visual builder expressed them as `preset == "habit"`.
   const normalizedSource = source
     .replace(/\bpreset\s*==\s*(["'])habit\1/g, 'isHabit == true')
-    .replace(/\bpreset\s*!=\s*(["'])habit\1/g, 'isHabit != true');
+    .replace(/\bpreset\s*!=\s*(["'])habit\1/g, 'isHabit != true')
+    // Keep the storage model backwards compatible while making the UI wording clearer.
+    .replace(/\bstate\s*==\s*(["'])active\1/g, 'state == "open"')
+    .replace(/\bstate\s*!=\s*(["'])active\1/g, 'state != "open"');
   const ast = parseExpression(normalizedSource);
   return (item, now) => {
-    try { return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit) }, ...(now ? { now } : {}) })); }
+    const current = now ?? new Date();
+    const start = item.schedule?.startAt ? new Date(item.schedule.startAt).getTime() : undefined;
+    const due = item.schedule?.dueAt ? new Date(item.schedule.dueAt).getTime() : undefined;
+    const activeRange = (start === undefined || Number.isNaN(start) || current.getTime() >= start)
+      && (due === undefined || Number.isNaN(due) || current.getTime() <= due);
+    try { return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), activeRange }, now: current })); }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;
       throw reason;

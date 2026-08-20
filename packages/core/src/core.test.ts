@@ -25,6 +25,14 @@ describe('safe expression language', () => {
     expect(() => compileQuery('globalThis.fetch("https://example.com")')(item)).toThrow('Function is not allowed');
   });
 
+  it('supports active-range predicates and Active wording aliases', () => {
+    const item = createItem('Time boxed');
+    item.schedule = { startAt: '2026-08-20T10:00:00.000Z', dueAt: '2026-08-20T10:02:00.000Z' };
+    const query = compileQuery('state == "active" && activeRange == true');
+    expect(query(item, new Date('2026-08-20T10:01:00.000Z'))).toBe(true);
+    expect(query(item, new Date('2026-08-20T10:03:00.000Z'))).toBe(false);
+  });
+
   it('detects formula cycles', () => {
     const result = evaluateFormulas(createItem('Cost'), [
       { id: 'a', key: 'a', label: 'A', kind: 'formula', required: false, formula: 'custom.b + 1' },

@@ -36,7 +36,7 @@ const en = {
   'Displayed fields': 'Отображаемые поля', Renderer: 'Отображение', Sorting: 'Сортировка', 'Visual condition': 'Визуальное условие',
   Field: 'Поле', Operator: 'Оператор', Value: 'Значение', 'Apply condition': 'Применить условие', 'Add AND condition': 'Добавить И', 'Add OR condition': 'Добавить ИЛИ',
   Title: 'Название', Description: 'Описание', Status: 'Статус', Priority: 'Приоритет', Tags: 'Теги', Contexts: 'Контексты',
-  'Dates & time': 'Дата и время', Reminders: 'Напоминания', 'Available to work from': 'Доступно с', 'Scheduled start': 'Начало', 'Scheduled end': 'Окончание', Deadline: 'Срок', Timezone: 'Часовой пояс',
+  'Dates & time': 'Дата и время', Reminders: 'Напоминания', 'Available to work from': 'Доступно с', 'Scheduled start': 'Начало', 'Scheduled end': 'Окончание', Deadline: 'Срок', 'Event opens': 'Событие начинается', 'Event ends': 'Событие заканчивается', 'Due / Active range ends': 'Срок / конец активного диапазона', 'Active range': 'Активный диапазон', 'Only show during the active range': 'Показывать только в активном диапазоне', Timezone: 'Часовой пояс',
   'Estimated duration': 'Оценка длительности', 'Actual duration': 'Фактическая длительность', 'All day': 'Весь день',
   None: 'Нет', Low: 'Низкий', Medium: 'Средний', High: 'Высокий', Urgent: 'Срочный',
   Task: 'Задача', Event: 'Событие', Habit: 'Привычка', Blank: 'Пустой', 'Save item': 'Сохранить элемент',

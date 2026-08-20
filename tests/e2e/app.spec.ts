@@ -62,8 +62,8 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   const scheduleSection = page.getByText('Dates & time', { exact: true });
   await expect(scheduleSection).toHaveCSS('font-size', '13px');
   await expect(scheduleSection).toHaveCSS('font-weight', '500');
-  await expect(page.getByLabel('Scheduled start')).toBeVisible();
-  await expect(page.getByLabel('Scheduled end')).toBeVisible();
+  await expect(page.getByLabel('Event opens')).toBeVisible();
+  await expect(page.getByLabel('Event ends')).toBeVisible();
   await expect(page.getByLabel('Deadline')).toBeVisible();
   await expect(page.getByLabel('Available to work from')).toBeHidden();
   await page.locator('details.optional-field > summary').click();
@@ -79,7 +79,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.9.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.9.2', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -122,7 +122,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.9.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.9.2', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -393,7 +393,7 @@ test('table and board renderers can complete and reopen items', async ({ page })
     const date = new Date(Date.now() + 3_600_000);
     return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   });
-  await page.getByLabel('Scheduled start', { exact: true }).fill(startInOneHour);
+  await page.getByLabel('Event opens', { exact: true }).fill(startInOneHour);
   await page.getByRole('button', { name: 'Save item' }).click();
   await page.getByRole('button', { name: 'Home' }).click();
 
@@ -522,8 +522,8 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
   await page.getByRole('button', { name: 'All items' }).click();
   await page.getByRole('button', { name: '+ New item' }).click();
   await page.getByLabel('Title', { exact: true }).fill('Weekly due-only item');
-  await expect(page.getByLabel('Scheduled start', { exact: true })).not.toHaveValue('');
-  await page.getByLabel('Scheduled start', { exact: true }).fill('');
+  await expect(page.getByLabel('Event opens', { exact: true })).not.toHaveValue('');
+  await page.getByLabel('Event opens', { exact: true }).fill('');
   await page.getByText('Recurrence & auto-renew', { exact: true }).click();
   await page.getByLabel('Make this a recurring series').check();
   await page.getByLabel('Repeat frequency').selectOption('WEEKLY');
@@ -554,7 +554,7 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
 
   await page.getByRole('button', { name: 'Home' }).click();
   await page.getByRole('button', { name: '+ New view' }).click();
-  await expect(page.getByLabel('DSL expression')).toHaveValue('state == "open"');
+  await expect(page.getByLabel('DSL expression')).toHaveValue('(state == "open" || state == "done") && role != "series_template"');
   await expect(page.getByLabel('DSL expression')).toHaveCSS('font-family', /monospace|Menlo|Monaco|Consolas/i);
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Open items');
   await page.getByRole('button', { name: 'Save view' }).click();
@@ -576,13 +576,13 @@ test('active window reuses recurrence fields without duplicating controls', asyn
     const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     return { opens: local(opens), closes: local(closes) };
   });
-  await page.getByLabel('Scheduled start').fill(dates.opens);
+  await page.getByLabel('Event opens').fill(dates.opens);
   await page.getByLabel('Deadline').fill(dates.closes);
   await page.getByText('Recurrence & auto-renew', { exact: true }).click();
   await page.getByLabel('Make this a recurring series').check();
-  await page.getByLabel('Only show during the active window').check();
-  await expect(page.getByText('Window opens', { exact: true })).toBeVisible();
-  await expect(page.getByText('Window closes', { exact: true })).toBeVisible();
+  await page.getByLabel('Only show during the active range').check();
+  await expect(page.getByText('Event opens', { exact: true })).toBeVisible();
+  await expect(page.getByText('Active range ends', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Activation amount')).toBeHidden();
   await page.getByText('Advanced recurrence behavior', { exact: true }).click();
   await expect(page.getByLabel('Activation amount')).toHaveValue('0');
