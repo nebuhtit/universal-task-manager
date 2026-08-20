@@ -1319,7 +1319,12 @@ export default function App() {
   };
 
   const workspace = session?.document as WorkspaceDocument | undefined;
-  useEffect(() => workspace ? installDomLocalization(workspace.calendarPreferences.language) : undefined, [workspace?.calendarPreferences.language]);
+  useEffect(() => {
+    if (!workspace) return;
+    const language = workspace.calendarPreferences.language;
+    window.localStorage.setItem('utm-interface-language', language);
+    return installDomLocalization(language);
+  }, [workspace?.calendarPreferences.language]);
   useEffect(() => {
     const appearance = workspace?.calendarPreferences.appearance;
     if (!appearance) return;
