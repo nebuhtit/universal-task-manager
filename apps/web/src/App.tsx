@@ -487,8 +487,8 @@ function isHabitOccurrence(workspace: WorkspaceDocument, item: UniversalItem): b
 }
 function isItemTemplate(item: UniversalItem): boolean { return item.extensions?.['utm:template'] === true; }
 
-function ItemEditor({ initial, workspace, onSave, onDelete, onCreateSubtask, onToggleSubtask, onClose }: {
-  initial: UniversalItem; workspace: WorkspaceDocument; onSave: (item: UniversalItem) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string) => UniversalItem; onToggleSubtask: (id: string) => void; onClose: () => void;
+function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onClose }: {
+  initial: UniversalItem; workspace: WorkspaceDocument; isNew?: boolean; onSave: (item: UniversalItem) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string) => UniversalItem; onToggleSubtask: (id: string) => void; onClose: () => void;
 }) {
   const [item, setItem] = useState(() => clean(initial));
   const [tags, setTags] = useState(item.tags.join(', '));
@@ -630,7 +630,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onCreateSubtask, onT
       <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
       <div className="editor-scroll">
         <label className="item-title-field">Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
-        {!workspace.items[item.id] && templates.length > 0 && <details className="template-picker"><summary>Choose a saved template <span>Optional</span></summary><div className="details-body"><p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>{templates.map((template) => <button type="button" className="template-option" key={template.id} onClick={() => applyTemplate(template)}>{template.title || 'Untitled template'}</button>)}</div></details>}
+        {isNew && templates.length > 0 && <details className="template-picker"><summary>Choose a saved template <span>Optional</span></summary><div className="details-body"><p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>{templates.map((template) => <button type="button" className="template-option" key={template.id} onClick={() => applyTemplate(template)}>{template.title || 'Untitled template'}</button>)}</div></details>}
         <label className="check template-toggle"><input type="checkbox" checked={isTemplate} onChange={(event) => setIsTemplate(event.target.checked)} /> Save this item as a template</label>
         <label>Description <span className="hint">Markdown</span><textarea rows={5} value={item.bodyMarkdown} onChange={(event) => patchItem({ bodyMarkdown: event.target.value })} placeholder="Context, links, checklists…" /></label>
         {item.bodyMarkdown && <details open><summary>Markdown preview</summary><div className="markdown preview"><ReactMarkdown>{item.bodyMarkdown}</ReactMarkdown></div></details>}
@@ -1200,6 +1200,7 @@ export default function App() {
   const [session, setSession] = useState<UnlockedWorkspace | null>(null);
   const [page, setPage] = useState<Page>('home');
   const [editor, setEditor] = useState<UniversalItem | null>(null);
+  const [editorIsNew, setEditorIsNew] = useState(false);
   const [transfer, setTransfer] = useState(false);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [popupNoticeIds, setPopupNoticeIds] = useState<string[]>([]);
@@ -1426,7 +1427,7 @@ export default function App() {
     const item = createUiItem(quick.trim());
     commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
     setQuick('');
-    setEditor(item);
+    setEditorIsNew(true); setEditor(item);
   };
 
   return <div className="app-shell">
@@ -1443,7 +1444,7 @@ export default function App() {
     </main>
     <div className="capture-dock"><div className="quick-capture"><input value={quick} onChange={(event) => setQuick(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && captureQuickItem()} placeholder="Add new task" aria-label="Add new task"/><button aria-label="Add task" disabled={!quick.trim()} onClick={captureQuickItem}>↵</button></div></div>
     <nav className="bottom-nav">{nav.map(([target, icon, label, beta]) => <button aria-label={label} key={target} className={page === target ? 'active' : ''} onClick={() => setPage(target)}><LineIcon name={icon}/><span>{label === 'Automations' ? 'Rules' : label}{beta && <em className="nav-beta">Beta</em>}</span></button>)}</nav>
-    {editor && <ItemEditor initial={editor} workspace={workspace} onClose={() => setEditor(null)} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onCreateSubtask={(title) => { const subtask = createUiItem(title, 'task'); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); }); return subtask; }} onSave={(item) => { const isNew = !workspace.items[item.id]; commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event]); if (item.role === 'series_template') reconcileRecurrences(draft); }); setEditor(null); }} onDelete={(item) => { commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = new Date().toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); setEditor(null); }} />}
+    {editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onCreateSubtask={(title) => { const subtask = createUiItem(title, 'task'); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); }); return subtask; }} onSave={(item) => { const isNew = !workspace.items[item.id]; commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event]); if (item.role === 'series_template') reconcileRecurrences(draft); }); setEditorIsNew(false); setEditor(null); }} onDelete={(item) => { commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = new Date().toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); setEditorIsNew(false); setEditor(null); }} />}
     {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onMerged={(next, message) => { setSession(next); setToast(message); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
