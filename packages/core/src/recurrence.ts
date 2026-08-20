@@ -134,6 +134,40 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
   };
 }
 
+/**
+ * Moves a completion-anchored series forward from the time its current cycle
+ * was closed. Closed occurrence history remains untouched; only the template
+ * is moved to the next cycle.
+ */
+export function advanceCompletionAnchoredSeries(workspace: WorkspaceDocument, occurrence: UniversalItem, closedAt: string): boolean {
+  const seriesId = occurrence.occurrence?.seriesId;
+  if (!seriesId) return false;
+  const series = workspace.items[seriesId];
+  if (!series?.recurrence || series.recurrence.anchor !== 'completion' || !series.schedule?.startAt) return false;
+  const closed = new Date(closedAt);
+  if (Number.isNaN(closed.getTime())) return false;
+
+  const probe = JSON.parse(JSON.stringify(series)) as UniversalItem;
+  probe.schedule!.startAt = closed.toISOString();
+  const next = buildRecurrenceRule(probe).after(closed, false);
+  if (!next) return false;
+
+  const delta = next.getTime() - new Date(series.schedule.startAt).getTime();
+  const availableFrom = shiftIso(series.schedule.availableFrom, delta);
+  const endAt = shiftIso(series.schedule.endAt, delta);
+  const dueAt = shiftIso(series.schedule.dueAt, delta);
+  series.schedule = {
+    ...series.schedule,
+    ...(availableFrom ? { availableFrom } : {}),
+    startAt: next.toISOString(),
+    ...(endAt ? { endAt } : {}),
+    ...(dueAt ? { dueAt } : {}),
+  };
+  series.updatedAt = closed.toISOString();
+  series.revision += 1;
+  return true;
+}
+
 function closingBoundary(current: UniversalItem, nextActivation: Date | undefined): Date | undefined {
   const seriesRule = current.custom.__closeAt;
   if (seriesRule === 'never') return undefined;
@@ -178,10 +212,12 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
       continue;
     }
     const rule = buildRecurrenceRule(series);
+    const recurrence = series.recurrence!;
     const start = new Date(series.schedule!.startAt!);
     const next = rule.after(now, true);
-    const anchors = rule.between(new Date(start.getTime() - 1), now, true);
-    if (next && next.getTime() > now.getTime()) anchors.push(next);
+    const anchors = recurrence.anchor === 'completion'
+      ? [start]
+      : [...rule.between(new Date(start.getTime() - 1), now, true), ...(next && next.getTime() > now.getTime() ? [next] : [])];
     const unique = [...new Map(anchors.map((date) => [date.toISOString(), date])).values()].sort((a, b) => a.getTime() - b.getTime());
     const activeAnchors = unique.filter((anchor) => {
       const offset = series.recurrence?.activationOffset ? durationToMs(series.recurrence.activationOffset) : 0;
@@ -209,6 +245,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
         occurrence.updatedAt = now.toISOString();
         occurrence.revision += 1;
         occurrence.closure = { at: boundary.toISOString(), actor: 'system', reason: 'auto_renew' };
+        advanceCompletionAnchoredSeries(workspace, occurrence, boundary.toISOString());
         autoClosed.push(occurrence);
       }
     });

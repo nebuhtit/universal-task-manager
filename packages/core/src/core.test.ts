@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
@@ -146,6 +146,22 @@ describe('recurrence and auto-renew', () => {
     expect(Object.values(workspace.items)).toHaveLength(1);
     expect(workspace.items[series.id]!.habit?.completedDates).toEqual(['2026-08-19']);
     expect(workspace.tombstones[legacy.id]).toBeTruthy();
+  });
+
+  it('starts the next completion-anchored cycle from the recorded close time', () => {
+    const workspace = createWorkspace('Completion anchor');
+    const item = createItem('Water plants');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-20T09:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=DAILY', { anchor: 'completion', activationOffset: 'PT0M' });
+    workspace.items[series.id] = series;
+    const occurrence = createOccurrence(series, new Date('2026-08-20T09:00:00.000Z'), 0);
+    occurrence.state = 'done';
+    occurrence.closure = { at: '2026-08-20T16:30:00.000Z', actor: 'user', reason: 'manual' };
+    workspace.items[occurrence.id] = occurrence;
+
+    expect(advanceCompletionAnchoredSeries(workspace, occurrence, occurrence.closure.at)).toBe(true);
+    expect(workspace.items[series.id]!.schedule?.startAt).toBe('2026-08-21T16:30:00.000Z');
+    expect(workspace.items[occurrence.id]!.closure?.at).toBe('2026-08-20T16:30:00.000Z');
   });
 
   it('preserves every missed weekly cycle and keeps the latest fresh', () => {
