@@ -55,6 +55,9 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
       : detached.schedule?.dueAt ? { dueAt: shiftIso(detached.schedule.dueAt, delta)! } : {}),
   };
   const { recurrence: _recurrence, occurrence: _occurrence, closure: _closure, ...snapshot } = detached;
+  const reminders = detached.reminders.map((reminder) => reminder.mode === 'absolute' && reminder.at
+    ? { ...reminder, at: shiftIso(reminder.at, delta)! }
+    : reminder);
   return {
     ...snapshot,
     id: deterministicOccurrenceId(series.id, recurrenceId),
@@ -67,6 +70,7 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
     createdAt: schedule.availableFrom,
     updatedAt: schedule.availableFrom,
     schedule,
+    reminders,
     occurrence: { seriesId: series.id, recurrenceId, sequence, templateRevision: series.revision },
   };
 }

@@ -371,6 +371,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
   const repeatInterval = Number(rruleMap().get('INTERVAL') ?? 1);
   const repeatDays = (rruleMap().get('BYDAY') ?? '').split(',').filter(Boolean);
   const activation = parseFriendlyDuration(item.recurrence?.activationOffset);
+  const activeWindow = recurring && Boolean(item.recurrence?.autoRenew) && item.recurrence?.closeAt === 'due' && activation.amount === 0;
   const estimate = item.schedule?.estimatedDuration ? parseEstimateDuration(item.schedule.estimatedDuration) : { amount: 45, unit: 'minutes' as FriendlyDurationUnit };
   const knownTags = [...new Set(Object.values(workspace.items).flatMap((entry) => entry.tags))].sort((left, right) => left.localeCompare(right));
   const collectedTags = [...new Set([...knownTags, ...commaList(tags)])];
@@ -437,6 +438,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
       if (recurring) {
         const anchor = result.schedule?.startAt ?? result.schedule?.dueAt;
         if (!anchor) throw new Error('A recurring item needs a Scheduled start or Deadline.');
+        if (activeWindow && (!result.schedule?.startAt || !result.schedule?.dueAt)) throw new Error('Active window needs both Window opens and Window closes.');
         result = { ...result, schedule: { ...result.schedule!, startAt: anchor } };
         result = makeSeries(result, result.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1', {
           ...result.recurrence,
@@ -461,9 +463,9 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         <details open><summary>Dates &amp; time</summary><div className="details-body">
           <p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p>
           <div className="form-grid two schedule-grid">
-            <label><span>Scheduled start</span><input aria-label="Scheduled start" type="datetime-local" value={dateInput(item.schedule?.startAt)} onInput={(event) => patchSchedule({ startAt: fromDateInput(event.currentTarget.value) })} /><small>When it begins and appears in the calendar.</small></label>
+            <label><span>{activeWindow ? 'Window opens' : 'Scheduled start'}</span><input aria-label="Scheduled start" type="datetime-local" value={dateInput(item.schedule?.startAt)} onInput={(event) => patchSchedule({ startAt: fromDateInput(event.currentTarget.value) })} /><small>{activeWindow ? 'The item becomes active and visible at this time.' : 'When it begins and appears in the calendar.'}</small></label>
             <label><span>Scheduled end</span><input aria-label="Scheduled end" type="datetime-local" value={dateInput(item.schedule?.endAt)} onInput={(event) => patchSchedule({ endAt: fromDateInput(event.currentTarget.value) })} /><small>When the calendar block ends. Use with start.</small></label>
-            <label><span>Deadline</span><input aria-label="Deadline" type="datetime-local" value={dateInput(item.schedule?.dueAt)} onInput={(event) => patchSchedule({ dueAt: fromDateInput(event.currentTarget.value) })} /><small>Latest acceptable completion time; not a duration.</small></label>
+            <label><span>{activeWindow ? 'Window closes' : 'Deadline'}</span><input aria-label="Deadline" type="datetime-local" value={dateInput(item.schedule?.dueAt)} onInput={(event) => patchSchedule({ dueAt: fromDateInput(event.currentTarget.value) })} /><small>{activeWindow ? 'If still open, the item is automatically closed and hidden.' : 'Latest acceptable completion time; not a duration.'}</small></label>
           </div>
           <details className="optional-field" open={Boolean(item.schedule?.availableFrom)}><summary>Available to work from <span>Optional</span></summary><div className="details-body"><label><input aria-label="Available to work from" type="datetime-local" value={dateInput(item.schedule?.availableFrom)} onInput={(event) => patchSchedule({ availableFrom: fromDateInput(event.currentTarget.value) })} /><small>Earliest intended time to begin; not a deadline.</small></label></div></details>
           <div className="schedule-tools"><button className="timezone-button" aria-expanded={timezoneOpen} onClick={() => setTimezoneOpen((current) => !current)}><span>Timezone</span><strong>{item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}</strong><i aria-hidden>{timezoneOpen ? '−' : '+'}</i></button></div>
@@ -492,10 +494,9 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
           {recurring && <>
             <div className="form-grid two"><label>Repeat<select aria-label="Repeat frequency" value={repeatFrequency} onChange={(event) => updateRrule({ FREQ: event.target.value, BYDAY: event.target.value === 'WEEKLY' ? (repeatDays.join(',') || undefined) : undefined })}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option></select></label><label>Every<input type="number" min="1" aria-label="Repeat interval" value={repeatInterval} onChange={(event) => updateRrule({ INTERVAL: String(Math.max(1, Number(event.target.value) || 1)) })} /><span className="field-suffix">{repeatFrequency === 'DAILY' ? 'day(s)' : repeatFrequency === 'WEEKLY' ? 'week(s)' : repeatFrequency === 'MONTHLY' ? 'month(s)' : 'year(s)'}</span></label></div>
             {repeatFrequency === 'WEEKLY' && <div className="weekday-picker" aria-label="Repeat on weekdays">{[['MO', 'M'], ['TU', 'T'], ['WE', 'W'], ['TH', 'T'], ['FR', 'F'], ['SA', 'S'], ['SU', 'S']].map(([value, label]) => <button className={repeatDays.includes(value!) ? 'active' : ''} aria-label={`Repeat on ${value}`} key={value} onClick={() => { const days = repeatDays.includes(value!) ? repeatDays.filter((day) => day !== value) : [...repeatDays, value!]; updateRrule({ BYDAY: days.length ? days.join(',') : undefined }); }}>{label}</button>)}</div>}
-            <div className="form-grid two"><label>Activate before<div className="duration-control"><input type="number" min="0" aria-label="Activation amount" value={activation.amount} onChange={(event) => patchRecurrence({ activationOffset: toIsoDuration(Math.max(0, Number(event.target.value) || 0), activation.unit) })} /><select aria-label="Activation unit" value={activation.unit} onChange={(event) => patchRecurrence({ activationOffset: toIsoDuration(activation.amount, event.target.value as FriendlyDurationUnit) })}><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="weeks">Weeks</option></select></div></label>
-            <label>Auto-close<select value={item.recurrence?.closeAt ?? 'next_activation'} onChange={(event) => patchRecurrence({ closeAt: event.target.value as NonNullable<UniversalItem['recurrence']>['closeAt'] })}><option value="next_activation">At next activation</option><option value="due">At due time</option><option value="never">Never</option></select></label></div>
-            <label className="check"><input type="checkbox" checked={item.recurrence?.autoRenew ?? true} onChange={(event) => patchRecurrence({ autoRenew: event.target.checked })} /> Auto-close untouched cycles</label>
-            <details className="advanced-recurrence"><summary>Advanced recurrence format</summary><div className="details-body"><label>Repeat rule <span className="hint">RRULE — Recurrence Rule</span><input className="mono" value={item.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1'} onChange={(event) => patchRecurrence({ rrule: event.target.value })} /></label><label>Activation duration <span className="hint">ISO 8601</span><input className="mono" value={item.recurrence?.activationOffset ?? 'P7D'} onChange={(event) => patchRecurrence({ activationOffset: event.target.value })} /></label></div></details>
+            <label className="active-window-toggle"><input type="checkbox" checked={activeWindow} onChange={(event) => patchRecurrence(event.target.checked ? { activationOffset: 'PT0M', closeAt: 'due', autoRenew: true } : { closeAt: 'next_activation' })} /><span><strong>Only show during the active window</strong><small>Complete once between Scheduled start and Deadline. Outside that window, no open item is shown.</small></span></label>
+            {activeWindow && <div className={`active-window-summary ${item.schedule?.startAt && item.schedule?.dueAt ? '' : 'incomplete'}`}><span><small>Opens</small>{item.schedule?.startAt ? new Date(item.schedule.startAt).toLocaleString() : 'Set Scheduled start'}</span><span><small>Closes</small>{item.schedule?.dueAt ? new Date(item.schedule.dueAt).toLocaleString() : 'Set Deadline'}</span></div>}
+            <details className="advanced-recurrence"><summary>Advanced recurrence behavior</summary><div className="details-body"><div className="form-grid two"><label>Activate before<div className="duration-control"><input type="number" min="0" aria-label="Activation amount" value={activation.amount} onChange={(event) => patchRecurrence({ activationOffset: toIsoDuration(Math.max(0, Number(event.target.value) || 0), activation.unit) })} /><select aria-label="Activation unit" value={activation.unit} onChange={(event) => patchRecurrence({ activationOffset: toIsoDuration(activation.amount, event.target.value as FriendlyDurationUnit) })}><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="weeks">Weeks</option></select></div></label><label>Auto-close<select value={item.recurrence?.closeAt ?? 'next_activation'} onChange={(event) => patchRecurrence({ closeAt: event.target.value as NonNullable<UniversalItem['recurrence']>['closeAt'] })}><option value="next_activation">At next activation</option><option value="due">At due time</option><option value="never">Never</option></select></label></div><label className="check"><input type="checkbox" checked={item.recurrence?.autoRenew ?? true} onChange={(event) => patchRecurrence({ autoRenew: event.target.checked })} /> Auto-close untouched cycles</label><label>Repeat rule <span className="hint">RRULE — Recurrence Rule</span><input className="mono" value={item.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1'} onChange={(event) => patchRecurrence({ rrule: event.target.value })} /></label><label>Activation duration <span className="hint">ISO 8601</span><input className="mono" value={item.recurrence?.activationOffset ?? 'P7D'} onChange={(event) => patchRecurrence({ activationOffset: event.target.value })} /></label></div></details>
           </>}
         </div></details>
 
@@ -991,6 +992,8 @@ export default function App() {
     const reminderGroups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical' }>();
     const urgencyRank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) {
+      if (item.state !== 'open' || item.role === 'series_template') continue;
+      if (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now) continue;
       for (const reminder of item.reminders) {
         if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) {
           const group = reminderGroups.get(item.id);
@@ -1019,29 +1022,32 @@ export default function App() {
     });
   };
 
-  const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => commit('Change item state', (draft) => {
-    let target = draft.items[item.id]; if (!target) return;
-    if (item.preset === 'habit') {
-      if (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]) target = draft.items[item.occurrence.seriesId]!;
-      target.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
-      target.habit.completedDates ??= [];
-      const date = (item.occurrence?.recurrenceId ?? new Date().toISOString()).slice(0, 10);
-      if (state === 'done' && !target.habit.completedDates.includes(date)) target.habit.completedDates.push(date);
-      if (state === 'open') {
-        const index = target.habit.completedDates.indexOf(date);
-        if (index >= 0) target.habit.completedDates.splice(index, 1);
+  const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => {
+    commit('Change item state', (draft) => {
+      let target = draft.items[item.id]; if (!target) return;
+      if (item.preset === 'habit') {
+        if (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]) target = draft.items[item.occurrence.seriesId]!;
+        target.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
+        target.habit.completedDates ??= [];
+        const date = (item.occurrence?.recurrenceId ?? new Date().toISOString()).slice(0, 10);
+        if (state === 'done' && !target.habit.completedDates.includes(date)) target.habit.completedDates.push(date);
+        if (state === 'open') {
+          const index = target.habit.completedDates.indexOf(date);
+          if (index >= 0) target.habit.completedDates.splice(index, 1);
+        }
+        target.state = 'open'; delete target.closure;
+        target.updatedAt = new Date().toISOString(); target.revision += 1;
+        return;
       }
-      target.state = 'open'; delete target.closure;
-      target.updatedAt = new Date().toISOString(); target.revision += 1;
-      return;
-    }
-    target.state = state; target.updatedAt = new Date().toISOString(); target.revision += 1;
-    if (state === 'open') delete target.closure;
-    else target.closure = { at: target.updatedAt, actor: 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' };
-    const event = { id: createId(), type: 'status.changed' as const, at: target.updatedAt, itemId: target.id, before: clean(item), after: clean(target as unknown as UniversalItem), causationId: createId(), depth: 0 };
-    const result = runAutomationEvents(draft, [event]);
-    if (result.notifications.length) setNotices((current) => [...current, ...result.notifications.map((notice) => ({ ...notice, id: createId(), at: new Date().toISOString() }))]);
-  });
+      target.state = state; target.updatedAt = new Date().toISOString(); target.revision += 1;
+      if (state === 'open') delete target.closure;
+      else target.closure = { at: target.updatedAt, actor: 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' };
+      const event = { id: createId(), type: 'status.changed' as const, at: target.updatedAt, itemId: target.id, before: clean(item), after: clean(target as unknown as UniversalItem), causationId: createId(), depth: 0 };
+      const result = runAutomationEvents(draft, [event]);
+      if (result.notifications.length) setNotices((current) => [...current, ...result.notifications.map((notice) => ({ ...notice, id: createId(), at: new Date().toISOString() }))]);
+    });
+    if (state !== 'open') setNotices((current) => current.filter((notice) => notice.itemId !== item.id));
+  };
   const dismissPopupNotice = (id: string) => {
     const timer = noticeTimers.current.get(id);
     if (timer) window.clearTimeout(timer);

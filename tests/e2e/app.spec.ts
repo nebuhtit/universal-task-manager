@@ -67,7 +67,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.6.8', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.6.9', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -117,7 +117,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.6.8', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.6.9', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -481,6 +481,29 @@ test('identical reminders are stored and displayed only once', async ({ page }) 
   await expect(page.getByRole('complementary', { name: 'Notification center' }).locator('.notice-card')).toHaveCount(1);
 });
 
+test('closed items do not emit overdue reminders', async ({ page }) => {
+  const password = 'correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('Active reminders');
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await page.getByRole('button', { name: 'All items' }).click();
+  await page.getByRole('button', { name: '+ New item' }).click();
+  await page.getByLabel('Title', { exact: true }).fill('Window reminder');
+  await page.getByRole('button', { name: '+ Add reminder' }).click();
+  const past = await page.evaluate(() => {
+    const date = new Date(Date.now() - 3_600_000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  await page.getByLabel('Reminder 1 time').fill(past);
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await page.getByRole('button', { name: 'Complete item' }).click();
+  await page.getByRole('button', { name: 'Lock' }).click();
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.locator('.notice-card')).toHaveCount(0);
+});
+
 test('recurring item accepts Deadline as its schedule anchor and explains missing dates', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Recurring items');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
@@ -497,9 +520,9 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
   await page.getByLabel('Repeat frequency').selectOption('WEEKLY');
   await page.getByLabel('Repeat interval').fill('2');
   await page.getByRole('button', { name: 'Repeat on TH' }).click();
+  await page.getByText('Advanced recurrence behavior', { exact: true }).click();
   await page.getByLabel('Activation amount').fill('3');
   await page.getByLabel('Activation unit').selectOption('days');
-  await page.getByText('Advanced recurrence format', { exact: true }).click();
   await expect(page.getByLabel(/Repeat rule/)).toHaveValue('FREQ=WEEKLY;INTERVAL=2;BYDAY=TH');
   await expect(page.getByLabel(/Activation duration/)).toHaveValue('P3D');
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -528,4 +551,33 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
   await page.getByRole('button', { name: 'Save view' }).click();
   const openItemsView = page.locator('.view-section').filter({ hasText: 'Open items' });
   await expect(openItemsView.getByText('Weekly due-only item', { exact: true })).toHaveCount(1);
+});
+
+test('active window reuses recurrence fields without duplicating controls', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Active window');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await page.getByRole('button', { name: 'All items' }).click();
+  await page.getByRole('button', { name: '+ New item' }).click();
+  await page.getByLabel('Title', { exact: true }).fill('Prepare lessons');
+  const dates = await page.evaluate(() => {
+    const opens = new Date(Date.now() + 60 * 60 * 1_000);
+    const closes = new Date(opens.getTime() + 3 * 24 * 60 * 60 * 1_000);
+    const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    return { opens: local(opens), closes: local(closes) };
+  });
+  await page.getByLabel('Scheduled start').fill(dates.opens);
+  await page.getByLabel('Deadline').fill(dates.closes);
+  await page.getByText('Recurrence & auto-renew', { exact: true }).click();
+  await page.getByLabel('Make this a recurring series').check();
+  await page.getByLabel('Only show during the active window').check();
+  await expect(page.getByText('Window opens', { exact: true })).toBeVisible();
+  await expect(page.getByText('Window closes', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Activation amount')).toBeHidden();
+  await page.getByText('Advanced recurrence behavior', { exact: true }).click();
+  await expect(page.getByLabel('Activation amount')).toHaveValue('0');
+  await expect(page.getByRole('combobox', { name: 'Auto-close' })).toHaveValue('due');
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });

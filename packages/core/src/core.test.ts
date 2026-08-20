@@ -116,6 +116,34 @@ describe('recurrence and auto-renew', () => {
     expect(first.created).toHaveLength(5);
   });
 
+  it('shows one weekly item only inside its active window and shifts its reminders', () => {
+    const workspace = createWorkspace('Active windows', new Date('2026-08-01T00:00:00.000Z'));
+    const item = createItem('Prepare lessons', 'task', new Date('2026-08-01T00:00:00.000Z'));
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-17T00:00:00.000Z', dueAt: '2026-08-20T18:00:00.000Z' };
+    item.reminders = [{ id: 'window-reminder', mode: 'absolute', at: '2026-08-17T09:00:00.000Z', urgency: 'normal', repeatUntilAcknowledged: false }];
+    const series = makeSeries(item, 'FREQ=WEEKLY;BYDAY=MO', { activationOffset: 'PT0M', closeAt: 'due', autoRenew: true });
+    workspace.items[series.id] = series;
+
+    reconcileRecurrences(workspace, new Date('2026-08-16T12:00:00.000Z'));
+    expect(Object.values(workspace.items).filter((entry) => entry.role === 'occurrence')).toHaveLength(0);
+
+    reconcileRecurrences(workspace, new Date('2026-08-18T12:00:00.000Z'));
+    let occurrences = Object.values(workspace.items).filter((entry) => entry.role === 'occurrence');
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0]!.state).toBe('open');
+    expect(occurrences[0]!.reminders[0]!.at).toBe('2026-08-17T09:00:00.000Z');
+
+    reconcileRecurrences(workspace, new Date('2026-08-21T12:00:00.000Z'));
+    occurrences = Object.values(workspace.items).filter((entry) => entry.role === 'occurrence');
+    expect(occurrences.filter((entry) => entry.state === 'open')).toHaveLength(0);
+    expect(occurrences[0]!.state).toBe('auto_closed');
+
+    reconcileRecurrences(workspace, new Date('2026-08-24T00:01:00.000Z'));
+    occurrences = Object.values(workspace.items).filter((entry) => entry.role === 'occurrence');
+    expect(occurrences.filter((entry) => entry.state === 'open')).toHaveLength(1);
+    expect(occurrences.find((entry) => entry.state === 'open')!.reminders[0]!.at).toBe('2026-08-24T09:00:00.000Z');
+  });
+
   it('handles end-of-month rules and exclusions', () => {
     const workspace = createWorkspace();
     const item = createItem('Month end');
