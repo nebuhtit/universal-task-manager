@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.4.0';
+export const SCHEMA_VERSION = '1.5.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.8.2';
-export const APP_RELEASED_AT = '2026-08-20T13:30:00+03:00';
+export const APP_VERSION = '0.8.3';
+export const APP_RELEASED_AT = '2026-08-20T14:00:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -296,6 +296,8 @@ export interface WorkspaceDocument {
 }
 
 export type CalendarViewMode = 'month' | 'week' | 'day' | 'three_day' | 'agenda';
+/** UI language is a workspace preference; item data itself remains language-neutral. */
+export type WorkspaceLanguage = 'en' | 'ru' | 'es' | 'de' | 'fr' | 'ko';
 export interface CalendarPreferences {
   timezone: string;
   lastMode: CalendarViewMode;
@@ -306,6 +308,7 @@ export interface CalendarPreferences {
   snapMinutes: number;
   defaultDurationMinutes: number;
   timeFormat: '24h';
+  language: WorkspaceLanguage;
   selectedViewId?: string;
   includeStates: ItemState[];
 }
@@ -404,7 +407,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     calendarPreferences: {
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, sleepSchedule: { wake: '08:00', sleep: '22:00' },
-      weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h',
+      weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en',
       includeStates: ['open', 'done'],
     },
   };
