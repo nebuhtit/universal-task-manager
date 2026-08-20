@@ -219,12 +219,14 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
+    const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
+    if (saved && interfaceLanguages.some((option) => option.value === saved)) return saved;
     const browserLanguage = navigator.language.slice(0, 2) as WorkspaceLanguage;
     return interfaceLanguages.some((option) => option.value === browserLanguage) ? browserLanguage : 'en';
   });
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => installDomLocalization(language), [language]);
+  useEffect(() => { installDomLocalization(language); window.localStorage.setItem('utm-interface-language', language); }, [language]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setBusy(true);
@@ -1244,7 +1246,8 @@ export default function App() {
         Object.keys(target).forEach((key) => { delete target[key]; });
         Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); });
       }
-      if (selectedLanguage) workspace.calendarPreferences.language = selectedLanguage;
+      // Existing and imported workspaces keep their own language preference.
+      // The selected language is only used when creating a brand-new workspace.
       backfillItemCreationVersions(workspace);
       Object.values(workspace.items).forEach(removeDuplicateReminders);
       consolidateHabitOccurrences(workspace, now);

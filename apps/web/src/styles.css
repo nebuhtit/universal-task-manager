@@ -54,6 +54,38 @@
 :root[data-theme="dark"] .sidebar button.active,
 :root[data-theme="dark"] .danger,
 :root[data-theme="dark"] .tag-collection button.active { background: #303030; color: var(--ink); }
+:root[data-theme="dark"] .sidebar button { color: #bdbdbd; }
+:root[data-theme="dark"] .sidebar button b { background: #383838; color: var(--ink); }
+:root[data-theme="dark"] .sidebar button.active b { background: #4a4a4a; }
+:root[data-theme="dark"] .nav-beta { border-color: #626262; color: #bdbdbd; }
+:root[data-theme="dark"] .bottom-nav { background: rgba(25,25,25,.97); }
+:root[data-theme="dark"] .bottom-nav button { color: #a9a9a9; }
+:root[data-theme="dark"] .bottom-nav button.active { color: #fff; background: #303030; }
+:root[data-theme="dark"] .primary { background: #f1f1f1; color: #111; }
+:root[data-theme="dark"] .primary:hover { background: #fff; }
+:root[data-theme="dark"] .state-done .state-toggle,
+:root[data-theme="dark"] .state-auto_closed .state-toggle { background: #f1f1f1; color: #111; border-color: #f1f1f1; }
+:root[data-theme="dark"] .icon-button { background: #2c2c2c; color: #f1f1f1; border-color: #505050; }
+:root[data-theme="dark"] .query-builder,
+:root[data-theme="dark"] .sort-rule,
+:root[data-theme="dark"] .selected-fields,
+:root[data-theme="dark"] .display-fields-example,
+:root[data-theme="dark"] .field-groups,
+:root[data-theme="dark"] .syntax-editor,
+:root[data-theme="dark"] .json-editor .syntax-editor { background: var(--card); border-color: var(--line); color: var(--ink); }
+:root[data-theme="dark"] .dsl-input,
+:root[data-theme="dark"] .syntax-editor textarea { background: #202020; color: var(--ink); border-color: var(--line); }
+:root[data-theme="dark"] .view-editor,
+:root[data-theme="dark"] .view-editor fieldset,
+:root[data-theme="dark"] .view-editor details { color: var(--ink); }
+:root[data-theme="dark"] .view-renderer,
+:root[data-theme="dark"] .segmented,
+:root[data-theme="dark"] .segmented button.active,
+:root[data-theme="dark"] .inline-row button,
+:root[data-theme="dark"] .chip,
+:root[data-theme="dark"] .tag-collection button { background: #292929; color: var(--ink); border-color: var(--line); }
+:root[data-theme="dark"] .view-json-editor,
+:root[data-theme="dark"] .view-json-editor > summary { color: var(--ink); }
 
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
