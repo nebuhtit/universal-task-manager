@@ -89,6 +89,9 @@
 :root[data-theme="dark"] .tag-collection button { background: #292929; color: var(--ink); border-color: var(--line); }
 :root[data-theme="dark"] .view-json-editor,
 :root[data-theme="dark"] .view-json-editor > summary { color: var(--ink); }
+:root[data-theme="dark"] .editor-scroll > details > summary,
+:root[data-theme="dark"] .editor-scroll > details[open] > summary,
+:root[data-theme="dark"] .editor-scroll > details > summary strong { color: var(--ink); }
 
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
