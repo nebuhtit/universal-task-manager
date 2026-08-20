@@ -373,6 +373,13 @@ label.check input { width: 18px; height: 18px; }
 .settings-card hr { border: 0; border-top: 1px solid var(--line); margin: 25px 0; }
 .settings-actions { display: grid; gap: 7px; }
 .settings-actions .secondary { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.inline-menu { position: relative; display: inline-block; }
+.inline-menu > summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 9px; background: var(--card); padding: 7px 11px; font-size: 12px; }
+.inline-menu > summary::-webkit-details-marker { display: none; }
+.inline-menu > summary::after { content: '⌄'; margin-left: 7px; color: var(--muted); }
+.inline-menu[open] > div { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; display: grid; min-width: 210px; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 12px 28px rgba(0,0,0,.13); }
+.inline-menu[open] button { border: 0; background: transparent; text-align: left; padding: 8px 9px; border-radius: 6px; font-size: 12px; cursor: pointer; color: var(--ink); }
+.inline-menu[open] button:hover { background: var(--soft); }
 dl div { display: flex; justify-content: space-between; gap: 20px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 11px; }
 dd { margin: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 

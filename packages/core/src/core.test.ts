@@ -4,7 +4,7 @@ import {
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
-  serializePortablePackage, serializeSortRules, toICS, validateWorkspace,
+  packageToTabular, parseCsv, serializePortablePackage, serializeSortRules, tabularToPackage, toCsv, toICS, validateWorkspace,
 } from './index.js';
 import type { AutomationRule, DomainEvent, UniversalItem } from './types.js';
 
@@ -71,6 +71,38 @@ describe('safe expression language', () => {
     ];
     expect(removeDuplicateReminders(item)).toBe(1);
     expect(item.reminders.map((reminder) => reminder.id)).toEqual(['first', 'different']);
+  });
+});
+
+describe('portable tabular and calendar formats', () => {
+  it('round-trips UTM item data through CSV rows and protects spreadsheet formulas', () => {
+    const workspace = createWorkspace('Portable'); const item = createItem('=Not a formula');
+    item.bodyMarkdown = 'Private notes'; item.tags = ['work']; item.custom.cost = 12;
+    workspace.items[item.id] = item;
+    const portable = createPortablePackage(workspace, { kind: 'items', items: [item], selection: { type: 'single_item', itemId: item.id } });
+    const table = packageToTabular(portable); const csv = toCsv(table.items);
+    expect(csv).toContain("'=Not a formula");
+    const parsed = tabularToPackage({ items: parseCsv(csv), customFields: table.customFields }, workspace).package;
+    expect(parsed.items[0]?.title).toBe('=Not a formula');
+    expect(parsed.items[0]?.custom.cost).toBe(12);
+  });
+
+  it('turns unknown tabular columns into custom fields', () => {
+    const workspace = createWorkspace('Portable');
+    const result = tabularToPackage({ items: [{ title: 'Call mom', effort: '3', location: 'Home' }] }, workspace);
+    expect(result.package.items[0]?.custom.effort).toBe(3);
+    expect(Object.values(result.package.customFields).map((field) => field.key)).toEqual(expect.arrayContaining(['effort', 'location']));
+  });
+
+  it('stores otherwise unsupported UTM item data in iCalendar metadata when requested', () => {
+    const source = createWorkspace('ICS'); const item = createItem('Calendar item');
+    item.custom.note = 'keep me'; item.contexts = ['home']; item.reminders = [{ id: 'r', mode: 'absolute', at: '2026-08-20T09:00:00.000Z', urgency: 'normal', repeatUntilAcknowledged: false }];
+    source.items[item.id] = item;
+    const full = toICS(source, { includeUtmMetadata: true }).ics;
+    const target = createWorkspace('Target'); fromICS(full, target);
+    expect(target.items[item.id]?.custom.note).toBe('keep me');
+    expect(target.items[item.id]?.contexts).toEqual(['home']);
+    expect(target.items[item.id]?.reminders).toHaveLength(1);
   });
 });
 

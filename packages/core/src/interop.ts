@@ -45,7 +45,23 @@ function fold(line: string): string {
   return chunks.join('\r\n ');
 }
 
-export function toICS(workspace: WorkspaceDocument): { ics: string; warnings: InteropWarning[] } {
+export interface ICSExportOptions { includeUtmMetadata?: boolean }
+
+const metadataStart = '--- UTM metadata (do not edit) ---';
+const metadataEnd = '--- End UTM metadata ---';
+function descriptionWithMetadata(item: UniversalItem, includeMetadata: boolean): string {
+  if (!includeMetadata) return item.bodyMarkdown;
+  return `${item.bodyMarkdown}${item.bodyMarkdown ? '\n\n' : ''}${metadataStart}\n${JSON.stringify(item)}\n${metadataEnd}`;
+}
+function readDescriptionMetadata(value: string): { body: string; item?: UniversalItem } {
+  const start = value.indexOf(metadataStart); const end = value.indexOf(metadataEnd);
+  if (start < 0 || end < start) return { body: value };
+  const body = value.slice(0, start).replace(/\n\s*$/, '');
+  try { return { body, item: JSON.parse(value.slice(start + metadataStart.length, end).trim()) as UniversalItem }; }
+  catch { return { body }; }
+}
+
+export function toICS(workspace: WorkspaceDocument, options: ICSExportOptions = {}): { ics: string; warnings: InteropWarning[] } {
   const warnings: InteropWarning[] = [];
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Universal Task Manager//EN', 'CALSCALE:GREGORIAN'];
   for (const item of Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.role !== 'occurrence')) {
@@ -54,7 +70,8 @@ export function toICS(workspace: WorkspaceDocument): { ics: string; warnings: In
     lines.push(`UID:${escapeText(item.id)}@universal-task-manager`);
     lines.push(`DTSTAMP:${icsDate(item.updatedAt)}`);
     lines.push(`SUMMARY:${escapeText(item.title)}`);
-    if (item.bodyMarkdown) lines.push(`DESCRIPTION:${escapeText(item.bodyMarkdown)}`);
+    const description = descriptionWithMetadata(item, Boolean(options.includeUtmMetadata));
+    if (description) lines.push(`DESCRIPTION:${escapeText(description)}`);
     if (item.schedule?.startAt) lines.push(`${isEvent ? 'DTSTART' : 'DTSTART'}${item.schedule.allDay ? ';VALUE=DATE' : ''}:${icsDate(item.schedule.startAt, item.schedule.allDay)}`);
     if (item.schedule?.endAt) lines.push(`DTEND${item.schedule.allDay ? ';VALUE=DATE' : ''}:${icsDate(item.schedule.endAt, item.schedule.allDay)}`);
     if (item.schedule?.dueAt) lines.push(`DUE${item.schedule.allDay ? ';VALUE=DATE' : ''}:${icsDate(item.schedule.dueAt, item.schedule.allDay)}`);
@@ -73,7 +90,7 @@ export function toICS(workspace: WorkspaceDocument): { ics: string; warnings: In
     lines.push(`X-UTM-CREATED-WITH:${escapeText(item.createdWithVersion)}`);
     if (item.recurrence) lines.push(`X-UTM-AUTORENEW:${item.recurrence.autoRenew ? 'TRUE' : 'FALSE'}`);
     if (item.tags.length) lines.push(`CATEGORIES:${item.tags.map(escapeText).join(',')}`);
-    if (Object.keys(item.custom).length || item.relations.length || item.habit) {
+    if (!options.includeUtmMetadata && (Object.keys(item.custom).length || item.relations.length || item.habit || item.reminders.length || item.attachments.length || item.contexts.length)) {
       warnings.push({ itemId: item.id, field: 'extended-properties', message: 'Custom fields, relations, and habit settings are not fully representable in iCalendar.' });
     }
     lines.push(`END:${isEvent ? 'VEVENT' : 'VTODO'}`);
@@ -100,10 +117,11 @@ export function fromICS(source: string, workspace: WorkspaceDocument): ImportRes
     const externalUid = props.get('X-UTM-ID') ?? props.get('UID')?.replace(/@universal-task-manager$/, '');
     if (!externalUid) { warnings.push({ field: 'UID', message: 'Skipped a component without UID.' }); continue; }
     const existing = workspace.items[externalUid];
-    const item = existing ?? createItem(unescapeText(props.get('SUMMARY') ?? 'Untitled'), kind === 'VEVENT' ? 'event' : 'task');
+    const decodedDescription = readDescriptionMetadata(unescapeText(props.get('DESCRIPTION') ?? ''));
+    const item = decodedDescription.item ? structuredClone(decodedDescription.item) : (existing ?? createItem(unescapeText(props.get('SUMMARY') ?? 'Untitled'), kind === 'VEVENT' ? 'event' : 'task'));
     item.id = externalUid;
     item.title = unescapeText(props.get('SUMMARY') ?? item.title);
-    item.bodyMarkdown = unescapeText(props.get('DESCRIPTION') ?? '');
+    item.bodyMarkdown = decodedDescription.body;
     item.schemaVersion = SCHEMA_VERSION;
     if (!existing) {
       const provenance = item as unknown as {

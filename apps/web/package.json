@@ -1,6 +1,6 @@
 {
   "name": "@utm/web",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,7 +19,8 @@
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
     "temporal-polyfill": "^1.0.3",
-    "workbox-window": "^7.4.1"
+    "workbox-window": "^7.4.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^19.1.11",
