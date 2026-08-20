@@ -339,6 +339,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
   const [tags, setTags] = useState(item.tags.join(', '));
   const [contexts, setContexts] = useState(item.contexts.join(', '));
   const [recurring, setRecurring] = useState(item.role === 'series_template');
+  const [timezoneOpen, setTimezoneOpen] = useState(false);
   const [error, setError] = useState('');
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(initial, null, 2));
   const [jsonDirty, setJsonDirty] = useState(false);
@@ -455,7 +456,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
     <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor">
       <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
       <div className="editor-scroll">
-        <label>Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} /></label>
+        <label className="item-title-field">Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
         <div className="segmented" aria-label="Preset">{(['task', 'event', 'habit', 'blank'] as ItemPreset[]).map((preset) => <button className={item.preset === preset ? 'active' : ''} key={preset} onClick={() => patchItem({ preset })}>{preset}</button>)}</div>
         <details open><summary>Dates &amp; time</summary><div className="details-body">
           <p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p>
@@ -465,7 +466,8 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
             <label><span>Deadline</span><input aria-label="Deadline" type="datetime-local" value={dateInput(item.schedule?.dueAt)} onInput={(event) => patchSchedule({ dueAt: fromDateInput(event.currentTarget.value) })} /><small>Latest acceptable completion time; not a duration.</small></label>
           </div>
           <details className="optional-field" open={Boolean(item.schedule?.availableFrom)}><summary>Available to work from <span>Optional</span></summary><div className="details-body"><label><input aria-label="Available to work from" type="datetime-local" value={dateInput(item.schedule?.availableFrom)} onInput={(event) => patchSchedule({ availableFrom: fromDateInput(event.currentTarget.value) })} /><small>Earliest intended time to begin; not a deadline.</small></label></div></details>
-          <label>Timezone<input value={item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} onChange={(event) => patchSchedule({ timezone: event.target.value })} /></label>
+          <div className="schedule-tools"><button className="timezone-button" aria-expanded={timezoneOpen} onClick={() => setTimezoneOpen((current) => !current)}><span>Timezone</span><strong>{item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}</strong><i aria-hidden>{timezoneOpen ? '−' : '+'}</i></button></div>
+          {timezoneOpen && <div className="timezone-panel"><label>Timezone<input autoFocus list="iana-timezones" value={item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} onChange={(event) => patchSchedule({ timezone: event.target.value })} /></label><small>Used for recurrence and daylight-saving calculations.</small><datalist id="iana-timezones">{typeof Intl.supportedValuesOf === 'function' && Intl.supportedValuesOf('timeZone').map((timezone) => <option value={timezone} key={timezone} />)}</datalist></div>}
         </div></details>
 
         <details open><summary>Reminders</summary><div className="details-body">

@@ -57,6 +57,9 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.locator('details.optional-field > summary').click();
   await expect(page.getByLabel('Available to work from')).toBeVisible();
   await expect(page.getByText('A deadline is the latest completion time.', { exact: false })).toBeVisible();
+  await expect(page.getByLabel('Timezone', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: /^Timezone / }).click();
+  await expect(page.getByLabel('Timezone', { exact: true })).not.toHaveValue('');
   const addReminder = page.getByRole('button', { name: '+ Add reminder' });
   await expect(addReminder).toHaveCSS('font-size', '13px');
   await expect(addReminder).toHaveCSS('font-weight', '400');
@@ -64,7 +67,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.6.6', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.6.7', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -114,7 +117,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.6.6', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.6.7', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
