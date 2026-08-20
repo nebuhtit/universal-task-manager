@@ -42,6 +42,9 @@ const en = {
   Task: 'Задача', Event: 'Событие', Habit: 'Привычка', Blank: 'Пустой', 'Save item': 'Сохранить элемент',
   'Close notification': 'Закрыть уведомление', 'Delete notification': 'Удалить уведомление', 'Notification center': 'Центр уведомлений',
   Calendar: 'Календарь', Today: 'Сегодня', 'Calendar settings': 'Настройки календаря', 'Show weekends': 'Показывать выходные',
+  'Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.': 'Зашифрованная передача безопасна для полного объединения пространства. Для читаемых экспортов действуют те же правила предварительного просмотра, добавления и копирования.',
+  'Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.': 'Локальные напоминания появляются, пока приложение открыто. Фоновая доставка использует дополнительный Web Push, а бесплатный план Cloudflare проверяет наступившие напоминания каждые 15 минут.',
+  'Background notifications': 'Фоновые уведомления', 'Off — reminders stay only on this device while the app is open.': 'Выключено — напоминания остаются только на этом устройстве, пока приложение открыто.', 'Enable background delivery': 'Включить фоновые уведомления', 'Planning & attention': 'Планирование и внимание', Trash: 'Корзина',
   'No automations yet': 'Автоматизаций пока нет', 'Execution log': 'Журнал выполнения', Enable: 'Включить', Disable: 'Выключить', Edit: 'Редактировать',
 } satisfies Dictionary;
 
@@ -84,12 +87,36 @@ const onboarding: Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary> = {
   },
 };
 
+const extraTranslations: Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary> = {
+  ru: {},
+  es: {
+    'Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.': 'La transferencia cifrada permite combinar todo el espacio de forma segura. Las exportaciones legibles usan las mismas reglas de vista previa, adición y copia al importar.',
+    'Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.': 'Los recordatorios locales aparecen mientras la aplicación está abierta. La entrega en segundo plano usa Web Push opcional y el plan gratuito de Cloudflare comprueba los avisos cada 15 minutos.',
+    'Background notifications': 'Notificaciones en segundo plano', 'Off — reminders stay only on this device while the app is open.': 'Desactivadas: los recordatorios solo permanecen en este dispositivo con la aplicación abierta.', 'Enable background delivery': 'Activar entrega en segundo plano', 'Planning & attention': 'Planificación y atención', Trash: 'Papelera',
+  },
+  de: {
+    'Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.': 'Die verschlüsselte Übertragung ist sicher für das vollständige Zusammenführen des Arbeitsbereichs. Lesbare Exporte verwenden beim Import dieselben Vorschau-, Hinzufüge- und Kopierregeln.',
+    'Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.': 'Lokale Erinnerungen erscheinen, solange die App geöffnet ist. Die Hintergrundzustellung nutzt optional Web Push; der kostenlose Cloudflare-Tarif prüft fällige Aufgaben alle 15 Minuten.',
+    'Background notifications': 'Hintergrundbenachrichtigungen', 'Off — reminders stay only on this device while the app is open.': 'Aus — Erinnerungen bleiben nur auf diesem Gerät, solange die App geöffnet ist.', 'Enable background delivery': 'Hintergrundzustellung aktivieren', 'Planning & attention': 'Planung und Aufmerksamkeit', Trash: 'Papierkorb',
+  },
+  fr: {
+    'Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.': 'Le transfert chiffré permet de fusionner tout l’espace en sécurité. Les exports lisibles utilisent les mêmes règles d’aperçu, d’ajout et de copie à l’import.',
+    'Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.': 'Les rappels locaux apparaissent lorsque l’application est ouverte. La livraison en arrière-plan utilise Web Push en option et le forfait Cloudflare gratuit vérifie les échéances toutes les 15 minutes.',
+    'Background notifications': 'Notifications en arrière-plan', 'Off — reminders stay only on this device while the app is open.': 'Désactivées — les rappels restent sur cet appareil lorsque l’application est ouverte.', 'Enable background delivery': 'Activer la livraison en arrière-plan', 'Planning & attention': 'Planification et attention', Trash: 'Corbeille',
+  },
+  ko: {
+    'Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.': '암호화된 전송은 전체 작업 공간을 안전하게 병합합니다. 읽을 수 있는 내보내기는 가져올 때 동일한 미리보기, 추가 및 복사 규칙을 사용합니다.',
+    'Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.': '앱이 열려 있는 동안 로컬 알림이 표시됩니다. 백그라운드 전송은 선택적 Web Push를 사용하며 무료 Cloudflare 요금제는 15분마다 기한 알림을 확인합니다.',
+    'Background notifications': '백그라운드 알림', 'Off — reminders stay only on this device while the app is open.': '끔 — 앱이 열려 있을 때만 이 기기에 알림이 남습니다.', 'Enable background delivery': '백그라운드 전송 사용', 'Planning & attention': '계획 및 집중', Trash: '휴지통',
+  },
+};
+
 const originals = new WeakMap<Text, string>();
 const attributeOriginals = new WeakMap<Element, Map<string, string>>();
 const translatableAttributes = ['aria-label', 'placeholder', 'title'] as const;
 
 function translated(value: string, language: WorkspaceLanguage) {
-  return language === 'en' ? value : onboarding[language][value] ?? common[language][value] ?? value;
+  return language === 'en' ? value : onboarding[language][value] ?? common[language][value] ?? extraTranslations[language][value] ?? value;
 }
 
 function shouldSkip(node: Text) {

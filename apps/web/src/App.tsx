@@ -310,6 +310,9 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'habit.target', label: 'Habit target', group: 'Progress & habit' }, { path: 'habit.unit', label: 'Habit unit', group: 'Progress & habit' },
   { path: 'habit.streakMode', label: 'Habit streak mode', group: 'Progress & habit' }, { path: 'habit.completedDates', label: 'Habit completed dates', group: 'Progress & habit' },
   { path: 'reminders', label: 'Reminders', group: 'Connections' }, { path: 'relations', label: 'Relations', group: 'Connections' },
+  { path: 'subtasks', label: 'Subtasks', group: 'Connections' }, { path: 'parent', label: 'Parent item', group: 'Connections' },
+  { path: 'isSubtask', label: 'Subtask', group: 'Connections' }, { path: 'isParent', label: 'Parent item', group: 'Connections' },
+  { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
   { path: 'attachments', label: 'Links', group: 'Connections' },
   { path: 'closure.at', label: 'Closed at', group: 'History' }, { path: 'closure.actor', label: 'Closed by', group: 'History' },
   { path: 'closure.reason', label: 'Closure reason', group: 'History' }, { path: 'occurrence.seriesId', label: 'Series ID', group: 'History' },
@@ -318,6 +321,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'createdWithAppName', label: 'Created with app', group: 'System' }, { path: 'createdWithVersion', label: 'Created with version', group: 'System' },
   { path: 'createdWithAppId', label: 'Application ID', group: 'System' }, { path: 'schemaVersion', label: 'Schema version', group: 'System' },
   { path: 'revision', label: 'Revision', group: 'System' }, { path: 'id', label: 'Item ID', group: 'System' },
+  { path: 'isTemplate', label: 'Template', group: 'System' },
 ];
 
 const viewFieldOptions = (workspace: WorkspaceDocument): ViewFieldOption[] => [
@@ -339,12 +343,24 @@ const exampleViewFieldValue = (path: string): string => {
     'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
     reminders: 'Mon 09:00 · Thu 17:00', relations: 'Related: Project brief', attachments: 'Research link',
     'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
-    'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
+    'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', subtasks: 'Draft outline, Review notes', parent: 'Quarterly review',
+    isSubtask: 'Yes', isParent: 'Yes', parentDepth: '1', childDepth: '2', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
     createdWithAppName: 'Universal Task Manager', createdWithVersion: APP_VERSION, createdWithAppId: 'dev.universal-task-manager',
     schemaVersion: '1.6.0', revision: '7', id: 'itm_example_20260824',
   } as Record<string, string>)[path] ?? 'Example value';
 };
 const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument): unknown => {
+  if (field === 'description') field = 'bodyMarkdown';
+  if (workspace && field === 'subtasks') return item.relations.filter((relation) => relation.type === 'parent').map((relation) => workspace.items[relation.targetId]?.title ?? relation.targetId);
+  if (workspace && field === 'parent') {
+    const parent = Object.values(workspace.items).find((candidate) => candidate.relations.some((relation) => relation.type === 'parent' && relation.targetId === item.id));
+    return parent?.title;
+  }
+  if (workspace && ['isTemplate', 'isSubtask', 'isParent', 'parentDepth', 'childDepth'].includes(field)) {
+    if (field === 'isTemplate') return isItemTemplate(item);
+    const relation = relationContext(workspace, item);
+    return relation[field as keyof typeof relation];
+  }
   if (field.startsWith('custom.') && workspace) {
     const key = field.slice(7);
     const definition = Object.values(workspace.customFields).find((candidate) => candidate.key === key);
@@ -817,9 +833,9 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
     isHabit: ['true', 'false'], isTemplate: ['true', 'false'], isSubtask: ['true', 'false'], isParent: ['true', 'false'], activeRange: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
   };
   const visualFieldKinds: Record<string, 'enum' | 'boolean' | 'number' | 'date' | 'text' | 'multi'> = {
-    state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', activeRange: 'boolean', priority: 'number',
+    state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', isTemplate: 'boolean', isSubtask: 'boolean', isParent: 'boolean', activeRange: 'boolean', priority: 'number',
     'schedule.startAt': 'date', 'schedule.endAt': 'date', 'schedule.dueAt': 'date', 'schedule.availableFrom': 'date',
-    title: 'text', description: 'text', tags: 'multi', contexts: 'multi',
+    title: 'text', description: 'text', tags: 'multi', contexts: 'multi', subtasks: 'multi', parent: 'text',
   };
   const visualOperators = (field: string): string[] => {
     const kind = visualFieldKinds[field] ?? 'text';
@@ -959,7 +975,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       <fieldset className="query-builder"><legend>Visual condition</legend>
         <p className="builder-status">Choose a field and only the operators that make sense for its type. Active range uses Event opens through Due.</p>
         <div className="form-grid three">
-          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option value="isHabit">Habit tracking</option><option value="isTemplate">Template</option><option>activeRange</option><option>role</option><option>priority</option><option>schedule.startAt</option><option>schedule.endAt</option><option>schedule.dueAt</option><option>schedule.availableFrom</option><option>title</option><option>description</option><option>tags</option><option>contexts</option><option>reminders</option></select></label>
+          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}</select></label>
           <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}>{visualOperators(visualField).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</select></label>
           <label>Value{visualOptions[visualField] ? <select value={visualValue} onChange={(event) => changeVisual('value', event.target.value)}>{visualOptions[visualField]!.map((value) => <option key={value} value={value}>{visualField === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</select> : <input type={visualField.startsWith('schedule.') ? 'datetime-local' : 'text'} list={visualField === 'title' ? 'view-title-values' : visualField === 'tags' || visualField === 'contexts' ? 'view-tag-values' : undefined} placeholder={visualField === 'tags' || visualField === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} />}</label>
         </div>
