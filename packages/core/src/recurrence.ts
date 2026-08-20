@@ -144,7 +144,9 @@ function closingBoundary(current: UniversalItem, nextActivation: Date | undefine
 /** Converts legacy materialized Habit cycles into a compact completed-date log. */
 export function consolidateHabitOccurrences(workspace: WorkspaceDocument, now = new Date()): number {
   let removed = 0;
-  const habits = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.preset === 'habit' && !item.deletedAt);
+  // Habit is a capability of a universal item, not a data type. Older items
+  // may use the Task/Event preset while still carrying habit history.
+  const habits = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.habit && !item.deletedAt);
   for (const series of habits) {
     series.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
     series.habit.completedDates ??= [];
@@ -171,7 +173,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
     (item) => item.role === 'series_template' && item.recurrence && item.schedule?.startAt && !item.deletedAt,
   );
   for (const series of templates) {
-    if (series.preset === 'habit') {
+    if (series.habit) {
       untouched += 1;
       continue;
     }

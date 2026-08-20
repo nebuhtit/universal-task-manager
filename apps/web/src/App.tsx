@@ -65,6 +65,13 @@ const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date())
   item.schedule = { ...item.schedule, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, startAt: now.toISOString() };
   return item;
 };
+/** A preset is a display shortcut inferred from enabled item properties. */
+function inferredPreset(item: UniversalItem): ItemPreset {
+  if (item.habit) return 'habit';
+  if (item.schedule?.startAt && (item.schedule.endAt || item.schedule.allDay)) return 'event';
+  if (!item.title.trim() && !item.bodyMarkdown.trim() && !item.schedule?.startAt && !item.schedule?.dueAt && !item.tags.length && !item.contexts.length) return 'blank';
+  return 'task';
+}
 const safeFilename = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'universal';
 const downloadText = (content: string, filename: string, type = 'application/json') => {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -273,18 +280,19 @@ const displayViewValue = (value: unknown, field: string): string => {
 function ItemCard({ item, onEdit, onState, fields, workspace }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument }) {
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
   const today = new Date().toISOString().slice(0, 10);
-  const habitCompletedToday = item.preset === 'habit' && Boolean(item.habit?.completedDates?.includes(today));
-  const visiblyClosed = item.preset === 'habit' ? habitCompletedToday : item.state !== 'open';
+  const isHabit = Boolean(item.habit);
+  const habitCompletedToday = isHabit && Boolean(item.habit?.completedDates?.includes(today));
+  const visiblyClosed = isHabit ? habitCompletedToday : item.state !== 'open';
   const customDisplay = fields !== undefined;
   const metadataFields = (fields?.filter((field) => field !== 'title' && field !== 'priority') ?? [])
     .map((field) => ({ field, value: displayViewValue(readItemField(item, field, workspace), field) }));
   return <article className={`item-card state-${item.state}`}>
-    <button className="state-toggle" aria-label={item.preset === 'habit' ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(visiblyClosed ? 'open' : 'done')}>
+    <button className="state-toggle" aria-label={isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(visiblyClosed ? 'open' : 'done')}>
       {visiblyClosed ? '✓' : ''}
     </button>
     <button className="item-main" onClick={onEdit}>
       {(!customDisplay || fields?.includes('title')) && <span className="item-title">{item.title}</span>}
-      {!customDisplay && <span className="item-meta"><span className={`preset ${item.preset}`}>{item.preset}</span>{due && <span>{new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: item.schedule?.allDay ? undefined : '2-digit', minute: item.schedule?.allDay ? undefined : '2-digit' }).format(new Date(due))}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">auto-closed</span>}</span>}
+      {!customDisplay && <span className="item-meta"><span className={`preset ${inferredPreset(item)}`}>{inferredPreset(item)}</span>{due && <span>{new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: item.schedule?.allDay ? undefined : '2-digit', minute: item.schedule?.allDay ? undefined : '2-digit' }).format(new Date(due))}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">auto-closed</span>}</span>}
       {customDisplay && metadataFields.length > 0 && <span className="view-item-fields">{metadataFields.map(({ field, value }) => <span key={field}>{value && <small>{viewFieldLabel(workspace!, field)}</small>}{value}</span>)}</span>}
     </button>
     {item.priority && (!customDisplay || fields?.includes('priority')) ? <button className={`priority p${item.priority}`} title={`Priority ${item.priority}: ${priorityNames[item.priority]}. Click to edit.`} aria-label={`Priority ${item.priority}: ${priorityNames[item.priority]}. Edit item`} onClick={onEdit}>{priorityNames[item.priority]}</button> : null}
@@ -334,13 +342,13 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
 }
 
 function filteredItems(workspace: WorkspaceDocument, view?: SavedView): UniversalItem[] {
-  const available = Object.values(workspace.items).filter((item) => !item.deletedAt);
+  const available = Object.values(workspace.items).filter((item) => !item.deletedAt && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
   let items: UniversalItem[];
   if (view) {
     try {
       const predicate = compileQuery(view.query.source || 'true');
-      const matchingRows = available.filter((item) => item.role !== 'series_template' && predicate(item));
-      const matchingSeries = available.filter((item) => item.role === 'series_template' && predicate(item));
+      const matchingRows = available.filter((item) => item.role !== 'series_template' ? predicate(item) : Boolean(item.habit) && predicate({ ...item, role: 'standalone' }));
+      const matchingSeries = available.filter((item) => item.role === 'series_template' && !item.habit && predicate(item));
       const standalone = matchingRows.filter((item) => item.role !== 'occurrence');
       const occurrencesBySeries = new Map<string, UniversalItem[]>();
       matchingRows.filter((item) => item.role === 'occurrence').forEach((item) => {
@@ -362,6 +370,10 @@ function filteredItems(workspace: WorkspaceDocument, view?: SavedView): Universa
     if (sortSource.trim()) items.sort(compileSort(sortSource));
   } else items = available.filter((item) => item.role !== 'series_template');
   return items;
+}
+
+function isHabitOccurrence(workspace: WorkspaceDocument, item: UniversalItem): boolean {
+  return item.role === 'occurrence' && Boolean(item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit);
 }
 
 function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
@@ -478,7 +490,8 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         });
       }
       if (!recurring) { result.role = 'standalone'; delete result.recurrence; }
-      if (result.preset === 'habit') result.habit = result.habit ?? { target: result.progress?.target ?? 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
+      if (result.habit) result.habit = { target: result.habit.target ?? result.progress?.target ?? 1, unit: result.habit.unit ?? 'times', streakMode: result.habit.streakMode ?? 'manual_only', completedDates: result.habit.completedDates ?? [] };
+      result.preset = inferredPreset(result);
       removeDuplicateReminders(result);
       onSave(clean(result));
     } catch (reason) {
@@ -491,7 +504,6 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
       <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
       <div className="editor-scroll">
         <label className="item-title-field">Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
-        <div className="segmented" aria-label="Preset">{(['task', 'event', 'habit', 'blank'] as ItemPreset[]).map((preset) => <button className={item.preset === preset ? 'active' : ''} key={preset} onClick={() => patchItem({ preset })}>{preset}</button>)}</div>
         <details open><summary>Dates &amp; time</summary><div className="details-body">
           <p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p>
           <SectionGuide title="Which date should I use?"><ul><li><strong>Scheduled start</strong> is when an item begins.</li><li><strong>Scheduled end</strong> is only the end of a calendar block.</li><li><strong>Deadline</strong> is the latest acceptable completion time.</li><li><strong>Available to work from</strong> is optional; it keeps reminders quiet before that time.</li></ul></SectionGuide>
@@ -535,7 +547,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
           </>}
         </div></details>
 
-        <details open={item.preset === 'habit' || Boolean(item.progress) || Boolean(item.habit)}><summary>Progress & habit</summary><div className="details-body">
+        <details open={Boolean(item.progress) || Boolean(item.habit)}><summary>Progress & habit</summary><div className="details-body">
           <SectionGuide title="Progress versus habit"><p>Progress describes the current item. A habit stays one item and records completed calendar dates instead of creating a duplicate item for every day.</p></SectionGuide>
           <div className="form-grid three"><label>Mode<select value={item.progress?.mode ?? 'counter'} onChange={(event) => patchItem({ progress: { mode: event.target.value as 'counter', current: item.progress?.current ?? 0, target: item.progress?.target ?? 1 } })}><option>boolean</option><option>percent</option><option>counter</option></select></label>
           <label>Current<input type="number" value={item.progress?.current ?? 0} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: Number(event.target.value), target: item.progress?.target ?? 1 } })} /></label>
@@ -627,7 +639,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
   const visualClause = () => `${visualField} ${visualOperator} ${literal(visualValue)}`;
   const visualOptions: Record<string, string[]> = {
     state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'],
-    role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
+    isHabit: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
   };
   const beginEditing = (view: SavedView) => {
     const copy = clean(view);
@@ -749,7 +761,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       <SectionGuide title="How views work"><ul><li>A view is a saved, live list; it never copies items.</li><li>Use the visual condition for simple choices. Use DSL for combinations such as <code>priority &gt;= 3 &amp;&amp; state == "open"</code>.</li><li>An empty DSL means all items except recurring source templates.</li><li>Displayed fields control what is visible; sorting only controls order.</li></ul></SectionGuide>
       <fieldset className="query-builder"><legend>Visual condition</legend>
         <div className="form-grid three">
-          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option>role</option><option>priority</option><option>schedule.dueAt</option><option>title</option></select></label>
+          <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option value="isHabit">Habit tracking</option><option>role</option><option>priority</option><option>schedule.dueAt</option><option>title</option></select></label>
           <label>Operator<select value={visualOperator} onChange={(event) => changeVisual('operator', event.target.value)}><option>==</option><option>!=</option><option>&gt;</option><option>&gt;=</option><option>&lt;</option><option>&lt;=</option><option>in</option></select></label>
           <label>Value{visualOptions[visualField] ? <select value={visualValue} onChange={(event) => changeVisual('value', event.target.value)}>{visualOptions[visualField]!.map((value) => <option key={value}>{value}</option>)}</select> : <input type={visualField === 'schedule.dueAt' ? 'datetime-local' : 'text'} list={visualField === 'title' ? 'view-title-values' : undefined} value={visualValue} onChange={(event) => changeVisual('value', event.target.value)} />}</label>
         </div>
@@ -936,7 +948,7 @@ function CalendarPage({ workspace, commit, onEditItem }: {
     <div className="calendar-state-filters">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => <label className="check" key={state}><input type="checkbox" checked={preferences.includeStates.includes(state)} onChange={() => commit('Change calendar state filters', (draft) => { const values = draft.calendarPreferences.includeStates; const index = values.indexOf(state); if (index >= 0) values.splice(index, 1); else values.push(state); })} />{stateNames[state]}</label>)}</div>
     {selected.size > 0 && <div className="selection-bar"><strong>{selected.size} selected</strong><button onClick={() => { const earliest = Math.min(...selectedRows.map((row) => new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime())); setMoveTarget(dateInput(new Date(earliest).toISOString())); setMoveDialog(true); }}>Move selected…</button><button onClick={() => setSelected(new Set())}>Clear</button></div>}
     <div className="calendar-layout"><div className="calendar-main-panel"><FullCalendar ref={calendarRef} plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]} initialView={mode === 'month' ? 'dayGridMonth' : mode === 'week' ? 'timeGridWeek' : mode === 'day' ? 'timeGridDay' : mode === 'three_day' ? 'timeGridThreeDay' : 'listYear'} views={{ timeGridThreeDay: { type: 'timeGrid', duration: { days: 3 } } }} headerToolbar={false} events={events} editable eventResizableFromStart selectable selectMirror droppable nowIndicator weekends={preferences.weekends} firstDay={preferences.weekStartsOn} slotMinTime="00:00:00" slotMaxTime="24:00:00" scrollTime={`${preferences.sleepSchedule.wake}:00`} scrollTimeReset={false} slotHeaderContent={(info) => info.isTime ? `${info.date.getHours()}:${String(info.date.getMinutes()).padStart(2, '0')}` : info.text} slotLaneClass={(info) => [info.isMajor ? 'calendar-hour-line' : 'calendar-half-hour-line', isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-slot' : ''].filter(Boolean).join(' ')} slotHeaderClass={(info) => info.isTime && isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-label' : ''} snapDuration={`00:${String(preferences.snapMinutes).padStart(2, '0')}:00`} slotDuration="00:30:00" longPressDelay={420} eventLongPressDelay={420} selectLongPressDelay={420} height="auto" datesSet={(info: DatesSetInfo) => setRange((current) => current.start.getTime() === info.start.getTime() && current.end.getTime() === info.end.getTime() ? current : { start: info.start, end: info.end })} dateClick={(info: DateClickInfo) => createDraftForRange(info.date, null, info.allDay)} select={handleSelect} eventClick={handleEventClick} eventDrop={handleDrop} eventResize={handleResize} eventReceive={handleExternal} eventContent={(info) => { const row = info.event.extendedProps.row as ProjectedOccurrence | undefined; return <span className="calendar-event-content"><i aria-hidden>{selected.has(info.event.id) ? '✓' : ''}</i><span>{info.event.title}</span>{row?.schedule.dueAt && !row.dueOnly && <b title="Has deadline">◆</b>}</span>; }} eventDidMount={(info) => { let timer = 0; info.el.addEventListener('touchstart', () => { timer = window.setTimeout(() => setSelected((current) => new Set(current).add(info.event.id)), 460); }, { passive: true }); info.el.addEventListener('touchend', () => window.clearTimeout(timer), { passive: true }); }} /></div>
-      <aside ref={unscheduledRef} className={`unscheduled-panel ${unscheduledOpen ? 'open' : ''}`}><header><div><h2>Unscheduled</h2><p>Drag an item into the calendar.</p></div><button className="icon-button mobile-unscheduled-close" aria-label="Close unscheduled items" onClick={() => setUnscheduledOpen(false)}><CloseIcon /></button></header><div>{unscheduled.map((item) => <button className="unscheduled-item" data-item-id={item.id} data-title={item.title} key={item.id} onClick={() => onEditItem(item)}><span>{item.title}</span><small>{item.preset}</small></button>)}{!unscheduled.length && <p className="empty">Everything has a date.</p>}</div></aside>
+      <aside ref={unscheduledRef} className={`unscheduled-panel ${unscheduledOpen ? 'open' : ''}`}><header><div><h2>Unscheduled</h2><p>Drag an item into the calendar.</p></div><button className="icon-button mobile-unscheduled-close" aria-label="Close unscheduled items" onClick={() => setUnscheduledOpen(false)}><CloseIcon /></button></header><div>{unscheduled.map((item) => <button className="unscheduled-item" data-item-id={item.id} data-title={item.title} key={item.id} onClick={() => onEditItem(item)}><span>{item.title}</span><small>{inferredPreset(item)}</small></button>)}{!unscheduled.length && <p className="empty">Everything has a date.</p>}</div></aside>
     </div>
     {quickDraft && <div className="modal-backdrop"><section className="dialog quick-event"><header><h2>New calendar item</h2><button className="icon-button" aria-label="Close quick create" onClick={() => setQuickDraft(null)}><CloseIcon /></button></header><label>Title<input autoFocus value={quickDraft.title} onChange={(event) => setQuickDraft({ ...quickDraft, title: event.target.value })} /></label><div className="form-grid two"><label>Start<input type="datetime-local" value={dateInput(quickDraft.schedule?.startAt)} onChange={(event) => setQuickDraft({ ...quickDraft, schedule: { ...quickDraft.schedule!, startAt: fromDateInput(event.target.value) } })} /></label><label>End<input type="datetime-local" value={dateInput(quickDraft.schedule?.endAt)} onChange={(event) => setQuickDraft({ ...quickDraft, schedule: { ...quickDraft.schedule!, endAt: fromDateInput(event.target.value) } })} /></label></div><label>Priority<select value={quickDraft.priority ?? 0} onChange={(event) => setQuickDraft({ ...quickDraft, priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{[0,1,2,3,4].map((value) => <option value={value} key={value}>{value === 0 ? 'None' : priorityNames[value as 1|2|3|4]}</option>)}</select></label><footer><button className="secondary" onClick={() => { onEditItem(quickDraft); setQuickDraft(null); }}>More options</button><span/><button className="primary" disabled={!quickDraft.title.trim()} onClick={() => { commit('Create calendar item', (draft) => { draft.items[quickDraft.id] = clean({ ...quickDraft, title: quickDraft.title.trim() }); }); setQuickDraft(null); }}>Save</button></footer></section></div>}
     {pendingMove && <div className="modal-backdrop"><section className="dialog"><header><h2>Move repeating item</h2><button className="icon-button" aria-label="Cancel recurring move" onClick={() => setPendingMove(null)}><CloseIcon /></button></header><p>{pendingMove.rows.length > 1 ? 'Choose one scope for the selected recurring items. You can move individual rows separately afterwards.' : 'Which part of the series should move?'}</p><div className="scope-actions"><button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'this_occurrence')}>This occurrence</button><button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'this_and_future')}>This and future</button><button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'entire_series')}>Entire series</button></div></section></div>}
@@ -1093,7 +1105,7 @@ export default function App() {
   const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => {
     commit('Change item state', (draft) => {
       let target = draft.items[item.id]; if (!target) return;
-      if (item.preset === 'habit') {
+      if (item.habit || (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]?.habit)) {
         if (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]) target = draft.items[item.occurrence.seriesId]!;
         target.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
         target.habit.completedDates ??= [];
@@ -1147,7 +1159,7 @@ export default function App() {
 
   // Calendar and Automations are retained in the encrypted workspace, but archived from the daily UI until they are reliable enough to bring back.
   const nav: Array<[Page, LineIconName, string, boolean?]> = [['home', 'home', 'Home'], ['all', 'items', 'All items', true], ['settings', 'settings', 'Settings']];
-  const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && (item.role !== 'series_template' || item.preset === 'habit')).map((item) => item.occurrence?.seriesId ?? item.id)).size;
+  const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
   const deletedItems = Object.values(workspace.items).filter((item) => Boolean(item.deletedAt));
   const restoreItem = (item: UniversalItem) => commit('Restore item from trash', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
@@ -1170,7 +1182,7 @@ export default function App() {
       {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Delete notification" onClick={() => deleteNotice(notice.id)}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
       {page === 'home' && <><section className="home-summary"><p>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}<span>·</span><strong>{openItems ? `${openItems} active ${openItems === 1 ? 'item' : 'items'}` : 'Everything is clear'}</strong></p></section><ViewsPage workspace={workspace} commit={commit} onEditItem={setEditor} onState={changeItemState} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} onEditItem={setEditor} />}
-      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.deletedAt); return <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createUiItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && item.role !== 'series_template' && !item.deletedAt); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div><DeletedItemsList items={deletedItems} onRestore={restoreItem} /></section>; })()}
+      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.habit && !item.deletedAt); return <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createUiItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div><DeletedItemsList items={deletedItems} onRestore={restoreItem} /></section>; })()}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportJson={setPortableImportSource} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} />}
     </main>

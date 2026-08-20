@@ -209,9 +209,14 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
 }
 
 export function compileQuery(source: string): (item: UniversalItem, now?: Date) => boolean {
-  const ast = parseExpression(source);
+  // Compatibility for early Views: before habits became a universal capability,
+  // the visual builder expressed them as `preset == "habit"`.
+  const normalizedSource = source
+    .replace(/\bpreset\s*==\s*(["'])habit\1/g, 'isHabit == true')
+    .replace(/\bpreset\s*!=\s*(["'])habit\1/g, 'isHabit != true');
+  const ast = parseExpression(normalizedSource);
   return (item, now) => {
-    try { return Boolean(evaluateExpression(ast, { item, ...(now ? { now } : {}) })); }
+    try { return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit) }, ...(now ? { now } : {}) })); }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;
       throw reason;
