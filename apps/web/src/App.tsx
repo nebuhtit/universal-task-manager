@@ -252,11 +252,11 @@ const readItemField = (item: UniversalItem, field: string, workspace?: Workspace
   return field.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, item);
 };
 const displayViewValue = (value: unknown, field: string): string => {
-  if (value === undefined || value === null || value === '') return '—';
+  if (value === undefined || value === null || value === '') return '';
   if ((field.endsWith('At') || field.endsWith('Date') || field === 'createdAt' || field === 'updatedAt') && typeof value === 'string') {
     const date = new Date(value); if (!Number.isNaN(date.getTime())) return date.toLocaleString();
   }
-  if (Array.isArray(value)) return value.length ? value.map((entry) => typeof entry === 'object' ? JSON.stringify(entry) : String(entry)).join(', ') : '—';
+  if (Array.isArray(value)) return value.length ? value.map((entry) => typeof entry === 'object' ? JSON.stringify(entry) : String(entry)).join(', ') : '';
   if (typeof value === 'object') return JSON.stringify(value);
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   return String(value);
@@ -268,7 +268,9 @@ function ItemCard({ item, onEdit, onState, fields, workspace }: { item: Universa
   const habitCompletedToday = item.preset === 'habit' && Boolean(item.habit?.completedDates?.includes(today));
   const visiblyClosed = item.preset === 'habit' ? habitCompletedToday : item.state !== 'open';
   const customDisplay = fields !== undefined;
-  const metadataFields = fields?.filter((field) => field !== 'title' && field !== 'priority') ?? [];
+  const metadataFields = (fields?.filter((field) => field !== 'title' && field !== 'priority') ?? [])
+    .map((field) => ({ field, value: displayViewValue(readItemField(item, field, workspace), field) }))
+    .filter(({ value }) => value !== '');
   return <article className={`item-card state-${item.state}`}>
     <button className="state-toggle" aria-label={item.preset === 'habit' ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(visiblyClosed ? 'open' : 'done')}>
       {visiblyClosed ? '✓' : ''}
@@ -276,7 +278,7 @@ function ItemCard({ item, onEdit, onState, fields, workspace }: { item: Universa
     <button className="item-main" onClick={onEdit}>
       {(!customDisplay || fields?.includes('title')) && <span className="item-title">{item.title}</span>}
       {!customDisplay && <span className="item-meta"><span className={`preset ${item.preset}`}>{item.preset}</span>{due && <span>{new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: item.schedule?.allDay ? undefined : '2-digit', minute: item.schedule?.allDay ? undefined : '2-digit' }).format(new Date(due))}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">auto-closed</span>}</span>}
-      {customDisplay && metadataFields.length > 0 && <span className="view-item-fields">{metadataFields.map((field) => <span key={field}><small>{viewFieldLabel(workspace!, field)}</small>{displayViewValue(readItemField(item, field, workspace), field)}</span>)}</span>}
+      {customDisplay && metadataFields.length > 0 && <span className="view-item-fields">{metadataFields.map(({ field, value }) => <span key={field}><small>{viewFieldLabel(workspace!, field)}</small>{value}</span>)}</span>}
     </button>
     {item.priority && (!customDisplay || fields?.includes('priority')) ? <button className={`priority p${item.priority}`} title={`Priority ${item.priority}: ${priorityNames[item.priority]}. Click to edit.`} aria-label={`Priority ${item.priority}: ${priorityNames[item.priority]}. Edit item`} onClick={onEdit}>{priorityNames[item.priority]}</button> : null}
   </article>;
@@ -558,7 +560,11 @@ function ViewResults({ view, workspace, onEdit, onState }: {
 }) {
   const items = filteredItems(workspace, view);
   const visibleFields = view.fields ?? [];
-  const fieldContent = (item: UniversalItem, omit: string[] = []) => <span className="renderer-fields">{visibleFields.filter((field) => !omit.includes(field)).map((field) => field === 'title' ? <strong key={field}>{item.title}</strong> : <span key={field}><small>{viewFieldLabel(workspace, field)}</small>{displayViewValue(readItemField(item, field, workspace), field)}</span>)}</span>;
+  const fieldContent = (item: UniversalItem, omit: string[] = []) => <span className="renderer-fields">{visibleFields.filter((field) => !omit.includes(field)).map((field) => {
+    if (field === 'title') return <strong key={field}>{item.title}</strong>;
+    const value = displayViewValue(readItemField(item, field, workspace), field);
+    return value ? <span key={field}><small>{viewFieldLabel(workspace, field)}</small>{value}</span> : null;
+  })}</span>;
   if (!items.length) return <p className="empty">No items match this view.</p>;
   if (view.renderer === 'calendar') {
     const dated = items.filter((item) => item.schedule?.startAt || item.schedule?.dueAt);
@@ -600,6 +606,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
   const [sortRules, setSortRules] = useState<ViewSortRule[]>([]);
   const [sortSource, setSortSource] = useState('');
   const [manualField, setManualField] = useState('');
+  const [draggedField, setDraggedField] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [viewJson, setViewJson] = useState('');
   const viewJsonRef = useRef<HTMLInputElement>(null);
@@ -668,6 +675,12 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
     [fields[index], fields[target]] = [fields[target]!, fields[index]!];
     setEditing({ ...editing, fields });
   };
+  const moveFieldTo = (field: string, targetField: string) => {
+    if (!editing || field === targetField) return;
+    const fields = editing.fields.filter((entry) => entry !== field);
+    fields.splice(fields.indexOf(targetField), 0, field);
+    setEditing({ ...editing, fields });
+  };
   const save = () => {
     if (!editing) return;
     const result = visualDirty ? { ...editing, query: { source: visualClause() } } : editing;
@@ -725,7 +738,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       <label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>
       <fieldset className="query-builder fields-builder"><legend>Displayed fields</legend>
         <p className="builder-status">Choose any item properties. Their order below is also their display order.</p>
-        <details className="display-fields-example"><summary>Preview with a fully filled example item</summary><div>{editing.fields.length ? editing.fields.map((field) => <span key={field}><small>{viewFieldLabel(workspace, field)}</small>{exampleViewFieldValue(field)}</span>) : <p>Select fields below to preview them here.</p>}</div></details>
+        <details className="display-fields-example"><summary>Preview with a fully filled example item</summary><p className="display-fields-help">Drag a field to change its order, or hide it with ×.</p><div>{editing.fields.length ? editing.fields.map((field) => <span key={field} draggable onDragStart={() => setDraggedField(field)} onDragEnd={() => setDraggedField(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedField) moveFieldTo(draggedField, field); setDraggedField(null); }}><button className="preview-field-remove" aria-label={`Hide ${viewFieldLabel(workspace, field)}`} onClick={() => toggleField(field)}><CloseIcon /></button><small>{viewFieldLabel(workspace, field)}</small>{exampleViewFieldValue(field)}</span>) : <p>Select fields below to preview them here.</p>}</div></details>
         <div className="builder-actions"><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: viewFieldOptions(workspace).map((field) => field.path) })}>Select all</button><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: [] })}>Hide all</button></div>
         <div className="field-groups">{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <details key={group}><summary>{group}</summary><div className="field-options">{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <label className="check" key={field.path}><input type="checkbox" checked={editing.fields.includes(field.path)} onChange={() => toggleField(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div>
         <div className="manual-field"><input aria-label="Custom field path" placeholder="Any path, e.g. custom.client" value={manualField} onChange={(event) => setManualField(event.target.value)} /><button className="secondary compact-action" disabled={!manualField.trim() || editing.fields.includes(manualField.trim())} onClick={() => { const path = manualField.trim(); setEditing({ ...editing, fields: [...editing.fields, path] }); setManualField(''); }}>+ Add path</button></div>

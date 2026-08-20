@@ -273,10 +273,15 @@ label.check input { width: 18px; height: 18px; }
 .sort-builder, .fields-builder { margin-top: 18px; }
 .display-fields-example { margin: 10px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); }
 .display-fields-example summary { padding: 8px 10px; color: var(--muted); font-size: 10px; font-weight: 400; }
+.display-fields-help { margin: 0 10px 7px; color: var(--muted); font-size: 9px; }
 .display-fields-example > div { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 10px 10px; }
-.display-fields-example span { display: grid; gap: 1px; min-width: 110px; max-width: 210px; color: var(--ink); font-size: 11px; }
+.display-fields-example span { position: relative; display: grid; gap: 1px; min-width: 110px; max-width: 210px; padding: 4px 22px 4px 0; color: var(--ink); font-size: 11px; cursor: grab; }
+.display-fields-example span:active { cursor: grabbing; }
 .display-fields-example small { color: var(--muted); font-size: 9px; }
 .display-fields-example p { margin: 0; color: var(--muted); font-size: 10px; }
+.preview-field-remove { position: absolute; top: 1px; right: 2px; display: grid; width: 18px; height: 18px; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); }
+.preview-field-remove:hover { background: #e7e7e7; color: var(--ink); }
+.preview-field-remove .close-icon { width: 9px; height: 9px; }
 .sort-rules { display: grid; gap: 8px; }
 .sort-rule { display: grid; grid-template-columns: minmax(180px, 1fr) 135px 125px auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .sort-rule label { margin: 0; font-size: 11px; font-weight: 500; }
