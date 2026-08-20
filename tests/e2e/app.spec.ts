@@ -67,7 +67,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.6.7', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.6.8', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -117,7 +117,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.6.7', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.6.8', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -217,10 +217,14 @@ test('edited view parameters change results and survive reload', async ({ page }
 
   let view = page.locator('.view-section').filter({ hasText: 'Now' });
   const editView = view.getByRole('button', { name: 'Edit view' });
+  await expect(view.getByText('Export', { exact: true })).toHaveCount(0);
   await expect(editView).toHaveCSS('font-size', '13px');
   await expect(editView).toHaveCSS('font-weight', '400');
   await expect(editView).toHaveCSS('padding-top', '8px');
   await editView.click();
+  await expect(page.getByRole('button', { name: 'Definition', exact: true })).toBeHidden();
+  await page.getByText('Export view', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Definition', exact: true })).toBeVisible();
   await page.getByLabel('Name', { exact: true }).fill('Done only');
   await page.getByRole('combobox', { name: 'Field', exact: true }).selectOption('state');
   await page.getByRole('combobox', { name: 'Operator' }).selectOption('==');

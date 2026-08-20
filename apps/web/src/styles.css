@@ -284,10 +284,7 @@ label.check input { width: 18px; height: 18px; }
 .compact-action { padding: 7px 10px; font-size: 12px; }
 .json-editor .syntax-editor { min-height: 220px; background: #fff; }
 .json-editor .syntax-editor pre, .json-editor .syntax-editor textarea { font-size: 11px; font-weight: 400; }
-.view-export-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: -5px 0 12px; }
-.view-export-actions span { color: var(--muted); font-size: 10px; margin-right: 3px; }
-.view-export-actions button { border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 5px 8px; font-size: 10px; cursor: pointer; }
-.view-export-actions button:hover { background: var(--soft); }
+.view-export-details > summary { color: var(--muted); font-size: 11px; font-weight: 500; }
 .import-preview > section { margin-top: 18px; }
 .import-preview h3 { margin: 0 0 8px; font-size: 13px; font-weight: 500; }
 .import-row { min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 180px; align-items: center; gap: 9px; border-top: 1px solid var(--line); padding: 7px 0; }
@@ -549,7 +546,6 @@ tbody tr:hover { background: var(--soft); }
   .sort-rule > label:first-child, .rule-order { grid-column: 1 / -1; }
   .field-groups { grid-template-columns: 1fr; }
   .import-row { grid-template-columns: 1fr; gap: 5px; padding: 10px 0; }
-  .view-export-actions { justify-content: flex-start; overflow-x: auto; }
   .drawer-head, .editor-scroll, .drawer-actions { padding-left: 17px; padding-right: 17px; }
   .editor-error { margin-left: 17px; margin-right: 17px; }
   .drawer { width: 100%; top: 4vh; border-radius: 20px 20px 0 0; }
