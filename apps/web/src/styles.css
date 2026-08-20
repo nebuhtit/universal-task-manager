@@ -273,6 +273,12 @@ label.check input { width: 18px; height: 18px; }
 .inline-row button { border: 0; background: #eeeeee; border-radius: 8px; padding: 10px; cursor: pointer; }
 .chip { display: inline-flex; align-items: center; gap: 7px; background: #eeeeee; padding: 5px 8px; border-radius: 8px; margin: 0 5px 7px 0; font-size: 11px; }
 .chip button { border: 0; background: transparent; cursor: pointer; }
+.subtask-row { display: flex; align-items: center; gap: 9px; min-height: 34px; padding: 4px 0; }
+.subtask-row > span { flex: 1; }
+.subtask-row.completed > span { color: var(--muted); text-decoration: line-through; }
+.subtask-check { width: 22px; height: 22px; padding: 0; border: 1.5px solid var(--muted); border-radius: 50%; background: transparent; color: var(--fg); cursor: pointer; font-size: 14px; line-height: 1; }
+.subtask-check.checked { background: var(--fg); color: var(--card); border-color: var(--fg); }
+.subtask-row > button:last-child { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 5px; }
 .formula-output { display: block; padding: 11px; border-radius: 10px; background: var(--soft); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .markdown { line-height: 1.65; }
 .markdown :first-child { margin-top: 0; }
