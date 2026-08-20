@@ -27,6 +27,11 @@ pnpm dev
 
 Open the printed local URL. The app works offline after the production PWA has loaded once.
 
+## Use on a phone
+
+After the GitHub Pages deployment succeeds, open
+`https://nebuhtit.github.io/universal-task-manager/` on your phone. Use **Share → Add to Home Screen** on iPhone or **Install app** in Chrome on Android. The phone gets its own encrypted local workspace; use Encrypted Transfer (`.utm`) to move or merge data between devices.
+
 ## Verification
 
 ```bash
