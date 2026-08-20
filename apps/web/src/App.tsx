@@ -1247,8 +1247,9 @@ export default function App() {
         Object.keys(target).forEach((key) => { delete target[key]; });
         Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); });
       }
-      // Existing and imported workspaces keep their own language preference.
-      // The selected language is only used when creating a brand-new workspace.
+      // Choosing a language on the unlock screen is an explicit user preference;
+      // persist it in the encrypted workspace so it travels with transfers.
+      if (selectedLanguage) workspace.calendarPreferences.language = selectedLanguage;
       backfillItemCreationVersions(workspace);
       Object.values(workspace.items).forEach(removeDuplicateReminders);
       consolidateHabitOccurrences(workspace, now);
