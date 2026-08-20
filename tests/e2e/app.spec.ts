@@ -1,4 +1,9 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
+
+async function openViewDetails(view: Locator) {
+  const details = view.locator('details.view-query-details');
+  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) await details.getByText('View details', { exact: true }).click();
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -45,13 +50,13 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   const scheduleSection = page.getByText('Dates & time', { exact: true });
   await expect(scheduleSection).toHaveCSS('font-size', '13px');
   await expect(scheduleSection).toHaveCSS('font-weight', '500');
-  await scheduleSection.click();
   await expect(page.getByLabel('Scheduled start')).toBeVisible();
   await expect(page.getByLabel('Scheduled end')).toBeVisible();
   await expect(page.getByLabel('Deadline')).toBeVisible();
+  await expect(page.getByLabel('Available to work from')).toBeHidden();
+  await page.locator('details.optional-field > summary').click();
   await expect(page.getByLabel('Available to work from')).toBeVisible();
   await expect(page.getByText('A deadline is the latest completion time.', { exact: false })).toBeVisible();
-  await page.getByText('Reminders', { exact: true }).click();
   const addReminder = page.getByRole('button', { name: '+ Add reminder' });
   await expect(addReminder).toHaveCSS('font-size', '13px');
   await expect(addReminder).toHaveCSS('font-weight', '400');
@@ -59,7 +64,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.6.5', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.6.6', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -109,7 +114,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
 
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.6.5', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.6.6', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -222,6 +227,7 @@ test('edited view parameters change results and survive reload', async ({ page }
   await page.getByRole('button', { name: 'Save view' }).click();
 
   view = page.locator('.view-section').filter({ hasText: 'Done only' });
+  await openViewDetails(view);
   await expect(view.getByText('state == "done"', { exact: true })).toBeVisible();
   await expect(view.getByText('table', { exact: true })).toBeVisible();
   await expect(view.getByText('0 matching items', { exact: true })).toBeVisible();
@@ -232,6 +238,7 @@ test('edited view parameters change results and survive reload', async ({ page }
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Unlock' }).click();
   view = page.locator('.view-section').filter({ hasText: 'Done only' });
+  await openViewDetails(view);
   await expect(view.getByText('state == "done"', { exact: true })).toBeVisible();
   await expect(view.getByText('table', { exact: true })).toBeVisible();
   await expect(view.getByText('0 matching items', { exact: true })).toBeVisible();
@@ -264,6 +271,7 @@ test('visual view builder supports OR and inclusive comparison operators', async
   await page.getByRole('button', { name: 'Save view' }).click();
 
   const view = page.locator('.view-section').filter({ hasText: 'Priority OR' });
+  await openViewDetails(view);
   await expect(view.getByText('priority == 3 || priority < 3', { exact: true })).toBeVisible();
   await expect(view.getByText('1 matching items', { exact: true })).toBeVisible();
   await expect(view.getByText('Priority two item', { exact: true })).toBeVisible();
@@ -305,6 +313,7 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await page.getByRole('button', { name: 'Save view' }).click();
 
   const habitView = page.locator('.view-section').filter({ hasText: 'Habits' });
+  await openViewDetails(habitView);
   await expect(habitView.getByText('1 matching items', { exact: true })).toBeVisible();
   await expect(habitView.getByText('Daily walk', { exact: true })).toHaveCount(1);
   await habitView.getByRole('button', { name: 'Complete habit today' }).click();
@@ -345,6 +354,7 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await page.getByLabel('Sort DSL').fill('priority desc nulls last\nlower(title) asc nulls last');
   await page.getByRole('button', { name: 'Save view' }).click();
 
+  await openViewDetails(view);
   await expect(view.locator('thead th')).toHaveText(['Complete', 'Title', 'Priority']);
   await expect(view.locator('thead')).not.toContainText('State');
   const rows = view.locator('tbody tr');
@@ -398,7 +408,6 @@ test('notifications auto-hide, close individually, and remain in the bell center
   await page.getByRole('button', { name: 'All items' }).click();
   await page.getByRole('button', { name: '+ New item' }).click();
   await page.getByLabel('Title', { exact: true }).fill('Reminder item');
-  await page.getByText('Reminders', { exact: true }).click();
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   const past = await page.evaluate(() => {
@@ -443,7 +452,6 @@ test('identical reminders are stored and displayed only once', async ({ page }) 
   await page.getByRole('button', { name: 'All items' }).click();
   await page.getByRole('button', { name: '+ New item' }).click();
   await page.getByLabel('Title', { exact: true }).fill('One urgent reminder');
-  await page.getByText('Reminders', { exact: true }).click();
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   const past = await page.evaluate(() => {
@@ -475,7 +483,6 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
   await page.getByRole('button', { name: 'All items' }).click();
   await page.getByRole('button', { name: '+ New item' }).click();
   await page.getByLabel('Title', { exact: true }).fill('Weekly due-only item');
-  await page.getByText('Dates & time', { exact: true }).click();
   await expect(page.getByLabel('Scheduled start', { exact: true })).not.toHaveValue('');
   await page.getByLabel('Scheduled start', { exact: true }).fill('');
   await page.getByText('Recurrence & auto-renew', { exact: true }).click();
