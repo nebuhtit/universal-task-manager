@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.3.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.6.2';
-export const APP_RELEASED_AT = '2026-08-13T14:44:04+03:00';
+export const APP_VERSION = '0.6.3';
+export const APP_RELEASED_AT = '2026-08-13T15:00:02+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -67,6 +67,8 @@ export interface Habit {
   target: number;
   unit: string;
   streakMode: 'manual_only' | 'any_closed';
+  /** Calendar days completed by the user. Missing scheduled days are skips. */
+  completedDates: string[];
 }
 
 export interface Reminder {
@@ -438,7 +440,7 @@ export function createItem(
   if (preset === 'event') item.schedule = { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
   if (preset === 'habit') {
     item.progress = { mode: 'counter', current: 0, target: 1 };
-    item.habit = { target: 1, unit: 'times', streakMode: 'manual_only' };
+    item.habit = { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
   }
   return item;
 }

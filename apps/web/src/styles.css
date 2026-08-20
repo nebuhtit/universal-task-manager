@@ -187,6 +187,8 @@ details summary::-webkit-details-marker { display: none; }
 details summary::after { content: '+'; color: var(--muted); }
 details[open] summary::after { content: '−'; }
 .details-body { padding: 2px 2px 20px; }
+.schedule-explainer { margin: 0 0 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.schedule-grid label small { min-height: 30px; margin-top: -2px; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.45; }
 label.check { display: flex; grid-template-columns: auto 1fr; flex-direction: row; align-items: center; font-weight: 500; }
 label.check input { width: 18px; height: 18px; }
 .inline-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -232,6 +234,7 @@ label.check input { width: 18px; height: 18px; }
 .sort-rule { display: grid; grid-template-columns: minmax(180px, 1fr) 135px 125px auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .sort-rule label { margin: 0; font-size: 11px; font-weight: 500; }
 .sort-rule input, .sort-rule select { padding: 8px 9px; font-size: 12px; }
+.sort-custom-expression { margin-top: 6px; font-size: 11px !important; }
 .rule-order { display: flex; gap: 4px; padding-bottom: 1px; }
 .rule-order .compact-action { width: 29px; height: 31px; padding: 0; display: grid; place-items: center; }
 .rule-order .close-icon { width: 12px; height: 12px; }
@@ -278,6 +281,11 @@ label.check input { width: 18px; height: 18px; }
 .settings-card code { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--soft); border-radius: 8px; padding: 9px; font-size: 10px; }
 .settings-card p { color: var(--muted); font-size: 12px; }
 .views-stack { display: grid; gap: 16px; }
+.home-summary { padding: 10px 32px 0; }
+.home-summary p { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 11px; text-transform: capitalize; }
+.home-summary strong { color: #444; font-weight: 500; }
+.views-page { padding-top: 8px; }
+.views-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
 .view-section > .view-section-summary { display: flex; justify-content: space-between; align-items: start; gap: 18px; padding: 20px 28px 20px 0; }
 .view-section > .view-section-summary::after { position: absolute; right: 20px; top: 22px; }

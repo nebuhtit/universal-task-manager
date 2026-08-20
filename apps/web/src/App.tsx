@@ -115,7 +115,7 @@ function CodeEditor({ value, onChange, language, rows = 8, ariaLabel }: {
 type LineIconName = 'home' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer';
 function LineIcon({ name }: { name: LineIconName }) {
   const paths: Record<LineIconName, ReactNode> = {
-    home: <><path d="M3 10.8 12 3l9 7.8"/><path d="M5.5 9.5V21h13V9.5M9.5 21v-7h5v7"/></>,
+    home: <path d="m4.5 11.5 7.5-6 7.5 6V19h-15v-7.5Z"/>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></>,
     items: <><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12h3M3 18h3"/></>,
     views: <><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="8" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/></>,
@@ -183,8 +183,8 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
   { path: 'role', label: 'Role', group: 'Core' }, { path: 'priority', label: 'Priority', group: 'Core' },
   { path: 'tags', label: 'Tags', group: 'Core' }, { path: 'contexts', label: 'Contexts', group: 'Core' },
-  { path: 'schedule.availableFrom', label: 'Available from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Start', group: 'Schedule' },
-  { path: 'schedule.endAt', label: 'End', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Due', group: 'Schedule' },
+  { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Scheduled start', group: 'Schedule' },
+  { path: 'schedule.endAt', label: 'Scheduled end', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Deadline', group: 'Schedule' },
   { path: 'schedule.estimatedDuration', label: 'Estimated duration', group: 'Schedule' }, { path: 'schedule.actualDuration', label: 'Actual duration', group: 'Schedule' },
   { path: 'schedule.timezone', label: 'Timezone', group: 'Schedule' }, { path: 'schedule.allDay', label: 'All day', group: 'Schedule' },
   { path: 'recurrence.rrule', label: 'RRULE', group: 'Recurrence' }, { path: 'recurrence.rdates', label: 'Additional dates', group: 'Recurrence' },
@@ -195,7 +195,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'progress.mode', label: 'Progress mode', group: 'Progress & habit' }, { path: 'progress.current', label: 'Progress current', group: 'Progress & habit' },
   { path: 'progress.target', label: 'Progress target', group: 'Progress & habit' }, { path: 'progress.unit', label: 'Progress unit', group: 'Progress & habit' },
   { path: 'habit.target', label: 'Habit target', group: 'Progress & habit' }, { path: 'habit.unit', label: 'Habit unit', group: 'Progress & habit' },
-  { path: 'habit.streakMode', label: 'Habit streak mode', group: 'Progress & habit' },
+  { path: 'habit.streakMode', label: 'Habit streak mode', group: 'Progress & habit' }, { path: 'habit.completedDates', label: 'Habit completed dates', group: 'Progress & habit' },
   { path: 'reminders', label: 'Reminders', group: 'Connections' }, { path: 'relations', label: 'Relations', group: 'Connections' },
   { path: 'attachments', label: 'Links', group: 'Connections' },
   { path: 'closure.at', label: 'Closed at', group: 'History' }, { path: 'closure.actor', label: 'Closed by', group: 'History' },
@@ -233,11 +233,14 @@ const displayViewValue = (value: unknown, field: string): string => {
 
 function ItemCard({ item, onEdit, onState, fields, workspace }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument }) {
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
+  const today = new Date().toISOString().slice(0, 10);
+  const habitCompletedToday = item.preset === 'habit' && Boolean(item.habit?.completedDates?.includes(today));
+  const visiblyClosed = item.preset === 'habit' ? habitCompletedToday : item.state !== 'open';
   const customDisplay = fields !== undefined;
   const metadataFields = fields?.filter((field) => field !== 'title' && field !== 'priority') ?? [];
   return <article className={`item-card state-${item.state}`}>
-    <button className="state-toggle" aria-label={item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(item.state === 'open' ? 'done' : 'open')}>
-      {item.state === 'open' ? '' : '✓'}
+    <button className="state-toggle" aria-label={item.preset === 'habit' ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(visiblyClosed ? 'open' : 'done')}>
+      {visiblyClosed ? '✓' : ''}
     </button>
     <button className="item-main" onClick={onEdit}>
       {(!customDisplay || fields?.includes('title')) && <span className="item-title">{item.title}</span>}
@@ -291,16 +294,33 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
 }
 
 function filteredItems(workspace: WorkspaceDocument, view?: SavedView): UniversalItem[] {
-  // Series templates are recurrence configuration, not user-facing rows. Views
-  // operate on logical items (standalone items and materialized occurrences),
-  // just as a spreadsheet filter operates on each source row once.
-  let items = Object.values(workspace.items).filter((item) => !item.deletedAt && item.role !== 'series_template');
+  const available = Object.values(workspace.items).filter((item) => !item.deletedAt);
+  let items: UniversalItem[];
   if (view) {
-    try { const predicate = compileQuery(view.query.source || 'true'); items = items.filter((item) => predicate(item)); }
+    try {
+      const predicate = compileQuery(view.query.source || 'true');
+      const matchingRows = available.filter((item) => item.role !== 'series_template' && predicate(item));
+      const matchingSeries = available.filter((item) => item.role === 'series_template' && predicate(item));
+      const standalone = matchingRows.filter((item) => item.role !== 'occurrence');
+      const occurrencesBySeries = new Map<string, UniversalItem[]>();
+      matchingRows.filter((item) => item.role === 'occurrence').forEach((item) => {
+        const seriesId = item.occurrence?.seriesId ?? item.id;
+        occurrencesBySeries.set(seriesId, [...(occurrencesBySeries.get(seriesId) ?? []), item]);
+      });
+      const logicalOccurrences = [...occurrencesBySeries.values()].map((occurrences) => [...occurrences].sort((left, right) => {
+        if (left.state === 'open' && right.state !== 'open') return -1;
+        if (right.state === 'open' && left.state !== 'open') return 1;
+        return new Date(right.occurrence?.recurrenceId ?? right.updatedAt).getTime() - new Date(left.occurrence?.recurrenceId ?? left.updatedAt).getTime();
+      })[0]!);
+      // A recurring series and one of its occurrences are two storage records
+      // for one logical item. Prefer the matching occurrence; use the series
+      // itself only when no occurrence satisfies this view.
+      items = [...standalone, ...logicalOccurrences, ...matchingSeries.filter((series) => !logicalOccurrences.some((item) => item.occurrence?.seriesId === series.id))];
+    }
     catch { return []; }
     const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
     if (sortSource.trim()) items.sort(compileSort(sortSource));
-  }
+  } else items = available.filter((item) => item.role !== 'series_template');
   return items;
 }
 
@@ -400,7 +420,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
       }
       if (recurring) {
         const anchor = result.schedule?.startAt ?? result.schedule?.dueAt;
-        if (!anchor) throw new Error('A recurring item needs a Start or Due date.');
+        if (!anchor) throw new Error('A recurring item needs a Scheduled start or Deadline.');
         result = { ...result, schedule: { ...result.schedule!, startAt: anchor } };
         result = makeSeries(result, result.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1', {
           ...result.recurrence,
@@ -408,6 +428,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         });
       }
       if (!recurring) { result.role = 'standalone'; delete result.recurrence; }
+      if (result.preset === 'habit') result.habit = result.habit ?? { target: result.progress?.target ?? 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
       removeDuplicateReminders(result);
       onSave(clean(result));
     } catch (reason) {
@@ -421,6 +442,23 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
       <div className="editor-scroll">
         <label>Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} /></label>
         <div className="segmented" aria-label="Preset">{(['task', 'event', 'habit', 'blank'] as ItemPreset[]).map((preset) => <button className={item.preset === preset ? 'active' : ''} key={preset} onClick={() => patchItem({ preset })}>{preset}</button>)}</div>
+        <details open={item.preset === 'event'}><summary>Dates &amp; time</summary><div className="details-body">
+          <p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p>
+          <div className="form-grid two schedule-grid">
+            <label><span>Scheduled start</span><input aria-label="Scheduled start" type="datetime-local" value={dateInput(item.schedule?.startAt)} onInput={(event) => patchSchedule({ startAt: fromDateInput(event.currentTarget.value) })} /><small>When it begins and appears in the calendar.</small></label>
+            <label><span>Scheduled end</span><input aria-label="Scheduled end" type="datetime-local" value={dateInput(item.schedule?.endAt)} onInput={(event) => patchSchedule({ endAt: fromDateInput(event.currentTarget.value) })} /><small>When the calendar block ends. Use with start.</small></label>
+            <label><span>Deadline</span><input aria-label="Deadline" type="datetime-local" value={dateInput(item.schedule?.dueAt)} onInput={(event) => patchSchedule({ dueAt: fromDateInput(event.currentTarget.value) })} /><small>Latest acceptable completion time; not a duration.</small></label>
+            <label><span>Available to work from</span><input aria-label="Available to work from" type="datetime-local" value={dateInput(item.schedule?.availableFrom)} onInput={(event) => patchSchedule({ availableFrom: fromDateInput(event.currentTarget.value) })} /><small>Earliest intended time to begin; not a deadline.</small></label>
+          </div>
+          <label>Timezone<input value={item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} onChange={(event) => patchSchedule({ timezone: event.target.value })} /></label>
+        </div></details>
+
+        <details><summary>Reminders</summary><div className="details-body">
+          <p className="schedule-explainer">Notifications can happen before or at any important moment, independently of the scheduled time and deadline.</p>
+          {item.reminders.map((reminder, index) => <div className="inline-row" key={reminder.id}><input aria-label={`Reminder ${index + 1} time`} type="datetime-local" value={dateInput(reminder.at)} onInput={(event) => patchItem({ reminders: item.reminders.map((entry, at) => { if (at !== index) return entry; const next = { ...entry }; const value = fromDateInput(event.currentTarget.value); if (value) next.at = value; else delete next.at; return next; }) })} /><select aria-label={`Reminder ${index + 1} urgency`} value={reminder.urgency} onChange={(event) => patchItem({ reminders: item.reminders.map((entry, at) => at === index ? { ...entry, urgency: event.target.value as typeof entry.urgency } : entry) })}><option>normal</option><option>urgent</option><option>critical</option></select><button aria-label="Remove reminder" onClick={() => patchItem({ reminders: item.reminders.filter((_, at) => at !== index) })}><CloseIcon /></button></div>)}
+          <button className="secondary" onClick={() => patchItem({ reminders: [...item.reminders, { id: createId(), mode: 'absolute', at: new Date(Date.now() + 3_600_000).toISOString(), urgency: 'normal', repeatUntilAcknowledged: false }] })}>+ Add reminder</button>
+        </div></details>
+
         <label>Description <span className="hint">Markdown</span><textarea rows={5} value={item.bodyMarkdown} onChange={(event) => patchItem({ bodyMarkdown: event.target.value })} placeholder="Context, links, checklists…" /></label>
         {item.bodyMarkdown && <details><summary>Markdown preview</summary><div className="markdown preview"><ReactMarkdown>{item.bodyMarkdown}</ReactMarkdown></div></details>}
         <div className="form-grid three">
@@ -430,16 +468,6 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         </div>
         <label>Tags<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="work, deep-focus" /></label>
         <label>Contexts<input value={contexts} onChange={(event) => setContexts(event.target.value)} placeholder="office, laptop" /></label>
-
-        <details open={item.preset === 'event'}><summary>Schedule & deadline</summary><div className="details-body">
-          <div className="form-grid two">
-            <label>Available from<input type="datetime-local" value={dateInput(item.schedule?.availableFrom)} onInput={(event) => patchSchedule({ availableFrom: fromDateInput(event.currentTarget.value) })} /></label>
-            <label>Start<input type="datetime-local" value={dateInput(item.schedule?.startAt)} onInput={(event) => patchSchedule({ startAt: fromDateInput(event.currentTarget.value) })} /></label>
-            <label>End<input type="datetime-local" value={dateInput(item.schedule?.endAt)} onInput={(event) => patchSchedule({ endAt: fromDateInput(event.currentTarget.value) })} /></label>
-            <label>Due<input type="datetime-local" value={dateInput(item.schedule?.dueAt)} onInput={(event) => patchSchedule({ dueAt: fromDateInput(event.currentTarget.value) })} /></label>
-          </div>
-          <label>Timezone<input value={item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} onChange={(event) => patchSchedule({ timezone: event.target.value })} /></label>
-        </div></details>
 
         <details open={recurring}><summary>Recurrence & auto-renew</summary><div className="details-body">
           <label className="check"><input type="checkbox" checked={recurring} onChange={(event) => setRecurring(event.target.checked)} /> Make this a recurring series</label>
@@ -457,12 +485,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
           <div className="form-grid three"><label>Mode<select value={item.progress?.mode ?? 'counter'} onChange={(event) => patchItem({ progress: { mode: event.target.value as 'counter', current: item.progress?.current ?? 0, target: item.progress?.target ?? 1 } })}><option>boolean</option><option>percent</option><option>counter</option></select></label>
           <label>Current<input type="number" value={item.progress?.current ?? 0} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: Number(event.target.value), target: item.progress?.target ?? 1 } })} /></label>
           <label>Target<input type="number" value={item.progress?.target ?? 1} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: item.progress?.current ?? 0, target: Number(event.target.value) } })} /></label></div>
-          <label className="check"><input type="checkbox" checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { target: item.progress?.target ?? 1, unit: 'times', streakMode: 'manual_only' } : undefined })} /> Track as a habit</label>
-        </div></details>
-
-        <details><summary>Reminders</summary><div className="details-body">
-          {item.reminders.map((reminder, index) => <div className="inline-row" key={reminder.id}><input type="datetime-local" value={dateInput(reminder.at)} onInput={(event) => patchItem({ reminders: item.reminders.map((entry, at) => { if (at !== index) return entry; const next = { ...entry }; const value = fromDateInput(event.currentTarget.value); if (value) next.at = value; else delete next.at; return next; }) })} /><select value={reminder.urgency} onChange={(event) => patchItem({ reminders: item.reminders.map((entry, at) => at === index ? { ...entry, urgency: event.target.value as typeof entry.urgency } : entry) })}><option>normal</option><option>urgent</option><option>critical</option></select><button aria-label="Remove reminder" onClick={() => patchItem({ reminders: item.reminders.filter((_, at) => at !== index) })}><CloseIcon /></button></div>)}
-          <button className="secondary" onClick={() => patchItem({ reminders: [...item.reminders, { id: createId(), mode: 'absolute', at: new Date(Date.now() + 3_600_000).toISOString(), urgency: 'normal', repeatUntilAcknowledged: false }] })}>+ Add reminder</button>
+          <label className="check"><input type="checkbox" checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { target: item.progress?.target ?? 1, unit: 'times', streakMode: 'manual_only', completedDates: item.habit?.completedDates ?? [] } : undefined })} /> Track as a habit</label>
         </div></details>
 
         <details><summary>Relations & links</summary><div className="details-body">
@@ -634,8 +657,8 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
     downloadText(serializePortablePackage(portable), `${safeFilename(view.name)}-${mode}.json`);
   };
 
-  return <section className="page-section">
-    <div className="page-title"><div><p className="eyebrow">PROGRAMMABLE LISTS</p><h1>Views</h1><p>Every section below is a live result of its visual clauses or DSL expression.</p></div><button className="primary" onClick={newView}>+ New view</button></div>
+  return <section className="page-section views-page">
+    <div className="views-toolbar"><button className="primary compact" onClick={newView}>+ New view</button></div>
     <div className="views-stack">{Object.values(workspace.views).map((view) => <div key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onExport={(mode) => exportView(view, mode)} /></div>)}</div>
     {editing && <div className="modal-backdrop"><section className="dialog view-editor">
       <header><div><p className="dialog-kicker">SAVED VIEW</p><h2>Edit view</h2></div><button className="icon-button" aria-label="Close view editor" onClick={() => setEditing(null)}><CloseIcon /></button></header>
@@ -661,9 +684,8 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       </fieldset>
       <fieldset className="query-builder sort-builder"><legend>Sorting</legend>
         <p className="builder-status">Rules run from top to bottom. Later rules break ties from earlier ones.</p>
-        <datalist id="view-sort-fields">{viewFieldOptions(workspace).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</datalist>
         <div className="sort-rules">{sortRules.map((rule, index) => <div className="sort-rule" key={`${index}-${rule.expression}`}>
-          <label>Expression<input list="view-sort-fields" aria-label={`Sort expression ${index + 1}`} value={rule.expression} onChange={(event) => updateSortRule(index, { expression: event.target.value })} /></label>
+          <label>Sort by<select aria-label={`Sort field ${index + 1}`} value={viewFieldOptions(workspace).some((field) => field.path === rule.expression) ? rule.expression : '__custom__'} onChange={(event) => updateSortRule(index, { expression: event.target.value === '__custom__' ? 'lower(title)' : event.target.value })}>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}<optgroup label="Advanced"><option value="__custom__">Custom expression…</option></optgroup></select>{!viewFieldOptions(workspace).some((field) => field.path === rule.expression) && <input className="sort-custom-expression mono" aria-label={`Custom sort expression ${index + 1}`} value={rule.expression} onChange={(event) => updateSortRule(index, { expression: event.target.value })} placeholder="lower(title)" />}</label>
           <label>Direction<select aria-label={`Sort direction ${index + 1}`} value={rule.direction} onChange={(event) => updateSortRule(index, { direction: event.target.value as ViewSortRule['direction'] })}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
           <label>Empty values<select aria-label={`Empty values ${index + 1}`} value={rule.nulls} onChange={(event) => updateSortRule(index, { nulls: event.target.value as ViewSortRule['nulls'] })}><option value="last">Last</option><option value="first">First</option></select></label>
           <div className="rule-order"><button className="secondary compact-action" aria-label={`Move sort ${index + 1} up`} disabled={index === 0} onClick={() => moveSortRule(index, -1)}>↑</button><button className="secondary compact-action" aria-label={`Move sort ${index + 1} down`} disabled={index === sortRules.length - 1} onClick={() => moveSortRule(index, 1)}>↓</button><button className="secondary compact-action" aria-label={`Remove sort ${index + 1}`} onClick={() => updateSortRules(sortRules.filter((_rule, ruleIndex) => ruleIndex !== index))}><CloseIcon /></button></div>
@@ -978,7 +1000,21 @@ export default function App() {
   };
 
   const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => commit('Change item state', (draft) => {
-    const target = draft.items[item.id]; if (!target) return;
+    let target = draft.items[item.id]; if (!target) return;
+    if (item.preset === 'habit') {
+      if (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]) target = draft.items[item.occurrence.seriesId]!;
+      target.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
+      target.habit.completedDates ??= [];
+      const date = (item.occurrence?.recurrenceId ?? new Date().toISOString()).slice(0, 10);
+      if (state === 'done' && !target.habit.completedDates.includes(date)) target.habit.completedDates.push(date);
+      if (state === 'open') {
+        const index = target.habit.completedDates.indexOf(date);
+        if (index >= 0) target.habit.completedDates.splice(index, 1);
+      }
+      target.state = 'open'; delete target.closure;
+      target.updatedAt = new Date().toISOString(); target.revision += 1;
+      return;
+    }
     target.state = state; target.updatedAt = new Date().toISOString(); target.revision += 1;
     if (state === 'open') delete target.closure;
     else target.closure = { at: target.updatedAt, actor: 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' };
@@ -1006,7 +1042,7 @@ export default function App() {
   if (!workspace || !session) return null;
 
   const nav: Array<[Page, LineIconName, string]> = [['home', 'home', 'Home'], ['calendar', 'calendar', 'Calendar'], ['all', 'items', 'All items'], ['automations', 'rules', 'Automations'], ['settings', 'settings', 'Settings']];
-  const openItems = Object.values(workspace.items).filter((item) => item.state === 'open' && item.role !== 'series_template' && !item.deletedAt).length;
+  const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && (item.role !== 'series_template' || item.preset === 'habit')).map((item) => item.occurrence?.seriesId ?? item.id)).size;
   const deletedItems = Object.values(workspace.items).filter((item) => Boolean(item.deletedAt));
   const restoreItem = (item: UniversalItem) => commit('Restore item from trash', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
@@ -1027,7 +1063,7 @@ export default function App() {
       <header className="topbar"><div><span className="mobile-brand">Universal</span><span className="sync-state"><i /> Encrypted locally</span></div><div className="top-actions"><button className="mobile-only-lock" aria-label="Lock" onClick={() => { lock(session); setSession(null); setBoot('locked'); }}><LineIcon name="lock"/></button><button className="notice-button" aria-label="Notifications" aria-expanded={noticeCenterOpen} onClick={() => { setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} title="Notifications"><LineIcon name="bell"/>{notices.length > 0 && <b>{notices.length}</b>}</button></div></header>
       {!noticeCenterOpen && popupNoticeIds.length > 0 && <div className="notice-tray notice-popups">{popupNoticeIds.slice(-3).reverse().map((id) => notices.find((notice) => notice.id === id)).filter((notice): notice is Notice => Boolean(notice)).map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Close notification" onClick={() => dismissPopupNotice(notice.id)}><CloseIcon /></button></article>)}</div>}
       {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Delete notification" onClick={() => deleteNotice(notice.id)}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
-      {page === 'home' && <><section className="page-section home-summary"><div className="home-hero"><div><p className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}</p><h1>{openItems ? `${openItems} active ${openItems === 1 ? 'item' : 'items'}` : 'Everything is clear'}</h1><p>Active means not completed, cancelled, archived, or automatically closed.</p></div></div></section><ViewsPage workspace={workspace} commit={commit} onEditItem={setEditor} onState={changeItemState} onOpenCalendar={(viewId) => { commit('Open view in Calendar', (draft) => { draft.calendarPreferences.selectedViewId = viewId; }); setPage('calendar'); }} /></>}
+      {page === 'home' && <><section className="home-summary"><p>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}<span>·</span><strong>{openItems ? `${openItems} active ${openItems === 1 ? 'item' : 'items'}` : 'Everything is clear'}</strong></p></section><ViewsPage workspace={workspace} commit={commit} onEditItem={setEditor} onState={changeItemState} onOpenCalendar={(viewId) => { commit('Open view in Calendar', (draft) => { draft.calendarPreferences.selectedViewId = viewId; }); setPage('calendar'); }} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} onEditItem={setEditor} />}
       {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.deletedAt); return <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createUiItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && item.role !== 'series_template' && !item.deletedAt); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div><DeletedItemsList items={deletedItems} onRestore={restoreItem} /></section>; })()}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}

@@ -71,8 +71,8 @@ export const itemJsonSchema = {
       properties: { mode: { enum: ['boolean', 'percent', 'counter'] }, current: { type: 'number' }, target: { type: 'number' }, unit: { type: 'string' } },
     },
     habit: {
-      type: 'object', additionalProperties: false, required: ['target', 'unit', 'streakMode'],
-      properties: { target: { type: 'number' }, unit: { type: 'string' }, streakMode: { enum: ['manual_only', 'any_closed'] } },
+      type: 'object', additionalProperties: false, required: ['target', 'unit', 'streakMode', 'completedDates'],
+      properties: { target: { type: 'number' }, unit: { type: 'string' }, streakMode: { enum: ['manual_only', 'any_closed'] }, completedDates: { type: 'array', uniqueItems: true, items: { type: 'string', format: 'date' } } },
     },
     priority: { type: 'integer', minimum: 0, maximum: 4 }, contexts: stringArray, tags: stringArray,
     reminders: {
@@ -235,6 +235,10 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   item.schemaVersion = SCHEMA_VERSION;
   item.createdWithAppId ??= APP_ID; item.createdWithAppName ??= APP_NAME; item.createdWithVersion ??= APP_VERSION;
   item.revision ??= 1; item.bodyMarkdown ??= ''; item.contexts ??= []; item.tags ??= []; item.reminders ??= []; item.relations ??= []; item.attachments ??= []; item.custom ??= {};
+  if (item.preset === 'habit') {
+    item.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
+    if (item.habit && typeof item.habit === 'object' && !Array.isArray(item.habit)) (item.habit as Record<string, unknown>).completedDates ??= [];
+  }
   const validation = validateItem(item);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   return { value: item as unknown as UniversalItem, warnings };

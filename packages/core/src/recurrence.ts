@@ -86,6 +86,21 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
     (item) => item.role === 'series_template' && item.recurrence && item.schedule?.startAt && !item.deletedAt,
   );
   for (const series of templates) {
+    if (series.preset === 'habit') {
+      series.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
+      series.habit.completedDates ??= [];
+      const legacyOccurrences = Object.values(workspace.items).filter((item) => item.occurrence?.seriesId === series.id);
+      for (const occurrence of legacyOccurrences) {
+        if (occurrence.state === 'done') series.habit.completedDates.push(occurrence.occurrence!.recurrenceId.slice(0, 10));
+        workspace.tombstones[occurrence.id] = now.toISOString();
+        delete workspace.items[occurrence.id];
+      }
+      series.habit.completedDates = [...new Set(series.habit.completedDates)].sort();
+      series.state = 'open';
+      delete series.closure;
+      untouched += 1;
+      continue;
+    }
     const rule = buildRecurrenceRule(series);
     const start = new Date(series.schedule!.startAt!);
     const next = rule.after(now, true);

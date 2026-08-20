@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
-  compileQuery, compileSort, createId, createItem, createPortablePackage, createWorkspace, evaluateFormulas, fromCanonicalJSON, fromICS, makeSeries,
+  compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
   serializePortablePackage, serializeSortRules, toICS, validateWorkspace,
@@ -75,6 +75,26 @@ describe('safe expression language', () => {
 });
 
 describe('recurrence and auto-renew', () => {
+  it('keeps a recurring habit as one item and stores only completed dates', () => {
+    const workspace = createWorkspace('Habits', new Date('2026-08-01T00:00:00.000Z'));
+    const habit = createItem('Daily walk', 'habit', new Date('2026-08-01T00:00:00.000Z'));
+    habit.schedule = { timezone: 'UTC', startAt: '2026-08-01T08:00:00.000Z' };
+    const series = makeSeries(habit, 'FREQ=DAILY');
+    workspace.items[series.id] = series;
+
+    const result = reconcileRecurrences(workspace, new Date('2026-08-20T09:00:00.000Z'));
+    expect(result.created).toHaveLength(0);
+    expect(Object.values(workspace.items)).toHaveLength(1);
+    expect(workspace.items[series.id]!.habit?.completedDates).toEqual([]);
+
+    const legacy = createOccurrence(series, new Date('2026-08-19T08:00:00.000Z'), 18);
+    legacy.state = 'done'; workspace.items[legacy.id] = legacy;
+    reconcileRecurrences(workspace, new Date('2026-08-20T10:00:00.000Z'));
+    expect(Object.values(workspace.items)).toHaveLength(1);
+    expect(workspace.items[series.id]!.habit?.completedDates).toEqual(['2026-08-19']);
+    expect(workspace.tombstones[legacy.id]).toBeTruthy();
+  });
+
   it('preserves every missed weekly cycle and keeps the latest fresh', () => {
     const workspace = createWorkspace('Test', new Date('2026-07-01T00:00:00.000Z'));
     const base = createItem('Prepare material by Thursday', 'task', new Date('2026-07-01T00:00:00.000Z'));
