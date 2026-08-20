@@ -190,6 +190,7 @@ textarea { resize: vertical; line-height: 1.5; }
 .tag-collection button { border: 1px solid var(--line); border-radius: 99px; padding: 5px 9px; background: #fff; color: var(--muted); font-size: 10px; font-weight: 400; }
 .tag-collection button.active { border-color: #555; background: #eee; color: #222; }
 .weekday-picker { display: grid; grid-template-columns: repeat(7, 32px); gap: 6px; margin: -2px 0 14px; }
+.weekday-picker .field-hint { grid-column: 1 / -1; display: block; min-width: 0; line-height: 1.4; }
 .weekday-picker button { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--muted); font-size: 11px; cursor: pointer; }
 .weekday-picker button:hover { background: var(--soft); color: var(--ink); }
 .weekday-picker button.active { border-color: #777; background: #333; color: #fff; }
