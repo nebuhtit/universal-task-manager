@@ -95,8 +95,8 @@ a { color: var(--moss); }
 .item-main { border: 0; background: transparent; padding: 5px 0; text-align: left; cursor: pointer; min-width: 0; }
 .item-title { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; margin-top: 4px; }
-.view-item-fields { display: flex; flex-wrap: wrap; gap: 5px 12px; color: #444; font-size: 11px; margin-top: 4px; }
-.view-item-fields > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view-item-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 5px 12px; color: #444; font-size: 11px; margin-top: 4px; }
+.view-item-fields > span { min-width: 0; min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .view-item-fields small, .renderer-fields small { color: var(--muted); font-size: 9px; font-weight: 400; margin-right: 4px; }
 .preset { display: inline-block; border-radius: 99px; padding: 2px 7px; font-size: 9px; font-weight: 500; text-transform: uppercase; background: #eeeeee; }
 .preset.event { background: var(--blue); }

@@ -277,8 +277,7 @@ function ItemCard({ item, onEdit, onState, fields, workspace }: { item: Universa
   const visiblyClosed = item.preset === 'habit' ? habitCompletedToday : item.state !== 'open';
   const customDisplay = fields !== undefined;
   const metadataFields = (fields?.filter((field) => field !== 'title' && field !== 'priority') ?? [])
-    .map((field) => ({ field, value: displayViewValue(readItemField(item, field, workspace), field) }))
-    .filter(({ value }) => value !== '');
+    .map((field) => ({ field, value: displayViewValue(readItemField(item, field, workspace), field) }));
   return <article className={`item-card state-${item.state}`}>
     <button className="state-toggle" aria-label={item.preset === 'habit' ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(visiblyClosed ? 'open' : 'done')}>
       {visiblyClosed ? '✓' : ''}
@@ -286,7 +285,7 @@ function ItemCard({ item, onEdit, onState, fields, workspace }: { item: Universa
     <button className="item-main" onClick={onEdit}>
       {(!customDisplay || fields?.includes('title')) && <span className="item-title">{item.title}</span>}
       {!customDisplay && <span className="item-meta"><span className={`preset ${item.preset}`}>{item.preset}</span>{due && <span>{new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: item.schedule?.allDay ? undefined : '2-digit', minute: item.schedule?.allDay ? undefined : '2-digit' }).format(new Date(due))}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">auto-closed</span>}</span>}
-      {customDisplay && metadataFields.length > 0 && <span className="view-item-fields">{metadataFields.map(({ field, value }) => <span key={field}><small>{viewFieldLabel(workspace!, field)}</small>{value}</span>)}</span>}
+      {customDisplay && metadataFields.length > 0 && <span className="view-item-fields">{metadataFields.map(({ field, value }) => <span key={field}>{value && <small>{viewFieldLabel(workspace!, field)}</small>}{value}</span>)}</span>}
     </button>
     {item.priority && (!customDisplay || fields?.includes('priority')) ? <button className={`priority p${item.priority}`} title={`Priority ${item.priority}: ${priorityNames[item.priority]}. Click to edit.`} aria-label={`Priority ${item.priority}: ${priorityNames[item.priority]}. Edit item`} onClick={onEdit}>{priorityNames[item.priority]}</button> : null}
   </article>;
