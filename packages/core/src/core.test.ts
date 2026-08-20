@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
@@ -75,6 +75,18 @@ describe('safe expression language', () => {
 });
 
 describe('recurrence and auto-renew', () => {
+  it('keeps a local series at the same wall-clock time across DST', () => {
+    const item = createItem('Berlin weekly');
+    // 09:00 in Berlin, one week before the 2026 spring DST transition.
+    item.schedule = { timezone: 'Europe/Berlin', startAt: '2026-03-22T08:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=WEEKLY;COUNT=3', { timezone: 'Europe/Berlin' });
+    expect(buildRecurrenceRule(series).all().map((date) => date.toISOString())).toEqual([
+      '2026-03-22T08:00:00.000Z',
+      '2026-03-29T07:00:00.000Z',
+      '2026-04-05T07:00:00.000Z',
+    ]);
+  });
+
   it('keeps a recurring habit as one item and stores only completed dates', () => {
     const workspace = createWorkspace('Habits', new Date('2026-08-01T00:00:00.000Z'));
     const habit = createItem('Daily walk', 'habit', new Date('2026-08-01T00:00:00.000Z'));

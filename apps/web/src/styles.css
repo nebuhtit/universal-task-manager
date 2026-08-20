@@ -215,6 +215,13 @@ details summary::-webkit-details-marker { display: none; }
 details summary::after { content: '+'; color: var(--muted); }
 details[open] summary::after { content: '−'; }
 .details-body { padding: 2px 2px 16px; }
+.section-guide { margin: 7px 0 11px; padding: 0; border: 0; background: transparent; }
+.section-guide summary { width: fit-content; color: var(--muted); font-size: 10px; font-weight: 400; }
+.section-guide > div { margin-top: 7px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); color: var(--muted); font-size: 10px; line-height: 1.45; }
+.section-guide p, .section-guide ul { margin: 0; }
+.section-guide ul { padding-left: 16px; }
+.section-guide li + li { margin-top: 4px; }
+.section-guide code { color: var(--ink); font-family: var(--code-font); font-size: .95em; }
 .editor-scroll > details { margin-top: 3px; }
 .editor-scroll > details > summary { min-height: 44px; align-items: center; }
 .editor-scroll > details[open] > summary { color: #222; }

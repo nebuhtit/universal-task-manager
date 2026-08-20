@@ -26,7 +26,7 @@ import {
 } from '@utm/sdk';
 
 type Page = 'home' | 'calendar' | 'all' | 'automations' | 'settings';
-type Notice = { id: string; title: string; body: string; at: string; itemId?: string };
+type Notice = { id: string; title: string; body: string; at: string; itemId?: string; reminderIds?: string[] };
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const dateInput = (value?: string) => {
@@ -118,6 +118,10 @@ function CodeEditor({ value, onChange, language, rows = 8, ariaLabel }: {
     <pre ref={backdrop} aria-hidden>{highlightedCode(value, language)}{value.endsWith('\n') ? ' ' : null}</pre>
     <textarea aria-label={ariaLabel} spellCheck={false} rows={rows} value={value} onChange={(event) => onChange(event.target.value)} onScroll={(event) => { if (backdrop.current) { backdrop.current.scrollTop = event.currentTarget.scrollTop; backdrop.current.scrollLeft = event.currentTarget.scrollLeft; } }} />
   </div>;
+}
+
+function SectionGuide({ title, children }: { title: string; children: ReactNode }) {
+  return <details className="section-guide"><summary>{title}</summary><div>{children}</div></details>;
 }
 
 type LineIconName = 'home' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer';
@@ -462,6 +466,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         <div className="segmented" aria-label="Preset">{(['task', 'event', 'habit', 'blank'] as ItemPreset[]).map((preset) => <button className={item.preset === preset ? 'active' : ''} key={preset} onClick={() => patchItem({ preset })}>{preset}</button>)}</div>
         <details open><summary>Dates &amp; time</summary><div className="details-body">
           <p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p>
+          <SectionGuide title="Which date should I use?"><ul><li><strong>Scheduled start</strong> is when an item begins.</li><li><strong>Scheduled end</strong> is only the end of a calendar block.</li><li><strong>Deadline</strong> is the latest acceptable completion time.</li><li><strong>Available to work from</strong> is optional; it keeps reminders quiet before that time.</li></ul></SectionGuide>
           <div className="form-grid two schedule-grid">
             <label><span>{activeWindow ? 'Window opens' : 'Scheduled start'}</span><input aria-label="Scheduled start" type="datetime-local" value={dateInput(item.schedule?.startAt)} onInput={(event) => patchSchedule({ startAt: fromDateInput(event.currentTarget.value) })} /><small>{activeWindow ? 'The item becomes active and visible at this time.' : 'When it begins and appears in the calendar.'}</small></label>
             <label><span>Scheduled end</span><input aria-label="Scheduled end" type="datetime-local" value={dateInput(item.schedule?.endAt)} onInput={(event) => patchSchedule({ endAt: fromDateInput(event.currentTarget.value) })} /><small>When the calendar block ends. Use with start.</small></label>
@@ -474,6 +479,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
 
         <details open><summary>Reminders</summary><div className="details-body">
           <p className="schedule-explainer">Notifications can happen before or at any important moment, independently of the scheduled time and deadline.</p>
+          <SectionGuide title="How reminders behave"><p>Use more than one reminder when needed. Due reminders for the same item are shown as one card with a count. Closing the pop-up only hides it; deleting it from Notifications confirms those reminders so they do not return after the next unlock.</p></SectionGuide>
           {item.reminders.map((reminder, index) => <div className="inline-row" key={reminder.id}><input aria-label={`Reminder ${index + 1} time`} type="datetime-local" value={dateInput(reminder.at)} onInput={(event) => patchItem({ reminders: item.reminders.map((entry, at) => { if (at !== index) return entry; const next = { ...entry }; const value = fromDateInput(event.currentTarget.value); if (value) next.at = value; else delete next.at; return next; }) })} /><select aria-label={`Reminder ${index + 1} urgency`} value={reminder.urgency} onChange={(event) => patchItem({ reminders: item.reminders.map((entry, at) => at === index ? { ...entry, urgency: event.target.value as typeof entry.urgency } : entry) })}><option>normal</option><option>urgent</option><option>critical</option></select><button aria-label="Remove reminder" onClick={() => patchItem({ reminders: item.reminders.filter((_, at) => at !== index) })}><CloseIcon /></button></div>)}
           <button className="secondary" onClick={() => patchItem({ reminders: [...item.reminders, { id: createId(), mode: 'absolute', at: new Date(Date.now() + 3_600_000).toISOString(), urgency: 'normal', repeatUntilAcknowledged: false }] })}>+ Add reminder</button>
         </div></details>
@@ -492,6 +498,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         <details open={recurring}><summary>Recurrence & auto-renew</summary><div className="details-body">
           <label className="check"><input type="checkbox" checked={recurring} onChange={(event) => setRecurring(event.target.checked)} /> Make this a recurring series</label>
           {recurring && <>
+            <SectionGuide title="How recurring items work"><ul><li>A series is one source item; each cycle has its own history.</li><li><strong>Only show during the active window</strong> uses Scheduled start and Deadline: complete once during that period, then the next cycle waits until it opens.</li><li>Most weekly tasks only need Repeat and, optionally, the active window. Advanced settings are for unusual activation and auto-close rules.</li></ul></SectionGuide>
             <div className="form-grid two"><label>Repeat<select aria-label="Repeat frequency" value={repeatFrequency} onChange={(event) => updateRrule({ FREQ: event.target.value, BYDAY: event.target.value === 'WEEKLY' ? (repeatDays.join(',') || undefined) : undefined })}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option></select></label><label>Every<input type="number" min="1" aria-label="Repeat interval" value={repeatInterval} onChange={(event) => updateRrule({ INTERVAL: String(Math.max(1, Number(event.target.value) || 1)) })} /><span className="field-suffix">{repeatFrequency === 'DAILY' ? 'day(s)' : repeatFrequency === 'WEEKLY' ? 'week(s)' : repeatFrequency === 'MONTHLY' ? 'month(s)' : 'year(s)'}</span></label></div>
             {repeatFrequency === 'WEEKLY' && <div className="weekday-picker" aria-label="Repeat on weekdays">{[['MO', 'M'], ['TU', 'T'], ['WE', 'W'], ['TH', 'T'], ['FR', 'F'], ['SA', 'S'], ['SU', 'S']].map(([value, label]) => <button className={repeatDays.includes(value!) ? 'active' : ''} aria-label={`Repeat on ${value}`} key={value} onClick={() => { const days = repeatDays.includes(value!) ? repeatDays.filter((day) => day !== value) : [...repeatDays, value!]; updateRrule({ BYDAY: days.length ? days.join(',') : undefined }); }}>{label}</button>)}</div>}
             <label className="active-window-toggle"><input type="checkbox" checked={activeWindow} onChange={(event) => patchRecurrence(event.target.checked ? { activationOffset: 'PT0M', closeAt: 'due', autoRenew: true } : { closeAt: 'next_activation' })} /><span><strong>Only show during the active window</strong><small>Complete once between Scheduled start and Deadline. Outside that window, no open item is shown.</small></span></label>
@@ -501,6 +508,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         </div></details>
 
         <details open={item.preset === 'habit' || Boolean(item.progress) || Boolean(item.habit)}><summary>Progress & habit</summary><div className="details-body">
+          <SectionGuide title="Progress versus habit"><p>Progress describes the current item. A habit stays one item and records completed calendar dates instead of creating a duplicate item for every day.</p></SectionGuide>
           <div className="form-grid three"><label>Mode<select value={item.progress?.mode ?? 'counter'} onChange={(event) => patchItem({ progress: { mode: event.target.value as 'counter', current: item.progress?.current ?? 0, target: item.progress?.target ?? 1 } })}><option>boolean</option><option>percent</option><option>counter</option></select></label>
           <label>Current<input type="number" value={item.progress?.current ?? 0} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: Number(event.target.value), target: item.progress?.target ?? 1 } })} /></label>
           <label>Target<input type="number" value={item.progress?.target ?? 1} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: item.progress?.current ?? 0, target: Number(event.target.value) } })} /></label></div>
@@ -508,6 +516,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         </div></details>
 
         <details open={item.relations.length > 0 || item.attachments.length > 0}><summary>Relations & links</summary><div className="details-body">
+          <SectionGuide title="Linking items"><p>Relations connect two items without making either one a subtask. Links are URL references only; files are not stored in this workspace.</p></SectionGuide>
           {item.relations.map((relation) => <div className="chip" key={relation.id}>{relation.type}: {workspace.items[relation.targetId]?.title ?? relation.targetId}<button aria-label="Remove relation" onClick={() => patchItem({ relations: item.relations.filter((entry) => entry.id !== relation.id) })}><CloseIcon /></button></div>)}
           <div className="inline-row"><select id="relation-target" defaultValue=""><option value="">Choose related item…</option>{Object.values(workspace.items).filter((candidate) => candidate.id !== item.id && !candidate.deletedAt).map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.title}</option>)}</select><button className="secondary" onClick={() => { const select = document.getElementById('relation-target') as HTMLSelectElement; if (select.value) patchItem({ relations: [...item.relations, { id: createId(), targetId: select.value, type: 'related' }] }); }}>Link</button></div>
           {item.attachments.map((attachment) => <div className="chip" key={attachment.id}><a href={attachment.url} target="_blank" rel="noreferrer">{attachment.title ?? attachment.url}</a><button aria-label="Remove link" onClick={() => patchItem({ attachments: item.attachments.filter((entry) => entry.id !== attachment.id) })}><CloseIcon /></button></div>)}
@@ -515,7 +524,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
         </div></details>
 
         {definitions.length > 0 && <details open={Object.keys(item.custom).length > 0}><summary>Custom fields</summary><div className="details-body">{definitions.map((field) => <label key={field.id}>{field.label}{field.kind === 'formula' ? <output className="formula-output">{String(formulas.values[field.key] ?? formulas.errors[field.key] ?? '—')}</output> : <input value={String(item.custom[field.key] ?? '')} onChange={(event) => patchItem({ custom: { ...item.custom, [field.key]: field.kind === 'number' ? Number(event.target.value) : field.kind === 'boolean' ? event.target.value === 'true' : event.target.value } })} />}</label>)}</div></details>}
-        <details open={jsonDirty}><summary>Item JSON</summary><div className="details-body json-editor"><p className="hint">Edit the same item draft as the form. Protected identity, provenance, timestamps and occurrence fields are preserved when updating an existing item.</p><CodeEditor language="json" ariaLabel="Item JSON" rows={18} value={jsonDraft} onChange={(value) => { setJsonDraft(value); setJsonDirty(true); }} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => { setJsonDraft(JSON.stringify(item, null, 2)); setJsonDirty(false); }}>Refresh from form</button><button className="secondary compact-action" onClick={applyJson}>Apply JSON to form</button><button className="secondary compact-action" onClick={exportItemJson}>Export JSON</button><button className="secondary compact-action" onClick={() => importJsonRef.current?.click()}>Import JSON as new item</button><input ref={importJsonRef} hidden type="file" accept=".json,application/json" onChange={(event) => event.target.files?.[0] && void importAsNew(event.target.files[0])} /></div></div></details>
+        <details open={jsonDirty}><summary>Item JSON</summary><div className="details-body json-editor"><p className="hint">Edit the same item draft as the form. Protected identity, provenance, timestamps and occurrence fields are preserved when updating an existing item.</p><SectionGuide title="JSON safety"><p>Apply JSON updates the form first; only Save item writes it to the workspace. Import as new item always creates a separate copy. Exported JSON is readable, so do not share it accidentally.</p></SectionGuide><CodeEditor language="json" ariaLabel="Item JSON" rows={18} value={jsonDraft} onChange={(value) => { setJsonDraft(value); setJsonDirty(true); }} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => { setJsonDraft(JSON.stringify(item, null, 2)); setJsonDirty(false); }}>Refresh from form</button><button className="secondary compact-action" onClick={applyJson}>Apply JSON to form</button><button className="secondary compact-action" onClick={exportItemJson}>Export JSON</button><button className="secondary compact-action" onClick={() => importJsonRef.current?.click()}>Import JSON as new item</button><input ref={importJsonRef} hidden type="file" accept=".json,application/json" onChange={(event) => event.target.files?.[0] && void importAsNew(event.target.files[0])} /></div></div></details>
         <details><summary>System metadata</summary><div className="details-body metadata-grid"><div><span>Created at</span><output><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></output></div><div><span>Last modified</span><output><time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleString()}</time></output></div><div><span>Created by application</span><output>{item.createdWithAppName} v{item.createdWithVersion}</output></div><div><span>Application ID</span><output className="mono">{item.createdWithAppId}</output></div><div><span>Item schema</span><output>{item.schemaVersion}</output></div><div><span>Item ID</span><output>{item.id}</output></div></div></details>
       </div>
       {error && <p className="editor-error error" role="alert">{error}</p>}
@@ -682,6 +691,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
     {editing && <div className="modal-backdrop"><section className="dialog view-editor">
       <header><div><p className="dialog-kicker">SAVED VIEW</p><h2>Edit view</h2></div><button className="icon-button" aria-label="Close view editor" onClick={() => setEditing(null)}><CloseIcon /></button></header>
       <label>Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
+      <SectionGuide title="How views work"><ul><li>A view is a saved, live list; it never copies items.</li><li>Use the visual condition for simple choices. Use DSL for combinations such as <code>priority &gt;= 3 &amp;&amp; state == "open"</code>.</li><li>An empty DSL means all items except recurring source templates.</li><li>Displayed fields control what is visible; sorting only controls order.</li></ul></SectionGuide>
       <fieldset className="query-builder"><legend>Visual condition</legend>
         <div className="form-grid three">
           <label>Field<select value={visualField} onChange={(event) => changeVisual('field', event.target.value)}><option>state</option><option>preset</option><option>role</option><option>priority</option><option>schedule.dueAt</option><option>title</option></select></label>
@@ -703,6 +713,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       </fieldset>
       <fieldset className="query-builder sort-builder"><legend>Sorting</legend>
         <p className="builder-status">Rules run from top to bottom. Later rules break ties from earlier ones.</p>
+        <SectionGuide title="Sorting examples"><p><code>priority desc nulls last</code> puts urgent items first. Add <code>lower(title) asc nulls last</code> on the next line to order items with the same priority alphabetically.</p></SectionGuide>
         <div className="sort-rules">{sortRules.map((rule, index) => <div className="sort-rule" key={`${index}-${rule.expression}`}>
           <label>Sort by<select aria-label={`Sort field ${index + 1}`} value={viewFieldOptions(workspace).some((field) => field.path === rule.expression) ? rule.expression : '__custom__'} onChange={(event) => updateSortRule(index, { expression: event.target.value === '__custom__' ? 'lower(title)' : event.target.value })}>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}<optgroup label="Advanced"><option value="__custom__">Custom expression…</option></optgroup></select>{!viewFieldOptions(workspace).some((field) => field.path === rule.expression) && <input className="sort-custom-expression mono" aria-label={`Custom sort expression ${index + 1}`} value={rule.expression} onChange={(event) => updateSortRule(index, { expression: event.target.value })} placeholder="lower(title)" />}</label>
           <label>Direction<select aria-label={`Sort direction ${index + 1}`} value={rule.direction} onChange={(event) => updateSortRule(index, { direction: event.target.value as ViewSortRule['direction'] })}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
@@ -964,7 +975,7 @@ export default function App() {
   useEffect(() => () => { noticeTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
 
   const activate = async (unlocked: UnlockedWorkspace) => {
-    let notifications: Array<{ title: string; body: string; itemId?: string }> = [];
+    let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
     const now = new Date();
     const migration = migrateWorkspace(clean(unlocked.document as WorkspaceDocument));
     const migratedDocument = Automerge.change(unlocked.document, 'Migrate workspace metadata and reminders', (draft) => {
@@ -989,7 +1000,7 @@ export default function App() {
       events.push(...collectScheduledEvents(workspace, now));
       notifications = runAutomationEvents(workspace, events, { now }).notifications;
     });
-    const reminderGroups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical' }>();
+    const reminderGroups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>();
     const urgencyRank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) {
       if (item.state !== 'open' || item.role === 'series_template') continue;
@@ -997,15 +1008,15 @@ export default function App() {
       for (const reminder of item.reminders) {
         if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) {
           const group = reminderGroups.get(item.id);
-          if (!group) reminderGroups.set(item.id, { count: 1, urgency: reminder.urgency });
-          else { group.count += 1; if (urgencyRank[reminder.urgency] > urgencyRank[group.urgency]) group.urgency = reminder.urgency; }
+          if (!group) reminderGroups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] });
+          else { group.count += 1; group.reminderIds.push(reminder.id); if (urgencyRank[reminder.urgency] > urgencyRank[group.urgency]) group.urgency = reminder.urgency; }
         }
       }
     }
-    reminderGroups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId }); });
+    reminderGroups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); });
     await saveLocalWorkspace(updated, unlocked.dataKey);
     setSession({ ...unlocked, document: updated }); setBoot('ready');
-    setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}) })));
+    setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
     if (Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
   };
 
@@ -1055,6 +1066,16 @@ export default function App() {
     setPopupNoticeIds((current) => current.filter((candidate) => candidate !== id));
   };
   const deleteNotice = (id: string) => {
+    const notice = notices.find((candidate) => candidate.id === id);
+    if (notice?.itemId && notice.reminderIds?.length) {
+      const acknowledgedAt = new Date().toISOString();
+      commit('Acknowledge reminders', (draft) => {
+        const item = draft.items[notice.itemId!];
+        if (!item) return;
+        item.reminders.forEach((reminder) => { if (notice.reminderIds!.includes(reminder.id)) reminder.acknowledgedAt = acknowledgedAt; });
+        item.updatedAt = acknowledgedAt; item.revision += 1;
+      });
+    }
     dismissPopupNotice(id);
     setNotices((current) => current.filter((notice) => notice.id !== id));
   };

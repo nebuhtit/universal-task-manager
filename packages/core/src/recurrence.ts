@@ -1,7 +1,20 @@
-import { RRule, RRuleSet } from 'rrule';
+import * as rruleModule from 'rrule';
+import type { RRuleSet as RRuleSetType } from 'rrule';
 import { durationToMs } from './dsl.js';
 import { APP_ID, APP_NAME, APP_VERSION } from './types.js';
 import type { ProjectedOccurrence, ReconcileResult, UniversalItem, WorkspaceDocument } from './types.js';
+
+// rrule publishes native named exports for the browser and a CommonJS wrapper
+// for Node. The namespace form supports both without making either build mode
+// rely on a bundler-specific interop flag.
+const rrule = ('RRule' in rruleModule ? rruleModule : Reflect.get(rruleModule, 'default')) as typeof import('rrule');
+const { RRule, RRuleSet } = rrule;
+
+export interface RecurrenceIterator {
+  all(): Date[];
+  after(date: Date, inclusive?: boolean): Date | null;
+  between(after: Date, before: Date, inclusive?: boolean): Date[];
+}
 
 function shiftIso(value: string | undefined, deltaMs: number): string | undefined {
   return value ? new Date(new Date(value).getTime() + deltaMs).toISOString() : undefined;
@@ -11,28 +24,74 @@ export function deterministicOccurrenceId(seriesId: string, anchor: string): str
   return `occ_${seriesId}_${anchor.replace(/[-:.TZ]/g, '')}`;
 }
 
-function addDates(rule: RRuleSet, values: string[], exclude = false): void {
+function localParts(date: Date, timezone: string): Record<string, number> {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+}
+
+/** A UTC Date used as a timezone-independent container for local wall-clock parts. */
+function toFloating(date: Date, timezone: string): Date {
+  const part = localParts(date, timezone);
+  return new Date(Date.UTC(part.year!, part.month! - 1, part.day!, part.hour!, part.minute!, part.second!, date.getUTCMilliseconds()));
+}
+
+/** Resolves local wall-clock parts to an instant. DST gaps advance to the first valid local time. */
+function fromFloating(date: Date, timezone: string): Date {
+  let instant = new Date(date.getTime());
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const part = localParts(instant, timezone);
+    const displayedAsUtc = Date.UTC(part.year!, part.month! - 1, part.day!, part.hour!, part.minute!, part.second!, instant.getUTCMilliseconds());
+    const offset = displayedAsUtc - instant.getTime();
+    const next = new Date(date.getTime() - offset);
+    if (next.getTime() === instant.getTime()) return next;
+    instant = next;
+  }
+  return instant;
+}
+
+function addDates(rule: RRuleSetType, values: string[], timezone: string, exclude = false): void {
   for (const value of values) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) continue;
-    if (exclude) rule.exdate(date); else rule.rdate(date);
+    const floating = toFloating(date, timezone);
+    if (exclude) rule.exdate(floating); else rule.rdate(floating);
   }
 }
 
-export function buildRecurrenceRule(series: UniversalItem): RRuleSet {
+export function buildRecurrenceRule(series: UniversalItem): RecurrenceIterator {
   if (!series.recurrence || !series.schedule?.startAt) throw new Error(`Series ${series.id} has no recurrence start`);
+  const timezone = series.recurrence.timezone || series.schedule.timezone || 'UTC';
   const value = series.recurrence.rrule.replace(/^RRULE:/, '');
   const parsed = RRule.fromString(value);
   const recurring = new RRule({
     ...parsed.origOptions,
-    dtstart: new Date(series.schedule.startAt),
-    tzid: series.recurrence.timezone,
+    // rrule's Date values are floating wall-clock values. Keeping IANA conversion
+    // here makes a 09:00 Europe/Berlin series remain 09:00 after DST changes.
+    dtstart: toFloating(new Date(series.schedule.startAt), timezone),
+    tzid: null,
   });
   const set = new RRuleSet();
   set.rrule(recurring);
-  addDates(set, series.recurrence.rdates);
-  addDates(set, series.recurrence.exdates, true);
-  return set;
+  addDates(set, series.recurrence.rdates, timezone);
+  addDates(set, series.recurrence.exdates, timezone, true);
+  const all = () => set.all().map((date) => fromFloating(date, timezone)).sort((left, right) => left.getTime() - right.getTime());
+  return {
+    all,
+    after(date, inclusive = false) {
+      const next = set.after(toFloating(date, timezone), inclusive);
+      return next ? fromFloating(next, timezone) : null;
+    },
+    between(after, before, inclusive = false) {
+      return set.between(toFloating(after, timezone), toFloating(before, timezone), inclusive)
+        .map((date) => fromFloating(date, timezone))
+        .filter((date) => inclusive
+          ? date.getTime() >= after.getTime() && date.getTime() <= before.getTime()
+          : date.getTime() > after.getTime() && date.getTime() < before.getTime());
+    },
+  };
 }
 
 export function createOccurrence(series: UniversalItem, anchor: Date, sequence: number): UniversalItem {

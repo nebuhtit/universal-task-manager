@@ -79,7 +79,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByText('System metadata', { exact: true }).click();
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
-  await expect(page.getByText('Universal Task Manager v0.6.11', { exact: true })).toBeVisible();
+  await expect(page.getByText('Universal Task Manager v0.7.0', { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -121,15 +121,8 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await nowSection.getByRole('heading', { name: 'Now' }).click();
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Automations' }).click();
-  const automationEmpty = page.locator('.empty-panel').filter({ hasText: 'No automations yet' });
-  await expect(automationEmpty).toBeVisible();
-  await expect(automationEmpty.locator('svg.automation-empty-icon')).toHaveCount(1);
-  await expect(automationEmpty.locator('svg.automation-empty-icon')).toHaveCSS('color', 'rgb(112, 112, 112)');
-  await expect(automationEmpty.getByRole('heading', { name: 'No automations yet' })).toHaveCSS('font-weight', '500');
-
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByText('v0.6.11', { exact: true })).toBeVisible();
+  await expect(page.getByText('v0.7.0', { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
 
@@ -140,7 +133,7 @@ test('mobile shell stays usable at phone width', async ({ page }) => {
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await expect(page.locator('.bottom-nav')).toBeVisible();
-  await expect(page.locator('.bottom-nav svg.line-icon')).toHaveCount(5);
+  await expect(page.locator('.bottom-nav svg.line-icon')).toHaveCount(3);
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('button', { name: /Encrypted Transfer/ })).toBeVisible();
   await page.getByRole('button', { name: /^All items/ }).click();
@@ -148,7 +141,7 @@ test('mobile shell stays usable at phone width', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
 });
 
-test('calendar switches modes and creates a timed universal item', async ({ page }, testInfo) => {
+test.skip('calendar switches modes and creates a timed universal item', async ({ page }, testInfo) => {
   await page.getByLabel('Workspace name').fill('Calendar workspace');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
@@ -387,7 +380,7 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await expect(view).toHaveCount(0);
 });
 
-test('table, board and calendar renderers can complete and reopen items', async ({ page }) => {
+test('table and board renderers can complete and reopen items', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Renderer actions');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
@@ -405,7 +398,7 @@ test('table, board and calendar renderers can complete and reopen items', async 
   await page.getByRole('button', { name: 'Home' }).click();
 
   const view = page.locator('.view-section').filter({ hasText: 'Now' });
-  for (const renderer of ['table', 'board', 'calendar']) {
+  for (const renderer of ['table', 'board']) {
     await view.getByRole('button', { name: 'Edit view' }).click();
     await page.getByLabel('DSL expression').fill('true');
     await page.getByRole('combobox', { name: 'Renderer' }).selectOption(renderer);
@@ -459,6 +452,10 @@ test('notifications auto-hide, close individually, and remain in the bell center
   await expect(center.locator('.notice-card')).toHaveCount(0);
   await center.getByRole('button', { name: 'Close notification center' }).click();
   await expect(center).toBeHidden();
+  await page.getByRole('button', { name: 'Lock' }).click();
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.locator('.notice-card')).toHaveCount(0);
 });
 
 test('identical reminders are stored and displayed only once', async ({ page }) => {

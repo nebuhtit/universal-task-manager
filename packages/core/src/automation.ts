@@ -1,10 +1,13 @@
-import { rrulestr } from 'rrule';
+import * as rruleModule from 'rrule';
 import { evaluateExpression, parseExpression } from './dsl.js';
 import { createId, createItem } from './types.js';
 import type {
   AutomationAction, AutomationLogEntry, AutomationRule, CustomValue, DomainEvent,
   UniversalItem, WorkspaceDocument,
 } from './types.js';
+
+const rrule = ('rrulestr' in rruleModule ? rruleModule : Reflect.get(rruleModule, 'default')) as typeof import('rrule');
+const { rrulestr } = rrule;
 
 export interface AutomationNotification { title: string; body: string; itemId?: string }
 export interface AutomationRunResult {
