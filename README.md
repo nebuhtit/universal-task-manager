@@ -32,6 +32,12 @@ Open the printed local URL. The app works offline after the production PWA has l
 After the GitHub Pages deployment succeeds, open
 `https://nebuhtit.github.io/universal-task-manager/` on your phone. Use **Share → Add to Home Screen** on iPhone or **Install app** in Chrome on Android. The phone gets its own encrypted local workspace; use Encrypted Transfer (`.utm`) to move or merge data between devices.
 
+### iPhone notifications
+
+Open the installed Home Screen app, not an ordinary browser tab. In **Settings → Notifications**, use **Allow local notifications** to grant iOS permission. This only enables reminders while the app is available on the device.
+
+To enable optional background delivery, tap **Enable background delivery** and enter the notification access code provided by the workspace owner. Without this step the app remains local-only. The free service checks due reminders approximately every 15 minutes, so delivery is not an exact alarm. GitHub Pages only serves the public app; it does not receive workspace data. With detailed lock-screen content enabled, the push service temporarily receives the task title, Start, Deadline, and reminder urgency needed for the push.
+
 ## Verification
 
 ```bash

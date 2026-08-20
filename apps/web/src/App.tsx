@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 import type { CalendarApi, DateClickInfo, DateSelectInfo, DatesSetInfo, EventClickInfo, EventDropInfo, EventInput, EventReceiveInfo, EventResizeDoneInfo } from '@fullcalendar/react';
 import '@fullcalendar/react/skeleton.css';
 import { installDomLocalization, interfaceLanguages } from './i18n';
+import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
 import {
   APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
   collectItemDependencies, collectScheduledEvents, compileQuery, compileSort, createId, createItem, createPortablePackage,
@@ -251,6 +252,9 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <p><strong>iPhone or iPad:</strong> open this page in Safari, tap Share, then choose <em>Add to Home Screen</em>.</p>
           <p><strong>Android:</strong> open it in Chrome, tap the menu, then choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
           <p>Each device has its own encrypted workspace. Use an encrypted <code>.utm</code> transfer file to move or merge your data between devices.</p>
+          <hr />
+          <p><strong>Background notifications on iPhone:</strong> first add Universal to the Home Screen and open it from there. In Settings, tap <em>Allow local notifications</em> if iOS has not granted permission yet. Then tap <em>Enable background delivery</em> and enter the notification access code supplied by the workspace owner. This second step is optional: without it, reminders remain local to the device.</p>
+          <p>Background delivery is checked about every 15 minutes on the free service, so it is not an exact alarm. GitHub only hosts the app files; it does not receive your workspace or notification list. When detailed lock-screen content is selected, the push service temporarily receives the task title, Start, Deadline and reminder urgency needed to send the notification.</p>
         </div>
       </details>
     </section>
@@ -1032,9 +1036,11 @@ function AutomationsPage({ workspace, commit }: { workspace: WorkspaceDocument; 
   </section>;
 }
 
-function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile }: {
+function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile, onEnableBackground, onDisableBackground, onBackgroundContent }: {
   workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
   onNotify: () => void; onTransfer: () => void; onImportFile: (file: File) => void;
+  onEnableBackground: () => void; onDisableBackground: () => void;
+  onBackgroundContent: (contentMode: WorkspaceDocument['pushPreferences']['contentMode']) => void;
 }) {
   const [field, setField] = useState<CustomFieldDefinition | null>(null);
   const jsonInput = useRef<HTMLInputElement>(null);
@@ -1044,7 +1050,7 @@ function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile }:
   };
   return <section className="page-section"><div className="page-title"><div><p className="eyebrow">SHAPE YOUR SYSTEM</p><h1>Settings</h1><p>Fields and capabilities belong to you, not to a hard-coded task type.</p></div></div>
     <div className="settings-columns"><section className="settings-card"><header><div><p className="eyebrow">DATA MODEL</p><h2>Custom fields</h2></div><button className="secondary" onClick={() => setField({ id: createId(), key: '', label: '', kind: 'text', required: false })}>+ Add</button></header>{Object.values(workspace.customFields).map((entry) => <button className="setting-row" key={entry.id} onClick={() => setField(clean(entry))}><span><strong>{entry.label}</strong><small>custom.{entry.key}</small></span><span>{entry.kind}</span></button>)}{!Object.keys(workspace.customFields).length && <p className="empty">No custom fields yet.</p>}</section>
-    <section className="settings-card"><p className="eyebrow">INTERFACE</p><h2>Interface language</h2><p>Choose the language used by the app on this device. Item titles and your data are never translated.</p><label>Language<select value={workspace.calendarPreferences.language} onChange={(event) => commit('Change interface language', (draft) => { draft.calendarPreferences.language = event.target.value as WorkspaceDocument['calendarPreferences']['language']; })}>{interfaceLanguages.map((language) => <option value={language.value} key={language.value}>{language.label}</option>)}</select></label><hr/><p className="eyebrow">PORTABILITY</p><h2>Move your data</h2><p>Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.</p><div className="settings-actions"><button className="secondary" onClick={onTransfer}><LineIcon name="transfer"/> Encrypted Transfer</button><details className="inline-menu"><summary>Export all…</summary><div><button onClick={() => exportAll('json')}>JSON</button><button onClick={() => exportAll('csv')}>CSV</button><button onClick={() => exportAll('xlsx')}>Excel</button><button onClick={() => exportAll('ics')}>iCalendar</button><button onClick={() => exportAll('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary" onClick={() => jsonInput.current?.click()}>Import data…</button><input ref={jsonInput} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportFile(file); event.currentTarget.value = ''; }} /></div><hr/><p className="eyebrow">DEVICE</p><h2>Notifications</h2><p>While this local-only PWA is open, due reminders can use system notifications. Closed-app delivery is not guaranteed.</p><button className="secondary" onClick={onNotify}>Request permission</button><hr/><p className="eyebrow">APPLICATION</p><h2>{APP_NAME}</h2><dl><div><dt>Version</dt><dd>v{APP_VERSION}</dd></div><div><dt>Released</dt><dd><time dateTime={APP_RELEASED_AT}>{new Date(APP_RELEASED_AT).toLocaleString()}</time></dd></div></dl><hr/><p className="eyebrow">WORKSPACE</p><h2>{workspace.name}</h2><dl><div><dt>Schema</dt><dd>{workspace.schemaVersion}</dd></div><div><dt>Items</dt><dd>{Object.keys(workspace.items).length}</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div></dl></section></div>
+    <section className="settings-card"><p className="eyebrow">INTERFACE</p><h2>Interface language</h2><p>Choose the language used by the app on this device. Item titles and your data are never translated.</p><label>Language<select value={workspace.calendarPreferences.language} onChange={(event) => commit('Change interface language', (draft) => { draft.calendarPreferences.language = event.target.value as WorkspaceDocument['calendarPreferences']['language']; })}>{interfaceLanguages.map((language) => <option value={language.value} key={language.value}>{language.label}</option>)}</select></label><hr/><p className="eyebrow">PORTABILITY</p><h2>Move your data</h2><p>Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.</p><div className="settings-actions"><button className="secondary" onClick={onTransfer}><LineIcon name="transfer"/> Encrypted Transfer</button><details className="inline-menu"><summary>Export all…</summary><div><button onClick={() => exportAll('json')}>JSON</button><button onClick={() => exportAll('csv')}>CSV</button><button onClick={() => exportAll('xlsx')}>Excel</button><button onClick={() => exportAll('ics')}>iCalendar</button><button onClick={() => exportAll('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary" onClick={() => jsonInput.current?.click()}>Import data…</button><input ref={jsonInput} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportFile(file); event.currentTarget.value = ''; }} /></div><hr/><p className="eyebrow">DEVICE</p><h2>Notifications</h2><p>Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.</p><button className="secondary" onClick={onNotify}>Allow local notifications</button><div className="background-push"><div><strong>Background notifications</strong><small>{workspace.pushPreferences.enabled ? 'Enabled for this encrypted workspace copy.' : 'Off — reminders stay only on this device while the app is open.'}</small></div>{workspace.pushPreferences.enabled ? <button className="secondary" onClick={onDisableBackground}>Disable</button> : <button className="secondary" onClick={onEnableBackground}>Enable background delivery</button>}</div>{workspace.pushPreferences.enabled && <label className="push-privacy">Lock-screen content<select value={workspace.pushPreferences.contentMode} onChange={(event) => onBackgroundContent(event.target.value as WorkspaceDocument['pushPreferences']['contentMode'])}><option value="generic">Generic — no task title leaves this device</option><option value="detailed">Show task title and urgency</option></select></label>}<p className="hint">For iPhone, install Universal to the Home Screen, then enable this from the installed app. The Worker never receives your password or encrypted database.</p><hr/><p className="eyebrow">APPLICATION</p><h2>{APP_NAME}</h2><dl><div><dt>Version</dt><dd>v{APP_VERSION}</dd></div><div><dt>Released</dt><dd><time dateTime={APP_RELEASED_AT}>{new Date(APP_RELEASED_AT).toLocaleString()}</time></dd></div></dl><hr/><p className="eyebrow">WORKSPACE</p><h2>{workspace.name}</h2><dl><div><dt>Schema</dt><dd>{workspace.schemaVersion}</dd></div><div><dt>Items</dt><dd>{Object.keys(workspace.items).length}</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div></dl></section></div>
     {field && <div className="modal-backdrop"><section className="dialog"><header><h2>Custom field</h2><button className="icon-button" onClick={() => setField(null)}>×</button></header><label>Label<input value={field.label} onChange={(event) => setField({ ...field, label: event.target.value, key: field.key || event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_') })} /></label><label>Key<input value={field.key} pattern="[a-z][a-z0-9_]*" onChange={(event) => setField({ ...field, key: event.target.value })} /></label><label>Type<select value={field.kind} onChange={(event) => setField({ ...field, kind: event.target.value as CustomFieldDefinition['kind'] })}>{['text', 'number', 'boolean', 'date', 'datetime', 'duration', 'enum', 'multi_enum', 'url', 'item_ref', 'formula'].map((kind) => <option key={kind}>{kind}</option>)}</select></label>{field.kind === 'formula' && <label>Formula DSL<input value={field.formula ?? ''} onChange={(event) => setField({ ...field, formula: event.target.value })} placeholder="custom.rate * custom.hours" /></label>}<footer><button className="danger" onClick={() => { commit('Delete custom field', (draft) => { delete draft.customFields[field.id]; }); setField(null); }}>Delete</button><span/><button className="primary" disabled={!field.label || !/^[a-z][a-z0-9_]*$/.test(field.key)} onClick={() => { if (field.formula) parseExpression(field.formula); commit('Save custom field', (draft) => { draft.customFields[field.id] = clean(field); }); setField(null); }}>Save field</button></footer></section></div>}
   </section>;
 }
@@ -1087,6 +1093,7 @@ export default function App() {
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const seenNoticeIds = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, number>());
+  const pushError = useRef('');
 
   useEffect(() => { void hasLocalWorkspace().then((exists) => setBoot(exists ? 'locked' : 'empty')); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3500); return () => window.clearTimeout(timer); }, [toast]);
@@ -1154,6 +1161,12 @@ export default function App() {
 
   const workspace = session?.document as WorkspaceDocument | undefined;
   useEffect(() => workspace ? installDomLocalization(workspace.calendarPreferences.language) : undefined, [workspace?.calendarPreferences.language]);
+  useEffect(() => {
+    const itemId = new URLSearchParams(window.location.search).get('item');
+    if (!itemId || !workspace?.items[itemId]) return;
+    setEditor(workspace.items[itemId]);
+    window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+  }, [workspace]);
   const commit = (message: string, mutation: (draft: WorkspaceDocument) => void) => {
     if (!session) return;
     const previous = session;
@@ -1164,6 +1177,42 @@ export default function App() {
       setSession((current) => current?.document === document ? previous : current);
       setToast(`Save failed; the change was reverted: ${String(reason)}`);
     });
+  };
+
+  useEffect(() => {
+    if (!workspace?.pushPreferences.enabled) return;
+    const timer = window.setTimeout(() => {
+      void syncBackgroundPush(workspace).then(() => { pushError.current = ''; }).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (pushError.current !== message) { pushError.current = message; setToast(`Background notification sync: ${message}`); }
+      });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [workspace?.updatedAt, workspace?.pushPreferences.enabled]);
+
+  const enableBackgroundNotifications = async () => {
+    if (!workspace) return;
+    const accessCode = window.prompt('Enter notification access code');
+    if (!accessCode?.trim()) return;
+    const preferences = createPushPreferences(workspace.pushPreferences.contentMode);
+    const draftWorkspace = clean(workspace); draftWorkspace.pushPreferences = preferences;
+    try {
+      await subscribeBackgroundPush(draftWorkspace, accessCode.trim());
+      await syncBackgroundPush(draftWorkspace);
+      commit('Enable background notifications', (draft) => { draft.pushPreferences = clean(preferences); });
+      setToast('Background notifications are enabled. Delivery on the free plan can take up to 15 minutes.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const disableBackgroundNotifications = async () => {
+    if (!workspace) return;
+    try { await unsubscribeBackgroundPush(workspace); } catch { /* Removing a local subscription must still work offline. */ }
+    commit('Disable background notifications', (draft) => { draft.pushPreferences = { enabled: false, contentMode: draft.pushPreferences.contentMode }; });
+    setToast('Background notifications are disabled for this device.');
+  };
+  const setBackgroundNotificationContent = (contentMode: WorkspaceDocument['pushPreferences']['contentMode']) => {
+    commit('Change background notification privacy', (draft) => { draft.pushPreferences.contentMode = contentMode; });
   };
 
   const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => {
@@ -1249,7 +1298,7 @@ export default function App() {
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} onEditItem={setEditor} />}
       {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.habit && !item.deletedAt); return <section className="page-section"><div className="page-title"><div><p className="eyebrow">EVERYTHING, WITHOUT SILOS</p><h1>All items</h1><p>Tasks, events and habits share one universal shape.</p></div><button className="primary" onClick={() => setEditor(createUiItem('', 'blank'))}>+ New item</button></div><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div><DeletedItemsList items={deletedItems} onRestore={restoreItem} /></section>; })()}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
-      {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} />}
+      {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} />}
     </main>
     <div className="capture-dock"><div className="quick-capture"><input value={quick} onChange={(event) => setQuick(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && captureQuickItem()} placeholder="Add new task" aria-label="Add new task"/><button aria-label="Add task" disabled={!quick.trim()} onClick={captureQuickItem}>↵</button></div></div>
     <nav className="bottom-nav">{nav.map(([target, icon, label, beta]) => <button aria-label={label} key={target} className={page === target ? 'active' : ''} onClick={() => setPage(target)}><LineIcon name={icon}/><span>{label === 'Automations' ? 'Rules' : label}{beta && <em className="nav-beta">Beta</em>}</span></button>)}</nav>
