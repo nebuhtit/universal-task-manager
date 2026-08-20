@@ -430,7 +430,7 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
 }
 
 function filteredItems(workspace: WorkspaceDocument, view?: SavedView, now = new Date()): UniversalItem[] {
-  const available = Object.values(workspace.items).filter((item) => !item.deletedAt && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
+  const available = Object.values(workspace.items).filter((item) => !item.deletedAt && item.extensions?.['utm:template'] !== true && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
   let items: UniversalItem[];
   if (view) {
     try {
@@ -467,6 +467,7 @@ function filteredItems(workspace: WorkspaceDocument, view?: SavedView, now = new
 function isHabitOccurrence(workspace: WorkspaceDocument, item: UniversalItem): boolean {
   return item.role === 'occurrence' && Boolean(item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit);
 }
+function isItemTemplate(item: UniversalItem): boolean { return item.extensions?.['utm:template'] === true; }
 
 function ItemEditor({ initial, workspace, onSave, onDelete, onCreateSubtask, onClose }: {
   initial: UniversalItem; workspace: WorkspaceDocument; onSave: (item: UniversalItem) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string) => UniversalItem; onClose: () => void;
@@ -480,6 +481,14 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onCreateSubtask, onC
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(initial, null, 2));
   const [jsonDirty, setJsonDirty] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
+  const templates = Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.extensions?.['utm:template'] === true && candidate.id !== item.id);
+  const applyTemplate = (template: UniversalItem) => {
+    const identity = { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, revision: item.revision, createdWithAppId: item.createdWithAppId, createdWithAppName: item.createdWithAppName, createdWithVersion: item.createdWithVersion };
+    const next = clean({ ...template, ...identity, state: 'open' as const, role: 'standalone' as const, extensions: { ...template.extensions } });
+    if (next.extensions) delete next.extensions['utm:template'];
+    setItem(next); setTags(next.tags.join(', ')); setContexts(next.contexts.join(', ')); setRecurring(false); setIsTemplate(false); setJsonDraft(JSON.stringify(next, null, 2)); setJsonDirty(false);
+  };
   const importJsonRef = useRef<HTMLInputElement>(null);
   const definitions = Object.values(workspace.customFields);
   const formulas = evaluateFormulas(item, definitions);
@@ -566,6 +575,8 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onCreateSubtask, onC
     try {
       if (!item.title.trim()) throw new Error('Add a title before saving.');
       let result = { ...item, title: item.title.trim(), tags: commaList(tags), contexts: commaList(contexts), updatedAt: new Date().toISOString(), revision: item.revision + (workspace.items[item.id] ? 1 : 0) };
+      result.extensions = { ...result.extensions };
+      if (isTemplate) result.extensions['utm:template'] = true; else delete result.extensions['utm:template'];
       const existing = workspace.items[item.id];
       if (existing) {
         result.createdWithAppId = existing.createdWithAppId;
@@ -601,6 +612,8 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onCreateSubtask, onC
       <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
       <div className="editor-scroll">
         <label className="item-title-field">Title<input autoFocus value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
+        {!workspace.items[item.id] && templates.length > 0 && <details className="template-picker"><summary>Use a template</summary><div className="details-body"><p className="schedule-explainer">Choose a saved template to prefill this item. You can change any field before saving.</p>{templates.map((template) => <button type="button" className="template-option" key={template.id} onClick={() => applyTemplate(template)}>{template.title || 'Untitled template'}</button>)}</div></details>}
+        <label className="check template-toggle"><input type="checkbox" checked={isTemplate} onChange={(event) => setIsTemplate(event.target.checked)} /> Save this item as a template</label>
         <label>Description <span className="hint">Markdown</span><textarea rows={5} value={item.bodyMarkdown} onChange={(event) => patchItem({ bodyMarkdown: event.target.value })} placeholder="Context, links, checklists…" /></label>
         {item.bodyMarkdown && <details open><summary>Markdown preview</summary><div className="markdown preview"><ReactMarkdown>{item.bodyMarkdown}</ReactMarkdown></div></details>}
         <details open={item.relations.some((relation) => relation.type === 'parent')}><summary>Subtasks</summary><div className="details-body">
@@ -1366,7 +1379,7 @@ export default function App() {
 
   // Calendar and Automations are retained in the encrypted workspace, but archived from the daily UI until they are reliable enough to bring back.
   const nav: Array<[Page, LineIconName, string, boolean?]> = [['home', 'home', 'Home'], ['all', 'items', 'All items', true], ['settings', 'settings', 'Settings']];
-  const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
+    const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
   const deletedItems = Object.values(workspace.items).filter((item) => Boolean(item.deletedAt));
   const restoreItem = (item: UniversalItem) => commit('Restore item from trash', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
@@ -1390,7 +1403,7 @@ export default function App() {
       {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button className="notice-dismiss" aria-label="Delete notification" onClick={() => deleteNotice(notice.id)}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
       {page === 'home' && <><section className="home-summary"><p>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}<span>·</span><strong>{openItems ? `${openItems} active ${openItems === 1 ? 'item' : 'items'}` : 'Everything is clear'}</strong></p></section><ViewsPage workspace={workspace} commit={commit} onEditItem={setEditor} onState={changeItemState} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} onEditItem={setEditor} />}
-      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.habit && !item.deletedAt); return <section className="page-section"><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div><AllItemsCollections items={Object.values(workspace.items).filter((item) => !item.deletedAt && !isHabitOccurrence(workspace, item))} onEdit={setEditor} onState={changeItemState} /><DeletedItemsList items={deletedItems} onRestore={restoreItem} /></section>; })()}
+      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.habit && !item.deletedAt && !isItemTemplate(item)); const templateItems = Object.values(workspace.items).filter((item) => isItemTemplate(item) && !item.deletedAt); return <section className="page-section"><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); return <details key={state} open={state === 'open' || state === 'auto_closed'}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the repeating source items. Each scheduled cycle appears separately in the status sections above.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details><details open={templateItems.length > 0} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className="item-list">{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} onEdit={() => setEditor(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></details></div><AllItemsCollections items={Object.values(workspace.items).filter((item) => !item.deletedAt && !isItemTemplate(item) && !isHabitOccurrence(workspace, item))} onEdit={setEditor} onState={changeItemState} /><DeletedItemsList items={deletedItems} onRestore={restoreItem} /></section>; })()}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} />}
     </main>
