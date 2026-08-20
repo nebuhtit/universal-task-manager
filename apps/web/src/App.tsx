@@ -224,6 +224,25 @@ const viewFieldOptions = (workspace: WorkspaceDocument): ViewFieldOption[] => [
   ...Object.values(workspace.customFields).map((field) => ({ path: `custom.${field.key}`, label: field.label, group: 'Custom fields' })),
 ];
 const viewFieldLabel = (workspace: WorkspaceDocument, path: string) => viewFieldOptions(workspace).find((field) => field.path === path)?.label ?? path;
+const exampleViewFieldValue = (path: string): string => {
+  if (path.startsWith('custom.')) return 'Example value';
+  return ({
+    title: 'Prepare quarterly review', bodyMarkdown: 'Outline, research and final draft', state: 'Active', preset: 'Task', role: 'Standalone', priority: 'High',
+    tags: 'work, writing', contexts: 'office, laptop', 'schedule.availableFrom': 'Aug 24, 09:00', 'schedule.startAt': 'Aug 24, 10:00',
+    'schedule.endAt': 'Aug 24, 11:30', 'schedule.dueAt': 'Aug 28, 18:00', 'schedule.estimatedDuration': '1 hour 30 min',
+    'schedule.actualDuration': '1 hour 20 min', 'schedule.timezone': 'Europe/Moscow', 'schedule.allDay': 'No',
+    'recurrence.rrule': 'Every week on Monday', 'recurrence.rdates': 'Sep 1, 10:00', 'recurrence.exdates': 'Sep 8, 10:00',
+    'recurrence.timezone': 'Europe/Moscow', 'recurrence.activationOffset': '7 days before', 'recurrence.dueOffset': '8 hours after start',
+    'recurrence.closeAt': 'Next activation', 'recurrence.anchor': 'Scheduled time', 'recurrence.autoRenew': 'Yes',
+    'progress.mode': 'Counter', 'progress.current': '2', 'progress.target': '4', 'progress.unit': 'chapters',
+    'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
+    reminders: 'Mon 09:00 · Thu 17:00', relations: 'Related: Project brief', attachments: 'Research link',
+    'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
+    'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
+    createdWithAppName: 'Universal Task Manager', createdWithVersion: '0.7.0', createdWithAppId: 'dev.universal-task-manager',
+    schemaVersion: '1.2.0', revision: '7', id: 'itm_example_20260824',
+  } as Record<string, string>)[path] ?? 'Example value';
+};
 const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument): unknown => {
   if (field.startsWith('custom.') && workspace) {
     const key = field.slice(7);
@@ -481,7 +500,7 @@ function ItemEditor({ initial, workspace, onSave, onDelete, onClose }: {
           <p className="schedule-explainer">Notifications can happen before or at any important moment, independently of the scheduled time and deadline.</p>
           <SectionGuide title="How reminders behave"><p>Use more than one reminder when needed. Due reminders for the same item are shown as one card with a count. Closing the pop-up only hides it; deleting it from Notifications confirms those reminders so they do not return after the next unlock.</p></SectionGuide>
           {item.reminders.map((reminder, index) => <div className="inline-row" key={reminder.id}><input aria-label={`Reminder ${index + 1} time`} type="datetime-local" value={dateInput(reminder.at)} onInput={(event) => patchItem({ reminders: item.reminders.map((entry, at) => { if (at !== index) return entry; const next = { ...entry }; const value = fromDateInput(event.currentTarget.value); if (value) next.at = value; else delete next.at; return next; }) })} /><select aria-label={`Reminder ${index + 1} urgency`} value={reminder.urgency} onChange={(event) => patchItem({ reminders: item.reminders.map((entry, at) => at === index ? { ...entry, urgency: event.target.value as typeof entry.urgency } : entry) })}><option>normal</option><option>urgent</option><option>critical</option></select><button aria-label="Remove reminder" onClick={() => patchItem({ reminders: item.reminders.filter((_, at) => at !== index) })}><CloseIcon /></button></div>)}
-          <button className="secondary" onClick={() => patchItem({ reminders: [...item.reminders, { id: createId(), mode: 'absolute', at: new Date(Date.now() + 3_600_000).toISOString(), urgency: 'normal', repeatUntilAcknowledged: false }] })}>+ Add reminder</button>
+          <button className="secondary" onClick={() => patchItem({ reminders: [...item.reminders, { id: createId(), mode: 'absolute', at: item.schedule?.startAt ?? new Date().toISOString(), urgency: 'normal', repeatUntilAcknowledged: false }] })}>+ Add reminder</button>
         </div></details>
 
         <label>Description <span className="hint">Markdown</span><textarea rows={5} value={item.bodyMarkdown} onChange={(event) => patchItem({ bodyMarkdown: event.target.value })} placeholder="Context, links, checklists…" /></label>
@@ -706,6 +725,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       <label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>
       <fieldset className="query-builder fields-builder"><legend>Displayed fields</legend>
         <p className="builder-status">Choose any item properties. Their order below is also their display order.</p>
+        <details className="display-fields-example"><summary>Preview with a fully filled example item</summary><div>{editing.fields.length ? editing.fields.map((field) => <span key={field}><small>{viewFieldLabel(workspace, field)}</small>{exampleViewFieldValue(field)}</span>) : <p>Select fields below to preview them here.</p>}</div></details>
         <div className="builder-actions"><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: viewFieldOptions(workspace).map((field) => field.path) })}>Select all</button><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: [] })}>Hide all</button></div>
         <div className="field-groups">{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <details key={group}><summary>{group}</summary><div className="field-options">{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <label className="check" key={field.path}><input type="checkbox" checked={editing.fields.includes(field.path)} onChange={() => toggleField(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div>
         <div className="manual-field"><input aria-label="Custom field path" placeholder="Any path, e.g. custom.client" value={manualField} onChange={(event) => setManualField(event.target.value)} /><button className="secondary compact-action" disabled={!manualField.trim() || editing.fields.includes(manualField.trim())} onClick={() => { const path = manualField.trim(); setEditing({ ...editing, fields: [...editing.fields, path] }); setManualField(''); }}>+ Add path</button></div>
