@@ -254,7 +254,7 @@ const exampleViewFieldValue = (path: string): string => {
     reminders: 'Mon 09:00 · Thu 17:00', relations: 'Related: Project brief', attachments: 'Research link',
     'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
     'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
-    createdWithAppName: 'Universal Task Manager', createdWithVersion: '0.7.0', createdWithAppId: 'dev.universal-task-manager',
+    createdWithAppName: 'Universal Task Manager', createdWithVersion: '0.7.1', createdWithAppId: 'dev.universal-task-manager',
     schemaVersion: '1.2.0', revision: '7', id: 'itm_example_20260824',
   } as Record<string, string>)[path] ?? 'Example value';
 };
@@ -729,7 +729,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar }: {
       setError('');
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
-  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: 'state == "open"' }, renderer: 'list', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
+  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: 'state == "open"' }, renderer: 'table', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
   const applyViewJson = (source = viewJson) => {
     if (!editing) return;
     try {

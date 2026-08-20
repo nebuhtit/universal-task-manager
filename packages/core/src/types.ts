@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.4.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '0.7.0';
-export const APP_RELEASED_AT = '2026-08-20T11:24:00+03:00';
+export const APP_VERSION = '0.7.1';
+export const APP_RELEASED_AT = '2026-08-20T12:40:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -383,7 +383,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         id: inboxId,
         name: 'Now',
         query: { source: 'state == "open" && role != "series_template"' },
-        renderer: 'list',
+        renderer: 'table',
         sort: [{ field: 'schedule.dueAt', direction: 'asc' }],
         fields: ['title', 'schedule.dueAt', 'priority', 'tags'],
       },
