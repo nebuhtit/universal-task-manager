@@ -104,6 +104,15 @@ describe('portable tabular and calendar formats', () => {
     expect(target.items[item.id]?.contexts).toEqual(['home']);
     expect(target.items[item.id]?.reminders).toHaveLength(1);
   });
+
+  it('uses a standard VEVENT for a scheduled item without an explicit end', () => {
+    const source = createWorkspace('ICS'); const item = createItem('Call mom');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-21T10:00:00.000Z' }; source.items[item.id] = item;
+    const ics = toICS(source).ics;
+    expect(ics).toContain('BEGIN:VEVENT');
+    expect(ics).toContain('STATUS:CONFIRMED');
+    expect(ics).not.toContain('STATUS:NEEDS-ACTION');
+  });
 });
 
 describe('recurrence and auto-renew', () => {

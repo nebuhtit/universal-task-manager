@@ -63,9 +63,11 @@ function readDescriptionMetadata(value: string): { body: string; item?: Universa
 
 export function toICS(workspace: WorkspaceDocument, options: ICSExportOptions = {}): { ics: string; warnings: InteropWarning[] } {
   const warnings: InteropWarning[] = [];
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Universal Task Manager//EN', 'CALSCALE:GREGORIAN'];
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Universal Task Manager//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
   for (const item of Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.role !== 'occurrence')) {
-    const isEvent = Boolean(item.schedule?.startAt && item.schedule?.endAt);
+    // Most consumer calendars ignore VTODO. Any item that has a scheduled start
+    // therefore becomes a standard VEVENT, even when it has no explicit end.
+    const isEvent = Boolean(item.schedule?.startAt);
     lines.push(`BEGIN:${isEvent ? 'VEVENT' : 'VTODO'}`);
     lines.push(`UID:${escapeText(item.id)}@universal-task-manager`);
     lines.push(`DTSTAMP:${icsDate(item.updatedAt)}`);
@@ -80,7 +82,7 @@ export function toICS(workspace: WorkspaceDocument, options: ICSExportOptions = 
       item.recurrence.rdates.forEach((date) => lines.push(`RDATE:${icsDate(date)}`));
       item.recurrence.exdates.forEach((date) => lines.push(`EXDATE:${icsDate(date)}`));
     }
-    lines.push(`STATUS:${item.state === 'done' ? 'COMPLETED' : item.state === 'cancelled' ? 'CANCELLED' : 'NEEDS-ACTION'}`);
+    lines.push(`STATUS:${isEvent ? (item.state === 'cancelled' ? 'CANCELLED' : 'CONFIRMED') : (item.state === 'done' ? 'COMPLETED' : item.state === 'cancelled' ? 'CANCELLED' : 'NEEDS-ACTION')}`);
     lines.push(`X-UTM-ID:${escapeText(item.id)}`);
     lines.push(`X-UTM-STATE:${item.state}`);
     lines.push(`X-UTM-PRESET:${item.preset}`);
