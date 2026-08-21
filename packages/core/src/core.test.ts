@@ -33,6 +33,18 @@ describe('safe expression language', () => {
     expect(query(item, new Date('2026-08-20T10:03:00.000Z'))).toBe(false);
   });
 
+  it('distinguishes an active duration from a point date and supports presence checks', () => {
+    const bounded = createItem('Bounded');
+    bounded.schedule = { startAt: '2026-08-20T10:00:00.000Z', dueAt: '2026-08-20T10:02:00.000Z' };
+    const openOnly = createItem('Open only');
+    openOnly.schedule = { startAt: '2026-08-20T10:00:00.000Z' };
+    expect(compileQuery('activeDuration == true')(bounded)).toBe(true);
+    expect(compileQuery('activeDuration == true')(openOnly)).toBe(false);
+    expect(compileQuery('schedule.startAt != null')(bounded)).toBe(true);
+    expect(compileQuery('schedule.dueAt == null')(openOnly)).toBe(true);
+    expect(compileQuery('length(tags) == 0')(createItem('No tags'))).toBe(true);
+  });
+
   it('detects formula cycles', () => {
     const result = evaluateFormulas(createItem('Cost'), [
       { id: 'a', key: 'a', label: 'A', kind: 'formula', required: false, formula: 'custom.b + 1' },

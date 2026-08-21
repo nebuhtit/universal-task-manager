@@ -886,8 +886,9 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onA
     return [...presence, '==', '!=', 'contains'];
   };
   const visualClause = () => {
-    if (visualOperator === 'is set') return `${visualField} != null`;
-    if (visualOperator === 'is not set') return `${visualField} == null`;
+    const presenceExpression = visualFieldKinds[visualField] === 'multi' || visualFieldKinds[visualField] === 'text' ? `length(${visualField}) > 0` : `${visualField} != null`;
+    if (visualOperator === 'is set') return presenceExpression;
+    if (visualOperator === 'is not set') return visualFieldKinds[visualField] === 'multi' || visualFieldKinds[visualField] === 'text' ? `length(${visualField}) == 0` : `${visualField} == null`;
     if (visualField === 'tags' || visualField === 'contexts') {
       const values = commaList(visualValue);
       if (!values.length) return 'true';
