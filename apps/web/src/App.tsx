@@ -282,7 +282,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <hr />
         </div>
       </details>
-      <p className="lock-version">Universal Task Manager v{APP_VERSION}</p>
+      <p className="lock-version">v{APP_VERSION}</p>
     </section>
   </main>;
 }
