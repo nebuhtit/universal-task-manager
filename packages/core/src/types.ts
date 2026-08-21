@@ -1,7 +1,7 @@
 export const SCHEMA_VERSION = '1.7.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.1.1';
 export const APP_RELEASED_AT = '2026-08-21T00:00:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
@@ -145,6 +145,8 @@ export interface UniversalItem {
   progress?: Progress;
   habit?: Habit;
   priority?: 0 | 1 | 2 | 3 | 4;
+  /** Optional plain task-list membership. Items can belong to one list or no list. */
+  list?: string;
   contexts: string[];
   tags: string[];
   reminders: Reminder[];
@@ -192,6 +194,8 @@ export interface SavedView {
   sortSource?: string;
   groupBy?: string;
   fields: string[];
+  /** Optional list membership constraint. Empty means all lists. */
+  list?: string;
   /** Namespaced data from a newer or foreign schema that this version cannot interpret. */
   extensions?: Record<string, unknown>;
 }

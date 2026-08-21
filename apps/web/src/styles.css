@@ -64,7 +64,10 @@
 :root[data-theme="dark"] .primary { background: #f1f1f1; color: #111; }
 :root[data-theme="dark"] .primary:hover { background: #fff; }
 :root[data-theme="dark"] .state-done .state-toggle,
-:root[data-theme="dark"] .state-auto_closed .state-toggle { background: #f1f1f1; color: #111; border-color: #f1f1f1; }
+:root[data-theme="dark"] .state-auto_closed .state-toggle { background: #303030; color: #f1f1f1; border-color: #777; }
+:root[data-theme="dark"] .all-sections > details:not([open]) > summary,
+:root[data-theme="dark"] .recurring-items:not([open]) > summary { color: #bdbdbd; }
+:root[data-theme="dark"] .preset { background: #2b2b2b; color: #bdbdbd; }
 :root[data-theme="dark"] .icon-button { background: #2c2c2c; color: #f1f1f1; border-color: #505050; }
 :root[data-theme="dark"] .query-builder,
 :root[data-theme="dark"] .sort-rule,
