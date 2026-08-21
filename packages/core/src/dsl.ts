@@ -224,11 +224,12 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     const current = now ?? new Date();
     const start = item.schedule?.startAt ? new Date(item.schedule.startAt).getTime() : undefined;
     const due = item.schedule?.dueAt ? new Date(item.schedule.dueAt).getTime() : undefined;
+    const activeDuration = start !== undefined && !Number.isNaN(start) && due !== undefined && !Number.isNaN(due);
     const activeRange = (start === undefined || Number.isNaN(start) || current.getTime() >= start)
       && (due === undefined || Number.isNaN(due) || current.getTime() <= due);
     try {
       const relations = relationContext?.(item) ?? {};
-      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current }));
+      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

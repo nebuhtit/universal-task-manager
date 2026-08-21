@@ -1,7 +1,7 @@
 export const SCHEMA_VERSION = '1.7.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.3.1';
+export const APP_VERSION = '1.3.2';
 export const APP_RELEASED_AT = '2026-08-21T00:00:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
@@ -318,6 +318,8 @@ export interface CalendarPreferences {
   appearance: { mode: 'system' | 'light' | 'dark' | 'scheduled'; lightAt: string; darkAt: string; tickSound: boolean };
   selectedViewId?: string;
   includeStates: ItemState[];
+  /** Optional accelerated clock for local recurrence testing; never enabled by default. */
+  testClock?: { enabled: boolean; secondsPerDay: number; startedAt: ISODateTime; virtualAt: ISODateTime };
 }
 
 export interface PushPreferences {
@@ -431,6 +433,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, sleepSchedule: { wake: '08:00', sleep: '22:00' },
       weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: false },
       includeStates: ['open', 'done'],
+      testClock: { enabled: false, secondsPerDay: 86_400, startedAt: now.toISOString(), virtualAt: now.toISOString() },
     },
     pushPreferences: { enabled: false, contentMode: 'generic' },
   };
