@@ -147,13 +147,14 @@ function scalar(value: EvalValue): Scalar {
   return value;
 }
 
-const durationUnits: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+const durationUnits: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000, M: 2_592_000_000, Y: 31_536_000_000 };
 export function durationToMs(value: string): number {
-  const short = /^(\d+(?:\.\d+)?)([smhdw])$/.exec(value);
-  if (short) return Number(short[1]) * durationUnits[short[2]!]!;
-  const iso = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(value);
+  const sign = value.startsWith('-') ? -1 : 1; const normalized = value.replace(/^-/, '');
+  const short = /^(\d+(?:\.\d+)?)([smhdw])$/.exec(normalized);
+  if (short) return sign * Number(short[1]) * durationUnits[short[2]!]!;
+  const iso = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(normalized);
   if (!iso) throw new TypeError(`Unsupported duration: ${value}`);
-  return (Number(iso[1] ?? 0) * 86_400 + Number(iso[2] ?? 0) * 3_600 + Number(iso[3] ?? 0) * 60 + Number(iso[4] ?? 0)) * 1_000;
+  return sign * (Number(iso[1] ?? 0) * durationUnits.Y + Number(iso[2] ?? 0) * durationUnits.M + Number(iso[3] ?? 0) * 86_400_000 + Number(iso[4] ?? 0) * 3_600_000 + Number(iso[5] ?? 0) * 60_000 + Number(iso[6] ?? 0) * 1_000);
 }
 
 export function evaluateExpression(expression: Expression, context: EvaluationContext): EvalValue {
