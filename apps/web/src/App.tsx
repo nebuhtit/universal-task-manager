@@ -284,6 +284,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <p>Background delivery is checked about every 15 minutes on the free service, so it is not an exact alarm. GitHub only hosts the app files; it does not receive your workspace or notification list. When detailed lock-screen content is selected, the push service temporarily receives the task title, Start, Deadline and reminder urgency needed to send the notification.</p>
         </div>
       </details>
+      <p className="lock-version">Universal Task Manager v{APP_VERSION}</p>
     </section>
   </main>;
 }
