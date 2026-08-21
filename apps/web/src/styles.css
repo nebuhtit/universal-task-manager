@@ -283,6 +283,9 @@ textarea { resize: vertical; line-height: 1.5; }
 .active-window-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: -4px 0 10px; }
 .active-window-summary > span { padding: 9px 10px; border-radius: 9px; background: var(--soft); color: #333; font-size: 10px; }
 .active-window-summary small { display: block; margin-bottom: 3px; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
+.habit-history { display: grid; gap: 3px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+.habit-history strong { font-size: 13px; font-weight: 500; }
+.habit-history small { color: var(--muted); line-height: 1.45; }
 .active-window-summary.incomplete > span { outline: 1px dashed #aaa; }
 /* Templates are ordinary items; the dedicated legacy list stays out of the UI. */
 .all-sections > .recurring-items:last-child { display: none; }

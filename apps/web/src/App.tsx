@@ -741,11 +741,12 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
         </div></details>
 
         <details open={Boolean(item.progress) || Boolean(item.habit)}><summary>Progress & habit</summary><div className="details-body">
-          <SectionGuide title="Progress versus habit"><p>Progress describes the current item. A habit stays one item and records completed calendar dates instead of creating a duplicate item for every day.</p></SectionGuide>
+          <SectionGuide title="Progress versus habit"><p>Progress describes the current item. A habit stays one item and records completed calendar dates instead of creating a duplicate item for every day.</p><p>Set the repeat interval and weekdays in <strong>Recurrence &amp; auto-renew</strong>.</p></SectionGuide>
           <div className="form-grid three"><label>Mode<select value={item.progress?.mode ?? 'counter'} onChange={(event) => patchItem({ progress: { mode: event.target.value as 'counter', current: item.progress?.current ?? 0, target: item.progress?.target ?? 1 } })}><option>boolean</option><option>percent</option><option>counter</option></select></label>
           <label>Current<input type="number" value={item.progress?.current ?? 0} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: Number(event.target.value), target: item.progress?.target ?? 1 } })} /></label>
           <label>Target<input type="number" value={item.progress?.target ?? 1} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: item.progress?.current ?? 0, target: Number(event.target.value) } })} /></label></div>
           <label className="check"><input type="checkbox" checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { target: item.progress?.target ?? 1, unit: 'times', streakMode: 'manual_only', completedDates: item.habit?.completedDates ?? [] } : undefined })} /> Track as a habit</label>
+          {item.habit && <div className="habit-history"><strong>{item.habit.completedDates?.length ?? 0} completions</strong><small>{item.habit.completedDates?.length ? `Completed on ${[...(item.habit.completedDates ?? [])].sort().map((date) => new Date(`${date}T00:00:00`).toLocaleDateString()).join(', ')}` : 'No completion dates yet.'}</small></div>}
         </div></details>
 
         <details open={item.relations.length > 0 || parentItems.length > 0 || item.attachments.length > 0}><summary>Relations & links</summary><div className="details-body">
