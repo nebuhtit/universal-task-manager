@@ -561,6 +561,7 @@ tbody tr:hover { background: var(--soft); }
 .lock-card { width: min(440px, 100%); background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 24px; padding: 34px; box-shadow: var(--shadow); }
 .lock-card .brand-mark { margin-bottom: 25px; }
 .lock-card h1 { font-size: 30px; line-height: 1.15; font-weight: 600; letter-spacing: -.025em; margin: 7px 0 10px; }
+.lock-version { margin: 10px 0 0; color: var(--muted); font-size: 9px; line-height: 1.2; letter-spacing: .02em; opacity: .7; }
 .muted { color: var(--muted); line-height: 1.6; font-size: 13px; }
 .import-lock { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 17px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); }
 .splash { align-content: center; gap: 15px; color: var(--muted); }
