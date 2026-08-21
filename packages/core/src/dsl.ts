@@ -154,7 +154,7 @@ export function durationToMs(value: string): number {
   if (short) return sign * Number(short[1]) * durationUnits[short[2]!]!;
   const iso = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(normalized);
   if (!iso) throw new TypeError(`Unsupported duration: ${value}`);
-  return sign * (Number(iso[1] ?? 0) * durationUnits.Y + Number(iso[2] ?? 0) * durationUnits.M + Number(iso[3] ?? 0) * 86_400_000 + Number(iso[4] ?? 0) * 3_600_000 + Number(iso[5] ?? 0) * 60_000 + Number(iso[6] ?? 0) * 1_000);
+  return sign * (Number(iso[1] ?? 0) * durationUnits.Y! + Number(iso[2] ?? 0) * durationUnits.M! + Number(iso[3] ?? 0) * 86_400_000 + Number(iso[4] ?? 0) * 3_600_000 + Number(iso[5] ?? 0) * 60_000 + Number(iso[6] ?? 0) * 1_000);
 }
 
 export function evaluateExpression(expression: Expression, context: EvaluationContext): EvalValue {
