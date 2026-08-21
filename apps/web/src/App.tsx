@@ -1254,7 +1254,7 @@ function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile, o
   </section>;
 }
 
-function TransferDialog({ session, onMerged, onClose }: { session: UnlockedWorkspace; onMerged: (session: UnlockedWorkspace, message: string) => void; onClose: () => void }) {
+function TransferDialog({ session, onMerged, onBackupExported, onClose }: { session: UnlockedWorkspace; onMerged: (session: UnlockedWorkspace, message: string) => void; onBackupExported?: () => void; onClose: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1264,7 +1264,7 @@ function TransferDialog({ session, onMerged, onClose }: { session: UnlockedWorks
     try {
       const content = await exportContainer(session.document, password);
       const url = URL.createObjectURL(new Blob([content], { type: 'application/x-utm' }));
-      const link = document.createElement('a'); link.href = url; link.download = `${session.document.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}.utm`; link.click(); URL.revokeObjectURL(url);
+      const link = document.createElement('a'); link.href = url; link.download = `${session.document.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}.utm`; link.click(); URL.revokeObjectURL(url); onBackupExported?.();
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
@@ -1288,6 +1288,7 @@ export default function App() {
   const [popupNoticeIds, setPopupNoticeIds] = useState<string[]>([]);
   const [noticeCenterOpen, setNoticeCenterOpen] = useState(false);
   const [toast, setToast] = useState('');
+  const [backupReminder, setBackupReminder] = useState(false);
   const [quick, setQuick] = useState('');
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
   const [, refreshClock] = useState(() => Date.now());
@@ -1295,9 +1296,17 @@ export default function App() {
   const seenNoticeIds = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, number>());
   const pushError = useRef('');
+  const workspace = session?.document as WorkspaceDocument | undefined;
 
   useEffect(() => { void hasLocalWorkspace().then((exists) => setBoot(exists ? 'locked' : 'empty')); }, []);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3500); return () => window.clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    if (!workspace) return;
+    const prefs = workspace.calendarPreferences.backupPreferences;
+    const days = prefs?.reminderDays ?? 7;
+    const overdue = days > 0 && (!prefs?.lastBackupAt || Date.now() - new Date(prefs.lastBackupAt).getTime() >= days * 86_400_000);
+    setBackupReminder(overdue);
+  }, [workspace?.updatedAt, workspace?.calendarPreferences.backupPreferences?.lastBackupAt, workspace?.calendarPreferences.backupPreferences?.reminderDays]);
   // Views using activeRange are time-sensitive; refresh their predicates without a reload.
   useEffect(() => {
     const timer = window.setInterval(() => refreshClock(Date.now()), 1_000);
@@ -1367,7 +1376,6 @@ export default function App() {
     if (Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
   };
 
-  const workspace = session?.document as WorkspaceDocument | undefined;
   useEffect(() => {
     if (!workspace) return;
     const language = workspace.calendarPreferences.language;
@@ -1533,8 +1541,10 @@ export default function App() {
     <div className="capture-dock"><div className="quick-capture"><input value={quick} onChange={(event) => setQuick(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && captureQuickItem()} placeholder="Add new task" aria-label="Add new task"/><button aria-label="Add task" disabled={!quick.trim()} onClick={captureQuickItem}>↵</button></div></div>
     <nav className="bottom-nav">{nav.map(([target, icon, label, beta]) => <button aria-label={label} key={target} className={page === target ? 'active' : ''} onClick={() => setPage(target)}><LineIcon name={icon}/><span>{label === 'Automations' ? 'Rules' : label}{beta && <em className="nav-beta">Beta</em>}</span></button>)}</nav>
     {editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task'); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={(item) => { const isNew = !workspace.items[item.id]; commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event]); if (item.role === 'series_template') reconcileRecurrences(draft); }); setEditorIsNew(false); setEditor(null); }} onDelete={(item) => { commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = new Date().toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); setEditorIsNew(false); setEditor(null); }} />}
-    {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onMerged={(next, message) => { setSession(next); setToast(message); }} />}
+    {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { setSession(next); setToast(message); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
+    {page === 'settings' && workspace && <section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utm</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="number" min="0" step="1" value={workspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} onChange={(event) => commit('Change backup reminder', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), reminderDays: Math.max(0, Number(event.target.value) || 0) }; })} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {new Date(workspace.calendarPreferences.backupPreferences.lastBackupAt).toLocaleString()}</small>}</section>}
+    {backupReminder && !transfer && <div className="toast backup-reminder" role="alert"><span>It is time to create an encrypted backup.</span><button className="secondary" onClick={() => setTransfer(true)}>Back up now</button><button className="icon-button" aria-label="Dismiss backup reminder" onClick={() => setBackupReminder(false)}>×</button></div>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
