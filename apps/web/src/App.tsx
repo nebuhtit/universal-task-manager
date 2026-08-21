@@ -595,7 +595,10 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
     Object.entries(changes).forEach(([key, value]) => { if (value) parts.set(key, value); else parts.delete(key); });
     patchRecurrence({ rrule: [...parts].map(([key, value]) => `${key}=${value}`).join(';') });
   };
-  const repeatFrequency = rruleMap().get('FREQ') ?? 'WEEKLY';
+  // Imported RRULEs are not always consistent about casing. Normalize the
+  // frequency once so the selector and its human-readable unit cannot drift
+  // apart (e.g. MONTHLY with a stale "week" suffix).
+  const repeatFrequency = (rruleMap().get('FREQ') ?? 'WEEKLY').toUpperCase();
   const repeatInterval = Number(rruleMap().get('INTERVAL') ?? 1);
   const repeatUnit = ({ MINUTELY: 'minute', HOURLY: 'hour', DAILY: 'day', WEEKLY: 'week', MONTHLY: 'month', YEARLY: 'year' } as Record<string, string>)[repeatFrequency] ?? 'week';
   const repeatDays = (rruleMap().get('BYDAY') ?? '').split(',').filter(Boolean);
