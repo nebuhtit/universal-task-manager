@@ -81,6 +81,8 @@
 :root[data-theme="dark"] .recurring-items:not([open]) > summary { color: #bdbdbd; }
 :root[data-theme="dark"] .preset { background: #2b2b2b; color: #bdbdbd; }
 :root[data-theme="dark"] .icon-button { background: #2c2c2c; color: #f1f1f1; border-color: #505050; }
+:root[data-theme="dark"] .views-add-button,
+:root[data-theme="dark"] .view-settings-button { background: transparent; color: var(--muted); border-color: transparent; }
 :root[data-theme="dark"] .query-builder,
 :root[data-theme="dark"] .sort-rule,
 :root[data-theme="dark"] .selected-fields,
@@ -533,7 +535,8 @@ label.check input { width: 18px; height: 18px; }
 .home-summary strong { color: #444; font-weight: 500; }
 .views-page { padding-top: 8px; }
 .views-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
-.views-add-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; font-size: 20px; font-weight: 300; line-height: 1; }
+.views-add-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 22px; font-weight: 300; line-height: 1; }
+.views-add-button:hover, .view-settings-button:hover { background: var(--soft); color: var(--ink); }
 .views-page .views-stack > div:first-child .view-section { border-top: 0; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
 .view-section { border: 0; border-radius: 0; padding: 0; background: transparent; }
@@ -543,7 +546,7 @@ label.check input { width: 18px; height: 18px; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section-actions { display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
 .view-section-actions .secondary { white-space: nowrap; }
-.view-settings-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; }
+.view-settings-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); }
 .view-collapse-button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; padding: 0; background: transparent; color: var(--muted); font-size: 16px; font-weight: 400; cursor: pointer; }
 .view-collapse-button:hover { background: var(--soft); color: var(--ink); }
 .view-renderer { display: inline-flex; width: auto; min-width: 74px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--soft); color: var(--muted); font-size: 10px; font-weight: 450; letter-spacing: .01em; }
@@ -600,7 +603,7 @@ label.check input { width: 18px; height: 18px; }
 .metadata-grid > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: center; }
 .metadata-grid span { color: var(--muted); font-size: 11px; }
 .metadata-grid output { overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
-.settings-columns { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; align-items: start; }
+.settings-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
 .setting-row { width: 100%; border: 0; border-top: 1px solid var(--line); padding: 13px 0; background: transparent; display: flex; justify-content: space-between; text-align: left; cursor: pointer; }
 .setting-row span, .setting-row small { display: block; }
 .setting-row small { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 3px; }
@@ -818,6 +821,8 @@ tbody tr:hover { background: var(--soft); }
   .content { padding-bottom: 142px; }
   .mobile-brand { display: none; }
   .top-summary { font-size: 11px; gap: 5px; }
+  .views-toolbar { position: fixed; z-index: 16; top: 15px; right: 54px; margin: 0; }
+  .views-add-button { width: 30px; height: 30px; }
   .mobile-only-lock { display: grid; place-items: center; }
   .sync-state { display: none; }
   .bottom-nav { position: fixed; z-index: 50; inset: auto 0 0; height: calc(64px + env(safe-area-inset-bottom)); padding: 6px 7px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(3, 1fr); background: rgba(255,255,255,.96); border-top: 1px solid var(--line); backdrop-filter: blur(18px); }
