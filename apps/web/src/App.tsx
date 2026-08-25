@@ -1819,6 +1819,21 @@ export default function App() {
 
   useEffect(() => { void hasLocalWorkspace().then((exists) => setBoot(exists ? 'locked' : 'empty')); }, []);
   useEffect(() => {
+    if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
+  }, []);
+  useEffect(() => {
+    if (boot !== 'ready') return;
+    const resetInitialScroll = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+    resetInitialScroll();
+    const frame = window.requestAnimationFrame(resetInitialScroll);
+    const timer = window.setTimeout(resetInitialScroll, 120);
+    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [boot]);
+  useEffect(() => {
     const capture = (kind: DiagnosticEntry['kind'], message: string, details?: string) => { recordDiagnostic({ kind, message, page, ...(details ? { details } : {}) }); setDiagnosticCount(readDiagnostics().length); };
     const onError = (event: ErrorEvent) => capture('error', event.message || 'Unknown error', event.error?.stack);
     const onRejection = (event: PromiseRejectionEvent) => capture('unhandledrejection', event.reason instanceof Error ? event.reason.message : String(event.reason));
