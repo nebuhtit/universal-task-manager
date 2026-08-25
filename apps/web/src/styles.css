@@ -193,7 +193,7 @@ a { color: var(--moss); }
 .quick-capture button { width: 30px; height: 30px; flex: none; color: var(--muted); border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 0; font-family: monospace; cursor: pointer; }
 .capture-dock { position: fixed; z-index: 40; left: 236px; right: 0; bottom: 16px; display: flex; justify-content: center; padding: 0 24px; pointer-events: none; }
 .capture-dock .quick-capture { width: min(560px, 100%); pointer-events: auto; box-shadow: 0 -10px 30px rgba(255, 150, 150, .28), 18px 0 34px rgba(132, 212, 170, .24), -18px 0 34px rgba(132, 174, 238, .25), 0 14px 34px rgba(192, 148, 226, .22); }
-:root[data-theme="dark"] .capture-dock .quick-capture { box-shadow: 0 -10px 30px rgba(255, 150, 150, .32), 18px 0 34px rgba(132, 212, 170, .28), -18px 0 34px rgba(132, 174, 238, .29), 0 14px 34px rgba(192, 148, 226, .26); }
+:root[data-theme="dark"] .capture-dock .quick-capture { box-shadow: 0 -6px 18px rgba(255, 150, 150, .12), 12px 0 20px rgba(132, 212, 170, .10), -12px 0 20px rgba(132, 174, 238, .12), 0 8px 20px rgba(192, 148, 226, .10); }
 .home-summary { padding-bottom: 0; }
 .all-items-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 16px; }
 .all-items-toolbar h1 { margin: 3px 0 0; font-size: clamp(24px, 3vw, 34px); font-weight: 600; }
