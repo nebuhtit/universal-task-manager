@@ -933,6 +933,15 @@ tbody tr:hover { background: var(--soft); }
   caret-color: #ffffff;
 }
 
+/* The overlay highlighter is unreliable in iOS WebKit dark mode. Prefer
+   guaranteed readable source text there over an empty-looking editor. */
+:root[data-theme="dark"] .syntax-editor pre { display: none; }
+:root[data-theme="dark"] .syntax-editor textarea {
+  color: #f4f4f4 !important;
+  -webkit-text-fill-color: #f4f4f4 !important;
+  background: #171717;
+}
+
 /* Keep every editable or rendered code block distinct from the black canvas. */
 :root[data-theme="dark"] .code-area,
 :root[data-theme="dark"] .mono,
