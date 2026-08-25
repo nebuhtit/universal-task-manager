@@ -352,7 +352,7 @@ textarea { resize: vertical; line-height: 1.5; }
 details { border-top: 1px solid var(--line); }
 details summary { list-style: none; cursor: pointer; padding: 13px 2px; font-size: 13px; font-weight: 550; display: flex; justify-content: space-between; }
 details summary::-webkit-details-marker { display: none; }
-details summary::after { content: '+'; color: var(--muted); }
+details summary::after { content: '⌄'; color: var(--muted); }
 details[open] summary::after { content: '−'; }
 .details-body { padding: 2px 2px 16px; }
 .section-guide { margin: 7px 0 11px; padding: 0; border: 0; background: transparent; }
