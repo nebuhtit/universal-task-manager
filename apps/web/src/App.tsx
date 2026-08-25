@@ -1011,6 +1011,19 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
     }
   };
 
+  useEffect(() => {
+    const saveFromRetainedMobileKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || event.isComposing) return;
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || !target.closest('.quick-capture')) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      save();
+    };
+    window.addEventListener('keydown', saveFromRetainedMobileKeyboard, true);
+    return () => window.removeEventListener('keydown', saveFromRetainedMobileKeyboard, true);
+  });
+
   // A compact signal for existing items: it shows which optional sections contain data.
   // New items stay intentionally quiet until the user opens a section.
   const sectionMark = (filled: boolean) => !isNew && filled ? <span className="section-dot" aria-label="Contains data">•</span> : null;
