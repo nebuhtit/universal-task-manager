@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import * as Automerge from '@automerge/automerge';
 import ReactMarkdown from 'react-markdown';
 import FullCalendar from '@fullcalendar/react';
@@ -812,6 +812,9 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
   const [jsonDirty, setJsonDirty] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const editorScrollRef = useRef<HTMLDivElement>(null);
+  const retainedQuickCaptureFocus = useRef(typeof document !== 'undefined' && Boolean(document.activeElement?.closest('.quick-capture'))).current;
   const templates = Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.extensions?.['utm:template'] === true && candidate.id !== item.id);
   const focusTitleOnOpen = typeof window !== 'undefined' && window.matchMedia('(min-width: 621px)').matches;
   // Parent links are stored on the parent item (parent -> child). Derive the
@@ -1024,6 +1027,13 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
     return () => window.removeEventListener('keydown', saveFromRetainedMobileKeyboard, true);
   });
 
+  useLayoutEffect(() => {
+    if (!retainedQuickCaptureFocus) return;
+    titleInputRef.current?.focus({ preventScroll: true });
+    editorScrollRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    window.scrollTo(0, 0);
+  }, [retainedQuickCaptureFocus]);
+
   // A compact signal for existing items: it shows which optional sections contain data.
   // New items stay intentionally quiet until the user opens a section.
   const sectionMark = (filled: boolean) => !isNew && filled ? <span className="section-dot" aria-label="Contains data">•</span> : null;
@@ -1038,8 +1048,8 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
       save();
     }}>
       <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
-      <div className="editor-scroll">
-        <label className="item-title-field">Title<input autoFocus={focusTitleOnOpen} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
+      <div className="editor-scroll" ref={editorScrollRef}>
+        <label className="item-title-field">Title<input ref={titleInputRef} autoFocus={focusTitleOnOpen} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
         {isNew && templates.length > 0 && <details className="template-picker"><summary>Choose a saved template <span>Optional</span></summary><div className="details-body"><p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>{templates.map((template) => <button type="button" className="template-option" key={template.id} onClick={() => applyTemplate(template)}>{template.title || 'Untitled template'}</button>)}</div></details>}
         <details className="template-toggle"><summary>Template</summary><div className="details-body"><label className="check"><input type="checkbox" checked={isTemplate} onChange={(event) => setIsTemplate(event.target.checked)} /> Save this item as a template</label><p className="schedule-explainer">Templates are kept in the same workspace but do not appear in ordinary lists. They can be selected only while creating a new item.</p></div></details>
         <details className="description-section"><summary>Description {sectionMark(Boolean(item.bodyMarkdown.trim()))}</summary><div className="details-body">
