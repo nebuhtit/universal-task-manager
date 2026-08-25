@@ -822,7 +822,7 @@ tbody tr:hover { background: var(--soft); }
   .content { padding-bottom: 142px; }
   .mobile-brand { display: none; }
   .top-summary { font-size: 11px; gap: 5px; }
-  .views-toolbar { position: fixed; z-index: 16; top: 14px; right: 72px; margin: 0; }
+  .views-toolbar { position: fixed; z-index: 16; top: 12px; right: 72px; margin: 0; }
   .views-add-button { width: 36px; height: 36px; }
   .mobile-only-lock { display: grid; place-items: center; }
   .sync-state { display: none; }
