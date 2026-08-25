@@ -533,6 +533,7 @@ label.check input { width: 18px; height: 18px; }
 .home-summary strong { color: #444; font-weight: 500; }
 .views-page { padding-top: 8px; }
 .views-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.views-add-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; font-size: 20px; font-weight: 300; line-height: 1; }
 .views-page .views-stack > div:first-child .view-section { border-top: 0; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
 .view-section { border: 0; border-radius: 0; padding: 0; background: transparent; }
@@ -868,6 +869,13 @@ tbody tr:hover { background: var(--soft); }
   .widget { padding: 17px; border-radius: 16px; }
   .icon-button.subtle { opacity: 1; }
   .form-grid.two, .form-grid.three, .settings-columns, .automation-layout, .transfer-actions { grid-template-columns: 1fr; }
+  .settings-columns { gap: 12px; }
+  .settings-card { width: 100%; min-width: 0; padding: 16px; border-radius: 14px; }
+  .settings-card h2 { margin: 2px 0 9px; font-size: 17px; }
+  .settings-card p { margin: 0 0 11px; font-size: 12px; line-height: 1.5; }
+  .settings-card hr { margin: 18px 0; }
+  .settings-card .background-push { align-items: flex-start; flex-wrap: wrap; }
+  .settings-card .background-push > button { width: 100%; }
   .duration-control { grid-template-columns: minmax(0, 1.25fr) 46px minmax(0, .95fr); gap: 4px; }
   .duration-control select, .duration-control input { font-size: 11px; }
   .sort-rule { grid-template-columns: 1fr 1fr; }
