@@ -25,17 +25,10 @@ import {
   stateNames,
 } from './features/items';
 import {
-  SavedViewSection,
-  boardSettingsFor,
-  defaultBoardStates,
+  ViewsPage,
   effectiveWorkspaceNow,
-  exampleViewFieldValue,
   selectViewItems,
   setRecentlyDone,
-  viewFieldGroups,
-  viewFieldLabel,
-  viewFieldOptions,
-  type BoardSettings,
 } from './features/views';
 import { dateInput, formatHeaderDate, formatRussianDateTime, formatSystemDateTime, formatViewDate, fromDateInput, isSleepTime, scheduledTheme } from './utils/dates';
 import { calendarDuration, calendarDurationMs, parseEstimateDuration, parseFriendlyDuration, parseReminderDuration, reminderIsoDuration, toIsoDuration, type FriendlyDurationUnit, type ReminderDurationUnit } from './utils/durations';
@@ -158,6 +151,17 @@ const exportPortable = (workspace: WorkspaceDocument, portable: ReturnType<typeo
   downloadText(exported.ics, `${filename}${metadata ? '-utm' : ''}.ics`, 'text/calendar;charset=utf-8');
 };
 
+const exportSavedView = (workspace: WorkspaceDocument, view: SavedView, mode: 'definition' | 'results' | 'bundle', format: PortableFormat = 'json', metadata = false) => {
+  const results = selectViewItems(workspace, view); const dependencies = collectItemDependencies(workspace, results);
+  const portable = createPortablePackage(workspace, {
+    kind: mode === 'definition' ? 'views' : mode === 'results' ? 'items' : 'view_bundle',
+    views: mode === 'results' ? [] : [view], items: mode === 'definition' ? [] : dependencies,
+    selection: mode === 'definition' ? { type: 'view_definition', viewId: view.id, viewName: view.name } : { type: 'view_results', viewId: view.id, viewName: view.name },
+    dependencyItemIds: dependencies.filter((item) => !results.some((result) => result.id === item.id)).map((item) => item.id),
+  });
+  exportPortable(workspace, portable, `${safeFilename(view.name)}-${mode}`, format, metadata);
+};
+
 async function portableFromFile(file: File, workspace: WorkspaceDocument): Promise<{ source: string; warnings: string[] }> {
   const extension = file.name.toLowerCase().split('.').pop();
   if (extension === 'json') return { source: await file.text(), warnings: [] };
@@ -276,42 +280,6 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   </main>;
 }
 
-const viewAccentOptions = [
-  { value: '#d9485f', label: 'Coral' },
-  { value: '#c27a00', label: 'Amber' },
-  { value: '#087f73', label: 'Teal' },
-  { value: '#2864c7', label: 'Blue' },
-  { value: '#7048b8', label: 'Violet' },
-  { value: '#b83280', label: 'Berry' },
-] as const;
-
-const creationDefaultPaths = new Set([
-  'title', 'bodyMarkdown', 'state', 'priority', 'tags', 'contexts', 'list',
-  'schedule.availableFrom', 'schedule.startAt', 'schedule.endAt', 'schedule.dueAt', 'schedule.estimatedDuration', 'schedule.timezone', 'schedule.allDay',
-  'recurrence.rrule', 'recurrence.rdates', 'recurrence.exdates', 'recurrence.timezone', 'recurrence.activationOffset', 'recurrence.dueOffset', 'recurrence.closeAt', 'recurrence.anchor', 'recurrence.autoRenew',
-  'progress.mode', 'progress.current', 'progress.target', 'progress.unit',
-  'habit.target', 'habit.unit', 'habit.streakMode', 'reminders', 'attachments',
-]);
-const creationDefaultFieldOptions = (workspace: WorkspaceDocument) => viewFieldOptions(workspace).filter((field) => creationDefaultPaths.has(field.path) || field.path.startsWith('custom.'));
-const defaultValueForPath = (workspace: WorkspaceDocument, path: string): unknown => {
-  const custom = path.startsWith('custom.') ? workspace.customFields[path.slice('custom.'.length)] : undefined;
-  if (custom) return custom.kind === 'boolean' ? false : custom.kind === 'number' ? 0 : custom.kind === 'multi_enum' ? [] : '';
-  if (path === 'state') return 'open';
-  if (path === 'priority') return 0;
-  if (['tags', 'contexts', 'recurrence.rdates', 'recurrence.exdates', 'reminders', 'attachments'].includes(path)) return [];
-  if (['schedule.allDay', 'recurrence.autoRenew'].includes(path)) return false;
-  if (path === 'progress.mode') return 'boolean';
-  if (['progress.current', 'progress.target', 'habit.target'].includes(path)) return 0;
-  if (path === 'habit.unit') return 'times';
-  if (path === 'habit.streakMode') return 'manual_only';
-  if (path === 'recurrence.closeAt') return 'next_activation';
-  if (path === 'recurrence.anchor') return 'schedule';
-  if (path === 'recurrence.rrule') return 'FREQ=WEEKLY;INTERVAL=1';
-  if (path === 'schedule.timezone' || path === 'recurrence.timezone') return Intl.DateTimeFormat().resolvedOptions().timeZone;
-  if (path === 'schedule.estimatedDuration') return 'PT10M';
-  if (path.startsWith('schedule.') && path.endsWith('At') || path === 'schedule.availableFrom') return new Date().toISOString();
-  return '';
-};
 const setDefaultPath = (target: Record<string, unknown>, path: string, value: unknown) => {
   const parts = path.split('.'); let cursor = target;
   for (const part of parts.slice(0, -1)) {
@@ -731,372 +699,6 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
       <footer className="drawer-actions">{workspace.items[item.id] && <button className="danger" onClick={() => onDelete(item)}>Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={save}>Save item</button></footer>
     </section>
   </div>;
-}
-
-function toSqlExpression(source: string): string {
-  const trimmed = source.trim();
-  if (!trimmed) return 'TRUE';
-  return trimmed
-    .replace(/\bactiveRange\b/g, 'active_range')
-    .replace(/\bstate\b/g, 'state')
-    .replace(/==/g, '=')
-    .replace(/!=/g, '<>')
-    .replace(/&&/g, ' AND ')
-    .replace(/\|\|/g, ' OR ')
-    .replace(/\btrue\b/gi, 'TRUE')
-    .replace(/\bfalse\b/gi, 'FALSE')
-    .replace(/\bnull\b/gi, 'NULL')
-    .replace(/includes\(([^,]+),\s*([^\)]+)\)/g, '$2 = ANY($1)')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function toSqlSort(source: string): string {
-  const rules = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return rules.length ? `ORDER BY ${rules.map((line) => line.replace(/\s+(asc|desc)(?:\s+nulls\s+(first|last))?$/i, (_m, direction: string, nulls?: string) => ` ${direction.toUpperCase()}${nulls ? ` NULLS ${nulls.toUpperCase()}` : ''}`)).join(', ')}` : 'ORDER BY updatedAt DESC NULLS LAST';
-}
-
-function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onAddItem, celebratingIds, createRequest = 0 }: {
-  workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
-  onEditItem: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state']) => void;
-  onOpenCalendar?: (viewId: string) => void; onAddItem: (view: SavedView) => void; celebratingIds?: ReadonlySet<string> | undefined; createRequest?: number;
-}) {
-  type VisualConditionRow = { id: string; join: 'and' | 'or'; field: string; operator: string; value: string };
-  const [editing, setEditing] = useState<SavedView | null>(null);
-  const [error, setError] = useState('');
-  const [visualRows, setVisualRows] = useState<VisualConditionRow[]>([]);
-  const [visualDirty, setVisualDirty] = useState(false);
-  const [sortRules, setSortRules] = useState<ViewSortRule[]>([]);
-  const [sortSource, setSortSource] = useState('');
-  const [manualField, setManualField] = useState('');
-  const [defaultField, setDefaultField] = useState('priority');
-  const [draggedField, setDraggedField] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [viewJson, setViewJson] = useState('');
-  const viewJsonRef = useRef<HTMLInputElement>(null);
-  const handledCreateRequest = useRef(createRequest);
-
-  const literal = (value: string) => ['true', 'false', 'null'].includes(value) || (!Number.isNaN(Number(value)) && value.trim() !== '') ? value : JSON.stringify(value);
-  const visualOptions: Record<string, string[]> = {
-    state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'],
-    isHabit: ['true', 'false'], isTemplate: ['true', 'false'], isSubtask: ['true', 'false'], isParent: ['true', 'false'], activeRange: ['true', 'false'], activeDuration: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'],
-  };
-  const visualFieldKinds: Record<string, 'enum' | 'boolean' | 'number' | 'date' | 'text' | 'multi'> = {
-    state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', isTemplate: 'boolean', isSubtask: 'boolean', isParent: 'boolean', activeRange: 'boolean', activeDuration: 'boolean', priority: 'number',
-    'schedule.startAt': 'date', 'schedule.endAt': 'date', 'schedule.dueAt': 'date', 'schedule.availableFrom': 'date',
-    title: 'text', description: 'text', tags: 'multi', contexts: 'multi', subtasks: 'multi', parent: 'text',
-  };
-  const visualOperators = (field: string): string[] => {
-    const kind = visualFieldKinds[field] ?? 'text';
-    const presence = ['is set', 'is not set'];
-    if (kind === 'number' || kind === 'date') return [...presence, '==', '!=', '>', '>=', '<', '<='];
-    if (kind === 'boolean' || kind === 'enum') return [...presence, '==', '!=', 'in'];
-    if (kind === 'multi') return [...presence, 'has any', 'has all', 'has none'];
-    return [...presence, '==', '!=', 'contains'];
-  };
-  const visualClause = (row: Pick<VisualConditionRow, 'field' | 'operator' | 'value'>) => {
-    const presenceExpression = visualFieldKinds[row.field] === 'multi' || visualFieldKinds[row.field] === 'text' ? `length(${row.field}) > 0` : `${row.field} != null`;
-    if (row.operator === 'is set') return presenceExpression;
-    if (row.operator === 'is not set') return visualFieldKinds[row.field] === 'multi' || visualFieldKinds[row.field] === 'text' ? `length(${row.field}) == 0` : `${row.field} == null`;
-    if (row.field === 'tags' || row.field === 'contexts') {
-      const values = commaList(row.value);
-      if (!values.length) return 'true';
-      const checks = values.map((value) => `includes(${row.field}, ${JSON.stringify(value)})`);
-      if (row.operator === 'has all') return checks.join(' && ');
-      if (row.operator === 'has none') return `!(${checks.join(' || ')})`;
-      return `(${checks.join(' || ')})`;
-    }
-    return `${row.field} ${row.operator === 'contains' ? 'in' : row.operator} ${literal(row.value)}`;
-  };
-  const serializeVisualRows = (rows: VisualConditionRow[]) => rows.reduce((source, row, index) => {
-    const clause = visualClause(row);
-    if (index === 0) return clause;
-    return `(${source} ${row.join === 'or' ? '||' : '&&'} ${clause})`;
-  }, '');
-  const parseVisualRows = (source: string): VisualConditionRow[] | null => {
-    const stripOuterParentheses = (value: string) => {
-      let result = value.trim();
-      while (result.startsWith('(') && result.endsWith(')')) {
-        let depth = 0;
-        let quoted = false;
-        let escaped = false;
-        let enclosesWholeExpression = true;
-        for (let index = 0; index < result.length; index += 1) {
-          const character = result[index]!;
-          if (escaped) { escaped = false; continue; }
-          if (character === '\\' && quoted) { escaped = true; continue; }
-          if (character === '"') { quoted = !quoted; continue; }
-          if (quoted) continue;
-          if (character === '(') depth += 1;
-          if (character === ')') depth -= 1;
-          if (depth === 0 && index < result.length - 1) { enclosesWholeExpression = false; break; }
-        }
-        if (!enclosesWholeExpression || depth !== 0) break;
-        result = result.slice(1, -1).trim();
-      }
-      return result;
-    };
-    const splitAtLastTopLevelJoin = (value: string): { left: string; join: 'and' | 'or'; right: string } | null => {
-      let depth = 0;
-      let quoted = false;
-      let escaped = false;
-      let match: { index: number; join: 'and' | 'or' } | null = null;
-      for (let index = 0; index < value.length - 1; index += 1) {
-        const character = value[index]!;
-        if (escaped) { escaped = false; continue; }
-        if (character === '\\' && quoted) { escaped = true; continue; }
-        if (character === '"') { quoted = !quoted; continue; }
-        if (quoted) continue;
-        if (character === '(') depth += 1;
-        else if (character === ')') depth -= 1;
-        else if (depth === 0 && value.slice(index, index + 2) === '&&') { match = { index, join: 'and' }; index += 1; }
-        else if (depth === 0 && value.slice(index, index + 2) === '||') { match = { index, join: 'or' }; index += 1; }
-      }
-      if (!match) return null;
-      return { left: value.slice(0, match.index).trim(), join: match.join, right: value.slice(match.index + 2).trim() };
-    };
-    const parseClause = (clauseSource: string, join: 'and' | 'or'): VisualConditionRow | null => {
-      const clause = stripOuterParentheses(clauseSource);
-      const presence = /^([\w.]+)\s*(==|!=)\s*null$/.exec(clause);
-      const normal = /^([\w.]+)\s*(==|!=|>=|<=|>|<|in)\s*("(?:[^"\\]|\\.)*"|true|false|null|-?\d+(?:\.\d+)?)$/.exec(clause);
-      const match = presence ?? normal;
-      if (!match) return null;
-      const field = match[1]!;
-      let operator = match[2]!;
-      let value = '';
-      if (presence) operator = presence[2] === '!=' ? 'is set' : 'is not set';
-      else if (normal?.[3]) { try { value = String(JSON.parse(normal[3])); } catch { value = normal[3]; } }
-      return { id: createId(), join, field, operator, value };
-    };
-    const parseExpression = (expressionSource: string): VisualConditionRow[] | null => {
-      const expression = stripOuterParentheses(expressionSource);
-      const split = splitAtLastTopLevelJoin(expression);
-      if (!split) {
-        const clause = parseClause(expression, 'and');
-        return clause ? [clause] : null;
-      }
-      const left = parseExpression(split.left);
-      const right = parseClause(split.right, split.join);
-      return left && right ? [...left, right] : null;
-    };
-    const trimmed = source.trim();
-    return trimmed ? parseExpression(trimmed) : [];
-  };
-  const syncRowsToDsl = (rows: VisualConditionRow[]) => {
-    if (!editing) return;
-    setVisualRows(rows);
-    setVisualDirty(false);
-    setEditing({ ...editing, query: { source: serializeVisualRows(rows) } });
-  };
-  const beginEditing = (view: SavedView) => {
-    const copy = clean(view);
-    copy.fields ??= [];
-    copy.sort ??= [];
-    const source = copy.sortSource ?? serializeSortRules(copy.sort.map((sort) => ({ expression: sort.field, direction: sort.direction, nulls: sort.nulls ?? 'last' })));
-    const rows = parseVisualRows(copy.query.source);
-    setEditing(copy);
-    setVisualRows(rows ?? []);
-    setVisualDirty(rows === null);
-    setSortSource(source);
-    try { setSortRules(parseSortSource(source)); } catch { setSortRules([]); }
-    setManualField('');
-    setDefaultField('priority');
-    setConfirmDelete(false);
-    setViewJson(JSON.stringify(copy, null, 2));
-    setError('');
-  };
-  const addVisualRow = (join: 'and' | 'or') => syncRowsToDsl([...visualRows, { id: createId(), join, field: 'state', operator: '==', value: 'open' }]);
-  const startVisualRows = () => syncRowsToDsl([{ id: createId(), join: 'and', field: 'state', operator: '==', value: 'open' }]);
-  const updateVisualRow = (id: string, patch: Partial<VisualConditionRow>) => {
-    const rows = visualRows.map((row) => {
-      if (row.id !== id) return row;
-      const next = { ...row, ...patch };
-      if (patch.field) {
-        const options = visualOperators(patch.field);
-        next.operator = options.includes(next.operator) ? next.operator : options[0]!;
-        next.value = visualOptions[patch.field]?.[0] ?? '';
-      }
-      return next;
-    });
-    syncRowsToDsl(rows);
-  };
-  const updateSortRules = (next: ViewSortRule[]) => {
-    setSortRules(next);
-    setSortSource(serializeSortRules(next));
-  };
-  const updateSortRule = (index: number, patch: Partial<ViewSortRule>) => updateSortRules(sortRules.map((rule, ruleIndex) => ruleIndex === index ? { ...rule, ...patch } : rule));
-  const moveSortRule = (index: number, offset: number) => {
-    const target = index + offset;
-    if (target < 0 || target >= sortRules.length) return;
-    const next = [...sortRules];
-    [next[index], next[target]] = [next[target]!, next[index]!];
-    updateSortRules(next);
-  };
-  const toggleField = (path: string) => {
-    if (!editing) return;
-    setEditing({ ...editing, fields: editing.fields.includes(path) ? editing.fields.filter((field) => field !== path) : [...editing.fields, path] });
-  };
-  const moveField = (index: number, offset: number) => {
-    if (!editing) return;
-    const target = index + offset;
-    if (target < 0 || target >= editing.fields.length) return;
-    const fields = [...editing.fields];
-    [fields[index], fields[target]] = [fields[target]!, fields[index]!];
-    setEditing({ ...editing, fields });
-  };
-  const moveFieldTo = (field: string, targetField: string) => {
-    if (!editing || field === targetField) return;
-    const fields = editing.fields.filter((entry) => entry !== field);
-    fields.splice(fields.indexOf(targetField), 0, field);
-    setEditing({ ...editing, fields });
-  };
-  const updateBoardSettings = (patch: Partial<BoardSettings>) => {
-    if (!editing) return;
-    const current = boardSettingsFor(editing);
-    setEditing({ ...editing, extensions: { ...editing.extensions, 'utm:board': { ...current, ...patch } } });
-  };
-  const moveBoardState = (index: number, offset: number) => {
-    if (!editing) return;
-    const settings = boardSettingsFor(editing); const target = index + offset;
-    if (target < 0 || target >= settings.states.length) return;
-    const states = [...settings.states]; [states[index], states[target]] = [states[target]!, states[index]!]; updateBoardSettings({ states });
-  };
-  const updateCreationDefaults = (next: Record<string, unknown>) => {
-    if (!editing) return;
-    setEditing(Object.keys(next).length ? { ...editing, creationDefaults: next } : (() => { const { creationDefaults: _defaults, ...withoutDefaults } = editing; return withoutDefaults; })());
-  };
-  const addCreationDefault = () => {
-    if (!editing || editing.creationDefaults?.[defaultField] !== undefined) return;
-    updateCreationDefaults({ ...editing.creationDefaults, [defaultField]: defaultValueForPath(workspace, defaultField) });
-  };
-  const replaceCreationDefaultPath = (oldPath: string, path: string) => {
-    if (!editing || oldPath === path) return;
-    const next = { ...editing.creationDefaults }; const value = next[oldPath]; delete next[oldPath];
-    if (!(path in next)) next[path] = value ?? defaultValueForPath(workspace, path);
-    updateCreationDefaults(next);
-  };
-  const setCreationDefaultValue = (path: string, value: unknown) => updateCreationDefaults({ ...(editing?.creationDefaults ?? {}), [path]: value });
-  const creationDefaultControl = (path: string, value: unknown): ReactNode => {
-    const custom = path.startsWith('custom.') ? workspace.customFields[path.slice(7)] : undefined;
-    const json = ['reminders', 'attachments', 'recurrence.rdates', 'recurrence.exdates'].includes(path);
-    if (json) return <textarea className="mono creation-default-json" aria-label={`Default value for ${path}`} defaultValue={JSON.stringify(value, null, 2)} onBlur={(event) => { try { setCreationDefaultValue(path, JSON.parse(event.currentTarget.value)); setError(''); } catch { setError(`${viewFieldLabel(workspace, path)} must contain valid JSON.`); } }} />;
-    if (path === 'state') return <select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}>{Object.entries(stateNames).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select>;
-    if (path === 'progress.mode') return <select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="boolean">Boolean</option><option value="percent">Percent</option><option value="counter">Counter</option></select>;
-    if (path === 'habit.streakMode') return <select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="manual_only">Manual only</option><option value="any_closed">Any closed</option></select>;
-    if (path === 'recurrence.closeAt') return <select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="next_activation">Next activation</option><option value="due">Due</option><option value="never">Never</option></select>;
-    if (path === 'recurrence.anchor') return <select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="schedule">Scheduled time</option><option value="completion">Completion time</option></select>;
-    if (['schedule.allDay', 'recurrence.autoRenew'].includes(path) || custom?.kind === 'boolean') return <select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value === 'true')}><option value="true">True</option><option value="false">False</option></select>;
-    if (path === 'tags' || path === 'contexts' || custom?.kind === 'multi_enum') return <input value={Array.isArray(value) ? value.join(', ') : ''} placeholder="Comma-separated values" onChange={(event) => setCreationDefaultValue(path, commaList(event.target.value))} />;
-    if (['priority', 'progress.current', 'progress.target', 'habit.target'].includes(path) || custom?.kind === 'number') return <input type="number" value={Number(value)} onChange={(event) => setCreationDefaultValue(path, Number(event.target.value))} />;
-    if (path.startsWith('schedule.') && (path.endsWith('At') || path === 'schedule.availableFrom')) return <input type="datetime-local" value={dateInput(String(value))} onChange={(event) => setCreationDefaultValue(path, fromDateInput(event.target.value))} />;
-    return <input value={String(value ?? '')} onChange={(event) => setCreationDefaultValue(path, event.target.value)} />;
-  };
-  const save = () => {
-    if (!editing) return;
-    const result = editing;
-    try {
-      parseExpression(result.query.source.trim() || 'true');
-      const defaultsValidation = validateViewCreationDefaults(result.creationDefaults);
-      if (!defaultsValidation.valid) throw new Error(defaultsValidation.errors.join('; '));
-      const parsedSort = parseSortSource(sortSource);
-      compileSort(sortSource);
-      const saved = { ...result, sortSource: serializeSortRules(parsedSort), sort: parsedSort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) };
-      commit('Save view', (draft) => { draft.views[result.id] = clean(saved); });
-      setEditing(null);
-      setError('');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-  };
-  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && role != "series_template" && isTemplate != true' }, renderer: 'table', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: ['title', 'state'] });
-  useEffect(() => {
-    if (createRequest === handledCreateRequest.current) return;
-    handledCreateRequest.current = createRequest;
-    newView();
-  }, [createRequest]);
-  const applyViewJson = (source = viewJson) => {
-    if (!editing) return;
-    try {
-      const raw = JSON.parse(source) as unknown;
-      const imported = migrateView(raw && typeof raw === 'object' && (raw as { format?: string }).format === 'utm-portable' ? parsePortablePackage(source).package.views[0] : raw, 'editor:view-json').value;
-      const next = { ...imported, id: editing.id };
-      beginEditing(next); setViewJson(JSON.stringify(next, null, 2)); setError('');
-    } catch (reason) { setError(`View JSON was not applied: ${reason instanceof Error ? reason.message : String(reason)}`); }
-  };
-  const importViewTemplate = async (file: File) => { try { const source = await file.text(); setViewJson(source); applyViewJson(source); } finally { if (viewJsonRef.current) viewJsonRef.current.value = ''; } };
-  const exportView = (view: SavedView, mode: 'definition' | 'results' | 'bundle', format: PortableFormat = 'json', metadata = false) => {
-    const results = selectViewItems(workspace, view); const dependencies = collectItemDependencies(workspace, results);
-    const portable = createPortablePackage(workspace, {
-      kind: mode === 'definition' ? 'views' : mode === 'results' ? 'items' : 'view_bundle',
-      views: mode === 'results' ? [] : [view], items: mode === 'definition' ? [] : dependencies,
-      selection: mode === 'definition' ? { type: 'view_definition', viewId: view.id, viewName: view.name } : { type: 'view_results', viewId: view.id, viewName: view.name },
-      dependencyItemIds: dependencies.filter((item) => !results.some((result) => result.id === item.id)).map((item) => item.id),
-    });
-    exportPortable(workspace, portable, `${safeFilename(view.name)}-${mode}`, format, metadata);
-  };
-  const displayFieldsEditor = editing && <section className="visual-query-display" aria-label="Display fields">
-    <h3 className="query-builder-heading">2. Show in results</h3>
-    <p className="builder-status">Choose the columns or details shown for every matching item. This does not change which items match; their order is the display order.</p>
-    <details className="display-fields-example"><summary>Preview with a fully filled example item</summary><p className="display-fields-help">Drag a field to change its order, or hide it with ×.</p><div>{editing.fields.length ? editing.fields.map((field) => <span key={field} draggable onDragStart={() => setDraggedField(field)} onDragEnd={() => setDraggedField(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedField) moveFieldTo(draggedField, field); setDraggedField(null); }}><button className="preview-field-remove" aria-label={`Hide ${viewFieldLabel(workspace, field)}`} onClick={() => toggleField(field)}><CloseIcon /></button><small>{viewFieldLabel(workspace, field)}</small>{exampleViewFieldValue(field)}</span>) : <p>Select fields below to preview them here.</p>}</div></details>
-    <div className="builder-actions"><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: viewFieldOptions(workspace).map((field) => field.path) })}>Select all</button><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: [] })}>Hide all</button></div>
-    <div className="field-groups">{viewFieldGroups(workspace).map((group) => <details key={group.name}><summary>{group.name}</summary><div className="field-options">{group.fields.map((field) => <label className="check" key={field.path}><input type="checkbox" checked={editing.fields.includes(field.path)} onChange={() => toggleField(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div>
-    <div className="manual-field"><input aria-label="Custom field path" placeholder="Any path, e.g. custom.client" value={manualField} onChange={(event) => setManualField(event.target.value)} /><button className="secondary compact-action" disabled={!manualField.trim() || editing.fields.includes(manualField.trim())} onClick={() => { const path = manualField.trim(); setEditing({ ...editing, fields: [...editing.fields, path] }); setManualField(''); }}>+ Add path</button></div>
-    {editing.fields.length > 0 && <div className="selected-fields"><span className="selected-fields-title">Display order</span>{editing.fields.map((field, index) => <div key={field}><code>{field}</code><div><button aria-label={`Move ${field} up`} disabled={index === 0} onClick={() => moveField(index, -1)}>↑</button><button aria-label={`Move ${field} down`} disabled={index === editing.fields.length - 1} onClick={() => moveField(index, 1)}>↓</button><button aria-label={`Hide ${field}`} onClick={() => toggleField(field)}><CloseIcon /></button></div></div>)}</div>}
-  </section>;
-
-  return <section className="page-section views-page">
-    <div className="views-stack">{Object.values(workspace.views).map((view) => <div key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} celebratingIds={celebratingIds} showTechnicalSummary={false} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>)}</div>
-    {editing && <div className="modal-backdrop view-editor-backdrop"><section className="dialog view-editor">
-      <header><div><p className="dialog-kicker">SAVED VIEW</p><h2>Edit view</h2></div><button className="icon-button" aria-label="Close view editor" onClick={() => setEditing(null)}><CloseIcon /></button></header>
-      <label>Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
-      <label>Renderer<select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></select></label>
-      <details className="view-editor-section"><summary>View color</summary><fieldset className="view-accent-picker"><p className="builder-status">This color identifies the view and completed ticks. Each option stays readable in light and dark themes.</p><div className="view-accent-options"><button type="button" className={!editing.accent ? 'selected' : ''} onClick={() => { const { accent: _accent, ...withoutAccent } = editing; setEditing(withoutAccent); }}>Default</button>{viewAccentOptions.map((option) => <button type="button" key={option.value} className={editing.accent === option.value ? 'selected' : ''} aria-label={`${option.label} view color`} aria-pressed={editing.accent === option.value} onClick={() => setEditing({ ...editing, accent: option.value })}><span style={{ backgroundColor: option.value }} />{option.label}</button>)}</div></fieldset></details>
-      <SectionGuide title="How views work"><ul><li>A view is a saved, live list; it never copies items.</li><li>Use the visual setup below: first choose which items appear, then choose what is shown for each item.</li><li>The optional advanced filter code below is synchronized with ordinary rows whenever its logic can be represented visually.</li><li>An empty filter means all items except recurring source templates. Sorting only controls order.</li></ul></SectionGuide>
-      <details className="view-editor-section"><summary>Visual setup</summary><fieldset className="query-builder visual-query-builder">
-        <h3 className="query-builder-heading">1. Filter items</h3>
-        <p className="builder-status">Build the filter with ordinary fields, operators and values. The result and advanced code update immediately. Active range uses Event opens through Due.</p>
-        {visualRows.map((row, index) => <div className="visual-condition-row" key={row.id}>
-          <label className="condition-join">{index === 0 ? 'Where' : 'Join'}{index === 0 ? <span className="field-hint">First rule</span> : <select value={row.join} onChange={(event) => updateVisualRow(row.id, { join: event.target.value as 'and' | 'or' })}><option value="and">AND</option><option value="or">OR</option></select>}</label>
-          <label>Property<select value={row.field} onChange={(event) => updateVisualRow(row.id, { field: event.target.value })}>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}</select></label>
-          <label>Operator<select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</select></label>
-          <label>Value{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptions[row.field] ? <select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptions[row.field]!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</select> : <input type={row.field.startsWith('schedule.') ? 'datetime-local' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'tags' || row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'tags' || row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</label>
-          <button className="secondary compact-action visual-condition-remove" aria-label={`Remove filter rule ${index + 1}`} onClick={() => syncRowsToDsl(visualRows.filter((entry) => entry.id !== row.id))}><CloseIcon /></button>
-        </div>)}
-        <datalist id="view-title-values">{[...new Set(Object.values(workspace.items).map((entry) => entry.title))].map((title) => <option value={title} key={title} />)}</datalist>
-        <datalist id="view-tag-values">{[...new Set(Object.values(workspace.items).flatMap((entry) => [...entry.tags, ...entry.contexts]))].sort().map((tag) => <option value={tag} key={tag} />)}</datalist>
-        {visualDirty ? <p className="builder-status">This filter uses advanced code that cannot be shown as ordinary rows. Adding a visual rule replaces that code.</p> : <p className="builder-status">The visual rows and advanced filter code are synchronized.</p>}
-        <div className="builder-actions"><button className="secondary compact-action" onClick={() => visualDirty ? startVisualRows() : addVisualRow('and')}>+ Add AND rule</button><button className="secondary compact-action" onClick={() => visualDirty ? startVisualRows() : addVisualRow('or')}>+ Add OR rule</button></div>
-        {displayFieldsEditor}
-      </fieldset></details>
-      <details className="view-editor-section"><summary>Advanced filter code</summary><label className="dsl-field">Advanced filter code <span className="hint">Optional text form of the visual rows. SQL preview: {toSqlExpression(editing.query.source)}</span><CodeEditor language="dsl" ariaLabel="Advanced filter code" rows={5} value={editing.query.source} onChange={(value) => { const rows = parseVisualRows(value); setEditing({ ...editing, query: { source: value } }); if (rows !== null) setVisualRows(rows); setVisualDirty(rows === null); }} /></label></details>
-      <details className="view-editor-section"><summary>Defaults for new items</summary><fieldset className="query-builder creation-defaults">
-        <p className="builder-status">Pinned values are copied only when this view creates a new item. They never change the filter or existing items.</p>
-        {Object.entries(editing.creationDefaults ?? {}).map(([path, value]) => <div className="creation-default-row" key={path}>
-          <label>Property<select value={path} onChange={(event) => replaceCreationDefaultPath(path, event.target.value)}>{[...new Set(creationDefaultFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup key={group} label={group}>{creationDefaultFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option key={field.path} value={field.path} disabled={field.path !== path && Object.hasOwn(editing.creationDefaults ?? {}, field.path)}>{field.label}</option>)}</optgroup>)}</select></label>
-          <label>Value{creationDefaultControl(path, value)}</label>
-          <button className="secondary compact-action creation-default-remove" aria-label={`Remove default ${viewFieldLabel(workspace, path)}`} onClick={() => { const next = { ...editing.creationDefaults }; delete next[path]; updateCreationDefaults(next); }}><CloseIcon /></button>
-        </div>)}
-        <div className="builder-actions"><select aria-label="Property to pin for new items" value={defaultField} onChange={(event) => setDefaultField(event.target.value)}>{[...new Set(creationDefaultFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup key={group} label={group}>{creationDefaultFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option key={field.path} value={field.path} disabled={Object.hasOwn(editing.creationDefaults ?? {}, field.path)}>{field.label}</option>)}</optgroup>)}</select><button className="secondary compact-action" disabled={Object.hasOwn(editing.creationDefaults ?? {}, defaultField)} onClick={addCreationDefault}>+ Pin property</button></div>
-        <small className="field-hint">Relations, subtasks, item IDs, timestamps, completion history and occurrence identity cannot be copied into new items.</small>
-      </fieldset></details>
-      <details className="view-editor-section"><summary>Task list</summary><label>Task list<input value={editing.list ?? ''} list="view-list-values" placeholder="Choose or type a list name" onChange={(event) => { const list = event.target.value.trim(); setEditing(list ? { ...editing, list } : (() => { const { list: _list, ...withoutList } = editing; return withoutList; })()); }} /><datalist id="view-list-values">{[...new Set(Object.values(workspace.items).map((item) => item.list).filter((list): list is string => Boolean(list)))].sort().map((list) => <option value={list} key={list} />)}</datalist><small>Choose an existing list or type a new name. Items assigned to it will appear in this view.</small></label></details>
-      {editing.renderer === 'board' && <details className="view-editor-section"><summary>Board columns</summary><fieldset className="query-builder board-builder"><p className="builder-status">Group items by status or by tag. Empty columns are hidden by default.</p><label>Group columns by<select value={boardSettingsFor(editing).groupBy} onChange={(event) => updateBoardSettings({ groupBy: event.target.value as BoardSettings['groupBy'] })}><option value="status">Status</option><option value="tag">Tags</option></select></label><label className="check"><input type="checkbox" checked={boardSettingsFor(editing).showEmpty} onChange={(event) => updateBoardSettings({ showEmpty: event.target.checked })} />Show empty columns</label>{boardSettingsFor(editing).groupBy === 'status' ? <><div className="board-column-settings">{boardSettingsFor(editing).states.map((state, index) => <div key={state}><label className="check"><input type="checkbox" checked onChange={() => updateBoardSettings({ states: boardSettingsFor(editing).states.filter((entry) => entry !== state) })} />{stateNames[state]}</label><div><button className="secondary compact-action" aria-label={`Move ${stateNames[state]} left`} disabled={index === 0} onClick={() => moveBoardState(index, -1)}>←</button><button className="secondary compact-action" aria-label={`Move ${stateNames[state]} right`} disabled={index === boardSettingsFor(editing).states.length - 1} onClick={() => moveBoardState(index, 1)}>→</button></div></div>)}</div><div className="builder-actions">{defaultBoardStates.filter((state) => !boardSettingsFor(editing).states.includes(state)).map((state) => <button className="secondary compact-action" key={state} onClick={() => updateBoardSettings({ states: [...boardSettingsFor(editing).states, state] })}>+ {stateNames[state]}</button>)}</div></> : <p className="builder-status">Each existing tag becomes a column automatically. Items without tags appear in “No tags”. Add or remove tags on items to change the columns.</p>}</fieldset></details>}
-      <details className="view-editor-section"><summary>Sorting</summary><fieldset className="query-builder sort-builder">
-        <p className="builder-status">Rules run from top to bottom. Later rules break ties from earlier ones.</p>
-        <SectionGuide title="Sorting examples"><p><code>priority desc nulls last</code> puts urgent items first. Add <code>lower(title) asc nulls last</code> on the next line to order items with the same priority alphabetically.</p></SectionGuide>
-        <div className="sort-rules">{sortRules.map((rule, index) => <div className="sort-rule" key={`${index}-${rule.expression}`}>
-          <label>Sort by<select aria-label={`Sort field ${index + 1}`} value={viewFieldOptions(workspace).some((field) => field.path === rule.expression) ? rule.expression : '__custom__'} onChange={(event) => updateSortRule(index, { expression: event.target.value === '__custom__' ? 'lower(title)' : event.target.value })}>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}<optgroup label="Advanced"><option value="__custom__">Custom expression…</option></optgroup></select>{!viewFieldOptions(workspace).some((field) => field.path === rule.expression) && <input className="sort-custom-expression mono" aria-label={`Custom sort expression ${index + 1}`} value={rule.expression} onChange={(event) => updateSortRule(index, { expression: event.target.value })} placeholder="lower(title)" />}</label>
-          <label>Direction<select aria-label={`Sort direction ${index + 1}`} value={rule.direction} onChange={(event) => updateSortRule(index, { direction: event.target.value as ViewSortRule['direction'] })}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
-          <label>Empty values<select aria-label={`Empty values ${index + 1}`} value={rule.nulls} onChange={(event) => updateSortRule(index, { nulls: event.target.value as ViewSortRule['nulls'] })}><option value="last">Last</option><option value="first">First</option></select></label>
-          <div className="rule-order"><button className="secondary compact-action" aria-label={`Move sort ${index + 1} up`} disabled={index === 0} onClick={() => moveSortRule(index, -1)}>↑</button><button className="secondary compact-action" aria-label={`Move sort ${index + 1} down`} disabled={index === sortRules.length - 1} onClick={() => moveSortRule(index, 1)}>↓</button><button className="secondary compact-action" aria-label={`Remove sort ${index + 1}`} onClick={() => updateSortRules(sortRules.filter((_rule, ruleIndex) => ruleIndex !== index))}><CloseIcon /></button></div>
-        </div>)}</div>
-        <button className="secondary compact-action" onClick={() => updateSortRules([...sortRules, { expression: 'updatedAt', direction: 'desc', nulls: 'last' }])}>+ Add sort rule</button>
-        <label className="dsl-field sort-dsl">SQL-like sorting<span className="hint">One rule per line. SQL preview: {toSqlSort(sortSource)}</span><CodeEditor language="dsl" ariaLabel="SQL-like sorting" rows={4} value={sortSource} onChange={(source) => { setSortSource(source); try { setSortRules(parseSortSource(source)); } catch { /* Keep the text editable until save reports the exact error. */ } }} /></label>
-      </fieldset></details>
-      <details className="query-builder json-editor view-json-editor"><summary>View JSON</summary><div className="details-body"><p className="builder-status">This is the complete SavedView draft. Imported JSON is applied as a template and keeps this view ID.</p><CodeEditor language="json" ariaLabel="View JSON" rows={16} value={viewJson} onChange={setViewJson} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => setViewJson(JSON.stringify({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, null, 2))}>Refresh from visual editor</button><button className="secondary compact-action" onClick={() => applyViewJson()}>Apply JSON</button><button className="secondary compact-action" onClick={() => viewJsonRef.current?.click()}>Import as template</button><input ref={viewJsonRef} hidden type="file" accept=".json,application/json" onChange={(event) => event.target.files?.[0] && void importViewTemplate(event.target.files[0])} /></div></div></details>
-      <details className="query-builder view-export-details"><summary>Export view</summary><div className="details-body"><p className="builder-status">Definitions use JSON. Results can also be opened in spreadsheets or calendar apps.</p><div className="builder-actions"><button className="secondary compact-action" onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'definition')}>Definition JSON</button><details className="inline-menu"><summary>Results…</summary><div><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results')}>JSON</button><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results', 'csv')}>CSV</button><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results', 'xlsx')}>Excel</button><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results', 'ics')}>iCalendar</button><button onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'results', 'ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary compact-action" onClick={() => exportView({ ...editing, sortSource, sort: sortRules.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) }, 'bundle', 'xlsx')}>Definition + results Excel</button></div></div></details>
-      {error && <p className="error">{error}</p>}
-      <footer className="view-editor-actions"><button className="danger" onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return; } commit('Delete view', (draft) => { delete draft.views[editing.id]; Object.values(draft.dashboards).forEach((dashboard) => { for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) if (dashboard.widgets[index]?.viewId === editing.id) dashboard.widgets.splice(index, 1); }); }); setEditing(null); setConfirmDelete(false); }}>{confirmDelete ? 'Confirm delete' : 'Delete view'}</button><span /><button className="secondary" onClick={() => setEditing(null)}>Cancel</button><button className="primary" onClick={save}>Save view</button></footer>
-    </section></div>}
-  </section>;
 }
 
 type CalendarPendingMove = { rows: ProjectedOccurrence[]; deltaMs: number };
@@ -1742,7 +1344,7 @@ export default function App() {
       {mobileNavOpen && <nav className="mobile-nav-menu" aria-label="Main navigation">{nav.map(([target, icon, label, beta]) => <button key={target} className={page === target ? 'active' : ''} onClick={() => { setPage(target); setMobileNavOpen(false); }}><LineIcon name={icon}/><span>{label}</span>{beta && <em className="nav-beta">Beta</em>}</button>)}</nav>}
       {!noticeCenterOpen && popupNoticeIds.length > 0 && <div className="notice-tray notice-popups" aria-live="polite">{popupNoticeIds.slice(-3).reverse().map((id) => notices.find((notice) => notice.id === id)).filter((notice): notice is Notice => Boolean(notice)).map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button type="button" className="notice-dismiss" aria-label="Close notification" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); dismissPopupNotice(notice.id); }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); dismissPopupNotice(notice.id); }}><CloseIcon /></button></article>)}</div>}
       {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button type="button" className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button type="button" className="notice-dismiss" aria-label="Delete notification" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); deleteNotice(notice.id); }}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
-      {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} celebratingIds={celebratingIds} createRequest={newViewRequest} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task'), view)); }} /></>}
+      {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} celebratingIds={celebratingIds} createRequest={newViewRequest} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task'), view)); }} onExportView={(view, mode, format, metadata) => exportSavedView(workspace, view, mode, format, metadata)} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
