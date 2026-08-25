@@ -85,7 +85,7 @@ export async function syncBackgroundPush(workspace: WorkspaceDocument): Promise<
       if (!at || !Number.isFinite(timestamp) || timestamp < now - 60_000 || timestamp > until.getTime()) return [];
       const detailed = workspace.pushPreferences.contentMode === 'detailed';
       const schedule = item.schedule;
-      const timing = [schedule?.startAt && `Start: ${new Date(schedule.startAt).toLocaleString()}`, schedule?.dueAt && `Deadline: ${new Date(schedule.dueAt).toLocaleString()}`].filter(Boolean).join(' · ');
+      const timing = [schedule?.startAt && `Start: ${new Date(schedule.startAt).toLocaleString('ru-RU', { hourCycle: 'h23' })}`, schedule?.dueAt && `Deadline: ${new Date(schedule.dueAt).toLocaleString('ru-RU', { hourCycle: 'h23' })}`].filter(Boolean).join(' · ');
       return [{
         id: `reminder:${item.id}:${reminder.id}:${at}`,
         at,
