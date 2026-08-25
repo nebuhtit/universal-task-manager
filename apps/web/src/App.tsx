@@ -312,7 +312,6 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [selectedBackup, setSelectedBackup] = useState<File | null>(null);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
@@ -328,7 +327,9 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   }, [language]);
 
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); setError(''); setBusy(true);
+    event.preventDefault();
+    if (selectedBackup) { await importWorkspace(selectedBackup); return; }
+    setError(''); setBusy(true);
     try {
       if (!exists && password !== confirm) throw new Error('Passwords do not match');
       await onReady(exists ? await unlockLocalWorkspace(password) : await createLocalWorkspace(password, name, language), language);
@@ -338,8 +339,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
 
   const importWorkspace = async (file: File) => {
     if (password.length < 10) {
-      setPendingFile(file);
-      setError('Backup selected. Enter its workspace password to continue.');
+      setError('Enter the complete backup password, then tap Import selected backup.');
       return;
     }
     setBusy(true); setError('');
@@ -347,12 +347,8 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       await onReady(await importAsLocalWorkspace(await readEncryptedBackup(file), password), language);
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); setPendingFile(null); if (fileRef.current) fileRef.current.value = ''; }
+    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
-
-  useEffect(() => {
-    if (pendingFile && password.length >= 10 && !busy) void importWorkspace(pendingFile);
-  }, [password, pendingFile]);
 
   return <main className="lock-shell">
     <section className="lock-card">
@@ -368,12 +364,13 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
         {!exists && !selectedBackup && <label>Confirm password<input type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
         {error && <p className="error" role="alert">{error}</p>}
         {!selectedBackup && <button className="primary wide" disabled={busy}>{busy ? 'Working…' : exists ? 'Unlock' : 'Create encrypted workspace'}</button>}
+        {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Importing…' : 'Import selected backup'}</button>}
       </form>
       {!exists && <div className="import-lock">
         <span>Already have an encrypted workspace?</span>
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
-        <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setName(file.name); setConfirm(''); void importWorkspace(file); }} />
-        <small>Choose the file first. Then enter its backup password in the Password field above.</small>
+        <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setName(file.name); setConfirm(''); setError(''); }} />
+        <small>Choose the file first, enter its password, then tap Import selected backup.</small>
       </div>}
       <details className="install-guide">
         <summary>Install on your phone</summary>
