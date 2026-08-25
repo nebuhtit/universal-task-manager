@@ -1,6 +1,6 @@
 {
   "name": "@utm/core",
-  "version": "1.5.29",
+  "version": "1.5.30",
   "type": "module",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
