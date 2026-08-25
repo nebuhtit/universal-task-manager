@@ -1017,7 +1017,13 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
   const dateField = (label: string, value: string | undefined, onChange: (value: string | undefined) => void, help?: string, onFocus?: () => void) => <div className="date-field"><div className="date-field-row"><input aria-label={label} type="datetime-local" value={dateInput(value)} onFocus={onFocus} onChange={(event) => onChange(fromDateInput(event.currentTarget.value))} /><button type="button" className="date-clear" aria-label={`Clear ${label}`} disabled={!value} onPointerDown={(event) => event.preventDefault()} onClick={(event) => { event.preventDefault(); event.stopPropagation(); onChange(undefined); }}>Clear</button></div>{value && <small className="formatted-date">{formatViewDate(value, true, workspace.calendarPreferences.language)}</small>}{help && <small>{help}</small>}</div>;
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor">
+    <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor" onKeyDown={(event) => {
+      if (event.key !== 'Enter' || event.defaultPrevented || event.nativeEvent.isComposing) return;
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || ['button', 'checkbox', 'radio', 'file', 'range', 'color'].includes(target.type)) return;
+      event.preventDefault();
+      save();
+    }}>
       <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
       <div className="editor-scroll">
         <label className="item-title-field">Title<input autoFocus={focusTitleOnOpen} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>

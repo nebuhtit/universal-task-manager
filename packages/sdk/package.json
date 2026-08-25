@@ -1,6 +1,6 @@
 {
   "name": "@utm/sdk",
-  "version": "1.5.30",
+  "version": "1.5.31",
   "type": "module",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
