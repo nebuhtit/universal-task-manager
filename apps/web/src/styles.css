@@ -156,6 +156,7 @@ a { color: var(--moss); }
 .content { grid-column: 2; min-width: 0; padding-bottom: 88px; }
 .topbar { height: 64px; padding: 0 4.5vw; border-bottom: 0; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: rgba(255,255,255,.92); backdrop-filter: blur(18px); z-index: 10; }
 .topbar > div, .top-actions { display: flex; align-items: center; gap: 12px; }
+.top-actions > button { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 36px; padding: 8px; }
 .sync-state { color: var(--muted); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .07em; }
 .sync-state i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #777; margin-right: 7px; box-shadow: 0 0 0 4px rgba(0,0,0,.08); }
 .mobile-brand { display: none; font-weight: 600; }
@@ -824,8 +825,10 @@ tbody tr:hover { background: var(--soft); }
   .content { padding-bottom: 96px; }
   .mobile-brand { display: none; }
   .top-summary { font-size: 11px; gap: 5px; }
-  .views-toolbar { position: fixed; z-index: 16; top: 14px; right: 112px; margin: 0; }
-  .views-add-button { width: 36px; height: 36px; }
+  .topbar { position: sticky; }
+  .topbar > div:first-child { min-width: 0; }
+  .top-summary { position: absolute; left: 50%; max-width: calc(100vw - 176px); transform: translateX(-50%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  .top-actions { margin-left: auto; gap: 12px; }
   .mobile-only-lock { display: grid; place-items: center; }
   .sync-state { display: none; }
   .mobile-menu-button { display: grid; place-items: center; }
