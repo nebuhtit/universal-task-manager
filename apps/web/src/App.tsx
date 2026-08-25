@@ -312,6 +312,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
     if (saved && interfaceLanguages.some((option) => option.value === saved)) return saved;
@@ -335,14 +336,22 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   };
 
   const importWorkspace = async (file: File) => {
+    if (password.length < 10) {
+      setPendingFile(file);
+      setError('Backup selected. Enter its workspace password to continue.');
+      return;
+    }
     setBusy(true); setError('');
     try {
-      if (password.length < 10) throw new Error('Enter the workspace password before choosing a backup');
       await onReady(await importAsLocalWorkspace(await readEncryptedBackup(file), password), language);
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
+    finally { setBusy(false); setPendingFile(null); if (fileRef.current) fileRef.current.value = ''; }
   };
+
+  useEffect(() => {
+    if (pendingFile && password.length >= 10 && !busy) void importWorkspace(pendingFile);
+  }, [password, pendingFile]);
 
   return <main className="lock-shell">
     <section className="lock-card">
@@ -361,13 +370,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       </form>
       {!exists && <div className="import-lock">
         <span>Already have an encrypted workspace?</span>
-        <button className="text-button" type="button" disabled={busy} onClick={() => {
-          if (password.length < 10) {
-            setError('Enter the workspace password first, then choose the encrypted backup.');
-            return;
-          }
-          fileRef.current?.click();
-        }}>Import backup</button>
+        <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Import backup</button>
         <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => event.target.files?.[0] && void importWorkspace(event.target.files[0])} />
       </div>}
       <details className="install-guide">
