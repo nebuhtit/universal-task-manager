@@ -825,10 +825,10 @@ tbody tr:hover { background: var(--soft); }
   .content { padding-bottom: 96px; }
   .mobile-brand { display: none; }
   .top-summary { font-size: 11px; gap: 5px; }
-  .topbar { position: sticky; }
-  .topbar > div:first-child { min-width: 0; }
-  .top-summary { position: absolute; left: 50%; max-width: calc(100vw - 176px); transform: translateX(-50%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
-  .top-actions { margin-left: auto; gap: 12px; }
+  .topbar { position: sticky; display: grid; grid-template-columns: 132px minmax(0, 1fr) 132px; }
+  .topbar > div:first-child { grid-column: 2; min-width: 0; justify-content: center; overflow: hidden; }
+  .top-summary { position: static; display: block; width: 100%; max-width: 100%; transform: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  .top-actions { grid-column: 3; justify-content: flex-end; margin-left: 0; gap: 12px; }
   .mobile-only-lock { display: grid; place-items: center; }
   .sync-state { display: none; }
   .mobile-menu-button { display: grid; place-items: center; }
@@ -847,10 +847,11 @@ tbody tr:hover { background: var(--soft); }
   .calendar-layout { grid-template-columns: minmax(0, 1fr) 190px; }
 }
 
-@media (max-width: 760px) {
-  .topbar > div:first-child { flex: 1 1 auto; overflow: hidden; }
-  .top-summary { position: static; display: block; width: 100%; max-width: 100%; transform: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-  .top-actions { flex: 0 0 auto; }
+@media (max-width: 520px) {
+  .topbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .topbar > div:first-child { grid-column: 1; justify-content: flex-start; }
+  .top-summary { text-align: left; }
+  .top-actions { grid-column: 2; }
 }
 
 @media (max-width: 620px) {
