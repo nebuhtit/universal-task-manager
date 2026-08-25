@@ -313,6 +313,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [selectedBackup, setSelectedBackup] = useState<File | null>(null);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
     if (saved && interfaceLanguages.some((option) => option.value === saved)) return saved;
@@ -362,16 +363,16 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
       <label className="language-picker">Language<select value={language} onChange={(event) => setLanguage(event.target.value as WorkspaceLanguage)}>{interfaceLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <form onSubmit={submit}>
-        {!exists && <label>Workspace name<input value={name} onChange={(event) => setName(event.target.value)} required /></label>}
-        <label>Password<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists ? 'current-password' : 'new-password'} required /></label>
-        {!exists && <label>Confirm password<input type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
+        {!exists && <label>{selectedBackup ? 'Backup file' : 'Workspace name'}<input value={selectedBackup ? selectedBackup.name : name} readOnly={Boolean(selectedBackup)} onChange={(event) => setName(event.target.value)} required /></label>}
+        <label>{selectedBackup ? 'Backup password' : 'Password'}<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>
+        {!exists && !selectedBackup && <label>Confirm password<input type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
         {error && <p className="error" role="alert">{error}</p>}
         <button className="primary wide" disabled={busy}>{busy ? 'Working…' : exists ? 'Unlock' : 'Create encrypted workspace'}</button>
       </form>
       {!exists && <div className="import-lock">
         <span>Already have an encrypted workspace?</span>
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
-        <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => event.target.files?.[0] && void importWorkspace(event.target.files[0])} />
+        <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setName(file.name); setConfirm(''); void importWorkspace(file); }} />
         <small>Choose the file first. Then enter its backup password in the Password field above.</small>
       </div>}
       <details className="install-guide">
