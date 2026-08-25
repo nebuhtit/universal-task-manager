@@ -83,6 +83,7 @@
 :root[data-theme="dark"] .icon-button { background: #2c2c2c; color: #f1f1f1; border-color: #505050; }
 :root[data-theme="dark"] .views-add-button,
 :root[data-theme="dark"] .view-settings-button { background: transparent; color: var(--muted); border-color: transparent; }
+:root[data-theme="dark"] .views-add-button { color: #a9c1ff; }
 :root[data-theme="dark"] .query-builder,
 :root[data-theme="dark"] .sort-rule,
 :root[data-theme="dark"] .selected-fields,
@@ -535,7 +536,7 @@ label.check input { width: 18px; height: 18px; }
 .home-summary strong { color: #444; font-weight: 500; }
 .views-page { padding-top: 8px; }
 .views-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
-.views-add-button { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); font-family: ui-sans-serif, sans-serif; font-size: 28px; font-weight: 300; line-height: 34px; }
+.views-add-button { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: #527cff; font-family: ui-sans-serif, sans-serif; font-size: 30px; font-weight: 300; line-height: 36px; }
 .views-add-button:hover, .view-settings-button:hover { background: var(--soft); color: var(--ink); }
 .views-page .views-stack > div:first-child .view-section { border-top: 0; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
@@ -822,7 +823,7 @@ tbody tr:hover { background: var(--soft); }
   .mobile-brand { display: none; }
   .top-summary { font-size: 11px; gap: 5px; }
   .views-toolbar { position: fixed; z-index: 16; top: 13px; right: 72px; margin: 0; }
-  .views-add-button { width: 34px; height: 34px; }
+  .views-add-button { width: 36px; height: 36px; }
   .mobile-only-lock { display: grid; place-items: center; }
   .sync-state { display: none; }
   .bottom-nav { position: fixed; z-index: 50; inset: auto 0 0; height: calc(64px + env(safe-area-inset-bottom)); padding: 6px 7px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(3, 1fr); background: rgba(255,255,255,.96); border-top: 1px solid var(--line); backdrop-filter: blur(18px); }
