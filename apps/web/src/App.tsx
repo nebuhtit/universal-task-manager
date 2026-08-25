@@ -290,7 +290,7 @@ function PersistedDetails({ uiKey, defaultOpen, className, children }: {
   return <details className={className} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>{children}</details>;
 }
 
-type LineIconName = 'home' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu';
+type LineIconName = 'home' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu' | 'plus';
 function LineIcon({ name }: { name: LineIconName }) {
   const paths: Record<LineIconName, ReactNode> = {
     home: <path d="m4.5 11.5 7.5-6 7.5 6V19h-15v-7.5Z"/>,
@@ -303,6 +303,7 @@ function LineIcon({ name }: { name: LineIconName }) {
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
     transfer: <><path d="M7 7h11l-3-3M17 17H6l3 3"/><path d="m18 7-3 3M6 17l3-3"/></>,
     menu: <path d="M4 6h16M4 12h16M4 18h16"/>,
+    plus: <path d="M12 4v16M4 12h16"/>,
   };
   return <svg className="line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;
 }
@@ -1461,7 +1462,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onA
   </section>;
 
   return <section className="page-section views-page">
-    <div className="views-toolbar"><button className="icon-button views-add-button" aria-label="New view" title="New view" onClick={newView}>+</button></div>
+    <div className="views-toolbar"><button className="icon-button views-add-button" aria-label="New view" title="New view" onClick={newView}><LineIcon name="plus"/></button></div>
     <div className="views-stack">{Object.values(workspace.views).map((view) => <div key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} celebratingIds={celebratingIds} showTechnicalSummary={false} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>)}</div>
     {editing && <div className="modal-backdrop"><section className="dialog view-editor">
       <header><div><p className="dialog-kicker">SAVED VIEW</p><h2>Edit view</h2></div><button className="icon-button" aria-label="Close view editor" onClick={() => setEditing(null)}><CloseIcon /></button></header>
