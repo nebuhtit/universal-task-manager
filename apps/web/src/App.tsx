@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import * as Automerge from '@automerge/automerge';
 import ReactMarkdown from 'react-markdown';
 import FullCalendar from '@fullcalendar/react';
@@ -13,25 +13,30 @@ import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
 import { CodeEditor } from './components/ui/CodeEditor';
 import { CloseIcon, LineIcon, type LineIconName } from './components/ui/icons';
-import { persistUiBoolean, readUiBoolean } from './components/ui/PersistedDetails';
 import { SectionGuide } from './components/ui/SectionGuide';
 import {
   AllItemsPage,
   ALL_ITEMS_VIEW_ID,
-  ItemCard,
   allItemsViewFor,
-  displayViewValue,
-  exampleViewFieldValue,
   formatScriptResult,
   inferredPreset,
   isItemTemplate,
   priorityNames,
-  readItemField,
-  relationContext,
   stateNames,
+} from './features/items';
+import {
+  SavedViewSection,
+  boardSettingsFor,
+  defaultBoardStates,
+  effectiveWorkspaceNow,
+  exampleViewFieldValue,
+  selectViewItems,
+  setRecentlyDone,
+  viewFieldGroups,
   viewFieldLabel,
   viewFieldOptions,
-} from './features/items';
+  type BoardSettings,
+} from './features/views';
 import { dateInput, formatHeaderDate, formatRussianDateTime, formatSystemDateTime, formatViewDate, fromDateInput, isSleepTime, scheduledTheme } from './utils/dates';
 import { calendarDuration, calendarDurationMs, parseEstimateDuration, parseFriendlyDuration, parseReminderDuration, reminderIsoDuration, toIsoDuration, type FriendlyDurationUnit, type ReminderDurationUnit } from './utils/durations';
 import {
@@ -271,16 +276,6 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   </main>;
 }
 
-const recentlyDoneUntil = new Map<string, number>();
-
-const defaultBoardStates = ['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const;
-type BoardSettings = { states: Array<(typeof defaultBoardStates)[number]>; showEmpty: boolean; groupBy: 'status' | 'tag' };
-const boardSettingsFor = (view: SavedView): BoardSettings => {
-  const raw = view.extensions?.['utm:board'];
-  const candidate = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
-  const states = Array.isArray(candidate.states) ? candidate.states.filter((state): state is BoardSettings['states'][number] => typeof state === 'string' && defaultBoardStates.includes(state as BoardSettings['states'][number])) : [];
-  return { states: states.length ? states : [...defaultBoardStates], showEmpty: candidate.showEmpty === true, groupBy: candidate.groupBy === 'tag' ? 'tag' : 'status' };
-};
 const viewAccentOptions = [
   { value: '#d9485f', label: 'Coral' },
   { value: '#c27a00', label: 'Amber' },
@@ -372,59 +367,6 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
       <footer><button className="secondary" onClick={onClose}>Cancel</button><span/><button className="primary" disabled={Boolean(preview.errors.length || unresolved)} onClick={() => onApply(preview)}>Import in one transaction</button></footer>
     </>}
   </section></div>;
-}
-
-function effectiveWorkspaceNow(workspace: WorkspaceDocument, realNow = new Date()): Date {
-  const clock = workspace.calendarPreferences.testClock;
-  if (!clock?.enabled || !clock.secondsPerDay || !clock.startedAt || !clock.virtualAt) return realNow;
-  const elapsed = Math.max(0, realNow.getTime() - new Date(clock.startedAt).getTime());
-  return new Date(new Date(clock.virtualAt).getTime() + elapsed * 86_400_000 / clock.secondsPerDay);
-}
-
-function filteredItems(workspace: WorkspaceDocument, view?: SavedView, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
-  const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
-  const available = Object.values(workspace.items).filter((item) => !item.deletedAt && (!view?.list || item.list === view.list) && (templateFilterRequested || !isItemTemplate(item)) && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
-  let items: UniversalItem[];
-  if (view) {
-    try {
-      const predicate = compileQuery(view.query.source || 'true', (item) => relationContext(workspace, item));
-      const matchingRows = available.filter((item) => {
-        const visibleByQuery = item.role !== 'series_template' ? predicate(item, now) : Boolean(item.habit) && predicate({ ...item, role: 'standalone' }, now);
-        const grace = item.state === 'done' && (recentlyDoneUntil.get(item.id) ?? 0) > now.getTime();
-        return visibleByQuery || grace;
-      });
-      const matchingSeries = available.filter((item) => item.role === 'series_template' && !item.habit && predicate(item, now));
-      const standalone = matchingRows.filter((item) => item.role !== 'occurrence');
-      const occurrencesBySeries = new Map<string, UniversalItem[]>();
-      matchingRows.filter((item) => item.role === 'occurrence').forEach((item) => {
-        const seriesId = item.occurrence?.seriesId ?? item.id;
-        occurrencesBySeries.set(seriesId, [...(occurrencesBySeries.get(seriesId) ?? []), item]);
-      });
-      const logicalOccurrences = [...occurrencesBySeries.values()].map((occurrences) => [...occurrences].sort((left, right) => {
-        if (left.state === 'open' && right.state !== 'open') return -1;
-        if (right.state === 'open' && left.state !== 'open') return 1;
-        return new Date(right.occurrence?.recurrenceId ?? right.updatedAt).getTime() - new Date(left.occurrence?.recurrenceId ?? left.updatedAt).getTime();
-      })[0]!);
-      // A recurring series and one of its occurrences are two storage records
-      // for one logical item. Prefer the matching occurrence; use the series
-      // itself only when no occurrence satisfies this view.
-      const combined = [...standalone, ...logicalOccurrences, ...matchingSeries.filter((series) => !logicalOccurrences.some((item) => item.occurrence?.seriesId === series.id))];
-      // A reconciler retry can leave two materialized rows for the same cycle.
-      // Keep one logical occurrence in every view, while preserving independent items.
-      const seenLogical = new Set<string>();
-      items = combined.filter((item) => {
-        const key = item.role === 'occurrence' && item.occurrence?.seriesId
-          ? `occurrence:${item.occurrence.seriesId}:${item.occurrence.recurrenceId ?? item.schedule?.startAt ?? item.id}`
-          : `item:${item.id}`;
-        if (seenLogical.has(key)) return false;
-        seenLogical.add(key); return true;
-      });
-    }
-    catch { return []; }
-    const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
-    if (sortSource.trim()) items.sort((left, right) => compileSort(sortSource)(left, right, now));
-  } else items = available.filter((item) => item.role !== 'series_template');
-  return items;
 }
 
 function withoutTemplateMarker(item: UniversalItem): UniversalItem {
@@ -791,65 +733,6 @@ function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCre
   </div>;
 }
 
-function ViewResults({ view, workspace, onEdit, onState, celebratingIds = new Set<string>() }: {
-  view: SavedView; workspace: WorkspaceDocument; onEdit: (item: UniversalItem) => void;
-  onState: (item: UniversalItem, state: UniversalItem['state']) => void; celebratingIds?: ReadonlySet<string> | undefined;
-}) {
-  const [liveNow, setLiveNow] = useState(() => new Date());
-  useEffect(() => { const timer = window.setInterval(() => setLiveNow(new Date()), 30_000); return () => window.clearInterval(timer); }, []);
-  // Automerge exposes live proxy values. Render a plain snapshot so a saved
-  // item change cannot leave a View row reading an older proxy value.
-  const renderWorkspace = useMemo(() => clean(workspace), [workspace]);
-  const renderView = useMemo(() => clean(view), [view]);
-  const items = filteredItems(renderWorkspace, renderView);
-  const visibleFields = renderView.fields ?? [];
-  const stateButtonLabel = (item: UniversalItem) => item.habit
-    ? (item.habit.completedDates?.includes(new Date().toISOString().slice(0, 10)) ? 'Undo habit completion today' : 'Complete habit today')
-    : item.state === 'open' ? `Complete ${item.title}` : `Reopen ${item.title}`;
-  const nextState = (item: UniversalItem): UniversalItem['state'] => item.habit && item.habit.completedDates?.includes(new Date().toISOString().slice(0, 10)) ? 'open' : item.state === 'open' ? 'done' : 'open';
-  const isCelebrating = (item: UniversalItem) => celebratingIds.has(item.id);
-  const fieldContent = (item: UniversalItem, omit: string[] = []) => <span className="renderer-fields">{visibleFields.filter((field) => !omit.includes(field)).map((field) => {
-    if (field === 'title') return <strong key={field}>{item.title}</strong>;
-    const value = displayViewValue(readItemField(item, field, renderWorkspace, liveNow), field, renderWorkspace.calendarPreferences.language);
-    return value ? <span key={field}><small>{viewFieldLabel(renderWorkspace, field)}</small>{value}</span> : null;
-  })}</span>;
-  if (!items.length) return <p className="empty">No items match this view.</p>;
-  if (renderView.renderer === 'calendar') {
-    const dated = items.flatMap((item) => {
-      const date = item.schedule?.startAt ?? item.schedule?.dueAt;
-      return date ? [{ item, date }] : [];
-    });
-    return dated.length ? <div className="calendar-strip">{dated.map(({ item, date }) => <article className={`calendar-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}`} key={item.id}><button className="state-toggle" aria-label={stateButtonLabel(item)} onClick={() => onState(item, nextState(item))}>{item.state === 'open' && !item.habit?.completedDates?.includes(new Date().toISOString().slice(0, 10)) ? '' : '✓'}</button><button className="calendar-main" onClick={() => onEdit(item)}><time dateTime={date}>{formatViewDate(date, false, renderWorkspace.calendarPreferences.language)}</time>{fieldContent(item, ['schedule.startAt', 'schedule.dueAt'])}</button></article>)}</div> : <p className="empty">Matching items have no dates.</p>;
-  }
-  if (renderView.renderer === 'board') {
-    const settings = boardSettingsFor(renderView);
-    const columns = settings.groupBy === 'tag'
-      ? [...new Set(items.flatMap((item) => item.tags))].sort((a, b) => a.localeCompare(b)).map((tag) => ({ key: tag, label: `#${tag}`, items: items.filter((item) => item.tags.includes(tag)) })).concat([{ key: '__untagged__', label: 'No tags', items: items.filter((item) => item.tags.length === 0) }])
-      : settings.states.map((state) => ({ key: state, label: stateNames[state], items: items.filter((item) => item.state === state) }));
-    const visibleColumns = columns.filter((column) => settings.showEmpty || column.items.length > 0);
-    return visibleColumns.length ? <div className="mini-board">{visibleColumns.map(({ key, label, items: columnItems }) => <section key={key}><h4>{label}</h4>{columnItems.map((item) => <article className={`board-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}`} key={item.id}><button className="state-toggle" aria-label={stateButtonLabel(item)} onClick={() => onState(item, nextState(item))}>{item.state === 'open' && !item.habit?.completedDates?.includes(new Date().toISOString().slice(0, 10)) ? '' : '✓'}</button><button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}</div> : <p className="empty">No items match this board.</p>;
-  }
-  if (renderView.renderer === 'table') {
-    const fields = visibleFields;
-    return <div className="table-wrap renderer-table-wrap"><table><thead><tr><th className="state-column"><span className="sr-only">Complete</span></th>{fields.map((field) => <th key={field}>{viewFieldLabel(renderWorkspace, field)}</th>)}</tr></thead><tbody>{items.map((item) => <tr className={`state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}`} key={item.id} onClick={() => onEdit(item)}><td className="state-column"><button className="state-toggle" aria-label={stateButtonLabel(item)} onClick={(event) => { event.stopPropagation(); onState(item, nextState(item)); }}>{item.state === 'open' && !item.habit?.completedDates?.includes(new Date().toISOString().slice(0, 10)) ? '' : '✓'}</button></td>{fields.map((field) => <td key={field}>{displayViewValue(readItemField(item, field, renderWorkspace, liveNow), field, renderWorkspace.calendarPreferences.language)}</td>)}</tr>)}</tbody></table></div>;
-  }
-  return <div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} celebrating={isCelebrating(item)} fields={visibleFields} workspace={renderWorkspace} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />)}</div>;
-}
-
-function SavedViewSection({ view, workspace, onEditView, onEditItem, onState, onRendererChange, onAddItem, celebratingIds, showTechnicalSummary = true }: {
-  view: SavedView; workspace: WorkspaceDocument; onEditView: () => void; onEditItem: (item: UniversalItem) => void;
-  onState: (item: UniversalItem, state: UniversalItem['state']) => void; onRendererChange: (renderer: SavedView['renderer']) => void; onAddItem: (view: SavedView) => void; celebratingIds?: ReadonlySet<string> | undefined; showTechnicalSummary?: boolean;
-}) {
-  const [open, setOpen] = useState(() => readUiBoolean(`view:${view.id}`, true));
-  useEffect(() => { persistUiBoolean(`view:${view.id}`, open); }, [open, view.id]);
-  const matchingItems = filteredItems(workspace, view).length;
-  const viewStyle = view.accent ? ({ '--view-accent': view.accent } as CSSProperties) : undefined;
-  return <section className={`view-section${open ? '' : ' is-collapsed'}`} style={viewStyle}>
-    <header className="view-section-summary"><div><h2>{view.name}</h2></div><div className="view-section-actions">{open && <button type="button" className="icon-button view-settings-button" aria-label={`Edit ${view.name}`} title="Edit view" onClick={onEditView}><LineIcon name="settings" /></button>}<button type="button" className="view-collapse-button" aria-label={`${open ? 'Collapse' : 'Expand'} ${view.name}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>{open ? '−' : <LineIcon name="chevronDown"/>}</button></div></header>
-    {open && <div className="view-section-body">{showTechnicalSummary && <div className="view-query-summary"><code>{view.query.source.trim() || 'All items'}</code>{view.list && <code className="sort-preview">List: {view.list}</code>}{Object.keys(view.creationDefaults ?? {}).length > 0 && <code className="sort-preview">New item defaults: {Object.keys(view.creationDefaults ?? {}).length}</code>}{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{matchingItems} matching items</p></div>}<div className="view-results-scroll"><ViewResults view={view} workspace={workspace} onEdit={onEditItem} onState={onState} celebratingIds={celebratingIds} /></div>{(view.list || Object.keys(view.creationDefaults ?? {}).length > 0) && <button className="view-add-item" type="button" onClick={() => onAddItem(view)}>{view.list ? `+ Add item to ${view.list}` : '+ Add item'}</button>}</div>}
-  </section>;
-}
-
 function toSqlExpression(source: string): string {
   const trimmed = source.trim();
   if (!trimmed) return 'TRUE';
@@ -1140,7 +1023,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onA
   };
   const importViewTemplate = async (file: File) => { try { const source = await file.text(); setViewJson(source); applyViewJson(source); } finally { if (viewJsonRef.current) viewJsonRef.current.value = ''; } };
   const exportView = (view: SavedView, mode: 'definition' | 'results' | 'bundle', format: PortableFormat = 'json', metadata = false) => {
-    const results = filteredItems(workspace, view); const dependencies = collectItemDependencies(workspace, results);
+    const results = selectViewItems(workspace, view); const dependencies = collectItemDependencies(workspace, results);
     const portable = createPortablePackage(workspace, {
       kind: mode === 'definition' ? 'views' : mode === 'results' ? 'items' : 'view_bundle',
       views: mode === 'results' ? [] : [view], items: mode === 'definition' ? [] : dependencies,
@@ -1154,7 +1037,7 @@ function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onA
     <p className="builder-status">Choose the columns or details shown for every matching item. This does not change which items match; their order is the display order.</p>
     <details className="display-fields-example"><summary>Preview with a fully filled example item</summary><p className="display-fields-help">Drag a field to change its order, or hide it with ×.</p><div>{editing.fields.length ? editing.fields.map((field) => <span key={field} draggable onDragStart={() => setDraggedField(field)} onDragEnd={() => setDraggedField(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedField) moveFieldTo(draggedField, field); setDraggedField(null); }}><button className="preview-field-remove" aria-label={`Hide ${viewFieldLabel(workspace, field)}`} onClick={() => toggleField(field)}><CloseIcon /></button><small>{viewFieldLabel(workspace, field)}</small>{exampleViewFieldValue(field)}</span>) : <p>Select fields below to preview them here.</p>}</div></details>
     <div className="builder-actions"><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: viewFieldOptions(workspace).map((field) => field.path) })}>Select all</button><button className="secondary compact-action" onClick={() => setEditing({ ...editing, fields: [] })}>Hide all</button></div>
-    <div className="field-groups">{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <details key={group}><summary>{group}</summary><div className="field-options">{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <label className="check" key={field.path}><input type="checkbox" checked={editing.fields.includes(field.path)} onChange={() => toggleField(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div>
+    <div className="field-groups">{viewFieldGroups(workspace).map((group) => <details key={group.name}><summary>{group.name}</summary><div className="field-options">{group.fields.map((field) => <label className="check" key={field.path}><input type="checkbox" checked={editing.fields.includes(field.path)} onChange={() => toggleField(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div>
     <div className="manual-field"><input aria-label="Custom field path" placeholder="Any path, e.g. custom.client" value={manualField} onChange={(event) => setManualField(event.target.value)} /><button className="secondary compact-action" disabled={!manualField.trim() || editing.fields.includes(manualField.trim())} onClick={() => { const path = manualField.trim(); setEditing({ ...editing, fields: [...editing.fields, path] }); setManualField(''); }}>+ Add path</button></div>
     {editing.fields.length > 0 && <div className="selected-fields"><span className="selected-fields-title">Display order</span>{editing.fields.map((field, index) => <div key={field}><code>{field}</code><div><button aria-label={`Move ${field} up`} disabled={index === 0} onClick={() => moveField(index, -1)}>↑</button><button aria-label={`Move ${field} down`} disabled={index === editing.fields.length - 1} onClick={() => moveField(index, 1)}>↓</button><button aria-label={`Hide ${field}`} onClick={() => toggleField(field)}><CloseIcon /></button></div></div>)}</div>}
   </section>;
@@ -1761,11 +1644,11 @@ export default function App() {
   const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => {
     if (state === 'done' && workspace?.calendarPreferences.appearance.tickSound) playTickSound();
     if (state === 'done') {
-      recentlyDoneUntil.set(item.id, Date.now() + 10_000);
+      setRecentlyDone(item.id, Date.now() + 10_000);
       setCelebratingIds((current) => new Set(current).add(item.id));
       window.setTimeout(() => setCelebratingIds((current) => { const next = new Set(current); next.delete(item.id); return next; }), 900);
     }
-    else recentlyDoneUntil.delete(item.id);
+    else setRecentlyDone(item.id);
     commit('Change item state', (draft) => {
       let target = draft.items[item.id]; if (!target) return;
       if (item.habit || (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]?.habit)) {
