@@ -160,6 +160,8 @@ a { color: var(--moss); }
 .sync-state i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #777; margin-right: 7px; box-shadow: 0 0 0 4px rgba(0,0,0,.08); }
 .mobile-brand { display: none; font-weight: 600; }
 .notice-button { position: relative; border: 0; background: transparent; cursor: pointer; padding: 8px; }
+.mobile-menu-button { display: none; border: 0; background: transparent; color: var(--ink); cursor: pointer; padding: 8px; }
+.mobile-nav-menu { display: none; }
 .mobile-only-lock { display: none; border: 0; background: transparent; cursor: pointer; padding: 8px; }
 .notice-button b { position: absolute; top: 1px; right: 1px; background: var(--orange); color: white; border-radius: 99px; font-size: 9px; min-width: 16px; height: 16px; display: grid; place-items: center; }
 .notice-tray { position: fixed; z-index: 100; top: 70px; right: 24px; display: grid; gap: 8px; width: min(360px, calc(100vw - 32px)); pointer-events: none; }
@@ -819,23 +821,23 @@ tbody tr:hover { background: var(--soft); }
 @media (max-width: 950px) {
   .app-shell { display: block; }
   .sidebar { display: none; }
-  .content { padding-bottom: 142px; }
+  .content { padding-bottom: 96px; }
   .mobile-brand { display: none; }
   .top-summary { font-size: 11px; gap: 5px; }
-  .views-toolbar { position: fixed; z-index: 16; top: 12px; right: 72px; margin: 0; }
+  .views-toolbar { position: fixed; z-index: 16; top: 12px; right: 112px; margin: 0; }
   .views-add-button { width: 36px; height: 36px; }
   .mobile-only-lock { display: grid; place-items: center; }
   .sync-state { display: none; }
-  .bottom-nav { position: fixed; z-index: 50; inset: auto 0 0; height: calc(64px + env(safe-area-inset-bottom)); padding: 6px 7px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(3, 1fr); background: rgba(255,255,255,.96); border-top: 1px solid var(--line); backdrop-filter: blur(18px); }
-  .bottom-nav button { border: 0; background: transparent; color: #777; display: grid; place-items: center; align-content: center; gap: 3px; font-size: 10px; border-radius: 9px; }
-  .bottom-nav button.active { color: var(--ink); font-weight: 500; }
-  .bottom-nav .line-icon { width: 21px; height: 21px; }
-  .bottom-nav .nav-beta { display: inline-block; margin: 0 0 0 3px; padding: 1px 3px; font-size: 7px; vertical-align: 1px; }
-  .capture-dock { left: 0; bottom: calc(72px + env(safe-area-inset-bottom)); padding: 0 12px; }
+  .mobile-menu-button { display: grid; place-items: center; }
+  .mobile-nav-menu { position: fixed; z-index: 60; top: 58px; right: 12px; display: grid; width: min(230px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); }
+  .mobile-nav-menu button { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 44px; padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+  .mobile-nav-menu button.active { background: var(--soft); }
+  .mobile-nav-menu .line-icon { width: 20px; height: 20px; }
+  .mobile-nav-menu .nav-beta { margin: 0; }
+  .capture-dock { left: 0; bottom: calc(12px + env(safe-area-inset-bottom)); padding: 0 12px; }
   /* On iOS a fixed element is already positioned against the visual viewport.
      Adding the keyboard height again made the capture bar fly far above it. */
   .capture-keyboard-open .capture-dock { bottom: 10px; }
-  .capture-keyboard-open .bottom-nav { transform: translateY(calc(100% + var(--keyboard-offset, 0px))); }
   .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .widget.span-3 { grid-column: span 2; }
   .page-section { padding-left: 22px; padding-right: 22px; }
