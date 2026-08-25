@@ -535,13 +535,14 @@ label.check input { width: 18px; height: 18px; }
 .views-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .views-page .views-stack > div:first-child .view-section { border-top: 0; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
-.view-section { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 0; background: transparent; }
+.view-section { border: 0; border-radius: 0; padding: 0; background: transparent; }
 .view-section > .view-section-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 18px; width: 100%; min-width: 0; overflow: hidden; padding: 20px 0; }
 .view-section-summary > div:first-child { min-width: 0; overflow: hidden; }
 .view-section-summary h2 { max-width: 100%; margin: 8px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section-actions { display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
 .view-section-actions .secondary { white-space: nowrap; }
+.view-settings-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; }
 .view-collapse-button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; padding: 0; background: transparent; color: var(--muted); font-size: 16px; font-weight: 400; cursor: pointer; }
 .view-collapse-button:hover { background: var(--soft); color: var(--ink); }
 .view-renderer { display: inline-flex; width: auto; min-width: 74px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--soft); color: var(--muted); font-size: 10px; font-weight: 450; letter-spacing: .01em; }
@@ -549,6 +550,11 @@ label.check input { width: 18px; height: 18px; }
 .view-section-body { border-top: 1px solid var(--line); padding: 18px 0 20px; }
 .view-section-body { border-top: 0; }
 .view-accent-picker { margin: 16px 0; }
+.view-editor-section { border-top: 1px solid var(--line); }
+.view-editor-section > summary { min-height: 44px; align-items: center; padding: 11px 2px; color: var(--ink); font-size: 13px; font-weight: 550; }
+.view-editor-section > fieldset,
+.view-editor-section > label { margin-bottom: 14px; }
+.view-editor-section .query-builder { margin-top: 0; }
 .view-accent-options { display: flex; flex-wrap: wrap; gap: 8px; }
 .view-accent-options button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; background: var(--card); color: var(--ink); cursor: pointer; }
 .view-accent-options button.selected { border-color: var(--ink); box-shadow: 0 0 0 2px var(--line); }
