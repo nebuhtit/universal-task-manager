@@ -361,7 +361,13 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       </form>
       {!exists && <div className="import-lock">
         <span>Already have an encrypted workspace?</span>
-        <button className="text-button" disabled={!password || busy} onClick={() => fileRef.current?.click()}>Import backup</button>
+        <button className="text-button" type="button" disabled={busy} onClick={() => {
+          if (password.length < 10) {
+            setError('Enter the workspace password first, then choose the encrypted backup.');
+            return;
+          }
+          fileRef.current?.click();
+        }}>Import backup</button>
         <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => event.target.files?.[0] && void importWorkspace(event.target.files[0])} />
       </div>}
       <details className="install-guide">
