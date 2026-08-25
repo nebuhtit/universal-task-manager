@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'vitest';
+import { createItem, createWorkspace } from '@utm/core';
+import { displayViewValue, isItemTemplate, readItemField, relationContext, viewFieldLabel } from './fieldDisplay';
+
+describe('item field display helpers', () => {
+  it('calculates a display duration from item dates', () => {
+    const item = createItem('Timed item');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-26T10:00:00.000Z', endAt: '2026-08-26T11:30:00.000Z' };
+    expect(readItemField(item, 'schedule.estimatedDuration')).toBe('PT90M');
+    expect(displayViewValue('PT90M', 'schedule.estimatedDuration')).toBe('1 h 30 min');
+  });
+
+  it('resolves parent and child fields from the universal relation model', () => {
+    const workspace = createWorkspace('Relations');
+    const parent = createItem('Parent');
+    const child = createItem('Child');
+    parent.relations.push({ id: 'rel-1', type: 'parent', targetId: child.id });
+    workspace.items[parent.id] = parent;
+    workspace.items[child.id] = child;
+    expect(relationContext(workspace, parent)).toMatchObject({ isParent: true, childDepth: 1 });
+    expect(relationContext(workspace, child)).toMatchObject({ isSubtask: true, parentDepth: 1 });
+    expect(readItemField(child, 'parent', workspace)).toBe('Parent');
+  });
+
+  it('keeps custom labels and template markers inside the items feature', () => {
+    const workspace = createWorkspace('Fields');
+    workspace.customFields.example = { id: 'example', key: 'score', label: 'Score', kind: 'number', required: false };
+    expect(viewFieldLabel(workspace, 'custom.score')).toBe('Score');
+    const template = createItem('Template');
+    template.extensions = { 'utm:template': true };
+    expect(isItemTemplate(template)).toBe(true);
+  });
+});

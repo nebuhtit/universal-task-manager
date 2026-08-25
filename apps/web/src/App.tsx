@@ -13,8 +13,25 @@ import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
 import { CodeEditor } from './components/ui/CodeEditor';
 import { CloseIcon, LineIcon, type LineIconName } from './components/ui/icons';
-import { PersistedDetails, persistUiBoolean, readUiBoolean } from './components/ui/PersistedDetails';
+import { persistUiBoolean, readUiBoolean } from './components/ui/PersistedDetails';
 import { SectionGuide } from './components/ui/SectionGuide';
+import {
+  AllItemsPage,
+  ALL_ITEMS_VIEW_ID,
+  ItemCard,
+  allItemsViewFor,
+  displayViewValue,
+  exampleViewFieldValue,
+  formatScriptResult,
+  inferredPreset,
+  isItemTemplate,
+  priorityNames,
+  readItemField,
+  relationContext,
+  stateNames,
+  viewFieldLabel,
+  viewFieldOptions,
+} from './features/items';
 import { dateInput, formatHeaderDate, formatRussianDateTime, formatSystemDateTime, formatViewDate, fromDateInput, isSleepTime, scheduledTheme } from './utils/dates';
 import { calendarDuration, calendarDurationMs, parseEstimateDuration, parseFriendlyDuration, parseReminderDuration, reminderIsoDuration, toIsoDuration, type FriendlyDurationUnit, type ReminderDurationUnit } from './utils/durations';
 import {
@@ -98,13 +115,6 @@ const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date())
   item.schedule = { ...item.schedule, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, startAt, endAt: new Date(now.getTime() + 10 * 60_000).toISOString() };
   return item;
 };
-/** A preset is a display shortcut inferred from enabled item properties. */
-function inferredPreset(item: UniversalItem): ItemPreset {
-  if (item.habit) return 'habit';
-  if (item.schedule?.startAt && (item.schedule.endAt || item.schedule.allDay)) return 'event';
-  if (!item.title.trim() && !item.bodyMarkdown.trim() && !item.schedule?.startAt && !item.schedule?.dueAt && !item.tags.length && !item.contexts.length) return 'blank';
-  return 'task';
-}
 const safeFilename = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'universal';
 const downloadText = (content: string, filename: string, type = 'application/json') => {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -261,11 +271,8 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   </main>;
 }
 
-const priorityNames: Record<NonNullable<UniversalItem['priority']>, string> = { 0: 'None', 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
-const stateNames: Record<UniversalItem['state'], string> = { open: 'Active', done: 'Completed', auto_closed: 'Auto closed', cancelled: 'Cancelled', archived: 'Archived' };
 const recentlyDoneUntil = new Map<string, number>();
 
-type ViewFieldOption = { path: string; label: string; group: string };
 const defaultBoardStates = ['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const;
 type BoardSettings = { states: Array<(typeof defaultBoardStates)[number]>; showEmpty: boolean; groupBy: 'status' | 'tag' };
 const boardSettingsFor = (view: SavedView): BoardSettings => {
@@ -274,42 +281,6 @@ const boardSettingsFor = (view: SavedView): BoardSettings => {
   const states = Array.isArray(candidate.states) ? candidate.states.filter((state): state is BoardSettings['states'][number] => typeof state === 'string' && defaultBoardStates.includes(state as BoardSettings['states'][number])) : [];
   return { states: states.length ? states : [...defaultBoardStates], showEmpty: candidate.showEmpty === true, groupBy: candidate.groupBy === 'tag' ? 'tag' : 'status' };
 };
-const builtInViewFields: ViewFieldOption[] = [
-  { path: 'title', label: 'Title', group: 'Core' }, { path: 'bodyMarkdown', label: 'Description', group: 'Core' },
-  { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
-  { path: 'isHabit', label: 'Habit', group: 'Core' }, { path: 'activeRange', label: 'Inside active range now', group: 'Core' },
-  { path: 'activeDuration', label: 'Has active range dates', group: 'Core' },
-  { path: 'role', label: 'Role', group: 'Core' }, { path: 'priority', label: 'Priority', group: 'Core' },
-  { path: 'tags', label: 'Tags', group: 'Core' }, { path: 'contexts', label: 'Contexts', group: 'Core' }, { path: 'list', label: 'Task list', group: 'Core' },
-  { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Event opens', group: 'Schedule' },
-  { path: 'schedule.endAt', label: 'Event ends', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Due / Active range ends', group: 'Schedule' },
-  { path: 'schedule.estimatedDuration', label: 'Estimated duration', group: 'Schedule' }, { path: 'schedule.actualDuration', label: 'Actual duration', group: 'Schedule' },
-  { path: 'schedule.timezone', label: 'Timezone', group: 'Schedule' }, { path: 'schedule.allDay', label: 'All day', group: 'Schedule' },
-  { path: 'recurrence.rrule', label: 'RRULE', group: 'Recurrence' }, { path: 'recurrence.rdates', label: 'Additional dates', group: 'Recurrence' },
-  { path: 'recurrence.exdates', label: 'Excluded dates', group: 'Recurrence' }, { path: 'recurrence.timezone', label: 'Recurrence timezone', group: 'Recurrence' },
-  { path: 'recurrence.activationOffset', label: 'Activation offset', group: 'Recurrence' }, { path: 'recurrence.dueOffset', label: 'Due offset', group: 'Recurrence' },
-  { path: 'recurrence.closeAt', label: 'Auto-close boundary', group: 'Recurrence' }, { path: 'recurrence.anchor', label: 'Next cycle anchor', group: 'Recurrence' },
-  { path: 'recurrence.autoRenew', label: 'Auto-renew', group: 'Recurrence' },
-  { path: 'progress.mode', label: 'Progress mode', group: 'Progress & habit' }, { path: 'progress.current', label: 'Progress current', group: 'Progress & habit' },
-  { path: 'progress.target', label: 'Progress target', group: 'Progress & habit' }, { path: 'progress.unit', label: 'Progress unit', group: 'Progress & habit' },
-  { path: 'habit.target', label: 'Habit target', group: 'Progress & habit' }, { path: 'habit.unit', label: 'Habit unit', group: 'Progress & habit' },
-  { path: 'habit.streakMode', label: 'Habit streak mode', group: 'Progress & habit' }, { path: 'habit.completedDates', label: 'Habit completed dates', group: 'Progress & habit' },
-  { path: 'reminders', label: 'Reminders', group: 'Connections' }, { path: 'relations', label: 'Relations', group: 'Connections' },
-  { path: 'subtasks', label: 'Subtasks', group: 'Connections' }, { path: 'parent', label: 'Parent item', group: 'Connections' },
-  { path: 'isSubtask', label: 'Subtask', group: 'Connections' }, { path: 'isParent', label: 'Parent item', group: 'Connections' },
-  { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
-  { path: 'attachments', label: 'Links', group: 'Connections' },
-  { path: 'closure.at', label: 'Closed at', group: 'History' }, { path: 'closure.actor', label: 'Closed by', group: 'History' },
-  { path: 'closure.reason', label: 'Closure reason', group: 'History' }, { path: 'occurrence.seriesId', label: 'Series ID', group: 'History' },
-  { path: 'occurrence.recurrenceId', label: 'Occurrence date', group: 'History' }, { path: 'occurrence.sequence', label: 'Occurrence sequence', group: 'History' },
-  { path: 'cycleHistory', label: 'Cycle history', group: 'History' },
-  { path: 'createdAt', label: 'Created at', group: 'System' }, { path: 'updatedAt', label: 'Last modified', group: 'System' },
-  { path: 'createdWithAppName', label: 'Created with app', group: 'System' }, { path: 'createdWithVersion', label: 'Created with version', group: 'System' },
-  { path: 'createdWithAppId', label: 'Application ID', group: 'System' }, { path: 'schemaVersion', label: 'Schema version', group: 'System' },
-  { path: 'revision', label: 'Revision', group: 'System' }, { path: 'id', label: 'Item ID', group: 'System' },
-  { path: 'isTemplate', label: 'Template', group: 'System' },
-];
-
 const viewAccentOptions = [
   { value: '#d9485f', label: 'Coral' },
   { value: '#c27a00', label: 'Amber' },
@@ -319,17 +290,6 @@ const viewAccentOptions = [
   { value: '#b83280', label: 'Berry' },
 ] as const;
 
-const viewFieldOptions = (workspace: WorkspaceDocument): ViewFieldOption[] => {
-  const scriptFields = new Map<string, ViewFieldOption>();
-  Object.values(workspace.items).flatMap((item) => item.scripts ?? []).forEach((script) => {
-    if (!scriptFields.has(script.key)) scriptFields.set(script.key, { path: `script.${script.key}`, label: script.label, group: 'Scripts' });
-  });
-  return [
-    ...builtInViewFields,
-    ...Object.values(workspace.customFields).map((field) => ({ path: `custom.${field.key}`, label: field.label, group: 'Custom fields' })),
-    ...scriptFields.values(),
-  ];
-};
 const creationDefaultPaths = new Set([
   'title', 'bodyMarkdown', 'state', 'priority', 'tags', 'contexts', 'list',
   'schedule.availableFrom', 'schedule.startAt', 'schedule.endAt', 'schedule.dueAt', 'schedule.estimatedDuration', 'schedule.timezone', 'schedule.allDay',
@@ -384,163 +344,6 @@ const applyViewCreationDefaults = (item: UniversalItem, view: SavedView): Univer
   nextItem.preset = inferredPreset(nextItem);
   return nextItem;
 };
-const viewFieldLabel = (workspace: WorkspaceDocument, path: string) => viewFieldOptions(workspace).find((field) => field.path === path)?.label ?? path;
-const exampleViewFieldValue = (path: string): string => {
-  if (path.startsWith('custom.')) return 'Example value';
-  return ({
-    title: 'Prepare quarterly review', bodyMarkdown: 'Outline, research and final draft', state: 'Active', preset: 'Task', role: 'Standalone', priority: 'High',
-    tags: 'work, writing', contexts: 'office, laptop', 'schedule.availableFrom': 'Aug 24, 09:00', 'schedule.startAt': 'Aug 24, 10:00',
-    'schedule.endAt': 'Aug 24, 11:30', 'schedule.dueAt': 'Aug 28, 18:00', 'schedule.estimatedDuration': '1 hour 30 min',
-    'schedule.actualDuration': '1 hour 20 min', 'schedule.timezone': 'Europe/Moscow', 'schedule.allDay': 'No',
-    'recurrence.rrule': 'Every week on Monday', 'recurrence.rdates': 'Sep 1, 10:00', 'recurrence.exdates': 'Sep 8, 10:00',
-    'recurrence.timezone': 'Europe/Moscow', 'recurrence.activationOffset': '7 days before', 'recurrence.dueOffset': '8 hours after start',
-    'recurrence.closeAt': 'Next activation', 'recurrence.anchor': 'Scheduled time', 'recurrence.autoRenew': 'Yes',
-    'progress.mode': 'Counter', 'progress.current': '2', 'progress.target': '4', 'progress.unit': 'chapters',
-    'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
-    reminders: 'Mon 09:00 · Thu 17:00', relations: 'Related: Project brief', attachments: 'Research link',
-    'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
-    'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', cycleHistory: '4 finished cycles', subtasks: 'Draft outline, Review notes', parent: 'Quarterly review',
-    isSubtask: 'Yes', isParent: 'Yes', parentDepth: '1', childDepth: '2', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
-    createdWithAppName: 'Universal Task Manager', createdWithVersion: APP_VERSION, createdWithAppId: 'dev.universal-task-manager',
-    schemaVersion: '1.8.0', revision: '7', id: 'itm_example_20260824',
-  } as Record<string, string>)[path] ?? 'Example value';
-};
-const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument, now = new Date()): unknown => {
-  if (field === 'description') field = 'bodyMarkdown';
-  if (field === 'schedule.estimatedDuration') {
-    if (item.schedule?.estimatedDuration) return item.schedule.estimatedDuration;
-    if (item.schedule?.startAt && item.schedule?.endAt) {
-      const milliseconds = new Date(item.schedule.endAt).getTime() - new Date(item.schedule.startAt).getTime();
-      if (Number.isFinite(milliseconds) && milliseconds >= 0) return toIsoDuration(milliseconds / 60_000, 'minutes');
-    }
-    return undefined;
-  }
-  if (workspace && field === 'subtasks') return item.relations.filter((relation) => relation.type === 'parent').map((relation) => workspace.items[relation.targetId]?.title ?? relation.targetId);
-  if (workspace && field === 'parent') {
-    const parent = Object.values(workspace.items).find((candidate) => candidate.relations.some((relation) => relation.type === 'parent' && relation.targetId === item.id));
-    return parent?.title;
-  }
-  if (workspace && ['isTemplate', 'isSubtask', 'isParent', 'parentDepth', 'childDepth'].includes(field)) {
-    if (field === 'isTemplate') return isItemTemplate(item);
-    const relation = relationContext(workspace, item);
-    return relation[field as keyof typeof relation];
-  }
-  if (field.startsWith('custom.') && workspace) {
-    const key = field.slice(7);
-    const definition = Object.values(workspace.customFields).find((candidate) => candidate.key === key);
-    if (definition?.kind === 'formula') return evaluateFormulas(item, Object.values(workspace.customFields), now).values[key];
-  }
-  if (field.startsWith('script.') && workspace) {
-    const key = field.slice(7);
-    const definition = item.scripts?.find((script) => script.key === key);
-    const result = evaluateItemScripts(item, (id) => workspace.items[id], now).values[key];
-    if (definition?.resultKind === 'duration' && typeof result === 'number') return formatComputedDuration(result);
-    return result;
-  }
-  return field.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, item);
-};
-const formatComputedDuration = (milliseconds: number): string => {
-  const sign = milliseconds < 0 ? '−' : '';
-  const totalSeconds = Math.round(Math.abs(milliseconds) / 1_000);
-  const days = Math.floor(totalSeconds / 86_400);
-  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-  const parts = [days ? `${days} d` : '', hours ? `${hours} h` : '', minutes ? `${minutes} min` : '', seconds ? `${seconds} s` : ''].filter(Boolean).slice(0, 3);
-  return `${sign}${parts.join(' ') || '0 s'}`;
-};
-const formatScriptResult = (value: unknown, kind: ItemScriptField['resultKind']): string => kind === 'duration' && typeof value === 'number' ? formatComputedDuration(value) : String(value ?? '—');
-const displayViewValue = (value: unknown, field: string, language?: WorkspaceLanguage): string => {
-  if (value === undefined || value === null || value === '') return '';
-  if ((field.endsWith('Duration') || field.endsWith('Offset')) && typeof value === 'string' && /^P/.test(value)) {
-    const parsed = parseFriendlyDuration(value);
-    const totalMinutes = Math.round(calendarDurationMs(parsed.amount, parsed.unit) / 60_000);
-    if (totalMinutes < 60) return `${totalMinutes} min`;
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    return `${hours} h${minutes ? ` ${minutes} min` : ''}`;
-  }
-  if ((field.endsWith('At') || field.endsWith('Date') || field === 'createdAt' || field === 'updatedAt') && typeof value === 'string') {
-    const date = new Date(value); if (!Number.isNaN(date.getTime())) return formatViewDate(date, true, language);
-  }
-  if (field.startsWith('script.') && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
-    const date = new Date(value); if (!Number.isNaN(date.getTime())) return formatViewDate(date, true, language);
-  }
-  if (Array.isArray(value)) return value.length ? value.map((entry) => typeof entry === 'object' ? JSON.stringify(entry) : String(entry)).join(', ') : '';
-  if (typeof value === 'object') return JSON.stringify(value);
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  return String(value);
-};
-
-function ItemCard({ item, onEdit, onState, fields, workspace, celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; celebrating?: boolean }) {
-  const due = item.schedule?.dueAt ?? item.schedule?.startAt;
-  const today = new Date().toISOString().slice(0, 10);
-  const isHabit = Boolean(item.habit);
-  const habitCompletedToday = isHabit && Boolean(item.habit?.completedDates?.includes(today));
-  const visiblyClosed = isHabit ? habitCompletedToday : item.state !== 'open';
-  // A provided field list is authoritative, including an intentionally empty
-  // list. Only callers that omit `fields` receive the familiar fallback card.
-  const customDisplay = fields !== undefined;
-  const metadataFields = (fields?.filter((field) => field !== 'title' && field !== 'priority') ?? [])
-    .map((field) => ({ field, value: displayViewValue(readItemField(item, field, workspace), field, workspace?.calendarPreferences.language) }));
-  return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}`}>
-    <button className="state-toggle" aria-label={isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(visiblyClosed ? 'open' : 'done')}>
-      {visiblyClosed ? '✓' : ''}
-    </button>
-    <button className="item-main" onClick={onEdit}>
-      {(!customDisplay || fields?.includes('title')) && <span className="item-title">{item.title}</span>}
-      {!customDisplay && <span className="item-meta"><span className={`preset ${inferredPreset(item)}`}>{inferredPreset(item)}</span>{due && <span>{formatViewDate(due, !item.schedule?.allDay, workspace?.calendarPreferences.language)}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">auto-closed</span>}</span>}
-      {customDisplay && metadataFields.length > 0 && <span className="view-item-fields">{metadataFields.map(({ field, value }) => <span key={field}>{value && <small>{viewFieldLabel(workspace!, field)}</small>}{value}</span>)}</span>}
-    </button>
-    {item.priority && (!customDisplay || fields?.includes('priority')) ? <button className={`priority p${item.priority}`} title={`Priority ${item.priority}: ${priorityNames[item.priority]}. Click to edit.`} aria-label={`Priority ${item.priority}: ${priorityNames[item.priority]}. Edit item`} onClick={onEdit}>{priorityNames[item.priority]}</button> : null}
-  </article>;
-}
-
-function DeletedItemsList({ items, onRestore, onClear, onDelete }: { items: UniversalItem[]; onRestore: (item: UniversalItem) => void; onClear: () => void; onDelete: (item: UniversalItem) => void }) {
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const sorted = [...items].sort((left, right) => new Date(right.deletedAt!).getTime() - new Date(left.deletedAt!).getTime());
-  return <details className="trash-section" open={sorted.length > 0}>
-    <summary><span>Trash</span><b>{sorted.length}</b>{sorted.length > 0 && <button type="button" className="secondary compact-action trash-clear" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setConfirmClear(true); }}>Clear trash</button>}</summary>
-    <p className="section-help">Deleted items stay here until you restore them.</p>
-    {confirmClear && sorted.length > 0 && <div className="trash-confirm" role="alert"><strong>Permanently delete {sorted.length} {sorted.length === 1 ? 'item' : 'items'}?</strong><span>This cannot be undone.</span><div><button type="button" className="secondary compact-action" onClick={() => setConfirmClear(false)}>Cancel</button><button type="button" className="danger compact-action" onClick={() => { onClear(); setConfirmClear(false); }}>Delete permanently</button></div></div>}
-    <div className="trash-list">{sorted.length ? sorted.map((item) => <article className="trash-item" key={item.id}>
-      <div><span className="trash-title">{item.title || 'Untitled'}</span><span className="item-meta"><span className={`preset ${item.preset}`}>{item.preset}</span><span>{stateNames[item.state]}</span><span>Deleted {formatSystemDateTime(item.deletedAt!)}</span></span></div>
-      <div className="trash-item-actions">{confirmDeleteId === item.id ? <><button type="button" className="secondary compact-action" onClick={() => setConfirmDeleteId(null)}>Cancel</button><button type="button" className="danger compact-action" onClick={() => { onDelete(item); setConfirmDeleteId(null); }}>Delete permanently</button></> : <><button type="button" className="secondary compact-action" aria-label={`Restore ${item.title || 'Untitled'}`} onClick={() => onRestore(item)}>Restore</button><button type="button" className="secondary compact-action" aria-label={`Delete ${item.title || 'Untitled'} permanently`} onClick={() => setConfirmDeleteId(item.id)}>Delete</button></>}</div>
-    </article>) : <p className="empty">Trash is empty.</p>}</div>
-  </details>;
-}
-
-/** Extra system collections. They are intentionally read-only for now; Views will make them configurable later. */
-const ALL_ITEMS_VIEW_ID = '__all_items__';
-const allItemsViewFor = (workspace: WorkspaceDocument): SavedView => workspace.views[ALL_ITEMS_VIEW_ID] ?? {
-  id: ALL_ITEMS_VIEW_ID, name: 'All items', query: { source: 'role != "series_template" && isTemplate != true' }, renderer: 'list', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: [],
-};
-
-function AllItemsSettings({ workspace, view, onSave, onClose }: { workspace: WorkspaceDocument; view: SavedView; onSave: (view: SavedView) => void; onClose: () => void }) {
-  const [fields, setFields] = useState(view.fields ?? []);
-  const toggle = (path: string) => setFields((current) => current.includes(path) ? current.filter((entry) => entry !== path) : [...current, path]);
-  return <div className="modal-backdrop"><section className="dialog all-items-settings" role="dialog" aria-modal="true" aria-label="Customize all items"><header><div><p className="dialog-kicker">ALL ITEMS</p><h2>Customize all items</h2></div><button className="icon-button" aria-label="Close all items settings" onClick={onClose}><CloseIcon /></button></header><p className="hint">This uses the same SavedView field model as every other view. The status sections and Trash stay in their current layout.</p><div className="field-groups all-items-field-groups">{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <details key={group} open><summary>{group}</summary><div className="field-options">{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <label className="check" key={field.path}><input type="checkbox" checked={fields.includes(field.path)} onChange={() => toggle(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div><footer className="drawer-actions"><span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => { onSave({ ...view, fields }); onClose(); }}>Save fields</button></footer></section></div>;
-}
-
-function AllItemsCollections({ items, fields, workspace, onEdit, onState }: { items: UniversalItem[]; fields: string[]; workspace: WorkspaceDocument; onEdit: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state']) => void }) {
-  const now = Date.now();
-  const collections = [
-    { name: 'Overdue', help: 'Open items whose deadline has passed.', items: items.filter((item) => item.state === 'open' && item.schedule?.dueAt && new Date(item.schedule.dueAt).getTime() < now) },
-    { name: 'Unscheduled', help: 'Open items without a scheduled time or deadline.', items: items.filter((item) => item.state === 'open' && !item.schedule?.startAt && !item.schedule?.dueAt) },
-    { name: 'With reminders', help: 'Items that still have at least one active reminder.', items: items.filter((item) => item.reminders.some((reminder) => !reminder.acknowledgedAt)) },
-  ];
-  return <PersistedDetails uiKey="all:planning" defaultOpen={false} className="all-item-collections">
-    <summary><span>Planning &amp; attention</span><b>{collections.reduce((total, collection) => total + collection.items.length, 0)}</b></summary>
-    <p className="section-help">Useful system collections. An item can appear here and in its status section; custom categories will come later through Views.</p>
-    {collections.map((collection) => <PersistedDetails key={collection.name} uiKey={`all:collection:${collection.name}`} defaultOpen={collection.name === 'Overdue' && collection.items.length > 0}>
-      <summary><span>{collection.name}</span><b>{collection.items.length}</b></summary>
-      <p className="section-help">{collection.help}</p>
-      <div className="item-list">{collection.items.length ? collection.items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />) : <p className="empty">None.</p>}</div>
-    </PersistedDetails>)}
-  </PersistedDetails>;
-}
-
 function PortableImportDialog({ workspace, source, onApply, onClose }: {
   workspace: WorkspaceDocument; source: string; onApply: (preview: PortableImportPreview) => void; onClose: () => void;
 }) {
@@ -624,24 +427,6 @@ function filteredItems(workspace: WorkspaceDocument, view?: SavedView, now = eff
   return items;
 }
 
-function isHabitOccurrence(workspace: WorkspaceDocument, item: UniversalItem): boolean {
-  return item.role === 'occurrence' && Boolean(item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit);
-}
-function isItemTemplate(item: UniversalItem): boolean { return item.extensions?.['utm:template'] === true; }
-function relationContext(workspace: WorkspaceDocument, item: UniversalItem) {
-  const parents = new Map<string, string[]>();
-  Object.values(workspace.items).forEach((candidate) => candidate.relations.filter((relation) => relation.type === 'parent').forEach((relation) => parents.set(relation.targetId, [...(parents.get(relation.targetId) ?? []), candidate.id])));
-  // A parent relation is stored on the parent and points at the child. The
-  // reverse lookup above finds parents; walking children must therefore read
-  // the current parent's own relations (the previous implementation walked
-  // the reverse direction twice and made isParent/childDepth incorrect).
-  const children = (id: string) => (workspace.items[id]?.relations ?? [])
-    .filter((relation) => relation.type === 'parent' && Boolean(workspace.items[relation.targetId]))
-    .map((relation) => relation.targetId);
-  const distance = (start: string, next: (id: string) => string[]) => { const seen = new Set([start]); let frontier = [start]; for (let depth = 1; depth <= 3; depth += 1) { frontier = frontier.flatMap(next).filter((id) => !seen.has(id)); frontier.forEach((id) => seen.add(id)); if (frontier.length) return depth; } return 0; };
-  const parentDepth = distance(item.id, (id) => parents.get(id) ?? []); const childDepth = distance(item.id, children);
-  return { isSubtask: parentDepth > 0, isParent: childDepth > 0, parentDepth, childDepth };
-}
 function withoutTemplateMarker(item: UniversalItem): UniversalItem {
   const next = clean(item);
   if (next.extensions) {
@@ -1691,7 +1476,6 @@ export default function App() {
   const [newViewRequest, setNewViewRequest] = useState(0);
   const [toast, setToast] = useState('');
   const [backupReminder, setBackupReminder] = useState(false);
-  const [allItemsSettingsOpen, setAllItemsSettingsOpen] = useState(false);
   const [quick, setQuick] = useState('');
   const [celebratingIds, setCelebratingIds] = useState<Set<string>>(new Set());
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
@@ -2037,12 +1821,10 @@ export default function App() {
   if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={activate} />;
   if (!workspace || !session) return null;
   const allItemsView = allItemsViewFor(workspace);
-  const uiKey = 'all:recurring';
 
   // Calendar and Automations are retained in the encrypted workspace, but archived from the daily UI until they are reliable enough to bring back.
   const nav: Array<[Page, LineIconName, string, boolean?]> = [['home', 'home', 'Home'], ['all', 'items', 'All items', true], ['settings', 'settings', 'Settings']];
   const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
-  const deletedItems = Object.values(workspace.items).filter((item) => Boolean(item.deletedAt));
   const restoreItem = (item: UniversalItem) => commit('Restore item from trash', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
     delete target.deletedAt; delete draft.tombstones[item.id];
@@ -2079,7 +1861,7 @@ export default function App() {
       {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button type="button" className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button type="button" className="notice-dismiss" aria-label="Delete notification" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); deleteNotice(notice.id); }}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} celebratingIds={celebratingIds} createRequest={newViewRequest} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task'), view)); }} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} />}
-      {page === 'all' && (() => { const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.habit && !item.deletedAt && !isItemTemplate(item)); const templateItems = Object.values(workspace.items).filter((item) => isItemTemplate(item) && !item.deletedAt); const fields = allItemsView.fields ?? ['title', 'state']; const visibleItems = Object.values(workspace.items).filter((item) => !item.deletedAt && !isItemTemplate(item) && !isHabitOccurrence(workspace, item)); const openItem = (item: UniversalItem) => setEditor(itemEditorSource(workspace, item)); return <section className="page-section"><header className="all-items-toolbar"><div><p className="eyebrow">EVERYTHING</p><h1>All items</h1></div><button className="secondary" onClick={() => setAllItemsSettingsOpen(true)}>Customize</button></header><div className="all-sections">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); const uiKey = `all:${state}`; return <details key={state} open={readUiBoolean(uiKey, state === 'open' || state === 'auto_closed')} onToggle={(event) => persistUiBoolean(uiKey, event.currentTarget.open)}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => openItem(item)} onState={(nextState) => changeItemState(item, nextState)} />)}</div></details>; })}<details open={readUiBoolean('all:templates', templateItems.length > 0)} onToggle={(event) => persistUiBoolean('all:templates', event.currentTarget.open)} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className="item-list">{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => openItem(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></details><details open={readUiBoolean('all:recurring', recurringItems.length > 0)} onToggle={(event) => persistUiBoolean('all:recurring', event.currentTarget.open)} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => openItem(item)} onState={(nextState) => changeItemState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details></div><AllItemsCollections items={visibleItems} fields={fields} workspace={workspace} onEdit={openItem} onState={changeItemState} /><DeletedItemsList items={deletedItems} onRestore={restoreItem} onClear={clearTrash} onDelete={permanentlyDeleteItem} />{allItemsSettingsOpen && <AllItemsSettings workspace={workspace} view={allItemsView} onClose={() => setAllItemsSettingsOpen(false)} onSave={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} />}</section>; })()}
+      {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} />}
       {page === 'settings' && <section className="settings-card diagnostics-card"><p className="eyebrow">DIAGNOSTICS</p><h2>Usage and error log</h2><p>Anonymous local diagnostics help investigate failures and unusual behavior. Nothing is uploaded automatically.</p><div className="diagnostics-actions"><span>{diagnosticCount} recorded entries</span><button className="secondary" onClick={downloadDiagnostics} disabled={!diagnosticCount}>Download log</button><button className="secondary" onClick={() => { localStorage.removeItem(DIAGNOSTICS_KEY); setDiagnosticCount(0); }}>Clear log</button></div></section>}
