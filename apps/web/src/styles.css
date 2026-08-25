@@ -62,6 +62,7 @@
 :root[data-theme="dark"] .secondary,
 :root[data-theme="dark"] .timezone-button,
 :root[data-theme="dark"] .weekday-picker button { background: #202020; color: var(--ink); border-color: var(--line); }
+:root[data-theme="dark"] .weekday-picker button.active { background: #f1f1f1; color: #111; border-color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.22); }
 :root[data-theme="dark"] .sidebar button:hover,
 :root[data-theme="dark"] .sidebar button.active,
 :root[data-theme="dark"] .danger,
