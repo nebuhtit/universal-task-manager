@@ -11,6 +11,12 @@ import type { CalendarApi, DateClickInfo, DateSelectInfo, DatesSetInfo, EventCli
 import '@fullcalendar/react/skeleton.css';
 import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
+import { CodeEditor } from './components/ui/CodeEditor';
+import { CloseIcon, LineIcon, type LineIconName } from './components/ui/icons';
+import { PersistedDetails, persistUiBoolean, readUiBoolean } from './components/ui/PersistedDetails';
+import { SectionGuide } from './components/ui/SectionGuide';
+import { dateInput, formatHeaderDate, formatRussianDateTime, formatSystemDateTime, formatViewDate, fromDateInput, isSleepTime, scheduledTheme } from './utils/dates';
+import { calendarDuration, calendarDurationMs, parseEstimateDuration, parseFriendlyDuration, parseReminderDuration, reminderIsoDuration, toIsoDuration, type FriendlyDurationUnit, type ReminderDurationUnit } from './utils/durations';
 import {
   APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
   collectItemDependencies, collectScheduledEvents, compileQuery, compileSort, createId, createItem, createPortablePackage, buildRecurrenceRule,
@@ -63,38 +69,6 @@ export const itemEditorSource = (workspace: WorkspaceDocument | undefined, item:
 // custom extensions. Reading bytes ourselves keeps .utmb and legacy .utm
 // recovery working even when Files labels the document as an unknown type.
 const readEncryptedBackup = async (file: File): Promise<string> => new TextDecoder().decode(await file.arrayBuffer());
-const dateInput = (value?: string) => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-};
-const fromDateInput = (value: string) => (value ? new Date(value).toISOString() : undefined) as string;
-const localeForLanguage = (language?: WorkspaceLanguage): string => ({ en: 'en-GB', ru: 'ru-RU', es: 'es-ES', de: 'de-DE', fr: 'fr-FR', ko: 'ko-KR' }[language ?? (document.documentElement.lang as WorkspaceLanguage)] ?? 'en-GB');
-const formatSystemDateTime = (value: string | number | Date, language?: WorkspaceLanguage): string => new Intl.DateTimeFormat(localeForLanguage(language), {
-  day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-}).format(new Date(value));
-const formatRussianDateTime = formatSystemDateTime;
-const formatViewDate = (value: string | number | Date, includeTime = true, language?: WorkspaceLanguage): string => {
-  const formatter = new Intl.DateTimeFormat(localeForLanguage(language), {
-    weekday: 'short', day: 'numeric', month: 'short', year: '2-digit',
-    ...(includeTime ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' as const } : {}),
-  });
-  const values = Object.fromEntries(formatter.formatToParts(new Date(value)).map((part) => [part.type, part.value.replace(/\./g, '')]));
-  const date = [values.weekday, values.day, values.month, values.year].filter(Boolean).join(' ');
-  return includeTime ? `${date}, ${values.hour}:${values.minute}` : date;
-};
-const formatHeaderDate = (value: Date, language: WorkspaceLanguage): string => {
-  const formatter = new Intl.DateTimeFormat(localeForLanguage(language), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
-  const values = Object.fromEntries(formatter.formatToParts(value).map((part) => [part.type, part.value.replace(/\./g, '')]));
-  return `${values.weekday} ${values.day} ${values.month} ${values.year} · ${values.hour}:${values.minute}:${values.second}`;
-};
-const clockMinutes = (value: string) => { const [hours = 0, minutes = 0] = value.split(':').map(Number); return hours * 60 + minutes; };
-const scheduledTheme = (lightAt: string, darkAt: string, now = new Date()) => {
-  const minute = now.getHours() * 60 + now.getMinutes(); const light = clockMinutes(lightAt); const dark = clockMinutes(darkAt);
-  if (light === dark) return 'light';
-  return light < dark ? (minute >= light && minute < dark ? 'light' : 'dark') : (minute >= light || minute < dark ? 'light' : 'dark');
-};
 const playTickSound = () => {
   try {
     const Audio = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -117,46 +91,7 @@ const playUiSound = (kind: UiSoundKind) => {
     oscillator.connect(gain).connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + duration + .01); oscillator.onended = () => void context.close();
   } catch { /* Interface sound is optional and must never block an action. */ }
 };
-const isSleepTime = (date: Date, schedule: WorkspaceDocument['calendarPreferences']['sleepSchedule']) => {
-  const minute = date.getHours() * 60 + date.getMinutes(); const wake = clockMinutes(schedule.wake); const sleep = clockMinutes(schedule.sleep);
-  if (wake === sleep) return false;
-  return sleep < wake ? minute >= sleep && minute < wake : minute >= sleep || minute < wake;
-};
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
-type FriendlyDurationUnit = 'minutes' | 'hours' | 'days' | 'weeks';
-type ReminderDurationUnit = 'seconds' | 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'years';
-const reminderIsoDuration = (amount: number, unit: ReminderDurationUnit) => unit === 'seconds' ? `PT${amount}S` : unit === 'minutes' ? `PT${amount}M` : unit === 'hours' ? `PT${amount}H` : unit === 'days' ? `P${amount}D` : unit === 'weeks' ? `P${amount}W` : unit === 'months' ? `P${amount}M` : `P${amount}Y`;
-const parseReminderDuration = (value?: string): { amount: number; unit: ReminderDurationUnit; before: boolean } => { const before = (value ?? '').startsWith('-'); const match = /^(?:-)?(?:P(\d+)([DWMY])|PT(\d+)([HMS]))$/.exec(value ?? ''); if (!match) return { amount: 1, unit: 'hours', before: false }; const amount = Number(match[1] ?? match[3]); const code = match[2] ?? match[4]; return { amount, before, unit: code === 'S' ? 'seconds' : code === 'M' ? (match[3] ? 'minutes' : 'months') : code === 'H' ? 'hours' : code === 'W' ? 'weeks' : code === 'Y' ? 'years' : 'days' }; };
-const parseFriendlyDuration = (value?: string): { amount: number; unit: FriendlyDurationUnit } => {
-  const match = /^(?:P(\d+)([DW])|PT(\d+)([HM]))$/.exec(value ?? '');
-  if (!match) return { amount: 7, unit: 'days' };
-  const amount = Number(match[1] ?? match[3]);
-  const code = match[2] ?? match[4];
-  return { amount, unit: code === 'W' ? 'weeks' : code === 'H' ? 'hours' : code === 'M' ? 'minutes' : 'days' };
-};
-const toIsoDuration = (amount: number, unit: FriendlyDurationUnit) => unit === 'weeks' ? `P${amount}W` : unit === 'days' ? `P${amount}D` : unit === 'hours' ? `PT${amount}H` : `PT${amount}M`;
-const parseEstimateDuration = (value?: string): { amount: number; unit: FriendlyDurationUnit } => {
-  const timed = /^PT(?:(\d+)H)?(?:(\d+)M)?$/.exec(value ?? '');
-  if (timed && (timed[1] || timed[2])) {
-    const minutes = Number(timed[1] ?? 0) * 60 + Number(timed[2] ?? 0);
-    return minutes % 60 === 0 ? { amount: minutes / 60, unit: 'hours' } : { amount: minutes, unit: 'minutes' };
-  }
-  return parseFriendlyDuration(value);
-};
-const calendarDuration = (startAt?: string, endAt?: string): { amount: number; unit: FriendlyDurationUnit } => {
-  const start = startAt ? Date.parse(startAt) : Number.NaN;
-  const end = endAt ? Date.parse(endAt) : Number.NaN;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return { amount: 10, unit: 'minutes' };
-  const minutes = Math.max(1, Math.round((end - start) / 60_000));
-  if (minutes % (7 * 24 * 60) === 0) return { amount: minutes / (7 * 24 * 60), unit: 'weeks' };
-  if (minutes % (24 * 60) === 0) return { amount: minutes / (24 * 60), unit: 'days' };
-  if (minutes % 60 === 0) return { amount: minutes / 60, unit: 'hours' };
-  return { amount: minutes, unit: 'minutes' };
-};
-const calendarDurationMs = (amount: number, unit: FriendlyDurationUnit) => {
-  const minutes = unit === 'weeks' ? amount * 7 * 24 * 60 : unit === 'days' ? amount * 24 * 60 : unit === 'hours' ? amount * 60 : amount;
-  return minutes * 60_000;
-};
 const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date()) => {
   const item = createItem(title, preset, now);
   const startAt = now.toISOString();
@@ -244,88 +179,6 @@ async function reconcileOffMainThread(workspace: WorkspaceDocument, now: Date): 
     worker.onerror = () => { window.clearTimeout(timeout); worker.terminate(); reject(new Error('Recurrence worker failed')); };
     worker.postMessage({ workspace: clean(workspace), now: now.toISOString() });
   });
-}
-
-function Icon({ children }: { children: ReactNode }) { return <span className="icon" aria-hidden>{children}</span>; }
-function CloseIcon() { return <svg className="close-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M4 4l12 12M16 4 4 16" /></svg>; }
-
-type CodeLanguage = 'dsl' | 'json';
-function highlightedCode(source: string, language: CodeLanguage): ReactNode[] {
-  const pattern = language === 'json'
-    ? /("(?:\\.|[^"\\])*")(?=\s*:)|("(?:\\.|[^"\\])*")|\b(true|false|null)\b|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[{}[\],:]|\s+|[^\s{}[\],:]+/g
-    : /("(?:\\.|[^"\\])*")|\b(true|false|null|in)\b|-?\b\d+(?:\.\d+)?\b|&&|\|\||==|!=|>=|<=|[><!+*/%-]|[()[\],.]|\s+|[A-Za-z_][\w.]*/g;
-  const tokens = source.match(pattern) ?? [source];
-  let cursor = 0;
-  return tokens.map((token) => {
-    const at = source.indexOf(token, cursor); cursor = at + token.length;
-    const rest = source.slice(cursor);
-    let kind = 'plain';
-    if (/^\s+$/.test(token)) kind = 'space';
-    else if (/^"/.test(token)) kind = language === 'json' && /^\s*:/.test(rest) ? 'key' : 'string';
-    else if (/^(?:true|false|null|in)$/.test(token)) kind = 'keyword';
-    else if (/^-?\d/.test(token)) kind = 'number';
-    else if (/^(?:&&|\|\||==|!=|>=|<=|[><!+*/%\-]|[{}[\],:().])$/.test(token)) kind = 'operator';
-    else if (language === 'dsl' && /^[A-Za-z_]/.test(token)) kind = rest.trimStart().startsWith('(') ? 'function' : 'identifier';
-    return <span className={`syntax-${kind}`} key={`${cursor}-${token}`}>{token}</span>;
-  });
-}
-
-function CodeEditor({ value, onChange, language, rows = 8, ariaLabel }: {
-  value: string; onChange: (value: string) => void; language: CodeLanguage; rows?: number; ariaLabel?: string;
-}) {
-  const backdrop = useRef<HTMLPreElement>(null);
-  return <div className={`syntax-editor syntax-${language}`}>
-    <pre ref={backdrop} aria-hidden>{highlightedCode(value, language)}{value.endsWith('\n') ? ' ' : null}</pre>
-    <textarea aria-label={ariaLabel} spellCheck={false} rows={rows} value={value} onChange={(event) => onChange(event.target.value)} onScroll={(event) => { if (backdrop.current) { backdrop.current.scrollTop = event.currentTarget.scrollTop; backdrop.current.scrollLeft = event.currentTarget.scrollLeft; } }} />
-  </div>;
-}
-
-function SectionGuide({ title, children }: { title: string; children: ReactNode }) {
-  return <details className="section-guide"><summary>{title}</summary><div>{children}</div></details>;
-}
-
-function readUiBoolean(key: string, fallback: boolean) {
-  if (typeof window === 'undefined') return fallback;
-  const value = window.localStorage.getItem(`utm-ui:${key}`);
-  return value === null ? fallback : value === '1';
-}
-
-function persistUiBoolean(key: string, value: boolean) {
-  if (typeof window !== 'undefined') window.localStorage.setItem(`utm-ui:${key}`, value ? '1' : '0');
-}
-
-/**
- * Native <details> keeps its own DOM state, which becomes fragile once a
- * parent rerenders. Keep one small React state per section instead, and still
- * remember the user's choice between visits. This is deliberately reusable
- * for system collections as well as saved views.
- */
-function PersistedDetails({ uiKey, defaultOpen, className, children }: {
-  uiKey: string; defaultOpen: boolean; className?: string; children: ReactNode;
-}) {
-  const [open, setOpen] = useState(() => readUiBoolean(uiKey, defaultOpen));
-  useEffect(() => { setOpen(readUiBoolean(uiKey, defaultOpen)); }, [uiKey]);
-  useEffect(() => { persistUiBoolean(uiKey, open); }, [uiKey, open]);
-  return <details className={className} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>{children}</details>;
-}
-
-type LineIconName = 'home' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu' | 'plus' | 'chevronDown';
-function LineIcon({ name }: { name: LineIconName }) {
-  const paths: Record<LineIconName, ReactNode> = {
-    home: <path d="m4.5 11.5 7.5-6 7.5 6V19h-15v-7.5Z"/>,
-    calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></>,
-    items: <><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12h3M3 18h3"/></>,
-    views: <><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="8" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/></>,
-    rules: <path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z"/>,
-    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
-    lock: <><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>,
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
-    transfer: <><path d="M7 7h11l-3-3M17 17H6l3 3"/><path d="m18 7-3 3M6 17l3-3"/></>,
-    menu: <path d="M4 6h16M4 12h16M4 18h16"/>,
-    plus: <path d="M12 4v16M4 12h16"/>,
-    chevronDown: <path d="m6 9 6 6 6-6"/>,
-  };
-  return <svg className="line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;
 }
 
 function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void> }) {
