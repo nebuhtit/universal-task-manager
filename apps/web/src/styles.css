@@ -549,6 +549,7 @@ label.check input { width: 18px; height: 18px; }
 .view-section-summary > div:first-child { min-width: 0; overflow: hidden; }
 .view-section-summary h2 { max-width: 100%; margin: 5px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
+.view-section.is-collapsed .view-section-summary h2 { color: var(--muted); }
 .view-section-actions { display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
 .view-section-actions .secondary { white-space: nowrap; }
 .view-settings-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); }
