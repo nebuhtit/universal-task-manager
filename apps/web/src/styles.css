@@ -188,7 +188,7 @@ a { color: var(--moss); }
 .page-title p, .home-hero p { margin: 0; color: var(--muted); }
 .eyebrow { font-size: 10px !important; font-weight: 500; letter-spacing: .09em; color: var(--muted); margin: 0; text-transform: uppercase; }
 .auth-beta { display: inline-block; margin-top: 10px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .08em; line-height: 1; }
-.quick-capture { width: min(440px, 45vw); display: flex; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 4px 12px 4px 4px; box-shadow: 0 12px 32px rgba(0,0,0,.05); }
+.quick-capture { width: min(440px, 45vw); display: flex; align-items: center; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,.05); }
 .quick-capture input { border: 0; background: transparent; width: 100%; padding: 13px 14px; outline: 0; }
 .quick-capture button { width: 30px; height: 30px; flex: none; color: var(--muted); border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 0; font-family: monospace; cursor: pointer; }
 .capture-dock { position: fixed; z-index: 40; left: 236px; right: 0; bottom: 16px; display: flex; justify-content: center; padding: 0 24px; pointer-events: none; }
