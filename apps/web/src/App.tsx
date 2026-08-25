@@ -309,7 +309,7 @@ function PersistedDetails({ uiKey, defaultOpen, className, children }: {
   return <details className={className} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>{children}</details>;
 }
 
-type LineIconName = 'home' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu' | 'plus';
+type LineIconName = 'home' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu' | 'plus' | 'chevronDown';
 function LineIcon({ name }: { name: LineIconName }) {
   const paths: Record<LineIconName, ReactNode> = {
     home: <path d="m4.5 11.5 7.5-6 7.5 6V19h-15v-7.5Z"/>,
@@ -323,6 +323,7 @@ function LineIcon({ name }: { name: LineIconName }) {
     transfer: <><path d="M7 7h11l-3-3M17 17H6l3 3"/><path d="m18 7-3 3M6 17l3-3"/></>,
     menu: <path d="M4 6h16M4 12h16M4 18h16"/>,
     plus: <path d="M12 4v16M4 12h16"/>,
+    chevronDown: <path d="m6 9 6 6 6-6"/>,
   };
   return <svg className="line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;
 }
@@ -1172,7 +1173,7 @@ function SavedViewSection({ view, workspace, onEditView, onEditItem, onState, on
   const matchingItems = filteredItems(workspace, view).length;
   const viewStyle = view.accent ? ({ '--view-accent': view.accent } as CSSProperties) : undefined;
   return <section className={`view-section${open ? '' : ' is-collapsed'}`} style={viewStyle}>
-    <header className="view-section-summary"><div><h2>{view.name}</h2></div><div className="view-section-actions">{open && <button type="button" className="icon-button view-settings-button" aria-label={`Edit ${view.name}`} title="Edit view" onClick={onEditView}><LineIcon name="settings" /></button>}<button type="button" className="view-collapse-button" aria-label={`${open ? 'Collapse' : 'Expand'} ${view.name}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>{open ? '−' : '+'}</button></div></header>
+    <header className="view-section-summary"><div><h2>{view.name}</h2></div><div className="view-section-actions">{open && <button type="button" className="icon-button view-settings-button" aria-label={`Edit ${view.name}`} title="Edit view" onClick={onEditView}><LineIcon name="settings" /></button>}<button type="button" className="view-collapse-button" aria-label={`${open ? 'Collapse' : 'Expand'} ${view.name}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>{open ? '−' : <LineIcon name="chevronDown"/>}</button></div></header>
     {open && <div className="view-section-body">{showTechnicalSummary && <div className="view-query-summary"><code>{view.query.source.trim() || 'All items'}</code>{view.list && <code className="sort-preview">List: {view.list}</code>}{Object.keys(view.creationDefaults ?? {}).length > 0 && <code className="sort-preview">New item defaults: {Object.keys(view.creationDefaults ?? {}).length}</code>}{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{matchingItems} matching items</p></div>}<div className="view-results-scroll"><ViewResults view={view} workspace={workspace} onEdit={onEditItem} onState={onState} celebratingIds={celebratingIds} /></div>{(view.list || Object.keys(view.creationDefaults ?? {}).length > 0) && <button className="view-add-item" type="button" onClick={() => onAddItem(view)}>{view.list ? `+ Add item to ${view.list}` : '+ Add item'}</button>}</div>}
   </section>;
 }
