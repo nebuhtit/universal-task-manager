@@ -625,9 +625,9 @@ function ItemCard({ item, onEdit, onState, fields, workspace, celebrating = fals
   const isHabit = Boolean(item.habit);
   const habitCompletedToday = isHabit && Boolean(item.habit?.completedDates?.includes(today));
   const visiblyClosed = isHabit ? habitCompletedToday : item.state !== 'open';
-  // An empty field selection means “use the familiar All items layout”.
-  // Custom rendering starts only after the user has selected at least one field.
-  const customDisplay = fields !== undefined && fields.length > 0;
+  // A provided field list is authoritative, including an intentionally empty
+  // list. Only callers that omit `fields` receive the familiar fallback card.
+  const customDisplay = fields !== undefined;
   const metadataFields = (fields?.filter((field) => field !== 'title' && field !== 'priority') ?? [])
     .map((field) => ({ field, value: displayViewValue(readItemField(item, field, workspace), field, workspace?.calendarPreferences.language) }));
   return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}`}>
@@ -1187,7 +1187,7 @@ function ViewResults({ view, workspace, onEdit, onState, celebratingIds = new Se
     return visibleColumns.length ? <div className="mini-board">{visibleColumns.map(({ key, label, items: columnItems }) => <section key={key}><h4>{label}</h4>{columnItems.map((item) => <article className={`board-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}`} key={item.id}><button className="state-toggle" aria-label={stateButtonLabel(item)} onClick={() => onState(item, nextState(item))}>{item.state === 'open' && !item.habit?.completedDates?.includes(new Date().toISOString().slice(0, 10)) ? '' : '✓'}</button><button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}</div> : <p className="empty">No items match this board.</p>;
   }
   if (renderView.renderer === 'table') {
-    const fields = visibleFields.length ? visibleFields : ['title', 'state', 'schedule.dueAt', 'priority'];
+    const fields = visibleFields;
     return <div className="table-wrap renderer-table-wrap"><table><thead><tr><th className="state-column"><span className="sr-only">Complete</span></th>{fields.map((field) => <th key={field}>{viewFieldLabel(renderWorkspace, field)}</th>)}</tr></thead><tbody>{items.map((item) => <tr className={`state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}`} key={item.id} onClick={() => onEdit(item)}><td className="state-column"><button className="state-toggle" aria-label={stateButtonLabel(item)} onClick={(event) => { event.stopPropagation(); onState(item, nextState(item)); }}>{item.state === 'open' && !item.habit?.completedDates?.includes(new Date().toISOString().slice(0, 10)) ? '' : '✓'}</button></td>{fields.map((field) => <td key={field}>{displayViewValue(readItemField(item, field, renderWorkspace, liveNow), field, renderWorkspace.calendarPreferences.language)}</td>)}</tr>)}</tbody></table></div>;
   }
   return <div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} celebrating={isCelebrating(item)} fields={visibleFields} workspace={renderWorkspace} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />)}</div>;
