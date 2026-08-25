@@ -890,6 +890,8 @@ tbody tr:hover { background: var(--soft); }
   .form-grid.two, .form-grid.three, .settings-columns, .automation-layout, .transfer-actions { grid-template-columns: 1fr; }
   .settings-columns { gap: 12px; }
   .settings-card { width: 100%; min-width: 0; padding: 16px; border-radius: 14px; }
+  .view-editor-backdrop { padding: 0; place-items: stretch; }
+  .dialog.view-editor { width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; padding: 14px 12px 0; }
   .settings-card h2 { margin: 2px 0 9px; font-size: 17px; }
   .settings-card p { margin: 0 0 11px; font-size: 12px; line-height: 1.5; }
   .settings-card hr { margin: 18px 0; }
