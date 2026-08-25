@@ -203,7 +203,7 @@ a { color: var(--moss); }
 .item-list { display: grid; gap: 5px; }
 .item-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border-radius: 11px; padding: 7px 8px; transition: background .15s ease; }
 .item-card:hover { background: var(--soft); }
-.state-toggle { width: 21px; height: 21px; border: 1.5px solid #a3a3a3; border-radius: 50%; background: transparent; cursor: pointer; padding: 0; font-size: 12px; }
+.state-toggle { width: 26px; height: 26px; border: 1.5px solid #a3a3a3; border-radius: 50%; background: transparent; cursor: pointer; padding: 0; font-size: 14px; }
 .state-done .state-toggle, .state-auto_closed .state-toggle { background: var(--moss); color: white; border-color: var(--moss); }
 .view-section .state-done .state-toggle, .view-section .state-auto_closed .state-toggle { background: var(--view-accent, var(--moss)); border-color: var(--view-accent, var(--moss)); color: #fff; }
 .state-done .item-title, .state-auto_closed .item-title, .state-cancelled .item-title { text-decoration: line-through; color: var(--muted); }
@@ -705,6 +705,7 @@ tbody tr:hover { background: var(--soft); }
 .backup-reminder button { pointer-events: auto; }
 .renderer-table-wrap tbody td { border-bottom: 0; }
 .renderer-table-wrap thead th { border-bottom: 0; }
+.renderer-table-wrap table { font-size: 15px; }
 .diagnostics-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; }
 .diagnostics-actions span { margin-right: auto; }
 .bottom-nav { display: none; }
