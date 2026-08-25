@@ -208,5 +208,3 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     </section></div>}
   </section>;
 }
-
-type CalendarPendingMove = { rows: ProjectedOccurrence[]; deltaMs: number };

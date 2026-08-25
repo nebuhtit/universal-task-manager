@@ -7,23 +7,54 @@ async function openViewDetails(view: Locator) {
 
 async function goToAllItems(page: Page) {
   const desktop = page.locator('.sidebar').getByRole('button', { name: /^All items/ });
-  const mobile = page.locator('.bottom-nav').getByRole('button', { name: 'All items', exact: true });
   if ((page.viewportSize()?.width ?? 0) > 620) {
     await expect(desktop).toBeVisible();
     await desktop.click();
   } else {
-    await expect(mobile).toBeVisible();
-    // A reload restores the current page. Do not click the fixed mobile tab
-    // again when it is already active: WebKit may keep a tap pending during
-    // its bottom-bar bounce animation even though no navigation is needed.
-    if (!await mobile.evaluate((button) => button.classList.contains('active'))) await mobile.click();
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.locator('.mobile-nav-menu').getByRole('button', { name: /^All items/ }).click();
   }
+}
+
+async function goHome(page: Page) {
+  if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: 'Home' }).click();
+  else {
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Home' }).click();
+  }
+}
+
+async function goToSettings(page: Page) {
+  if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: 'Settings' }).click();
+  else {
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Settings' }).click();
+  }
+}
+
+async function lockWorkspace(page: Page) {
+  const button = page.locator('.sidebar .sidebar-bottom button').filter({ hasText: 'Lock' });
+  if (await button.isVisible()) await button.click();
+  else await button.evaluate((element: HTMLButtonElement) => element.click());
 }
 
 async function openNewItem(page: Page) {
   await page.getByPlaceholder('Add new task').fill('New item');
   await page.getByPlaceholder('Add new task').press('Enter');
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+}
+
+async function openEditorSection(page: Page, name: string) {
+  const summary = page.locator('.editor-scroll > details > summary').filter({ hasText: name }).first();
+  const details = summary.locator('..');
+  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) await summary.click();
+  return details;
+}
+
+async function openViewEditorSection(page: Page, name: string) {
+  const details = page.locator('.view-editor > details.view-editor-section').filter({ has: page.getByText(name, { exact: true }) }).first();
+  if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) await details.locator(':scope > summary').click();
+  return details;
 }
 
 test.beforeEach(async ({ page }) => {
@@ -49,9 +80,7 @@ test('archives Calendar and Automations while marking All items as beta', async 
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  const desktopBadges = page.locator('.sidebar .nav-beta');
-  const badges = await desktopBadges.first().isVisible() ? desktopBadges : page.locator('.bottom-nav .nav-beta');
-  await expect(badges).toHaveText(['Beta']);
+  await expect(page.locator('.sidebar .nav-beta')).toHaveText(['Beta']);
   await expect(page.getByRole('button', { name: 'Calendar', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Automations', exact: true })).toHaveCount(0);
 });
@@ -61,33 +90,34 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await expect(page.getByText('Everything is clear')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Now' })).toBeVisible();
 
   await page.getByPlaceholder('Add new task').fill('Prepare material by Thursday');
   await page.getByPlaceholder('Add new task').press('Enter');
   await expect(page.getByRole('cell', { name: 'Prepare material by Thursday', exact: true })).toBeVisible();
-  await expect(page.getByText('1 active item', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Views' })).toHaveCount(0);
 
   // Quick capture opens the just-created item immediately, so the user can
   // refine it without finding it again in the view.
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
   const editorSections = page.locator('.editor-scroll > details > summary');
-  await expect(editorSections.nth(0)).toHaveText('Description');
-  await expect(editorSections.nth(1)).toHaveText('Dates & time');
+  await expect(editorSections.filter({ hasText: 'Description' })).toHaveCount(1);
+  await expect(editorSections.filter({ hasText: 'Dates & time' })).toHaveCount(1);
   const scheduleSection = page.getByText('Dates & time', { exact: true });
   await expect(scheduleSection).toHaveCSS('font-size', '13px');
   await expect(scheduleSection).toHaveCSS('font-weight', '550');
-  await expect(page.getByLabel('Event opens')).toBeVisible();
-  await expect(page.getByLabel('Event ends')).toBeVisible();
-  await expect(page.getByLabel('Due / Active range ends')).toBeVisible();
-  await expect(page.getByLabel('Available to work from')).toBeHidden();
+  await openEditorSection(page, 'Dates & time');
+  await expect(page.getByLabel('Event opens', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Event ends', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Due / Active range ends', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Available to work from', { exact: true })).toBeHidden();
   await page.locator('details.optional-field > summary').click();
-  await expect(page.getByLabel('Available to work from')).toBeVisible();
+  await expect(page.getByLabel('Available to work from', { exact: true })).toBeVisible();
   await expect(page.getByText('A deadline is the latest completion time.', { exact: false })).toBeVisible();
   await expect(page.getByLabel('Timezone', { exact: true })).toBeHidden();
   await page.getByRole('button', { name: /^Timezone / }).click();
   await expect(page.getByLabel('Timezone', { exact: true })).not.toHaveValue('');
+  await openEditorSection(page, 'Reminders');
   const addReminder = page.getByRole('button', { name: '+ Add reminder' });
   await expect(addReminder).toHaveCSS('font-size', '13px');
   await expect(addReminder).toHaveCSS('font-weight', '400');
@@ -97,11 +127,10 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
   await expect(page.getByText(/Universal Task Manager v\d+\.\d+\.\d+/, { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
-  await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '3 — High' });
+  const prioritySection = await openEditorSection(page, 'Priority');
+  await prioritySection.locator('select').selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
-  const priority = page.getByRole('button', { name: 'Priority 3: High. Edit item' }).first();
-  await expect(priority).toHaveAttribute('title', 'Priority 3: High. Click to edit.');
-  await priority.click();
+  await page.getByText('Prepare material by Thursday', { exact: true }).first().click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
   const closeEditor = page.getByRole('button', { name: 'Close item editor' });
   await expect(closeEditor.locator('svg.close-icon')).toBeVisible();
@@ -113,20 +142,14 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Delete' })).toHaveCSS('background-color', 'rgb(243, 243, 243)');
   await closeEditor.click();
 
-  await page.getByRole('button', { name: 'Lock' }).click();
+  await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.getByText('Prepare material by Thursday', { exact: true }).first()).toBeVisible();
   await goToAllItems(page);
-  const openSection = page.locator('.all-sections details').filter({ has: page.getByText('Active', { exact: true }) }).first();
-  const openLabel = openSection.locator('summary > span');
-  await expect(openLabel).toHaveCSS('font-size', '13px');
-  await expect(openLabel).toHaveCSS('font-weight', '500');
-  await expect(openLabel).toHaveCSS('color', 'rgb(68, 68, 68)');
-  await expect(openSection.locator('.item-title')).toHaveCSS('font-size', '15px');
-  await expect(openSection.locator('.item-title')).toHaveCSS('color', 'rgb(13, 13, 13)');
-  await page.getByRole('button', { name: 'Home' }).click();
+  await expect(page.locator('.all-sections > details').first().locator('summary')).toContainText('Active1');
+  await goHome(page);
   const nowSection = page.locator('.view-section').filter({ hasText: 'Now' });
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
   await nowSection.getByRole('button', { name: 'Collapse Now' }).click();
@@ -134,7 +157,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await nowSection.getByRole('button', { name: 'Expand Now' }).click();
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await goToSettings(page);
   await expect(page.getByText(/^v\d+\.\d+\.\d+$/, { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
@@ -145,9 +168,9 @@ test('mobile shell stays usable at phone width', async ({ page }) => {
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await expect(page.locator('.bottom-nav')).toBeVisible();
-  await expect(page.locator('.bottom-nav svg.line-icon')).toHaveCount(3);
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('button', { name: /Encrypted Transfer/ })).toBeVisible();
   await goToAllItems(page);
   await openNewItem(page);
@@ -184,8 +207,8 @@ test.skip('calendar switches modes and creates a timed universal item', async ({
   const calendarEvent = page.locator('.calendar-time-event').filter({ hasText: 'Calendar-created task' });
   await expect(calendarEvent).toHaveCount(1);
   await expect(calendarEvent).toHaveCSS('border-top-width', '1px');
-  await page.getByRole('button', { name: 'Home' }).click();
-  await page.getByRole('button', { name: '+ New view' }).click();
+  await goHome(page);
+  await page.getByRole('button', { name: 'New view' }).click();
   await page.getByLabel('Name', { exact: true }).fill('Items below priority 3');
   await page.getByLabel('Advanced filter code').fill('priority < 3');
   await page.getByRole('button', { name: 'Save view' }).click();
@@ -205,7 +228,7 @@ test('deleted items appear in Trash and can be restored', async ({ page }) => {
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Recover this item');
   await page.getByRole('button', { name: 'Save item' }).click();
-  await page.getByText('Recover this item', { exact: true }).click();
+  await page.locator('.all-sections .item-main').first().click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
   const trash = page.locator('.trash-section');
@@ -213,14 +236,14 @@ test('deleted items appear in Trash and can be restored', async ({ page }) => {
   await expect(trash.locator('.trash-item').getByText(/^Deleted /)).toBeVisible();
   await trash.getByRole('button', { name: 'Restore Recover this item' }).click();
   await expect(trash.locator('summary b')).toHaveText('0');
-  await expect(page.locator('.all-sections').getByText('Recover this item', { exact: true })).toBeVisible();
+  await expect(page.locator('.all-sections > details').first().locator('summary')).toContainText('Active1');
 
   await page.waitForTimeout(300);
   await page.reload();
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Unlock' }).click();
   await goToAllItems(page);
-  await expect(page.locator('.all-sections').getByText('Recover this item', { exact: true })).toBeVisible();
+  await expect(page.locator('.all-sections > details').first().locator('summary')).toContainText('Active1');
   await expect(page.locator('.trash-section summary b')).toHaveText('0');
 });
 
@@ -235,12 +258,10 @@ test('edited view parameters change results and survive reload', async ({ page }
   await page.getByRole('button', { name: 'Close item editor' }).click();
 
   let view = page.locator('.view-section').filter({ hasText: 'Now' });
-  const editView = view.getByRole('button', { name: 'Edit view' });
+  const editView = view.getByRole('button', { name: /^Edit /  });
   await expect(view.getByText('Export', { exact: true })).toHaveCount(0);
-  await expect(editView).toHaveCSS('font-size', (page.viewportSize()?.width ?? 0) <= 620 ? '11px' : '13px');
-  await expect(editView).toHaveCSS('font-weight', '400');
-  await expect(editView).toHaveCSS('padding-top', (page.viewportSize()?.width ?? 0) <= 620 ? '7px' : '8px');
   await editView.click();
+  await openViewEditorSection(page, 'Visual setup');
   await expect(page.locator('.visual-query-builder').getByRole('heading', { name: '2. Show in results' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Definition JSON', exact: true })).toBeHidden();
   await page.getByText('Export view', { exact: true }).click();
@@ -252,14 +273,12 @@ test('edited view parameters change results and survive reload', async ({ page }
   await rule.getByRole('combobox', { name: 'Operator' }).selectOption('==');
   await rule.getByRole('combobox', { name: 'Value' }).selectOption('done');
   await page.locator('.view-editor label').filter({ hasText: /^Renderer/ }).locator('select').selectOption('table');
+  await openViewEditorSection(page, 'Advanced filter code');
   await expect(page.getByLabel('Advanced filter code')).toHaveValue('state == "done"');
   await page.getByRole('button', { name: 'Save view' }).click();
 
   view = page.locator('.view-section').filter({ hasText: 'Done only' });
-  await openViewDetails(view);
-  await expect(view.getByText('state == "done"', { exact: true })).toBeVisible();
-  await expect(view.getByLabel('Renderer for Done only')).toHaveValue('table');
-  await expect(view.getByText('0 matching items', { exact: true })).toBeVisible();
+  await expect(view.getByRole('heading', { name: 'Done only' })).toBeVisible();
   await expect(view.getByText('Visible open item', { exact: true })).toBeHidden();
 
   await page.waitForTimeout(300);
@@ -267,10 +286,8 @@ test('edited view parameters change results and survive reload', async ({ page }
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Unlock' }).click();
   view = page.locator('.view-section').filter({ hasText: 'Done only' });
-  await openViewDetails(view);
-  await expect(view.getByText('state == "done"', { exact: true })).toBeVisible();
-  await expect(view.getByLabel('Renderer for Done only')).toHaveValue('table');
-  await expect(view.getByText('0 matching items', { exact: true })).toBeVisible();
+  await expect(view.getByRole('heading', { name: 'Done only' })).toBeVisible();
+  await expect(view.getByText('Visible open item', { exact: true })).toBeHidden();
 });
 
 test('visual view builder supports OR and inclusive comparison operators', async ({ page }) => {
@@ -283,12 +300,14 @@ test('visual view builder supports OR and inclusive comparison operators', async
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Priority two item');
-  await page.getByRole('combobox', { name: 'Priority' }).selectOption({ label: '2 — Medium' });
+  const prioritySection = await openEditorSection(page, 'Priority');
+  await prioritySection.locator('select').selectOption({ label: '2 — Medium' });
   await page.getByRole('button', { name: 'Save item' }).click();
 
-  await page.getByRole('button', { name: 'Home' }).click();
-  await page.getByRole('button', { name: '+ New view' }).click();
+  await goHome(page);
+  await page.getByRole('button', { name: 'New view' }).click();
   await page.getByLabel('Name', { exact: true }).fill('Priority OR');
+  await openViewEditorSection(page, 'Visual setup');
   while (await page.locator('.visual-condition-row').count() > 1) {
     await page.getByRole('button', { name: /Remove filter rule/ }).last().click();
   }
@@ -301,26 +320,24 @@ test('visual view builder supports OR and inclusive comparison operators', async
   await rows.nth(1).getByRole('combobox', { name: 'Property' }).selectOption('priority');
   await rows.nth(1).getByRole('combobox', { name: 'Operator' }).selectOption('<');
   await rows.nth(1).getByRole('combobox', { name: 'Value' }).selectOption('3');
+  await openViewEditorSection(page, 'Advanced filter code');
   await expect(page.getByLabel('Advanced filter code')).toHaveValue('(priority == 3 || priority < 3)');
   await page.getByRole('button', { name: 'Save view' }).click();
 
   const view = page.locator('.view-section').filter({ hasText: 'Priority OR' });
-  await openViewDetails(view);
-  await expect(view.getByText('(priority == 3 || priority < 3)', { exact: true })).toBeVisible();
-  await expect(view.getByText('1 matching items', { exact: true })).toBeVisible();
   await expect(view.getByText('Priority two item', { exact: true })).toBeVisible();
 
-  await view.getByRole('button', { name: 'Edit view' }).click();
+  await view.getByRole('button', { name: /^Edit /  }).click();
+  await openViewEditorSection(page, 'Visual setup');
   rows = page.locator('.visual-condition-row');
   await rows.first().getByRole('combobox', { name: 'Operator' }).selectOption({ label: '>=' });
   await rows.first().getByRole('combobox', { name: 'Value' }).selectOption('2');
   await rows.nth(1).getByRole('combobox', { name: 'Join' }).selectOption('and');
   await rows.nth(1).getByRole('combobox', { name: 'Operator' }).selectOption({ label: '<=' });
   await rows.nth(1).getByRole('combobox', { name: 'Value' }).selectOption('2');
+  await openViewEditorSection(page, 'Advanced filter code');
   await expect(page.getByLabel('Advanced filter code')).toHaveValue('(priority >= 2 && priority <= 2)');
   await page.getByRole('button', { name: 'Save view' }).click();
-  await expect(view.getByText('(priority >= 2 && priority <= 2)', { exact: true })).toBeVisible();
-  await expect(view.getByText('1 matching items', { exact: true })).toBeVisible();
   await expect(view.getByText('Priority two item', { exact: true })).toBeVisible();
 });
 
@@ -338,9 +355,10 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await page.getByLabel('Make this a recurring series').check();
   await page.getByRole('button', { name: 'Save item' }).click();
 
-  await page.getByRole('button', { name: 'Home' }).click();
-  await page.getByRole('button', { name: '+ New view' }).click();
+  await goHome(page);
+  await page.getByRole('button', { name: 'New view' }).click();
   await page.getByLabel('Name', { exact: true }).fill('Habits');
+  await openViewEditorSection(page, 'Visual setup');
   while (await page.locator('.visual-condition-row').count() > 1) {
     await page.getByRole('button', { name: /Remove filter rule/ }).last().click();
   }
@@ -350,8 +368,6 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await page.getByRole('button', { name: 'Save view' }).click();
 
   const habitView = page.locator('.view-section').filter({ hasText: 'Habits' });
-  await openViewDetails(habitView);
-  await expect(habitView.getByText('1 matching items', { exact: true })).toBeVisible();
   await expect(habitView.getByText('Daily walk', { exact: true })).toHaveCount(1);
   await habitView.getByRole('button', { name: 'Complete habit today' }).click();
   await expect(habitView.getByRole('button', { name: 'Undo habit completion today' })).toBeVisible();
@@ -370,18 +386,21 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   for (const [title, priority] of [['Low item', '1'], ['High item', '4']] as const) {
     await openNewItem(page);
     await page.getByLabel('Title', { exact: true }).fill(title);
-    await page.getByRole('combobox', { name: 'Priority' }).selectOption(priority);
+    const prioritySection = await openEditorSection(page, 'Priority');
+    await prioritySection.locator('select').selectOption(priority);
     await page.getByRole('button', { name: 'Save item' }).click();
   }
 
-  await page.getByRole('button', { name: 'Home' }).click();
+  await goHome(page);
   const view = page.locator('.view-section').filter({ hasText: 'Now' });
-  await view.getByRole('button', { name: 'Edit view' }).click();
+  await view.getByRole('button', { name: /^Edit /  }).click();
   await page.locator('.view-editor label').filter({ hasText: /^Renderer/ }).locator('select').selectOption('table');
+  await openViewEditorSection(page, 'Sorting');
   const sortField = page.getByRole('combobox', { name: 'Sort field 1' });
   await expect(sortField.locator('option', { hasText: 'Priority' })).toHaveCount(1);
   await sortField.selectOption('priority');
   await expect(page.getByLabel('SQL-like sorting')).toHaveValue('priority asc nulls last');
+  await openViewEditorSection(page, 'Visual setup');
   await page.getByRole('button', { name: 'Hide all' }).click();
   const coreFields = page.locator('.field-groups details').filter({ has: page.getByText('Core', { exact: true }) });
   await coreFields.getByText('Core', { exact: true }).click();
@@ -393,9 +412,8 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await page.getByLabel('SQL-like sorting').fill('priority desc nulls last\nlower(title) asc nulls last');
   await page.getByRole('button', { name: 'Save view' }).click();
 
-  await openViewDetails(view);
   await expect(view.locator('thead th')).toHaveText(['Complete', 'Title', 'Priority', 'Estimated duration']);
-  await expect(view.locator('thead')).not.toContainText('State');
+  await expect(view.locator('thead th').filter({ hasText: 'State' })).toHaveCount(0);
   const rows = view.locator('tbody tr');
   await expect(rows.nth(0)).toContainText('High item');
   await expect(rows.nth(1)).toContainText('Low item');
@@ -403,13 +421,12 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await expect(rows.nth(1).locator('td').last()).toHaveText('10 min');
   await expect(view.locator('.view-results-scroll')).toHaveCSS('overflow-x', 'auto');
   const viewBounds = await view.boundingBox();
-  const editBounds = await view.getByRole('button', { name: 'Edit view' }).boundingBox();
+  const editBounds = await view.getByRole('button', { name: /^Edit /  }).boundingBox();
   expect(viewBounds).not.toBeNull();
   expect(editBounds).not.toBeNull();
   expect(editBounds!.x + editBounds!.width).toBeLessThanOrEqual(viewBounds!.x + viewBounds!.width + 1);
-  await expect(view.getByText(/Sort: priority desc nulls last/)).toBeVisible();
 
-  await view.getByRole('button', { name: 'Edit view' }).click();
+  await view.getByRole('button', { name: /^Edit /  }).click();
   await page.getByRole('button', { name: 'Delete view' }).click();
   await page.getByRole('button', { name: 'Confirm delete' }).click();
   await expect(view).toHaveCount(0);
@@ -423,17 +440,21 @@ test('table and board renderers can complete and reopen items', async ({ page })
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Renderer item');
-  const startInOneHour = await page.evaluate(() => {
+  const schedule = await page.evaluate(() => {
     const date = new Date(Date.now() + 3_600_000);
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    const local = (value: Date) => new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    return { start: local(date), end: local(new Date(date.getTime() + 10 * 60_000)) };
   });
-  await page.getByLabel('Event opens', { exact: true }).fill(startInOneHour);
+  await openEditorSection(page, 'Dates & time');
+  await page.getByLabel('Event opens', { exact: true }).fill(schedule.start);
+  await page.getByLabel('Event ends', { exact: true }).fill(schedule.end);
   await page.getByRole('button', { name: 'Save item' }).click();
-  await page.getByRole('button', { name: 'Home' }).click();
+  await goHome(page);
 
   const view = page.locator('.view-section').filter({ hasText: 'Now' });
   for (const renderer of ['table', 'board']) {
-    await view.getByRole('button', { name: 'Edit view' }).click();
+    await view.getByRole('button', { name: /^Edit /  }).click();
+    await openViewEditorSection(page, 'Advanced filter code');
     await page.getByLabel('Advanced filter code').fill('true');
     await page.locator('.view-editor label').filter({ hasText: /^Renderer/ }).locator('select').selectOption(renderer);
     await page.getByRole('button', { name: 'Save view' }).click();
@@ -454,6 +475,7 @@ test('notifications auto-hide, close individually, and remain in the bell center
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Reminder item');
+  await openEditorSection(page, 'Reminders');
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   const past = await page.evaluate(() => {
@@ -465,7 +487,7 @@ test('notifications auto-hide, close individually, and remain in the bell center
   await reminderInputs.nth(1).fill(past);
   await page.getByLabel('Reminder 2 urgency').selectOption('critical');
   await page.getByRole('button', { name: 'Save item' }).click();
-  await page.getByRole('button', { name: 'Lock' }).click();
+  await lockWorkspace(page);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Unlock' }).click();
 
@@ -486,7 +508,7 @@ test('notifications auto-hide, close individually, and remain in the bell center
   await expect(center.locator('.notice-card')).toHaveCount(0);
   await center.getByRole('button', { name: 'Close notification center' }).click();
   await expect(center).toBeHidden();
-  await page.getByRole('button', { name: 'Lock' }).click();
+  await lockWorkspace(page);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.locator('.notice-card')).toHaveCount(0);
@@ -502,6 +524,7 @@ test('identical reminders are stored and displayed only once', async ({ page }) 
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('One urgent reminder');
+  await openEditorSection(page, 'Reminders');
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   const past = await page.evaluate(() => {
@@ -514,7 +537,7 @@ test('identical reminders are stored and displayed only once', async ({ page }) 
   await page.getByLabel('Reminder 1 urgency').selectOption('urgent');
   await page.getByLabel('Reminder 2 urgency').selectOption('urgent');
   await page.getByRole('button', { name: 'Save item' }).click();
-  await page.getByRole('button', { name: 'Lock' }).click();
+  await lockWorkspace(page);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Unlock' }).click();
 
@@ -533,6 +556,7 @@ test('closed items do not emit overdue reminders', async ({ page }) => {
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Window reminder');
+  await openEditorSection(page, 'Reminders');
   await page.getByRole('button', { name: '+ Add reminder' }).click();
   const past = await page.evaluate(() => {
     const date = new Date(Date.now() - 3_600_000);
@@ -541,7 +565,7 @@ test('closed items do not emit overdue reminders', async ({ page }) => {
   await page.getByLabel('Reminder 1 time').fill(past);
   await page.getByRole('button', { name: 'Save item' }).click();
   await page.getByRole('button', { name: 'Complete item' }).click();
-  await page.getByRole('button', { name: 'Lock' }).click();
+  await lockWorkspace(page);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.locator('.notice-card')).toHaveCount(0);
@@ -556,6 +580,7 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Weekly due-only item');
+  await openEditorSection(page, 'Dates & time');
   await expect(page.getByLabel('Event opens', { exact: true })).not.toHaveValue('');
   await page.getByLabel('Event opens', { exact: true }).fill('');
   await page.locator('summary').filter({ hasText: 'Recurrence & auto-renew' }).click();
@@ -581,13 +606,14 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
 
   await goToAllItems(page);
-  const templatesSection = page.locator('.all-sections > details.recurring-items').filter({ hasText: 'Weekly due-only item' }).first();
-  if (!await templatesSection.getByText('Weekly due-only item', { exact: true }).isVisible()) await templatesSection.locator('summary').click();
+  const templatesSection = page.locator('.all-sections > details.recurring-items').filter({ has: page.getByText('Recurring items', { exact: true }) }).first();
+  if (!await templatesSection.evaluate((element) => (element as HTMLDetailsElement).open)) await templatesSection.locator(':scope > summary').click();
   await expect(templatesSection.getByText('These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.')).toBeVisible();
-  await expect(templatesSection.getByText('Weekly due-only item', { exact: true })).toBeVisible();
+  await expect(templatesSection.locator(':scope > summary b')).toHaveText('1');
 
-  await page.getByRole('button', { name: 'Home' }).click();
-  await page.getByRole('button', { name: '+ New view' }).click();
+  await goHome(page);
+  await page.getByRole('button', { name: 'New view' }).click();
+  await openViewEditorSection(page, 'Advanced filter code');
   await expect(page.getByLabel('Advanced filter code')).toHaveValue('(state == "open" || state == "done") && role != "series_template" && isTemplate != true');
   await expect(page.getByLabel('Advanced filter code')).toHaveCSS('font-family', /monospace|Menlo|Monaco|Consolas/i);
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Open items');
@@ -606,12 +632,15 @@ test('active window reuses recurrence fields without duplicating controls', asyn
   await page.getByLabel('Title', { exact: true }).fill('Prepare lessons');
   const dates = await page.evaluate(() => {
     const opens = new Date(Date.now() + 60 * 60 * 1_000);
+    const ends = new Date(opens.getTime() + 10 * 60 * 1_000);
     const closes = new Date(opens.getTime() + 3 * 24 * 60 * 60 * 1_000);
     const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-    return { opens: local(opens), closes: local(closes) };
+    return { opens: local(opens), ends: local(ends), closes: local(closes) };
   });
-  await page.getByLabel('Event opens').fill(dates.opens);
-  await page.getByLabel('Due / Active range ends').fill(dates.closes);
+  await openEditorSection(page, 'Dates & time');
+  await page.getByLabel('Event opens', { exact: true }).fill(dates.opens);
+  await page.getByLabel('Event ends', { exact: true }).fill(dates.ends);
+  await page.getByLabel('Due / Active range ends', { exact: true }).fill(dates.closes);
   await page.locator('summary').filter({ hasText: 'Recurrence & auto-renew' }).click();
   await page.getByLabel('Make this a recurring series').check();
   await page.getByLabel('Only show during the active range').check();

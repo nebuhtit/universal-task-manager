@@ -1,59 +1,46 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import * as Automerge from '@automerge/automerge';
-import ReactMarkdown from 'react-markdown';
-import FullCalendar from '@fullcalendar/react';
-import dayGridPlugin from '@fullcalendar/react/daygrid';
-import timeGridPlugin from '@fullcalendar/react/timegrid';
-import listPlugin from '@fullcalendar/react/list';
-import interactionPlugin, { Draggable } from '@fullcalendar/react/interaction';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import * as XLSX from 'xlsx';
-import type { CalendarApi, DateClickInfo, DateSelectInfo, DatesSetInfo, EventClickInfo, EventDropInfo, EventInput, EventReceiveInfo, EventResizeDoneInfo } from '@fullcalendar/react';
-import '@fullcalendar/react/skeleton.css';
 import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
 import { CodeEditor } from './components/ui/CodeEditor';
-import { CloseIcon, LineIcon, type LineIconName } from './components/ui/icons';
+import { CloseIcon, LineIcon } from './components/ui/icons';
 import { SectionGuide } from './components/ui/SectionGuide';
 import {
   AllItemsPage,
   ALL_ITEMS_VIEW_ID,
   allItemsViewFor,
-  formatScriptResult,
   inferredPreset,
   isItemTemplate,
-  priorityNames,
-  stateNames,
 } from './features/items';
 import { ItemEditor } from './features/items/editor/ItemEditor';
+import { CalendarPage } from './features/calendar/CalendarPage';
+import { AppShell, type AppNotice as Notice, type AppPage as Page } from './components/layout/AppShell';
+import { useAppearance } from './hooks/useAppearance';
+import { useToast } from './hooks/useToast';
+import { useUiSounds } from './hooks/useUiSounds';
+import { useViewport } from './hooks/useViewport';
+import { useWorkspaceController } from './hooks/useWorkspaceController';
 import {
   ViewsPage,
-  effectiveWorkspaceNow,
   selectViewItems,
   setRecentlyDone,
 } from './features/views';
-import { dateInput, formatHeaderDate, formatRussianDateTime, formatSystemDateTime, formatViewDate, fromDateInput, isSleepTime, scheduledTheme } from './utils/dates';
-import { calendarDuration, calendarDurationMs, parseEstimateDuration, parseFriendlyDuration, parseReminderDuration, reminderIsoDuration, toIsoDuration, type FriendlyDurationUnit, type ReminderDurationUnit } from './utils/durations';
+import { formatHeaderDate, formatRussianDateTime, formatSystemDateTime } from './utils/dates';
 import {
-  APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview,
-  collectItemDependencies, collectScheduledEvents, compileQuery, compileSort, createId, createItem, createPortablePackage, buildRecurrenceRule,
-  consolidateHabitOccurrences, evaluateFormulas, evaluateItemScripts, makeSeries, materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems,
-  advanceCompletionAnchoredSeries, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource, projectOccurrences, reconcileRecurrences,
-  removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents, serializePortablePackage, serializeSortRules,
+  APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, buildPortableImportPreview,
+  collectItemDependencies, createId, createItem, createPortablePackage,
+  advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences,
+  runAutomationEvents, serializePortablePackage,
   createWorkspace, fromICS, packageToTabular, parseCsv, tabularToPackage, toCsv, toICS,
-  validateViewCreationDefaults,
   type AutomationAction, type AutomationRule, type CustomFieldDefinition,
-  type CalendarViewMode, type PortableImportPreview, type ProjectedOccurrence, type RecurrenceEditScope,
-  type DomainEvent, type ItemPreset, type ItemScriptField, type PortableSelection, type SavedView, type Schedule, type UniversalItem, type ViewSortRule, type WorkspaceDocument, type WorkspaceLanguage,
-  type ReconcileResult,
+  type ItemPreset, type PortableImportPreview, type PortableSelection, type SavedView, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
-  createLocalWorkspace, exportContainer, hasLocalWorkspace, importAsLocalWorkspace, lock,
-  mergeIntoLocalWorkspace, restoreLocalWorkspace, saveLocalWorkspace, unlockLocalWorkspace, validateContainer,
+  createLocalWorkspace, exportContainer, importAsLocalWorkspace,
+  mergeIntoLocalWorkspace, restoreLocalWorkspace, unlockLocalWorkspace, validateContainer,
   type UnlockedWorkspace,
 } from '@utm/sdk';
 
-type Page = 'home' | 'calendar' | 'all' | 'automations' | 'settings';
-type Notice = { id: string; title: string; body: string; at: string; itemId?: string; reminderIds?: string[] };
 const BUILD_COMMIT = (import.meta.env.VITE_COMMIT_SHA || 'local').slice(0, 7);
 
 const DIAGNOSTICS_KEY = 'utm:diagnostics:v1';
@@ -95,19 +82,6 @@ const playTickSound = () => {
     oscillator.connect(gain).connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + .12); oscillator.onended = () => void context.close();
   } catch { /* Sound is optional and must never block completing an item. */ }
 };
-type UiSoundKind = 'click' | 'confirm' | 'dismiss' | 'toggle' | 'expand' | 'reset';
-const playUiSound = (kind: UiSoundKind) => {
-  try {
-    const Audio = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Audio) return;
-    const context = new Audio(); const oscillator = context.createOscillator(); const gain = context.createGain();
-    const [start, end, duration] = kind === 'confirm' ? [560, 760, .11] : kind === 'dismiss' ? [420, 300, .09] : kind === 'reset' ? [360, 220, .14] : kind === 'toggle' ? [620, 700, .07] : kind === 'expand' ? [480, 620, .08] : [500, 540, .045];
-    oscillator.type = kind === 'click' || kind === 'toggle' ? 'sine' : 'triangle'; oscillator.frequency.setValueAtTime(start, context.currentTime); oscillator.frequency.exponentialRampToValueAtTime(end, context.currentTime + duration);
-    gain.gain.setValueAtTime(.0001, context.currentTime); gain.gain.exponentialRampToValueAtTime(kind === 'click' ? .018 : .028, context.currentTime + .006); gain.gain.exponentialRampToValueAtTime(.0001, context.currentTime + duration);
-    oscillator.connect(gain).connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + duration + .01); oscillator.onended = () => void context.close();
-  } catch { /* Interface sound is optional and must never block an action. */ }
-};
-const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
 const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date()) => {
   const item = createItem(title, preset, now);
   const startAt = now.toISOString();
@@ -180,25 +154,6 @@ async function portableFromFile(file: File, workspace: WorkspaceDocument): Promi
   } else throw new Error('Choose a JSON, CSV, Excel (.xlsx), or iCalendar (.ics) file.');
   const result = tabularToPackage(tables, workspace);
   return { source: serializePortablePackage(result.package), warnings: result.warnings };
-}
-
-async function reconcileOffMainThread(workspace: WorkspaceDocument, now: Date): Promise<ReconcileResult> {
-  if (typeof Worker === 'undefined') {
-    return await Promise.race([
-      Promise.resolve().then(() => reconcileRecurrences(clean(workspace), now)),
-      new Promise<ReconcileResult>((_, reject) => window.setTimeout(() => reject(new Error('Recurrence reconciliation timed out')), 8_000)),
-    ]);
-  }
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./recurrence.worker.ts', import.meta.url), { type: 'module' });
-    const timeout = window.setTimeout(() => { worker.terminate(); reject(new Error('Recurrence worker timed out')); }, 8_000);
-    worker.onmessage = (event: MessageEvent<{ ok: true; result: ReconcileResult } | { ok: false; error: string }>) => {
-      window.clearTimeout(timeout); worker.terminate();
-      if (event.data.ok) resolve(event.data.result); else reject(new Error(event.data.error));
-    };
-    worker.onerror = () => { window.clearTimeout(timeout); worker.terminate(); reject(new Error('Recurrence worker failed')); };
-    worker.postMessage({ workspace: clean(workspace), now: now.toISOString() });
-  });
 }
 
 function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void> }) {
@@ -338,163 +293,6 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
   </section></div>;
 }
 
-type CalendarPendingMove = { rows: ProjectedOccurrence[]; deltaMs: number };
-function CalendarPage({ workspace, commit, onEditItem }: {
-  workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void; onEditItem: (item: UniversalItem) => void;
-}) {
-  const preferences = workspace.calendarPreferences;
-  const initialMode: CalendarViewMode = typeof window !== 'undefined' && window.innerWidth <= 620 && preferences.lastMode === 'month' ? 'day' : preferences.lastMode;
-  const [mode, setMode] = useState<CalendarViewMode>(initialMode);
-  const [range, setRange] = useState(() => ({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1), end: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 8) }));
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [quickDraft, setQuickDraft] = useState<UniversalItem | null>(null);
-  const [pendingMove, setPendingMove] = useState<CalendarPendingMove | null>(null);
-  const [undoItems, setUndoItems] = useState<Record<string, UniversalItem> | null>(null);
-  const [moveDialog, setMoveDialog] = useState(false);
-  const [moveTarget, setMoveTarget] = useState('');
-  const [unscheduledOpen, setUnscheduledOpen] = useState(false);
-  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
-  const unscheduledRef = useRef<HTMLDivElement>(null);
-  const calendarRef = useRef<{ getApi: () => CalendarApi }>(null);
-
-  const projected = useMemo(() => {
-    const all = projectOccurrences(workspace, range.start, range.end);
-    const predicate = preferences.selectedViewId ? (() => {
-      const view = workspace.views[preferences.selectedViewId!];
-      if (!view) return (_row: ProjectedOccurrence) => true;
-      try {
-        const compiled = compileQuery(view.query.source.trim() || 'true');
-        return (row: ProjectedOccurrence) => {
-          const source = workspace.items[row.materializedItemId ?? row.sourceItemId];
-          if (!source) return false;
-          const logical = row.virtual ? { ...clean(source), role: 'occurrence' as const, state: row.state, schedule: row.schedule } : source;
-          try { return compiled(logical); } catch { return false; }
-        };
-      } catch { return (_row: ProjectedOccurrence) => false; }
-    })() : (_row: ProjectedOccurrence) => true;
-    return all.filter((row) => preferences.includeStates.includes(row.state) && predicate(row));
-  }, [workspace, range.start, range.end, preferences.selectedViewId, preferences.includeStates]);
-  const byId = useMemo(() => new Map(projected.map((row) => [row.id, row])), [projected]);
-  const unscheduled = Object.values(workspace.items).filter((item) => !item.deletedAt && item.role !== 'series_template' && !item.schedule?.startAt && !item.schedule?.dueAt);
-
-  useEffect(() => {
-    const container = unscheduledRef.current; if (!container) return;
-    const draggable = new Draggable(container, {
-      itemSelector: '.unscheduled-item', longPressDelay: 420,
-      eventData: (element) => ({ id: `external:${(element as HTMLElement).dataset.itemId}`, title: (element as HTMLElement).dataset.title, duration: '00:30' }),
-    });
-    return () => draggable.destroy();
-  }, [unscheduled.map((item) => item.id).join('|')]);
-
-  useEffect(() => {
-    if (!undoItems) return; const timer = window.setTimeout(() => setUndoItems(null), 8_000); return () => window.clearTimeout(timer);
-  }, [undoItems]);
-
-  const setCalendarMode = (next: CalendarViewMode) => {
-    setMode(next); calendarRef.current?.getApi().changeView(next === 'month' ? 'dayGridMonth' : next === 'week' ? 'timeGridWeek' : next === 'day' ? 'timeGridDay' : next === 'three_day' ? 'timeGridThreeDay' : 'listYear');
-    commit('Save calendar mode', (draft) => { draft.calendarPreferences.lastMode = next; });
-  };
-  const saveUndoPoint = () => setUndoItems(clean(workspace.items));
-  const applyMove = (rows: ProjectedOccurrence[], deltaMs: number, scope: RecurrenceEditScope) => {
-    saveUndoPoint();
-    commit(rows.length > 1 ? 'Move selected calendar items' : 'Move calendar item', (draft) => {
-      const ordinaryIds: string[] = [];
-      const movedSeries = new Set<string>();
-      rows.forEach((row) => {
-        if (row.seriesId) {
-          if (scope === 'entire_series' && movedSeries.has(row.seriesId)) return;
-          moveRecurringOccurrence(draft, row, deltaMs, scope); movedSeries.add(row.seriesId);
-        } else ordinaryIds.push(materializeProjectedOccurrence(draft, row).id);
-      });
-      if (ordinaryIds.length) moveCalendarItems(draft, ordinaryIds, deltaMs);
-    });
-    setSelected(new Set()); setPendingMove(null);
-  };
-  const requestMove = (row: ProjectedOccurrence, deltaMs: number) => {
-    const rows = selected.has(row.id) ? projected.filter((entry) => selected.has(entry.id)) : [row];
-    if (rows.some((entry) => entry.seriesId)) setPendingMove({ rows, deltaMs });
-    else applyMove(rows, deltaMs, 'this_occurrence');
-  };
-  const createDraftForRange = (start: Date, end: Date | null, allDay: boolean) => {
-    const item = createUiItem('', 'task', start);
-    item.schedule = { timezone: preferences.timezone, startAt: start.toISOString(), endAt: (end ?? new Date(start.getTime() + preferences.defaultDurationMinutes * 60_000)).toISOString(), ...(allDay ? { allDay: true } : {}) };
-    setQuickDraft(item);
-  };
-  const patchQuickSchedule = (key: 'startAt' | 'endAt', value: string) => setQuickDraft((current) => {
-    if (!current) return current;
-    const schedule = { ...current.schedule! } as Record<string, unknown>; const converted = fromDateInput(value);
-    if (converted) schedule[key] = converted; else delete schedule[key];
-    return { ...current, schedule: schedule as unknown as Schedule };
-  });
-  const openProjected = (row: ProjectedOccurrence) => {
-    let opened: UniversalItem | undefined;
-    if (row.virtual) commit('Materialize calendar occurrence', (draft) => { opened = clean(materializeProjectedOccurrence(draft, row)); });
-    else opened = workspace.items[row.materializedItemId ?? row.id];
-    if (opened) onEditItem(clean(opened));
-  };
-  const events: EventInput[] = projected.map((row) => {
-    const start = row.schedule.startAt ?? row.schedule.dueAt!;
-    const defaultEnd = row.schedule.startAt ? new Date(new Date(start).getTime() + preferences.defaultDurationMinutes * 60_000).toISOString() : undefined;
-    const end = row.schedule.endAt ?? defaultEnd;
-    return {
-      id: row.id, title: row.title || 'Untitled', start, ...(end ? { end } : {}), allDay: Boolean(row.schedule.allDay),
-      editable: true, durationEditable: !row.dueOnly, class: [`calendar-state-${row.state}`, `calendar-priority-${row.priority ?? 0}`, row.schedule.startAt && !row.schedule.allDay ? 'calendar-time-event' : '', row.dueOnly ? 'calendar-due-only' : '', selected.has(row.id) ? 'calendar-selected' : ''].filter(Boolean).join(' '),
-      extendedProps: { row },
-    };
-  });
-  const handleEventClick = (info: EventClickInfo) => {
-    const row = byId.get(info.event.id); if (!row) return;
-    if (info.jsEvent.shiftKey) { setSelected((current) => { const next = new Set(current); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; }); return; }
-    openProjected(row);
-  };
-  const handleSelect = (info: DateSelectInfo) => {
-    if (info.jsEvent?.shiftKey || info.jsEvent === null) {
-      const start = info.start.getTime(); const end = info.end.getTime();
-      setSelected(new Set(projected.filter((row) => { const value = new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime(); return value >= start && value < end; }).map((row) => row.id)));
-      return;
-    }
-    createDraftForRange(info.start, info.end, info.allDay);
-  };
-  const handleDrop = (info: EventDropInfo) => {
-    const row = byId.get(info.event.id); const start = info.event.start; if (!row || !start) { info.revert(); return; }
-    const original = new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime(); const delta = start.getTime() - original;
-    info.revert(); requestMove(row, delta);
-  };
-  const handleResize = (info: EventResizeDoneInfo) => {
-    const row = byId.get(info.event.id); const start = info.event.start; const end = info.event.end; info.revert(); if (!row || !start || !end) return;
-    saveUndoPoint();
-    commit('Resize calendar item', (draft) => { const item = materializeProjectedOccurrence(draft, row); resizeCalendarItem(draft, item.id, end.toISOString(), new Date(), start.toISOString()); });
-  };
-  const handleExternal = (info: EventReceiveInfo) => {
-    const itemId = info.event.id.replace(/^external:/, ''); const start = info.event.start; const end = info.event.end; const allDay = info.event.allDay; info.revert(); if (!start) return;
-    saveUndoPoint();
-    commit('Schedule unscheduled item', (draft) => { const item = draft.items[itemId]; if (!item) return; item.schedule = { timezone: preferences.timezone, startAt: start.toISOString(), endAt: (end ?? new Date(start.getTime() + preferences.defaultDurationMinutes * 60_000)).toISOString(), ...(allDay ? { allDay: true } : {}) }; item.updatedAt = new Date().toISOString(); item.revision += 1; });
-    setUnscheduledOpen(false);
-  };
-  const selectedRows = projected.filter((row) => selected.has(row.id));
-  const performKeyboardMove = () => {
-    if (!selectedRows.length || !moveTarget) return;
-    const earliest = Math.min(...selectedRows.map((row) => new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime()));
-    const delta = new Date(moveTarget).getTime() - earliest;
-    if (selectedRows.some((row) => row.seriesId)) setPendingMove({ rows: selectedRows, deltaMs: delta }); else applyMove(selectedRows, delta, 'this_occurrence');
-    setMoveDialog(false);
-  };
-
-  return <section className="calendar-page page-section">
-    <div className="calendar-title"><div><p className="eyebrow">TIME, WITHOUT SILOS</p><h1>Calendar</h1></div><div className="calendar-nav"><button onClick={() => setCalendarSettingsOpen(true)} aria-label="Calendar settings"><LineIcon name="settings"/></button><button onClick={() => calendarRef.current?.getApi().prev()} aria-label="Previous period">‹</button><button onClick={() => calendarRef.current?.getApi().today()}>Today</button><button onClick={() => calendarRef.current?.getApi().next()} aria-label="Next period">›</button></div></div>
-    <div className="calendar-controls"><div className="calendar-modes">{(['month', ...(window.innerWidth <= 620 ? ['three_day'] : ['week']), 'day', 'agenda'] as CalendarViewMode[]).map((entry) => <button className={mode === entry ? 'active' : ''} key={entry} onClick={() => setCalendarMode(entry)}>{entry === 'three_day' ? '3 days' : entry}</button>)}</div><label>Saved view<select value={preferences.selectedViewId ?? ''} onChange={(event) => commit('Set calendar view filter', (draft) => { if (event.target.value) draft.calendarPreferences.selectedViewId = event.target.value; else delete draft.calendarPreferences.selectedViewId; })}><option value="">All active + completed</option>{Object.values(workspace.views).map((view) => <option value={view.id} key={view.id}>{view.name}</option>)}</select></label><button className="secondary unscheduled-toggle" onClick={() => setUnscheduledOpen(true)}>Unscheduled ({unscheduled.length})</button></div>
-    <div className="calendar-state-filters">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => <label className="check" key={state}><input type="checkbox" checked={preferences.includeStates.includes(state)} onChange={() => commit('Change calendar state filters', (draft) => { const values = draft.calendarPreferences.includeStates; const index = values.indexOf(state); if (index >= 0) values.splice(index, 1); else values.push(state); })} />{stateNames[state]}</label>)}</div>
-    {selected.size > 0 && <div className="selection-bar"><strong>{selected.size} selected</strong><button onClick={() => { const earliest = Math.min(...selectedRows.map((row) => new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime())); setMoveTarget(dateInput(new Date(earliest).toISOString())); setMoveDialog(true); }}>Move selected…</button><button onClick={() => setSelected(new Set())}>Clear</button></div>}
-    <div className="calendar-layout"><div className="calendar-main-panel"><FullCalendar ref={calendarRef} plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]} initialView={mode === 'month' ? 'dayGridMonth' : mode === 'week' ? 'timeGridWeek' : mode === 'day' ? 'timeGridDay' : mode === 'three_day' ? 'timeGridThreeDay' : 'listYear'} views={{ timeGridThreeDay: { type: 'timeGrid', duration: { days: 3 } } }} headerToolbar={false} events={events} editable eventResizableFromStart selectable selectMirror droppable nowIndicator weekends={preferences.weekends} firstDay={preferences.weekStartsOn} slotMinTime="00:00:00" slotMaxTime="24:00:00" scrollTime={`${preferences.sleepSchedule.wake}:00`} scrollTimeReset={false} slotHeaderContent={(info) => info.isTime ? `${info.date.getHours()}:${String(info.date.getMinutes()).padStart(2, '0')}` : info.text} slotLaneClass={(info) => [info.isMajor ? 'calendar-hour-line' : 'calendar-half-hour-line', isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-slot' : ''].filter(Boolean).join(' ')} slotHeaderClass={(info) => info.isTime && isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-label' : ''} snapDuration={`00:${String(preferences.snapMinutes).padStart(2, '0')}:00`} slotDuration="00:30:00" longPressDelay={420} eventLongPressDelay={420} selectLongPressDelay={420} height="auto" datesSet={(info: DatesSetInfo) => setRange((current) => current.start.getTime() === info.start.getTime() && current.end.getTime() === info.end.getTime() ? current : { start: info.start, end: info.end })} dateClick={(info: DateClickInfo) => createDraftForRange(info.date, null, info.allDay)} select={handleSelect} eventClick={handleEventClick} eventDrop={handleDrop} eventResize={handleResize} eventReceive={handleExternal} eventContent={(info) => { const row = info.event.extendedProps.row as ProjectedOccurrence | undefined; return <span className="calendar-event-content"><i aria-hidden>{selected.has(info.event.id) ? '✓' : ''}</i><span>{info.event.title}</span>{row?.schedule.dueAt && !row.dueOnly && <b title="Has deadline">◆</b>}</span>; }} eventDidMount={(info) => { let timer = 0; info.el.addEventListener('touchstart', () => { timer = window.setTimeout(() => setSelected((current) => new Set(current).add(info.event.id)), 460); }, { passive: true }); info.el.addEventListener('touchend', () => window.clearTimeout(timer), { passive: true }); }} /></div>
-      <aside ref={unscheduledRef} className={`unscheduled-panel ${unscheduledOpen ? 'open' : ''}`}><header><div><h2>Unscheduled</h2><p>Drag an item into the calendar.</p></div><button className="icon-button mobile-unscheduled-close" aria-label="Close unscheduled items" onClick={() => setUnscheduledOpen(false)}><CloseIcon /></button></header><div>{unscheduled.map((item) => <button className="unscheduled-item" data-item-id={item.id} data-title={item.title} key={item.id} onClick={() => onEditItem(item)}><span>{item.title}</span><small>{inferredPreset(item)}</small></button>)}{!unscheduled.length && <p className="empty">Everything has a date.</p>}</div></aside>
-    </div>
-    {quickDraft && <div className="modal-backdrop"><section className="dialog quick-event"><header><h2>New calendar item</h2><button className="icon-button" aria-label="Close quick create" onClick={() => setQuickDraft(null)}><CloseIcon /></button></header><label>Title<input autoFocus value={quickDraft.title} onChange={(event) => setQuickDraft({ ...quickDraft, title: event.target.value })} /></label><div className="form-grid two"><label>Start<input type="datetime-local" value={dateInput(quickDraft.schedule?.startAt)} onChange={(event) => setQuickDraft({ ...quickDraft, schedule: { ...quickDraft.schedule!, startAt: fromDateInput(event.target.value) } })} /></label><label>End<input type="datetime-local" value={dateInput(quickDraft.schedule?.endAt)} onChange={(event) => setQuickDraft({ ...quickDraft, schedule: { ...quickDraft.schedule!, endAt: fromDateInput(event.target.value) } })} /></label></div><label>Priority<select value={quickDraft.priority ?? 0} onChange={(event) => setQuickDraft({ ...quickDraft, priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{[0,1,2,3,4].map((value) => <option value={value} key={value}>{value === 0 ? 'None' : priorityNames[value as 1|2|3|4]}</option>)}</select></label><footer><button className="secondary" onClick={() => { onEditItem(quickDraft); setQuickDraft(null); }}>More options</button><span/><button className="primary" disabled={!quickDraft.title.trim()} onClick={() => { commit('Create calendar item', (draft) => { draft.items[quickDraft.id] = clean({ ...quickDraft, title: quickDraft.title.trim() }); }); setQuickDraft(null); }}>Save</button></footer></section></div>}
-    {pendingMove && <div className="modal-backdrop"><section className="dialog"><header><h2>Move repeating item</h2><button className="icon-button" aria-label="Cancel recurring move" onClick={() => setPendingMove(null)}><CloseIcon /></button></header><p>{pendingMove.rows.length > 1 ? 'Choose one scope for the selected recurring items. You can move individual rows separately afterwards.' : 'Which part of the series should move?'}</p><div className="scope-actions"><button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'this_occurrence')}>This occurrence</button><button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'this_and_future')}>This and future</button><button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'entire_series')}>Entire series</button></div></section></div>}
-    {moveDialog && <div className="modal-backdrop"><section className="dialog"><header><h2>Move selected items</h2><button className="icon-button" aria-label="Close move dialog" onClick={() => setMoveDialog(false)}><CloseIcon /></button></header><p>Set the new date and time for the earliest selected item. Every selected item keeps the same relative distance.</p><label>New start<input type="datetime-local" value={moveTarget} onChange={(event) => setMoveTarget(event.target.value)} /></label><footer><button className="secondary" onClick={() => setMoveDialog(false)}>Cancel</button><span/><button className="primary" onClick={performKeyboardMove}>Move group</button></footer></section></div>}
-    {undoItems && <div className="calendar-undo" role="status"><span>Calendar change saved</span><button onClick={() => { commit('Undo calendar operation', (draft) => { draft.items = clean(undoItems); }); setUndoItems(null); }}>Undo</button></div>}
-    {calendarSettingsOpen && <div className="modal-backdrop"><section className="dialog"><header><h2>Calendar settings</h2><button className="icon-button" aria-label="Close calendar settings" onClick={() => setCalendarSettingsOpen(false)}><CloseIcon /></button></header><label>Timezone<input value={preferences.timezone} onChange={(event) => commit('Change calendar timezone', (draft) => { draft.calendarPreferences.timezone = event.target.value; })} /></label><div className="form-grid two"><label>Wake time<input type="time" value={preferences.sleepSchedule.wake} onChange={(event) => commit('Change wake time', (draft) => { draft.calendarPreferences.sleepSchedule.wake = event.target.value; })} /></label><label>Sleep time<input type="time" value={preferences.sleepSchedule.sleep} onChange={(event) => commit('Change sleep time', (draft) => { draft.calendarPreferences.sleepSchedule.sleep = event.target.value; })} /></label><label>Snap minutes<input type="number" min="5" step="5" value={preferences.snapMinutes} onChange={(event) => commit('Change calendar snap', (draft) => { draft.calendarPreferences.snapMinutes = Math.max(5, Number(event.target.value) || 15); })} /></label><label>Default duration<input type="number" min="5" step="5" value={preferences.defaultDurationMinutes} onChange={(event) => commit('Change default duration', (draft) => { draft.calendarPreferences.defaultDurationMinutes = Math.max(5, Number(event.target.value) || 30); })} /></label></div><p className="hint">The full 24-hour day stays available. Time between Sleep and Wake is shaded in the calendar.</p><label className="check"><input type="checkbox" checked={preferences.weekends} onChange={(event) => commit('Toggle calendar weekends', (draft) => { draft.calendarPreferences.weekends = event.target.checked; })} /> Show weekends</label><label>Week starts<select value={preferences.weekStartsOn} onChange={(event) => commit('Change first weekday', (draft) => { draft.calendarPreferences.weekStartsOn = Number(event.target.value) as 0 | 1; })}><option value="1">Monday</option><option value="0">Sunday</option></select></label></section></div>}
-  </section>;
-}
 
 function AutomationsPage({ workspace, commit }: { workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void }) {
   const [editing, setEditing] = useState<AutomationRule | null>(null);
@@ -585,8 +383,6 @@ function TransferDialog({ session, onMerged, onReplaced, onBackupExported, onClo
 }
 
 export default function App() {
-  const [boot, setBoot] = useState<'checking' | 'empty' | 'locked' | 'ready'>('checking');
-  const [session, setSession] = useState<UnlockedWorkspace | null>(null);
   const [page, setPage] = useState<Page>('home');
   const [editor, setEditor] = useState<UniversalItem | null>(null);
   const [editorIsNew, setEditorIsNew] = useState(false);
@@ -596,36 +392,18 @@ export default function App() {
   const [noticeCenterOpen, setNoticeCenterOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [newViewRequest, setNewViewRequest] = useState(0);
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useToast();
   const [backupReminder, setBackupReminder] = useState(false);
   const [quick, setQuick] = useState('');
   const [celebratingIds, setCelebratingIds] = useState<Set<string>>(new Set());
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
   const [clockTick, refreshClock] = useState(() => Date.now());
-  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const seenNoticeIds = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, number>());
   const pushError = useRef('');
   const captureInputRef = useRef<HTMLInputElement>(null);
-  const workspace = session?.document as WorkspaceDocument | undefined;
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
-
-  useEffect(() => { void hasLocalWorkspace().then((exists) => setBoot(exists ? 'locked' : 'empty')); }, []);
-  useEffect(() => {
-    if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
-  }, []);
-  useEffect(() => {
-    if (boot !== 'ready') return;
-    const resetInitialScroll = () => {
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-    };
-    resetInitialScroll();
-    const frame = window.requestAnimationFrame(resetInitialScroll);
-    const timer = window.setTimeout(resetInitialScroll, 120);
-    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
-  }, [boot]);
+  const { boot, session, workspace, activate, commit, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
   useEffect(() => {
     const capture = (kind: DiagnosticEntry['kind'], message: string, details?: string) => { recordDiagnostic({ kind, message, page, ...(details ? { details } : {}) }); setDiagnosticCount(readDiagnostics().length); };
     const onError = (event: ErrorEvent) => capture('error', event.message || 'Unknown error', event.error?.stack);
@@ -633,42 +411,7 @@ export default function App() {
     window.addEventListener('error', onError); window.addEventListener('unhandledrejection', onRejection);
     return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onRejection); };
   }, [page]);
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const updateKeyboardOffset = () => {
-      const captureFocused = document.activeElement === captureInputRef.current;
-      const keyboardHeight = captureFocused ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
-      document.documentElement.style.setProperty('--keyboard-offset', `${keyboardHeight}px`);
-      document.documentElement.classList.toggle('capture-keyboard-open', captureFocused && keyboardHeight > 80);
-    };
-    const releasePage = () => {
-      document.documentElement.classList.remove('capture-keyboard-open');
-      document.documentElement.style.setProperty('--keyboard-offset', '0px');
-    };
-    const onFocusIn = (event: FocusEvent) => {
-      if (event.target === captureInputRef.current) window.requestAnimationFrame(updateKeyboardOffset);
-    };
-    const onFocusOut = (event: FocusEvent) => {
-      if (event.target === captureInputRef.current) releasePage();
-    };
-    // The quick-capture input mounts only after the workspace is unlocked.
-    // Listen on the document so this remains reliable across lock/unlock and page changes.
-    document.addEventListener('focusin', onFocusIn);
-    document.addEventListener('focusout', onFocusOut);
-    updateKeyboardOffset();
-    viewport.addEventListener('resize', updateKeyboardOffset);
-    viewport.addEventListener('scroll', updateKeyboardOffset);
-    return () => {
-      document.removeEventListener('focusin', onFocusIn);
-      document.removeEventListener('focusout', onFocusOut);
-      viewport.removeEventListener('resize', updateKeyboardOffset);
-      viewport.removeEventListener('scroll', updateKeyboardOffset);
-      releasePage();
-      document.documentElement.style.removeProperty('--keyboard-offset');
-    };
-  }, []);
-  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 3500); return () => window.clearTimeout(timer); }, [toast]);
+  useViewport(captureInputRef, boot === 'ready');
   useEffect(() => {
     if (!workspace) return;
     const prefs = workspace.calendarPreferences.backupPreferences;
@@ -699,69 +442,6 @@ export default function App() {
   }, [notices]);
   useEffect(() => () => { noticeTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
 
-  const activate = async (unlocked: UnlockedWorkspace, selectedLanguage?: WorkspaceLanguage) => {
-    let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
-    const now = effectiveWorkspaceNow(unlocked.document as WorkspaceDocument);
-    const migration = migrateWorkspace(clean(unlocked.document as WorkspaceDocument));
-    const migratedDocument = Automerge.change(unlocked.document, 'Migrate workspace metadata and reminders', (draft) => {
-      const workspace = draft as unknown as WorkspaceDocument;
-      if (workspace.schemaVersion !== migration.value.schemaVersion || !workspace.calendarPreferences?.language) {
-        const target = workspace as unknown as Record<string, unknown>;
-        Object.keys(target).forEach((key) => { delete target[key]; });
-        Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); });
-      }
-      // Choosing a language on the unlock screen is an explicit user preference;
-      // persist it in the encrypted workspace so it travels with transfers.
-      if (selectedLanguage) workspace.calendarPreferences.language = selectedLanguage;
-      backfillItemCreationVersions(workspace);
-      Object.values(workspace.items).forEach(removeDuplicateReminders);
-      consolidateHabitOccurrences(workspace, now);
-    });
-    let reconciliation: ReconcileResult;
-    let reconciliationWarning = '';
-    try { reconciliation = await reconcileOffMainThread(migratedDocument as WorkspaceDocument, now); }
-    catch (reason) {
-      // Never make an encrypted workspace inaccessible because one malformed
-      // or very large recurring series cannot be reconciled during unlock.
-      // The normal foreground reconciler will retry after the workspace opens.
-      reconciliation = { created: [], updated: [], autoClosed: [], removedIds: [], untouched: 0 };
-      reconciliationWarning = reason instanceof Error ? reason.message : String(reason);
-    }
-    const updated = Automerge.change(migratedDocument, 'Unlock reconciliation', (draft) => {
-      const workspace = draft as unknown as WorkspaceDocument;
-      reconciliation.created.forEach((item) => { if (!workspace.items[item.id]) workspace.items[item.id] = clean(item); });
-      reconciliation.updated.forEach((item) => { workspace.items[item.id] = clean(item); });
-      reconciliation.autoClosed.forEach((item) => { workspace.items[item.id] = clean(item); });
-      reconciliation.removedIds.forEach((id) => { workspace.tombstones[id] = now.toISOString(); delete workspace.items[id]; });
-      const events: DomainEvent[] = reconciliation.created.map((item) => ({ id: createId(), type: 'occurrence.activated', at: now.toISOString(), itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }));
-      events.push(...collectScheduledEvents(workspace, now));
-      notifications = runAutomationEvents(workspace, events, { now }).notifications;
-    });
-    const reminderGroups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>();
-    const urgencyRank = { normal: 0, urgent: 1, critical: 2 } as const;
-    for (const item of Object.values(updated.items)) {
-      if (item.state !== 'open' || item.role === 'series_template') continue;
-      if (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now) continue;
-      for (const reminder of item.reminders) {
-        if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) {
-          const group = reminderGroups.get(item.id);
-          if (!group) reminderGroups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] });
-          else { group.count += 1; group.reminderIds.push(reminder.id); if (urgencyRank[reminder.urgency] > urgencyRank[group.urgency]) group.urgency = reminder.urgency; }
-        }
-      }
-    }
-    reminderGroups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); });
-    await saveLocalWorkspace(updated, unlocked.dataKey);
-    setSession({ ...unlocked, document: updated }); setBoot('ready');
-    // A slow recurrence worker must never block or visually alarm the user on
-    // unlock. The workspace is already open; the next lifecycle pass retries
-    // reconciliation in the background. Keep unexpected errors visible, but
-    // treat the normal mobile timeout as a quiet retry condition.
-    if (reconciliationWarning && !/timed out/i.test(reconciliationWarning)) setToast(`Workspace opened. Recurrence sync will retry in the background (${reconciliationWarning}).`);
-    setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
-    if (Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
-  };
-
   useEffect(() => {
     if (!workspace) return;
     const language = workspace.calendarPreferences.language;
@@ -772,78 +452,14 @@ export default function App() {
     if (language === 'en') return;
     return installDomLocalization(language);
   }, [workspace?.calendarPreferences.language]);
-  useEffect(() => {
-    const appearance = workspace?.calendarPreferences.appearance;
-    const apply = () => {
-      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const mode = appearance?.mode ?? 'system';
-      const theme = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode === 'scheduled' ? scheduledTheme(appearance?.lightAt ?? '07:00', appearance?.darkAt ?? '19:00') : mode;
-      document.documentElement.dataset.theme = theme;
-    };
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    apply(); media.addEventListener('change', apply);
-    const timer = window.setInterval(apply, 30_000);
-    return () => { media.removeEventListener('change', apply); window.clearInterval(timer); };
-  }, [workspace?.calendarPreferences.appearance.mode, workspace?.calendarPreferences.appearance.lightAt, workspace?.calendarPreferences.appearance.darkAt, boot]);
-  useEffect(() => {
-    if (!workspace?.calendarPreferences.appearance.uiSound) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null;
-      const control = target?.closest('button,summary,select,input[type="checkbox"],input[type="radio"],[role="button"]') as HTMLElement | null;
-      if (!control || (control as HTMLButtonElement).disabled || control.dataset.sound === 'none') return;
-      const label = `${control.getAttribute('aria-label') ?? ''} ${control.textContent ?? ''}`.toLowerCase();
-      const kind: UiSoundKind = /reset/.test(label) ? 'reset' : /delete|remove|cancel|close|dismiss|clear|lock/.test(label) ? 'dismiss' : /details|expand|collapse|section|recurrence/.test(label) ? 'expand' : /checkbox|toggle|sound|theme|language|select/.test(label) ? 'toggle' : /save|apply|add|create|enable|import|restore|backup|complete/.test(label) ? 'confirm' : 'click';
-      playUiSound(kind);
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [workspace?.calendarPreferences.appearance.uiSound]);
+  useAppearance(workspace?.calendarPreferences.appearance, boot === 'ready');
+  useUiSounds(workspace?.calendarPreferences.appearance.uiSound);
   useEffect(() => {
     const itemId = new URLSearchParams(window.location.search).get('item');
     if (!itemId || !workspace?.items[itemId]) return;
     setEditor(itemEditorSource(workspace, workspace.items[itemId]!));
     window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
   }, [workspace]);
-  const commit = (message: string, mutation: (draft: WorkspaceDocument) => void): boolean => {
-    if (!session) return false;
-    const previous = session;
-    let document: Automerge.Doc<WorkspaceDocument>;
-    try {
-      document = Automerge.change(session.document, message, (draft) => { mutation(draft as unknown as WorkspaceDocument); draft.updatedAt = new Date().toISOString(); });
-    } catch (reason) {
-      setToast(`Save failed; nothing was changed: ${reason instanceof Error ? reason.message : String(reason)}`);
-      return false;
-    }
-    const next = { ...session, document };
-    setSession(next);
-    saveQueue.current = saveQueue.current.then(() => saveLocalWorkspace(document, session.dataKey)).catch((reason) => {
-      setSession((current) => current?.document === document ? previous : current);
-      setToast(`Save failed; the change was reverted: ${String(reason)}`);
-    });
-    return true;
-  };
-
-  // The accelerated test clock must reconcile while the app is open, not only
-  // when the workspace is unlocked. This makes short test days (for example,
-  // 30 seconds) exercise active ranges and recurrence just like real time.
-  useEffect(() => {
-    if (!workspace?.calendarPreferences.testClock?.enabled) return;
-    let cancelled = false;
-    const reconcile = () => {
-      if (cancelled || !workspace) return;
-      const now = effectiveWorkspaceNow(workspace);
-      const result = reconcileRecurrences(clean(workspace), now);
-      if (!result.created.length && !result.updated.length && !result.autoClosed.length && !result.removedIds.length) return;
-      commit('Accelerated clock reconciliation', (draft) => {
-        result.created.forEach((item) => { if (!draft.items[item.id]) draft.items[item.id] = clean(item); });
-        [...result.updated, ...result.autoClosed].forEach((item) => { draft.items[item.id] = clean(item); });
-        result.removedIds.forEach((id) => { draft.tombstones[id] = now.toISOString(); delete draft.items[id]; });
-      });
-    };
-    const timer = window.setInterval(reconcile, 1_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [workspace?.calendarPreferences.testClock?.enabled, workspace?.updatedAt]);
-
   useEffect(() => {
     if (!workspace?.pushPreferences.enabled) return;
     const timer = window.setTimeout(() => {
@@ -944,8 +560,6 @@ export default function App() {
   if (!workspace || !session) return null;
   const allItemsView = allItemsViewFor(workspace);
 
-  // Calendar and Automations are retained in the encrypted workspace, but archived from the daily UI until they are reliable enough to bring back.
-  const nav: Array<[Page, LineIconName, string, boolean?]> = [['home', 'home', 'Home'], ['all', 'items', 'All items', true], ['settings', 'settings', 'Settings']];
   const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
   const restoreItem = (item: UniversalItem) => commit('Restore item from trash', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
@@ -974,26 +588,20 @@ export default function App() {
 
   const wallClock = new Date(clockTick);
   const activeDateLabel = formatHeaderDate(wallClock, workspace.calendarPreferences.language);
-  return <div className={`app-shell page-${page}`}>
-    <aside className="sidebar"><div className="sidebar-brand"><div className="brand-mark small">U</div><span>Universal</span></div><nav>{nav.map(([target, icon, label, beta]) => <button key={target} className={page === target ? 'active' : ''} onClick={() => setPage(target)}><LineIcon name={icon}/><span>{label}</span>{beta && <em className="nav-beta" title="This area is still being tested and improved.">Beta</em>}{target === 'all' && <b title={`${openItems} active ${openItems === 1 ? 'item' : 'items'}`}>{openItems}</b>}</button>)}</nav><div className="sidebar-bottom"><button onClick={() => setTransfer(true)}><LineIcon name="transfer"/><span>Transfer</span></button><button onClick={() => { lock(session); setSession(null); setBoot('locked'); }}><LineIcon name="lock"/><span>Lock</span></button></div></aside>
-    <main className="content">
-      <header className="topbar"><div><span className="top-summary">{activeDateLabel}</span><span className="sync-state"><i /> Encrypted locally</span></div><div className="top-actions">{page === 'home' && <button className="views-add-button" aria-label="New view" title="New view" onClick={() => setNewViewRequest((value) => value + 1)}><LineIcon name="plus"/></button>}<button className="notice-button" aria-label="Notifications" aria-expanded={noticeCenterOpen} onClick={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} title="Notifications"><LineIcon name="bell"/>{notices.length > 0 && <b>{notices.length}</b>}</button><button className="mobile-menu-button" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }}><LineIcon name="menu"/></button></div></header>
-      {mobileNavOpen && <nav className="mobile-nav-menu" aria-label="Main navigation">{nav.map(([target, icon, label, beta]) => <button key={target} className={page === target ? 'active' : ''} onClick={() => { setPage(target); setMobileNavOpen(false); }}><LineIcon name={icon}/><span>{label}</span>{beta && <em className="nav-beta">Beta</em>}</button>)}</nav>}
-      {!noticeCenterOpen && popupNoticeIds.length > 0 && <div className="notice-tray notice-popups" aria-live="polite">{popupNoticeIds.slice(-3).reverse().map((id) => notices.find((notice) => notice.id === id)).filter((notice): notice is Notice => Boolean(notice)).map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button type="button" className="notice-dismiss" aria-label="Close notification" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); dismissPopupNotice(notice.id); }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); dismissPopupNotice(notice.id); }}><CloseIcon /></button></article>)}</div>}
-      {noticeCenterOpen && <aside className="notification-center" aria-label="Notification center"><header><h2>Notifications</h2><button type="button" className="icon-button" aria-label="Close notification center" onClick={() => setNoticeCenterOpen(false)}><CloseIcon /></button></header><div className="notification-list">{notices.length ? notices.slice().reverse().map((notice) => <article className="notice-card" key={notice.id}><button className="notice-content" onClick={() => openNoticeItem(notice)}><strong>{notice.title}</strong><span>{notice.body}</span></button><button type="button" className="notice-dismiss" aria-label="Delete notification" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); deleteNotice(notice.id); }}><CloseIcon /></button></article>) : <p className="empty">No notifications</p>}</div></aside>}
+  return <><AppShell page={page} onPage={setPage} activeDateLabel={activeDateLabel} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace}>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} celebratingIds={celebratingIds} createRequest={newViewRequest} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task'), view)); }} onExportView={(view, mode, format, metadata) => exportSavedView(workspace, view, mode, format, metadata)} /></>}
-      {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} />}
+      {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'settings' && <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} />}
       {page === 'settings' && <section className="settings-card diagnostics-card"><p className="eyebrow">DIAGNOSTICS</p><h2>Usage and error log</h2><p>Anonymous local diagnostics help investigate failures and unusual behavior. Nothing is uploaded automatically.</p><div className="diagnostics-actions"><span>{diagnosticCount} recorded entries</span><button className="secondary" onClick={downloadDiagnostics} disabled={!diagnosticCount}>Download log</button><button className="secondary" onClick={() => { localStorage.removeItem(DIAGNOSTICS_KEY); setDiagnosticCount(0); }}>Clear log</button></div></section>}
-    </main>
+    </AppShell>
     <div className="capture-dock"><div className="quick-capture"><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); captureQuickItem(); } }} placeholder="Add new task" aria-label="Add new task"/></div></div>
     {editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew} onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata)} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task'); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={(item) => { const isNew = !workspace.items[item.id]; let recurrenceError = ''; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event]); if (item.role === 'series_template') { try { reconcileRecurrences(draft); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } }); if (saved) { setEditorIsNew(false); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = new Date().toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { setEditorIsNew(false); setEditor(null); } }} />}
-    {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { setSession(next); setToast(message); }} onReplaced={(next, message) => { lock(session); setSession(next); setToast(message); }} />}
+    {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { adoptSession(next); setToast(message); }} onReplaced={(next, message) => { adoptSession(next, true); setToast(message); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
     {page === 'settings' && workspace && <section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="number" min="0" step="1" value={workspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} onChange={(event) => commit('Change backup reminder', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), reminderDays: Math.max(0, Number(event.target.value) || 0) }; })} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section>}
     {backupReminder && !transfer && <div className="toast backup-reminder" role="alert"><span>It is time to create an encrypted backup.</span><button className="secondary" onClick={() => setTransfer(true)}>Back up now</button><button className="icon-button" aria-label="Dismiss backup reminder" onClick={() => setBackupReminder(false)}>×</button></div>}
     {toast && <div className="toast" role="status">{toast}</div>}
-  </div>;
+  </>;
 }
