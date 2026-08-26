@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { SavedView, UniversalItem, WorkspaceDocument } from '@utm/core';
+import { effectiveWorkspaceNow, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { Button, Checkbox, Disclosure, Surface } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
@@ -61,9 +61,9 @@ function AllItemsSettings({ open, workspace, view, onSave, onClose }: { open: bo
 }
 
 function AllItemsCollections({ items, fields, workspace, onEdit, onState }: { items: UniversalItem[]; fields: string[]; workspace: WorkspaceDocument; onEdit: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state']) => void }) {
-  const now = Date.now();
+  const now = effectiveWorkspaceNow(workspace);
   const collections = [
-    { name: 'Overdue', help: 'Open items whose deadline has passed.', items: items.filter((item) => item.state === 'open' && item.schedule?.dueAt && new Date(item.schedule.dueAt).getTime() < now) },
+    { name: 'Overdue', help: 'Open items whose deadline has passed.', items: items.filter((item) => item.state === 'open' && item.schedule?.dueAt && new Date(item.schedule.dueAt).getTime() < now.getTime()) },
     { name: 'Unscheduled', help: 'Open items without a scheduled time or deadline.', items: items.filter((item) => item.state === 'open' && !item.schedule?.startAt && !item.schedule?.dueAt) },
     { name: 'With reminders', help: 'Items that still have at least one active reminder.', items: items.filter((item) => item.reminders.some((reminder) => !reminder.acknowledgedAt)) },
   ];
@@ -73,7 +73,7 @@ function AllItemsCollections({ items, fields, workspace, onEdit, onState }: { it
     {collections.map((collection) => <PersistedDetails key={collection.name} uiKey={`all:collection:${collection.name}`} defaultOpen={collection.name === 'Overdue' && collection.items.length > 0}>
       <summary><span>{collection.name}</span><b>{collection.items.length}</b></summary>
       <p className="section-help">{collection.help}</p>
-      <div className="item-list">{collection.items.length ? collection.items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />) : <p className="empty">None.</p>}</div>
+      <div className="item-list">{collection.items.length ? collection.items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />) : <p className="empty">None.</p>}</div>
     </PersistedDetails>)}
   </PersistedDetails>;
 }
@@ -89,6 +89,7 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
   onDelete: (item: UniversalItem) => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const now = effectiveWorkspaceNow(workspace);
   const recurringItems = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.habit && !item.deletedAt && !isItemTemplate(item));
   const templateItems = Object.values(workspace.items).filter((item) => isItemTemplate(item) && !item.deletedAt);
   const deletedItems = Object.values(workspace.items).filter((item) => Boolean(item.deletedAt));
@@ -97,9 +98,9 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
   return <section className="page-section">
     <header className="all-items-toolbar"><div><p className="eyebrow">EVERYTHING</p><h1>All items</h1></div><Button onClick={() => setSettingsOpen(true)}>Customize</Button></header>
     <div className="all-sections">
-      {(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); const uiKey = `all:${state}`; return <details key={state} open={readUiBoolean(uiKey, state === 'open' || state === 'auto_closed')} onToggle={(event) => persistUiBoolean(uiKey, event.currentTarget.open)}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</div></details>; })}
-      <details open={readUiBoolean('all:templates', templateItems.length > 0)} onToggle={(event) => persistUiBoolean('all:templates', event.currentTarget.open)} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className="item-list">{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></details>
-      <details open={readUiBoolean('all:recurring', recurringItems.length > 0)} onToggle={(event) => persistUiBoolean('all:recurring', event.currentTarget.open)} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details>
+      {(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); const uiKey = `all:${state}`; return <details key={state} open={readUiBoolean(uiKey, state === 'open' || state === 'auto_closed')} onToggle={(event) => persistUiBoolean(uiKey, event.currentTarget.open)}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</div></details>; })}
+      <details open={readUiBoolean('all:templates', templateItems.length > 0)} onToggle={(event) => persistUiBoolean('all:templates', event.currentTarget.open)} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className="item-list">{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></details>
+      <details open={readUiBoolean('all:recurring', recurringItems.length > 0)} onToggle={(event) => persistUiBoolean('all:recurring', event.currentTarget.open)} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.</p><div className="item-list">{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details>
     </div>
     <AllItemsCollections items={visibleItems} fields={fields} workspace={workspace} onEdit={onEdit} onState={onState} />
     <DeletedItemsList items={deletedItems} onRestore={onRestore} onClear={onClearTrash} onDelete={onDelete} />

@@ -50,7 +50,7 @@ export async function subscribeBackgroundPush(workspace: WorkspaceDocument, acce
   return await response.json() as BackgroundPushStatus;
 }
 
-function reminderTime(item: UniversalItem, reminder: Reminder): string | undefined {
+export function reminderTime(item: UniversalItem, reminder: Reminder): string | undefined {
   if (reminder.acknowledgedAt) return undefined;
   if (reminder.mode === 'absolute') return reminder.at;
   const base = reminder.relativeTo === 'available' ? item.schedule?.availableFrom

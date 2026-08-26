@@ -6,8 +6,8 @@ async function createWorkspaceAndItem(page: Page) {
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await page.getByPlaceholder('Add new task').fill('Calendar block');
-  await page.getByPlaceholder('Add new task').press('Enter');
+  await page.getByPlaceholder('Add new item').fill('Calendar block');
+  await page.getByPlaceholder('Add new item').press('Enter');
   const summary = page.locator('.editor-scroll > details > summary').filter({ hasText: 'Dates & time' }).first();
   const section = summary.locator('..');
   if (!await section.evaluate((element) => (element as HTMLDetailsElement).open)) await summary.click();
@@ -17,7 +17,7 @@ test('dates, duration and clearing remain synchronized', async ({ page }) => {
   await createWorkspaceAndItem(page);
   const opens = page.getByLabel('Event opens', { exact: true });
   const ends = page.getByLabel('Event ends', { exact: true });
-  const due = page.getByLabel('Due / Active range ends', { exact: true });
+  const due = page.locator('input[aria-label="Due / Active range ends"]');
 
   await expect(opens).not.toHaveValue('');
   await expect(due).toHaveValue('');
@@ -44,7 +44,7 @@ test('dates, duration and clearing remain synchronized', async ({ page }) => {
 
   await page.getByText('Calendar block', { exact: true }).first().click();
   await expect(page.getByLabel('Event ends', { exact: true })).toHaveValue(oneHourLater);
-  await expect(page.getByLabel('Due / Active range ends', { exact: true })).toHaveValue('');
+  await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue('');
 });
 
 test('end and due dates before Event opens remain invalid', async ({ page }) => {

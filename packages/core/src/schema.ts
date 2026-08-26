@@ -230,7 +230,7 @@ export const workspaceJsonSchema = {
         timeFormat: { const: '24h' }, language: { enum: ['en', 'ru', 'es', 'de', 'fr', 'ko'] }, selectedViewId: { type: 'string' },
         appearance: { type: 'object', additionalProperties: false, required: ['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound'], properties: { mode: { enum: ['system', 'light', 'dark', 'scheduled'] }, lightAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, darkAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, tickSound: { type: 'boolean' }, uiSound: { type: 'boolean' }, soundDefaultsVersion: { const: 1 } } },
         includeStates: { type: 'array', items: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] } },
-        testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
+        testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
         backupPreferences: { type: 'object', additionalProperties: false, required: ['reminderDays'], properties: { reminderDays: { type: 'integer', minimum: 0 }, lastBackupAt: { type: 'string', format: 'date-time' }, locationLabel: { type: 'string' } } },
       },
     },
@@ -508,13 +508,16 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     appearance.tickSound = appearance.tickSound === true;
     appearance.uiSound = appearance.uiSound === true;
   }
-  calendarPreferences.testClock ??= { enabled: false, secondsPerDay: 86_400, startedAt: now, virtualAt: now };
+  calendarPreferences.testClock ??= { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours', startedAt: now, virtualAt: now };
   const testClock = calendarPreferences.testClock as Record<string, unknown>;
   Object.keys(testClock).forEach((key) => {
-    if (!['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'].includes(key)) delete testClock[key];
+    if (!['enabled', 'secondsPerDay', 'dayDurationValue', 'dayDurationUnit', 'startedAt', 'virtualAt'].includes(key)) delete testClock[key];
   });
   testClock.enabled = testClock.enabled === true;
   testClock.secondsPerDay = Math.max(1, Number(testClock.secondsPerDay) || 86_400);
+  const units = ['seconds', 'minutes', 'hours'];
+  if (!units.includes(String(testClock.dayDurationUnit))) delete testClock.dayDurationUnit;
+  if (!(Number(testClock.dayDurationValue) > 0)) delete testClock.dayDurationValue;
   if (Number.isNaN(new Date(String(testClock.startedAt)).getTime())) testClock.startedAt = now;
   if (Number.isNaN(new Date(String(testClock.virtualAt)).getTime())) testClock.virtualAt = now;
   calendarPreferences.backupPreferences ??= { reminderDays: 7 };

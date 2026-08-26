@@ -55,6 +55,7 @@ describe('CalendarPage baseline contract', () => {
 
     const markup = renderToStaticMarkup(<CalendarPage
       workspace={workspace}
+      now={new Date('2026-08-26T10:00:00.000Z')}
       commit={vi.fn()}
       onEditItem={vi.fn()}
       createUiItem={(title, preset, now) => createItem(title ?? '', preset, now)}
@@ -74,6 +75,7 @@ describe('CalendarPage baseline contract', () => {
     const workspace = createWorkspace('Calendar');
     const markup = renderToStaticMarkup(<CalendarPage
       workspace={workspace}
+      now={new Date('2026-08-26T10:00:00.000Z')}
       commit={vi.fn()}
       onEditItem={vi.fn()}
       createUiItem={(title, preset, now) => createItem(title ?? '', preset, now)}

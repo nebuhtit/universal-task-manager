@@ -24,8 +24,8 @@ type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
 
-export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose }: {
-  initial: UniversalItem; workspace: WorkspaceDocument; isNew?: boolean; onSave: (item: UniversalItem) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
+export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose }: {
+  initial: UniversalItem; workspace: WorkspaceDocument; now: Date; isNew?: boolean; onSave: (item: UniversalItem) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const [item, setItem] = useState(() => clean(initial));
   const [tags, setTags] = useState(item.tags.join(', '));
@@ -38,7 +38,6 @@ export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete
   const [jsonDirty, setJsonDirty] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
-  const [scriptNow, setScriptNow] = useState(() => new Date());
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const retainedQuickCaptureFocus = useRef(typeof document !== 'undefined' && Boolean(document.activeElement?.closest('.quick-capture'))).current;
@@ -56,12 +55,7 @@ export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete
   const importJsonRef = useRef<HTMLInputElement>(null);
   const definitions = Object.values(workspace.customFields);
   const formulas = evaluateFormulas(item, definitions);
-  const scriptResults = evaluateItemScripts(item, (id) => workspace.items[id], scriptNow);
-  useEffect(() => {
-    if (!(item.scripts?.length)) return undefined;
-    const timer = window.setInterval(() => setScriptNow(new Date()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [item.scripts?.length]);
+  const scriptResults = evaluateItemScripts(item, (id) => workspace.items[id], now);
   const patchItem = (patch: { [Key in keyof UniversalItem]?: UniversalItem[Key] | undefined }) => setItem((current) => {
     const next = { ...current } as Record<string, unknown>;
     Object.entries(patch).forEach(([key, value]) => { if (value === undefined) delete next[key]; else next[key] = value; });
@@ -164,8 +158,8 @@ export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete
   const importAsNew = async (file: File) => {
     try {
       const converted = { source: await onReadPortableFile(file) };
-      const imported = clean(readImportedItem(converted.source)); const now = new Date().toISOString();
-      imported.id = createId(); imported.createdAt = now; imported.updatedAt = now; imported.revision = 1; delete imported.deletedAt;
+      const imported = clean(readImportedItem(converted.source)); const timestamp = now.toISOString();
+      imported.id = createId(); imported.createdAt = timestamp; imported.updatedAt = timestamp; imported.revision = 1; delete imported.deletedAt;
       if (imported.role === 'occurrence') { imported.role = 'standalone'; delete imported.occurrence; }
       setItem(imported); setTags(imported.tags.join(', ')); setContexts(imported.contexts.join(', ')); setRecurring(imported.role === 'series_template'); setJsonDraft(JSON.stringify(imported, null, 2)); setJsonDirty(false); setError('');
     } catch (reason) { setError(`Could not import item: ${reason instanceof Error ? reason.message : String(reason)}`); }
@@ -177,7 +171,7 @@ export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete
   const save = () => {
     setError('');
     try {
-      onSave(normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays }));
+      onSave(normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now }));
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   useEffect(() => {
@@ -230,7 +224,7 @@ export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete
           <div className="inline-row"><input aria-label="New subtask title" value={newSubtaskTitle} onChange={(event) => setNewSubtaskTitle(event.target.value)} placeholder="New subtask title" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const title = newSubtaskTitle.trim(); if (!title) return; const subtask = onCreateSubtask(title, item.id); patchItem({ relations: [...item.relations, { id: createId(), targetId: subtask.id, type: 'parent' }] }); setNewSubtaskTitle(''); } }} /><button className="secondary" onClick={() => { const title = newSubtaskTitle.trim(); if (!title) return; const subtask = onCreateSubtask(title, item.id); patchItem({ relations: [...item.relations, { id: createId(), targetId: subtask.id, type: 'parent' }] }); setNewSubtaskTitle(''); }}>Add subtask</button></div>
         </div></details>
 
-        <RemindersSection item={item} sectionMark={sectionMark} patchItem={patchItem} />
+        <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
 
         <ItemSection sectionKey="priority" title="Priority" iconPath="priority" filledMark={sectionMark(Boolean(item.priority))} compact><Field label="Priority"><Select aria-label="Priority" value={item.priority ?? 0} onChange={(event) => patchItem({ priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{([0, 1, 2, 3, 4] as NonNullable<UniversalItem['priority']>[]).map((priority) => <option key={priority} value={priority}>{priority ? `${priority} — ${priorityNames[priority]}` : 'None'}</option>)}</Select></Field></ItemSection>
         <details className="compact-property"><summary><FieldIconLabel path="schedule.estimatedDuration" label="Estimated duration" /> {sectionMark(Boolean(item.schedule?.estimatedDuration))}</summary><div className="details-body"><label><div className="duration-control"><input className="duration-amount" type="number" min="0" aria-label="Estimated duration amount" value={item.schedule?.estimatedDuration ? estimate.amount : ''} onChange={(event) => patchSchedule({ estimatedDuration: event.target.value ? toIsoDuration(Math.max(0, Number(event.target.value) || 0), estimate.unit) : undefined })} placeholder="45" /><select className="duration-unit" aria-label="Estimated duration unit" value={estimate.unit} onChange={(event) => patchSchedule({ estimatedDuration: toIsoDuration(estimate.amount, event.target.value as FriendlyDurationUnit) })}><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="weeks">Weeks</option></select></div><small>How much time you expect this item to take.</small></label></div></details>
@@ -245,7 +239,7 @@ export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete
         <datalist id="item-area-values">{orderedOrganizationNames(workspace, 'area').map((name) => <option value={name} key={name} />)}</datalist>
         <datalist id="item-project-values">{orderedOrganizationNames(workspace, 'project', item.area).map((name) => <option value={name} key={name} />)}</datalist>
         <datalist id="item-list-values">{orderedListNames(workspace).map((name) => <option value={name} key={name} />)}</datalist>
-        <ItemSection sectionKey="status" title="Status" iconPath="state" filledMark={sectionMark(item.state !== 'open')}><Field label="Item status" hint="Status normally changes through completion, cancellation, auto-renew or archiving."><Select aria-label="Item status" value={item.state} onChange={(event) => { const state = event.target.value as UniversalItem['state']; patchItem({ state, closure: state === 'open' ? undefined : { at: item.closure?.at ?? new Date().toISOString(), actor: item.closure?.actor ?? 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' } }); }}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state} value={state}>{stateNames[state as UniversalItem['state']]}</option>)}</Select></Field>{(item.state === 'done' || item.state === 'cancelled') && <label>Actually {item.state === 'done' ? 'completed' : 'cancelled'} at {dateField(`Actually ${item.state === 'done' ? 'completed' : 'cancelled'} at`, item.closure?.at, (value) => { if (value) patchItem({ closure: { at: value, actor: item.closure?.actor ?? 'user', reason: item.state === 'cancelled' ? 'cancelled' : 'manual' } }); else patchItem({ closure: undefined }); }, 'Defaults to now. Change this when you are recording the item after it happened. For a completion-anchored series, the next cycle uses this time when this cycle is first closed.')}</label>}</ItemSection>
+        <ItemSection sectionKey="status" title="Status" iconPath="state" filledMark={sectionMark(item.state !== 'open')}><Field label="Item status" hint="Status normally changes through completion, cancellation, auto-renew or archiving."><Select aria-label="Item status" value={item.state} onChange={(event) => { const state = event.target.value as UniversalItem['state']; patchItem({ state, closure: state === 'open' ? undefined : { at: item.closure?.at ?? now.toISOString(), actor: item.closure?.actor ?? 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' } }); }}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state} value={state}>{stateNames[state as UniversalItem['state']]}</option>)}</Select></Field>{(item.state === 'done' || item.state === 'cancelled') && <label>Actually {item.state === 'done' ? 'completed' : 'cancelled'} at {dateField(`Actually ${item.state === 'done' ? 'completed' : 'cancelled'} at`, item.closure?.at, (value) => { if (value) patchItem({ closure: { at: value, actor: item.closure?.actor ?? 'user', reason: item.state === 'cancelled' ? 'cancelled' : 'manual' } }); else patchItem({ closure: undefined }); }, 'Defaults to now. Change this when you are recording the item after it happened. For a completion-anchored series, the next cycle uses this time when this cycle is first closed.')}</label>}</ItemSection>
         <ItemSection sectionKey="contexts" title="Contexts" iconPath="contexts" filledMark={sectionMark(commaList(contexts).length > 0)}><Field label="Contexts"><Input aria-label="Contexts" value={contexts} onChange={(event) => setContexts(event.target.value)} placeholder="office, laptop" /></Field></ItemSection>
 
         <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />

@@ -17,13 +17,13 @@ import './calendar.css';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 type CalendarPendingMove = { rows: ProjectedOccurrence[]; deltaMs: number };
-export function CalendarPage({ workspace, commit, onEditItem, createUiItem }: {
-  workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void; onEditItem: (item: UniversalItem) => void; createUiItem: (title?: string, preset?: ItemPreset, now?: Date) => UniversalItem;
+export function CalendarPage({ workspace, now, commit, onEditItem, createUiItem }: {
+  workspace: WorkspaceDocument; now: Date; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void; onEditItem: (item: UniversalItem) => void; createUiItem: (title?: string, preset?: ItemPreset, now?: Date) => UniversalItem;
 }) {
   const preferences = workspace.calendarPreferences;
   const initialMode: CalendarViewMode = typeof window !== 'undefined' && window.innerWidth <= 620 && preferences.lastMode === 'month' ? 'day' : preferences.lastMode;
   const [mode, setMode] = useState<CalendarViewMode>(initialMode);
-  const [range, setRange] = useState(() => ({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1), end: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 8) }));
+  const [range, setRange] = useState(() => ({ start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 8) }));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [quickDraft, setQuickDraft] = useState<UniversalItem | null>(null);
   const [pendingMove, setPendingMove] = useState<CalendarPendingMove | null>(null);
@@ -81,10 +81,10 @@ export function CalendarPage({ workspace, commit, onEditItem, createUiItem }: {
       rows.forEach((row) => {
         if (row.seriesId) {
           if (scope === 'entire_series' && movedSeries.has(row.seriesId)) return;
-          moveRecurringOccurrence(draft, row, deltaMs, scope); movedSeries.add(row.seriesId);
-        } else ordinaryIds.push(materializeProjectedOccurrence(draft, row).id);
+          moveRecurringOccurrence(draft, row, deltaMs, scope, now); movedSeries.add(row.seriesId);
+        } else ordinaryIds.push(materializeProjectedOccurrence(draft, row, now).id);
       });
-      if (ordinaryIds.length) moveCalendarItems(draft, ordinaryIds, deltaMs);
+      if (ordinaryIds.length) moveCalendarItems(draft, ordinaryIds, deltaMs, now);
     });
     setSelected(new Set()); setPendingMove(null);
   };
@@ -106,7 +106,7 @@ export function CalendarPage({ workspace, commit, onEditItem, createUiItem }: {
   });
   const openProjected = (row: ProjectedOccurrence) => {
     let opened: UniversalItem | undefined;
-    if (row.virtual) commit('Materialize calendar occurrence', (draft) => { opened = clean(materializeProjectedOccurrence(draft, row)); });
+    if (row.virtual) commit('Materialize calendar occurrence', (draft) => { opened = clean(materializeProjectedOccurrence(draft, row, now)); });
     else opened = workspace.items[row.materializedItemId ?? row.id];
     if (opened) onEditItem(clean(opened));
   };
@@ -141,12 +141,12 @@ export function CalendarPage({ workspace, commit, onEditItem, createUiItem }: {
   const handleResize = (info: EventResizeDoneInfo) => {
     const row = byId.get(info.event.id); const start = info.event.start; const end = info.event.end; info.revert(); if (!row || !start || !end) return;
     saveUndoPoint();
-    commit('Resize calendar item', (draft) => { const item = materializeProjectedOccurrence(draft, row); resizeCalendarItem(draft, item.id, end.toISOString(), new Date(), start.toISOString()); });
+    commit('Resize calendar item', (draft) => { const item = materializeProjectedOccurrence(draft, row, now); resizeCalendarItem(draft, item.id, end.toISOString(), now, start.toISOString()); });
   };
   const handleExternal = (info: EventReceiveInfo) => {
     const itemId = info.event.id.replace(/^external:/, ''); const start = info.event.start; const end = info.event.end; const allDay = info.event.allDay; info.revert(); if (!start) return;
     saveUndoPoint();
-    commit('Schedule unscheduled item', (draft) => { const item = draft.items[itemId]; if (!item) return; item.schedule = { timezone: preferences.timezone, startAt: start.toISOString(), endAt: (end ?? new Date(start.getTime() + preferences.defaultDurationMinutes * 60_000)).toISOString(), ...(allDay ? { allDay: true } : {}) }; item.updatedAt = new Date().toISOString(); item.revision += 1; });
+    commit('Schedule unscheduled item', (draft) => { const item = draft.items[itemId]; if (!item) return; item.schedule = { timezone: preferences.timezone, startAt: start.toISOString(), endAt: (end ?? new Date(start.getTime() + preferences.defaultDurationMinutes * 60_000)).toISOString(), ...(allDay ? { allDay: true } : {}) }; item.updatedAt = now.toISOString(); item.revision += 1; });
     setUnscheduledOpen(false);
   };
   const selectedRows = projected.filter((row) => selected.has(row.id));
@@ -212,7 +212,7 @@ export function CalendarPage({ workspace, commit, onEditItem, createUiItem }: {
       <Button size="compact" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
     </Surface>}
     <div className="calendar-layout">
-      <Surface className="calendar-main-panel"><FullCalendar ref={calendarRef} plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]} initialView={mode === 'month' ? 'dayGridMonth' : mode === 'week' ? 'timeGridWeek' : mode === 'day' ? 'timeGridDay' : mode === 'three_day' ? 'timeGridThreeDay' : 'listYear'} views={{ timeGridThreeDay: { type: 'timeGrid', duration: { days: 3 } } }} headerToolbar={false} events={events} editable eventResizableFromStart selectable selectMirror droppable nowIndicator weekends={preferences.weekends} firstDay={preferences.weekStartsOn} slotMinTime="00:00:00" slotMaxTime="24:00:00" scrollTime={`${preferences.sleepSchedule.wake}:00`} scrollTimeReset={false} slotHeaderContent={(info) => info.isTime ? `${info.date.getHours()}:${String(info.date.getMinutes()).padStart(2, '0')}` : info.text} slotLaneClass={(info) => [info.isMajor ? 'calendar-hour-line' : 'calendar-half-hour-line', isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-slot' : ''].filter(Boolean).join(' ')} slotHeaderClass={(info) => info.isTime && isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-label' : ''} snapDuration={`00:${String(preferences.snapMinutes).padStart(2, '0')}:00`} slotDuration="00:30:00" longPressDelay={420} eventLongPressDelay={420} selectLongPressDelay={420} height="auto" datesSet={(info: DatesSetInfo) => setRange((current) => current.start.getTime() === info.start.getTime() && current.end.getTime() === info.end.getTime() ? current : { start: info.start, end: info.end })} dateClick={(info: DateClickInfo) => createDraftForRange(info.date, null, info.allDay)} select={handleSelect} eventClick={handleEventClick} eventDrop={handleDrop} eventResize={handleResize} eventReceive={handleExternal} eventContent={(info) => { const row = info.event.extendedProps.row as ProjectedOccurrence | undefined; return <span className="calendar-event-content"><i aria-hidden>{selected.has(info.event.id) ? '✓' : ''}</i><span>{info.event.title}</span>{row?.schedule.dueAt && !row.dueOnly && <b title="Has deadline">◆</b>}</span>; }} eventDidMount={(info) => { let timer = 0; info.el.addEventListener('touchstart', () => { timer = window.setTimeout(() => setSelected((current) => new Set(current).add(info.event.id)), 460); }, { passive: true }); info.el.addEventListener('touchend', () => window.clearTimeout(timer), { passive: true }); }} /></Surface>
+      <Surface className="calendar-main-panel"><FullCalendar ref={calendarRef} plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]} initialDate={now} now={now.toISOString()} initialView={mode === 'month' ? 'dayGridMonth' : mode === 'week' ? 'timeGridWeek' : mode === 'day' ? 'timeGridDay' : mode === 'three_day' ? 'timeGridThreeDay' : 'listYear'} views={{ timeGridThreeDay: { type: 'timeGrid', duration: { days: 3 } } }} headerToolbar={false} events={events} editable eventResizableFromStart selectable selectMirror droppable nowIndicator weekends={preferences.weekends} firstDay={preferences.weekStartsOn} slotMinTime="00:00:00" slotMaxTime="24:00:00" scrollTime={`${preferences.sleepSchedule.wake}:00`} scrollTimeReset={false} slotHeaderContent={(info) => info.isTime ? `${info.date.getHours()}:${String(info.date.getMinutes()).padStart(2, '0')}` : info.text} slotLaneClass={(info) => [info.isMajor ? 'calendar-hour-line' : 'calendar-half-hour-line', isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-slot' : ''].filter(Boolean).join(' ')} slotHeaderClass={(info) => info.isTime && isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-label' : ''} snapDuration={`00:${String(preferences.snapMinutes).padStart(2, '0')}:00`} slotDuration="00:30:00" longPressDelay={420} eventLongPressDelay={420} selectLongPressDelay={420} height="auto" datesSet={(info: DatesSetInfo) => setRange((current) => current.start.getTime() === info.start.getTime() && current.end.getTime() === info.end.getTime() ? current : { start: info.start, end: info.end })} dateClick={(info: DateClickInfo) => createDraftForRange(info.date, null, info.allDay)} select={handleSelect} eventClick={handleEventClick} eventDrop={handleDrop} eventResize={handleResize} eventReceive={handleExternal} eventContent={(info) => { const row = info.event.extendedProps.row as ProjectedOccurrence | undefined; return <span className="calendar-event-content"><i aria-hidden>{selected.has(info.event.id) ? '✓' : ''}</i><span>{info.event.title}</span>{row?.schedule.dueAt && !row.dueOnly && <b title="Has deadline">◆</b>}</span>; }} eventDidMount={(info) => { let timer = 0; info.el.addEventListener('touchstart', () => { timer = window.setTimeout(() => setSelected((current) => new Set(current).add(info.event.id)), 460); }, { passive: true }); info.el.addEventListener('touchend', () => window.clearTimeout(timer), { passive: true }); }} /></Surface>
       <Surface ref={unscheduledRef} role="complementary" className={`unscheduled-panel ${unscheduledOpen ? 'open' : ''}`}>
         <header><div><h2>Unscheduled</h2><p>Drag an item into the calendar.</p></div><IconButton size="compact" variant="ghost" className="mobile-unscheduled-close" aria-label="Close unscheduled items" onClick={() => setUnscheduledOpen(false)}><CloseIcon /></IconButton></header>
         <div>{unscheduled.map((item) => <Button variant="ghost" className="unscheduled-item" data-item-id={item.id} data-title={item.title} key={item.id} onClick={() => onEditItem(item)}><span>{item.title}</span><small>{inferredPreset(item)}</small></Button>)}{!unscheduled.length && <p className="empty">Everything has a date.</p>}</div>

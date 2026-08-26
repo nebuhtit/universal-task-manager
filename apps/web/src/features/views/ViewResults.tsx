@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import type { SavedView, UniversalItem, WorkspaceDocument } from '@utm/core';
+import { effectiveWorkspaceNow, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { FieldIcon, ItemCard, displayViewValue, readItemField, stateNames } from '../items';
 import { formatViewDate } from '../../utils/dates';
 import { viewFieldLabel } from './fieldCatalog';
@@ -13,15 +13,15 @@ export function ViewResults({ view, workspace, onEdit, onState, onReorder, celeb
   view: SavedView; workspace: WorkspaceDocument; onEdit: (item: UniversalItem) => void;
   onState: (item: UniversalItem, state: UniversalItem['state']) => void; onReorder?: ((itemIds: string[]) => void) | undefined; celebratingIds?: ReadonlySet<string> | undefined;
 }) {
-  const [liveNow, setLiveNow] = useState(() => new Date());
+  const [liveNow, setLiveNow] = useState(() => effectiveWorkspaceNow(workspace));
   const hasLiveScriptField = viewNeedsLiveClock(view);
   useEffect(() => {
     if (!hasLiveScriptField) return undefined;
-    const updateClock = () => setLiveNow(new Date());
+    const updateClock = () => setLiveNow(effectiveWorkspaceNow(workspace));
     updateClock();
     const timer = window.setInterval(updateClock, VIEW_LIVE_TICK_MS);
     return () => window.clearInterval(timer);
-  }, [hasLiveScriptField]);
+  }, [hasLiveScriptField, workspace.calendarPreferences.testClock]);
   const renderWorkspace = useMemo(() => clean(workspace), [workspace]);
   const renderView = useMemo(() => clean(view), [view]);
   const items = selectViewItems(renderWorkspace, renderView);
@@ -30,7 +30,7 @@ export function ViewResults({ view, workspace, onEdit, onState, onReorder, celeb
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const itemIds = items.map((item) => item.id);
   const visibleFields = renderView.fields ?? [];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = liveNow.toISOString().slice(0, 10);
   const stateButtonLabel = (item: UniversalItem) => item.habit
     ? (item.habit.completedDates?.includes(today) ? 'Undo habit completion today' : 'Complete habit today')
     : item.state === 'open' ? `Complete ${item.title}` : `Reopen ${item.title}`;

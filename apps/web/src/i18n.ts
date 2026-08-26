@@ -15,7 +15,7 @@ type TranslationTable = Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary>;
 const en = {
   Home: 'Главная', 'All items': 'Все элементы', Settings: 'Настройки', Lock: 'Заблокировать', Transfer: 'Передача',
   Notifications: 'Уведомления', 'No notifications': 'Нет уведомлений', 'Encrypted locally': 'Зашифровано локально',
-  'Add new task': 'Добавить новую задачу', 'Add task': 'Добавить задачу', 'New item': 'Новый элемент', 'New view': 'Новый вид',
+  'Add new task': 'Добавить новую задачу', 'Add new item': 'Добавить новый элемент', 'Add task': 'Добавить задачу', 'New item': 'Новый элемент', 'New view': 'Новый вид',
   'Edit view': 'Редактировать вид', 'Save view': 'Сохранить вид', Cancel: 'Отмена', Delete: 'Удалить', 'Delete view': 'Удалить вид',
   Active: 'Активные', Completed: 'Завершённые', 'Auto closed': 'Закрыты автоматически',
   Cancelled: 'Отменённые', Archived: 'В архиве', 'Recurring items': 'Повторяющиеся элементы',
@@ -63,6 +63,11 @@ const common: Record<Exclude<WorkspaceLanguage, 'en'>, Record<string, string>> =
     Home: '홈', 'All items': '모든 항목', Settings: '설정', Lock: '잠금', Transfer: '전송', Notifications: '알림', 'No notifications': '알림 없음', 'Encrypted locally': '로컬 암호화됨', 'Add new task': '새 작업 추가', 'Add task': '작업 추가', 'New item': '새 항목', 'New view': '새 보기', 'Edit view': '보기 편집', 'Save view': '보기 저장', Cancel: '취소', Delete: '삭제', 'Delete view': '보기 삭제', Active: '활성', Completed: '완료됨', 'Auto closed': '자동 종료됨', Cancelled: '취소됨', Archived: '보관됨', 'Recurring items': '반복 항목', 'No recurring items yet.': '반복 항목이 아직 없습니다.', 'No items match this view.': '이 보기에 맞는 항목이 없습니다.', 'Everything is clear': '모두 완료되었습니다', 'View details': '보기 세부 정보', 'Move your data': '데이터 이동', 'Encrypted Transfer': '암호화된 전송', 'Export all…': '모두 내보내기…', 'Import data…': '데이터 가져오기…', 'Request permission': '권한 요청', 'Custom fields': '사용자 지정 필드', '+ Add': '+ 추가', 'No custom fields yet.': '사용자 지정 필드가 없습니다.', Version: '버전', Released: '출시일', Schema: '스키마', Items: '항목', 'Workspace ID': '작업 공간 ID', 'Interface language': '인터페이스 언어', 'Choose the language used by the app on this device. Item titles and your data are never translated.': '이 기기에서 사용할 앱 언어를 선택하세요. 항목 제목과 데이터는 번역되지 않습니다.', Language: '언어', 'Build your own system': '나만의 시스템 만들기', 'Unlock your workspace': '작업 공간 잠금 해제', 'Workspace name': '작업 공간 이름', Password: '비밀번호', 'Confirm password': '비밀번호 확인', Unlock: '잠금 해제', 'Create encrypted workspace': '암호화된 작업 공간 만들기', 'Working…': '처리 중…', 'Already have an encrypted workspace?': '암호화된 작업 공간이 이미 있나요?', 'Import .utm': '.utm 가져오기', 'Opening encrypted workspace…': '암호화된 작업 공간 여는 중…', 'System metadata': '시스템 메타데이터', 'Item JSON': '항목 JSON', 'View JSON': '보기 JSON', 'DSL expression': 'DSL 표현식', 'Sort DSL': 'DSL 정렬', 'Displayed fields': '표시 필드', Renderer: '표현 방식', Sorting: '정렬', 'Visual condition': '시각 조건', Field: '필드', Operator: '연산자', Value: '값', Title: '제목', Description: '설명', Status: '상태', Priority: '우선순위', Tags: '태그', Contexts: '컨텍스트', 'Dates & time': '날짜 및 시간', Reminders: '미리 알림', 'Scheduled start': '예정 시작', 'Scheduled end': '예정 종료', Deadline: '마감일', Timezone: '시간대', 'Estimated duration': '예상 소요 시간', 'Actual duration': '실제 소요 시간', 'All day': '하루 종일', None: '없음', Low: '낮음', Medium: '보통', High: '높음', Urgent: '긴급', Task: '작업', Event: '이벤트', Habit: '습관', Blank: '비어 있음', 'Save item': '항목 저장', Calendar: '캘린더', Today: '오늘', 'Calendar settings': '캘린더 설정', 'Show weekends': '주말 표시', 'No automations yet': '자동화가 아직 없습니다', 'Execution log': '실행 로그', Enable: '사용', Disable: '사용 안 함', Edit: '편집',
   },
 };
+
+common.es['Add new item'] = 'Añadir nuevo elemento';
+common.de['Add new item'] = 'Neues Element hinzufügen';
+common.fr['Add new item'] = 'Ajouter un nouvel élément';
+common.ko['Add new item'] = '새 항목 추가';
 
 const onboarding: Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary> = {
   ru: {

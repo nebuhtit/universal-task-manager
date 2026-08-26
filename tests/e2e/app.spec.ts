@@ -47,8 +47,8 @@ async function lockWorkspace(page: Page) {
 }
 
 async function openNewItem(page: Page) {
-  await page.getByPlaceholder('Add new task').fill('New item');
-  await page.getByPlaceholder('Add new task').press('Enter');
+  await page.getByPlaceholder('Add new item').fill('New item');
+  await page.getByPlaceholder('Add new item').press('Enter');
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
 }
 
@@ -84,7 +84,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.8\.1 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.11\.1 · commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -93,7 +93,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.11.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.11.1', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -115,16 +115,16 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await expect(page.getByRole('heading', { name: 'Now' })).toBeVisible();
+  await expect(page.getByPlaceholder('Add new item')).toBeVisible();
 
-  await page.getByPlaceholder('Add new task').fill('Prepare material by Thursday');
-  await page.getByPlaceholder('Add new task').press('Enter');
-  await expect(page.getByRole('cell', { name: 'Prepare material by Thursday', exact: true })).toBeVisible();
+  await page.getByPlaceholder('Add new item').fill('Prepare material by Thursday');
+  await page.getByPlaceholder('Add new item').press('Enter');
   await expect(page.getByRole('heading', { name: 'Views' })).toHaveCount(0);
 
   // Quick capture opens the just-created item immediately, so the user can
   // refine it without finding it again in the view.
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+  await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Prepare material by Thursday');
   const editorSections = page.locator('.editor-scroll > details > summary');
   await expect(editorSections.filter({ hasText: 'Description' })).toHaveCount(1);
   await expect(editorSections.filter({ hasText: 'Dates & time' })).toHaveCount(1);
@@ -134,7 +134,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await openEditorSection(page, 'Dates & time');
   await expect(page.getByLabel('Event opens', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Event ends', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Due / Active range ends', { exact: true })).toBeVisible();
+  await expect(page.locator('input[aria-label="Due / Active range ends"]')).toBeVisible();
   await expect(page.getByLabel('Available to work from', { exact: true })).toBeHidden();
   await page.locator('details.optional-field > summary').click();
   await expect(page.getByLabel('Available to work from', { exact: true })).toBeVisible();
@@ -175,19 +175,19 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await goToAllItems(page);
   await expect(page.locator('.all-sections > details').first().locator('summary')).toContainText('Active1');
   await goHome(page);
-  const nowSection = page.locator('.view-section').filter({ hasText: 'Now' });
+  const nowSection = page.locator('.view-section').filter({ hasText: 'All items' });
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
-  await nowSection.getByRole('button', { name: 'Collapse Now' }).click();
+  await nowSection.getByRole('button', { name: 'Collapse All items' }).click();
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeHidden();
-  await expect(page.locator('.collapsed-views-stack').locator('.view-section').filter({ hasText: 'Now' })).toBeVisible();
+  await expect(page.locator('.collapsed-views-stack').locator('.view-section').filter({ hasText: 'All items' })).toBeVisible();
   await expect.poll(async () => {
     const stack = await page.locator('.views-stack').boundingBox();
     const collapsed = await page.locator('.collapsed-views-stack').boundingBox();
     return stack && collapsed ? Math.abs(stack.y + stack.height - collapsed.y - collapsed.height) : Number.POSITIVE_INFINITY;
   }).toBeLessThan(2);
-  await nowSection.getByRole('button', { name: 'Expand Now' }).click();
+  await nowSection.getByRole('button', { name: 'Expand All items' }).click();
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
-  await expect(page.locator('.expanded-views-stack').locator('.view-section').filter({ hasText: 'Now' })).toBeVisible();
+  await expect(page.locator('.expanded-views-stack').locator('.view-section').filter({ hasText: 'All items' })).toBeVisible();
 
   await goToSettings(page);
   await expect(page.getByText(/^v\d+\.\d+\.\d+$/, { exact: true })).toBeVisible();
@@ -286,11 +286,11 @@ test('edited view parameters change results and survive reload', async ({ page }
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByLabel('Confirm password').fill(password);
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await page.getByPlaceholder('Add new task').fill('Visible open item');
-  await page.getByPlaceholder('Add new task').press('Enter');
+  await page.getByPlaceholder('Add new item').fill('Visible open item');
+  await page.getByPlaceholder('Add new item').press('Enter');
   await page.getByRole('button', { name: 'Close item editor' }).click();
 
-  let view = page.locator('.view-section').filter({ hasText: 'Now' });
+  let view = page.locator('.view-section').filter({ hasText: 'All items' });
   const editView = view.getByRole('button', { name: /^Edit /  });
   await expect(view.getByText('Export', { exact: true })).toHaveCount(0);
   await editView.click();
@@ -425,12 +425,12 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   }
 
   await goHome(page);
-  const view = page.locator('.view-section').filter({ hasText: 'Now' });
+  const view = page.locator('.view-section').filter({ hasText: 'All items' });
   await view.getByRole('button', { name: /^Edit /  }).click();
   await page.getByRole('combobox', { name: 'Renderer' }).selectOption('table');
   await openViewEditorSection(page, 'Sorting');
   const sortField = page.getByRole('combobox', { name: 'Sort field 1' });
-  await expect(sortField.locator('option', { hasText: 'Priority' })).toHaveCount(1);
+  await expect(sortField.locator('option[value="priority"]')).toHaveCount(1);
   await sortField.selectOption('priority');
   await expect(page.getByLabel('SQL-like sorting')).toHaveValue('priority asc nulls last');
   await openViewEditorSection(page, 'Visual setup');
@@ -445,7 +445,7 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await page.getByLabel('SQL-like sorting').fill('priority desc nulls last\nlower(title) asc nulls last');
   await page.getByRole('button', { name: 'Save view' }).click();
 
-  await expect(view.locator('thead th')).toHaveText(['Complete', 'Title', 'Priority', 'Estimated duration']);
+  await expect(view.locator('thead th')).toHaveText(['Manual order', 'Complete', 'Title', 'Priority', 'Estimated duration']);
   await expect(view.locator('thead th').filter({ hasText: 'State' })).toHaveCount(0);
   const rows = view.locator('tbody tr');
   await expect(rows.nth(0)).toContainText('High item');
@@ -484,7 +484,7 @@ test('table and board renderers can complete and reopen items', async ({ page })
   await page.getByRole('button', { name: 'Save item' }).click();
   await goHome(page);
 
-  const view = page.locator('.view-section').filter({ hasText: 'Now' });
+  const view = page.locator('.view-section').filter({ hasText: 'All items' });
   for (const renderer of ['table', 'board']) {
     await view.getByRole('button', { name: /^Edit /  }).click();
     await openViewEditorSection(page, 'Advanced filter code');
@@ -493,7 +493,7 @@ test('table and board renderers can complete and reopen items', async ({ page })
     await page.getByRole('button', { name: 'Save view' }).click();
     if (renderer === 'table') {
       await expect(view.locator('thead th:not(.state-column) .property-icon').first()).toBeVisible();
-      await expect(view.locator('thead th:not(.state-column)').first()).toHaveAttribute('title', /Title|State|Event|Due|Priority|Tags/);
+      await expect(view.locator('thead th[title]').first()).toHaveAttribute('title', /Title|State|Event|Due|Priority|Tags/);
     }
     await view.getByRole('button', { name: 'Complete Renderer item' }).click();
     await expect(view.getByRole('button', { name: 'Reopen Renderer item' })).toBeVisible();
@@ -637,8 +637,8 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
     const date = new Date(Date.now() + 3_600_000);
     return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   });
-  await page.getByLabel('Due / Active range ends', { exact: true }).fill(dueInOneHour);
-  await expect(page.getByLabel('Due / Active range ends', { exact: true })).toHaveValue(dueInOneHour);
+  await page.locator('input[aria-label="Due / Active range ends"]').fill(dueInOneHour);
+  await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue(dueInOneHour);
   await page.getByRole('button', { name: 'Save item' }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
 
@@ -677,7 +677,7 @@ test('active window reuses recurrence fields without duplicating controls', asyn
   await openEditorSection(page, 'Dates & time');
   await page.getByLabel('Event opens', { exact: true }).fill(dates.opens);
   await page.getByLabel('Event ends', { exact: true }).fill(dates.ends);
-  await page.getByLabel('Due / Active range ends', { exact: true }).fill(dates.closes);
+  await page.locator('input[aria-label="Due / Active range ends"]').fill(dates.closes);
   await page.locator('summary').filter({ hasText: 'Recurrence & auto-renew' }).click();
   await page.getByLabel('Make this a recurring series').check();
   await page.getByLabel('Only show during the active range').check();

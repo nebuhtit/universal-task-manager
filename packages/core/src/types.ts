@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.9.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.11.0';
-export const APP_RELEASED_AT = '2026-08-26T12:33:06.269Z';
+export const APP_VERSION = '1.11.1';
+export const APP_RELEASED_AT = '2026-08-26T13:15:39.706Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -373,6 +373,17 @@ export interface WorkspaceDocument {
 }
 
 export type CalendarViewMode = 'month' | 'week' | 'day' | 'three_day' | 'agenda';
+export type TestClockUnit = 'seconds' | 'minutes' | 'hours';
+export interface TestClockPreferences {
+  enabled: boolean;
+  /** Canonical real-time duration of one simulated day. */
+  secondsPerDay: number;
+  /** User-facing input retained so Settings does not silently change units. */
+  dayDurationValue?: number;
+  dayDurationUnit?: TestClockUnit;
+  startedAt: ISODateTime;
+  virtualAt: ISODateTime;
+}
 /** UI language is a workspace preference; item data itself remains language-neutral. */
 export type WorkspaceLanguage = 'en' | 'ru' | 'es' | 'de' | 'fr' | 'ko';
 export interface CalendarPreferences {
@@ -390,7 +401,7 @@ export interface CalendarPreferences {
   selectedViewId?: string;
   includeStates: ItemState[];
   /** Optional accelerated clock for local recurrence testing; never enabled by default. */
-  testClock?: { enabled: boolean; secondsPerDay: number; startedAt: ISODateTime; virtualAt: ISODateTime };
+  testClock?: TestClockPreferences;
   backupPreferences?: { reminderDays: number; lastBackupAt?: ISODateTime; locationLabel?: string };
 }
 
@@ -531,7 +542,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, sleepSchedule: { wake: '08:00', sleep: '22:00' },
       weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 },
       includeStates: ['open', 'done'],
-      testClock: { enabled: false, secondsPerDay: 86_400, startedAt: now.toISOString(), virtualAt: now.toISOString() },
+      testClock: { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours', startedAt: now.toISOString(), virtualAt: now.toISOString() },
       backupPreferences: { reminderDays: 7 },
     },
     pushPreferences: { enabled: false, contentMode: 'generic' },

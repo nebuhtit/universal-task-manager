@@ -1,4 +1,4 @@
-import { compileQuery, compileSort, listDefinitionFor, organizationDefinitionFor, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { compileQuery, compileSort, effectiveWorkspaceNow, listDefinitionFor, organizationDefinitionFor, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
 const recentlyDoneUntil = new Map<string, number>();
@@ -28,13 +28,6 @@ export function setRecentlyDone(itemId: string, until?: number): void {
   else recentlyDoneUntil.set(itemId, until);
 }
 
-export function effectiveWorkspaceNow(workspace: WorkspaceDocument, realNow = new Date()): Date {
-  const clock = workspace.calendarPreferences.testClock;
-  if (!clock?.enabled || !clock.secondsPerDay || !clock.startedAt || !clock.virtualAt) return realNow;
-  const elapsed = Math.max(0, realNow.getTime() - new Date(clock.startedAt).getTime());
-  return new Date(new Date(clock.virtualAt).getTime() + elapsed * 86_400_000 / clock.secondsPerDay);
-}
-
 export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
   const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
   const available = Object.values(workspace.items).filter((item) => !item.deletedAt
@@ -50,7 +43,7 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
     const predicate = compileQuery(view.query.source || 'true', (item) => relationContext(workspace, item), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
     const matchingRows = available.filter((item) => {
       const visibleByQuery = item.role !== 'series_template' ? predicate(item, now) : Boolean(item.habit) && predicate({ ...item, role: 'standalone' }, now);
-      const grace = item.state === 'done' && (recentlyDoneUntil.get(item.id) ?? 0) > now.getTime();
+      const grace = item.state === 'done' && (recentlyDoneUntil.get(item.id) ?? 0) > Date.now();
       return visibleByQuery || grace;
     });
     const matchingSeries = available.filter((item) => item.role === 'series_template' && !item.habit && predicate(item, now));

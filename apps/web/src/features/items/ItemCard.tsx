@@ -5,7 +5,7 @@ import { FieldIcon } from './FieldIcon';
 
 export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; now?: Date; celebrating?: boolean }) {
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = (now ?? new Date()).toISOString().slice(0, 10);
   const isHabit = Boolean(item.habit);
   const habitCompletedToday = isHabit && Boolean(item.habit?.completedDates?.includes(today));
   const visiblyClosed = isHabit ? habitCompletedToday : item.state !== 'open';
