@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-task-manager.dev/schema/portable-package-1.2.0.json",
+  "title": "Universal Task Manager portable package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "formatVersion", "kind", "schemaVersion", "exportedAt", "source", "customFields", "items", "views", "dependencyItemIds"],
+  "properties": {
+    "format": { "const": "utm-portable" },
+    "formatVersion": { "const": 1 },
+    "kind": { "enum": ["items", "views", "view_bundle"] },
+    "schemaVersion": { "type": "string" },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "source": { "type": "object", "required": ["appId", "appName", "appVersion", "workspaceId"] },
+    "customFields": { "type": "object" },
+    "items": { "type": "array", "items": { "$ref": "item-1.2.0.json" } },
+    "views": { "type": "array", "items": { "$ref": "view-1.2.0.json" } },
+    "selection": { "type": "object", "required": ["type"] },
+    "dependencyItemIds": { "type": "array", "items": { "type": "string" } },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

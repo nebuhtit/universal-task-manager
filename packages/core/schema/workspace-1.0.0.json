@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-task-manager.dev/schema/workspace-1.0.0.json",
+  "title": "Universal Task Manager workspace",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "workspaceId", "name", "createdAt", "updatedAt", "items", "customFields", "views", "dashboards", "automations", "automationLog", "tombstones"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "workspaceId": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "items": { "type": "object", "additionalProperties": { "$ref": "#/$defs/item" } },
+    "customFields": { "type": "object", "additionalProperties": { "$ref": "#/$defs/customField" } },
+    "views": { "type": "object" },
+    "dashboards": { "type": "object" },
+    "automations": { "type": "object" },
+    "automationLog": { "type": "array" },
+    "tombstones": { "type": "object", "additionalProperties": { "type": "string", "format": "date-time" } }
+  },
+  "$defs": {
+    "schedule": {
+      "type": "object",
+      "required": ["timezone"],
+      "properties": {
+        "timezone": { "type": "string" }, "allDay": { "type": "boolean" },
+        "availableFrom": { "type": "string", "format": "date-time" }, "startAt": { "type": "string", "format": "date-time" },
+        "endAt": { "type": "string", "format": "date-time" }, "dueAt": { "type": "string", "format": "date-time" },
+        "estimatedDuration": { "type": "string" }, "actualDuration": { "type": "string" }
+      }
+    },
+    "recurrence": {
+      "type": "object",
+      "required": ["rrule", "rdates", "exdates", "timezone", "closeAt", "anchor", "autoRenew"],
+      "properties": {
+        "rrule": { "type": "string" }, "rdates": { "type": "array", "items": { "type": "string", "format": "date-time" } },
+        "exdates": { "type": "array", "items": { "type": "string", "format": "date-time" } }, "timezone": { "type": "string" },
+        "activationOffset": { "type": "string" }, "dueOffset": { "type": "string" },
+        "closeAt": { "enum": ["next_activation", "due", "never"] }, "anchor": { "enum": ["schedule", "completion"] }, "autoRenew": { "type": "boolean" }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "schemaVersion", "revision", "role", "preset", "title", "bodyMarkdown", "state", "createdAt", "updatedAt", "contexts", "tags", "reminders", "relations", "attachments", "custom"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 }, "schemaVersion": { "const": "1.0.0" }, "createdWithAppId": { "type": "string", "minLength": 1 }, "createdWithAppName": { "type": "string", "minLength": 1 }, "createdWithVersion": { "type": "string", "minLength": 1 }, "revision": { "type": "integer", "minimum": 1 },
+        "role": { "enum": ["standalone", "series_template", "occurrence"] }, "preset": { "enum": ["task", "event", "habit", "blank"] },
+        "title": { "type": "string" }, "bodyMarkdown": { "type": "string" },
+        "state": { "enum": ["open", "done", "cancelled", "auto_closed", "archived"] },
+        "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }, "deletedAt": { "type": "string", "format": "date-time" },
+        "closure": { "type": "object" }, "schedule": { "$ref": "#/$defs/schedule" }, "recurrence": { "$ref": "#/$defs/recurrence" },
+        "occurrence": { "type": "object" }, "progress": { "type": "object" }, "habit": { "type": "object" },
+        "priority": { "type": "integer", "minimum": 0, "maximum": 4 }, "contexts": { "type": "array", "items": { "type": "string" } },
+        "tags": { "type": "array", "items": { "type": "string" } }, "reminders": { "type": "array" }, "relations": { "type": "array" },
+        "attachments": { "type": "array" }, "custom": { "type": "object" }
+      }
+    },
+    "customField": {
+      "type": "object",
+      "required": ["id", "key", "label", "kind", "required"],
+      "properties": {
+        "id": { "type": "string" }, "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }, "label": { "type": "string" },
+        "kind": { "enum": ["text", "number", "boolean", "date", "datetime", "duration", "enum", "multi_enum", "url", "item_ref", "formula"] },
+        "required": { "type": "boolean" }, "options": { "type": "array", "items": { "type": "string" } }, "formula": { "type": "string" }
+      }
+    }
+  }
+}
