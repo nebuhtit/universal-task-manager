@@ -88,3 +88,9 @@ Do not use these as early migration pilots:
 - Reminders, recurrence, Views DSL synchronization, persistence, and workspace lifecycle.
 
 The first real migration pilot is the isolated All Items display-settings dialog after the generic primitives and interaction-layer decision are complete.
+
+## Phase 3 migration status
+
+The bounded Phase 3 migrations now cover All Items display settings, the low-risk and date/duration ItemEditor sections, Views editor, AppShell, and Calendar presentation. Calendar keeps FullCalendar as the interaction and layout owner; only controls, dialogs, surfaces, responsive overflow, and semantic colors moved to the design system. Calendar projection, filtering, drag/resize, recurrence scopes, selection, and Undo remain domain-owned behavior.
+
+`styles/legacy.css` still contains unmigrated application areas and the `open-calendar-button` bridge used by calendar-rendered saved views. Those selectors are not a design-system API and should be removed only with their remaining consumer.

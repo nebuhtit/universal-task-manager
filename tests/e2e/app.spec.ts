@@ -32,6 +32,14 @@ async function goToSettings(page: Page) {
   }
 }
 
+async function goToCalendar(page: Page) {
+  if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
+  else {
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click();
+  }
+}
+
 async function lockWorkspace(page: Page) {
   const button = page.locator('.sidebar .sidebar-bottom button').filter({ hasText: 'Lock' });
   if (await button.isVisible()) await button.click();
@@ -182,7 +190,7 @@ test.skip('calendar switches modes and creates a timed universal item', async ({
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await goToCalendar(page);
   await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
   await page.getByRole('button', { name: 'Calendar settings' }).click();
   await expect(page.getByLabel('Wake time')).toHaveValue('08:00');
@@ -210,9 +218,10 @@ test.skip('calendar switches modes and creates a timed universal item', async ({
   await goHome(page);
   await page.getByRole('button', { name: 'New view' }).click();
   await page.getByLabel('Name', { exact: true }).fill('Items below priority 3');
+  await openViewEditorSection(page, 'Advanced filter code');
   await page.getByLabel('Advanced filter code').fill('priority < 3');
   await page.getByRole('button', { name: 'Save view' }).click();
-  await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+  await goToCalendar(page);
   await page.getByRole('combobox', { name: 'Saved view' }).selectOption({ label: 'Items below priority 3' });
   await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Saved view' })).toHaveValue(/.+/);
