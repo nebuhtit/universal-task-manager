@@ -578,7 +578,10 @@ export default function App() {
   });
   const captureQuickItem = () => {
     if (!quick.trim()) return;
-    const item = createUiItem(quick.trim(), 'task', systemNow);
+    // Quick capture should only preserve what the user actually entered.
+    // Calendar dates are added by calendar/view creation flows or explicitly
+    // in the editor, never implicitly by the global capture field.
+    const item = createItem(quick.trim(), 'task', systemNow);
     commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
     setQuick('');
     setEditorIsNew(true); setEditor(item);

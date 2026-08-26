@@ -53,6 +53,8 @@ describe('item field display helpers', () => {
     workspace.items[item.id] = item;
     expect(readItemField(item, 'script.remaining', workspace, new Date('2026-08-26T12:00:00.000Z'))).toBe(10);
     expect(readItemField(item, 'script.remaining', workspace, new Date('2026-08-26T12:00:01.000Z'))).toBe(9);
+    expect(readItemField(item, 'scripts', workspace, new Date('2026-08-26T12:00:00.000Z'))).toBe('Seconds remaining: 10');
+    expect(readItemField(item, 'scripts', workspace, new Date('2026-08-26T12:00:01.000Z'))).toBe('Seconds remaining: 9');
   });
 
   it('keeps every user-meaningful item property represented in the View field catalog', () => {

@@ -84,7 +84,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.12\.0 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.12\.1 · commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -93,7 +93,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.12.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.12.1', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -134,7 +134,10 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await openEditorSection(page, 'Dates & time');
   await expect(page.getByLabel('Event opens', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Event ends', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Event ends', { exact: true })).toHaveValue('');
   await expect(page.locator('input[aria-label="Due / Active range ends"]')).toBeVisible();
+  await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue('');
   await expect(page.getByLabel('Available to work from', { exact: true })).toBeHidden();
   await page.locator('details.optional-field > summary').click();
   await expect(page.getByLabel('Available to work from', { exact: true })).toBeVisible();
@@ -313,7 +316,9 @@ test('edited view parameters change results and survive reload', async ({ page }
   await expect(view.getByText('Export', { exact: true })).toHaveCount(0);
   await editView.click();
   await openViewEditorSection(page, 'Visual setup');
-  await expect(page.locator('.visual-query-builder').getByRole('heading', { name: '2. Show in results' })).toBeVisible();
+  await expect(page.locator('.visual-query-builder').getByText('Filter items', { exact: true })).toBeVisible();
+  await expect(page.locator('.visual-query-builder').getByText('Show in results', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.view-editor details.view-editor-section').filter({ hasText: 'Show in results' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Definition JSON', exact: true })).toBeHidden();
   await page.getByText('Export view', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Definition JSON', exact: true })).toBeVisible();
@@ -339,6 +344,45 @@ test('edited view parameters change results and survive reload', async ({ page }
   view = page.locator('.view-section').filter({ hasText: 'Done only' });
   await expect(view.getByRole('heading', { name: 'Done only' })).toBeVisible();
   await expect(view.getByText('Visible open item', { exact: true })).toBeHidden();
+});
+
+test('item scripts can be selected in a view and update every second', async ({ page }) => {
+  const password = 'correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('Live scripts');
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+
+  await page.getByPlaceholder('Add new item').fill('Live countdown');
+  await page.getByPlaceholder('Add new item').press('Enter');
+  const dates = await openEditorSection(page, 'Dates & time');
+  const future = new Date(Date.now() + 2 * 60_000);
+  const localFuture = new Date(future.getTime() - future.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  await dates.getByLabel('Event opens', { exact: true }).fill(localFuture);
+  const scripts = await openEditorSection(page, 'Scripts');
+  await scripts.getByRole('button', { name: '+ Add computed field' }).click();
+  await scripts.getByLabel('Countdown format').selectOption('seconds');
+  await page.getByRole('button', { name: 'Save item' }).click();
+
+  const allItems = page.locator('.view-section').filter({ hasText: 'All items' });
+  await allItems.getByRole('button', { name: /^Edit / }).click();
+  const displayed = await openViewEditorSection(page, 'Show in results');
+  const scriptGroup = displayed.locator('details').filter({ hasText: 'Scripts' }).first();
+  if (!await scriptGroup.evaluate((element) => (element as HTMLDetailsElement).open)) await scriptGroup.locator(':scope > summary').click();
+  await expect(scriptGroup.getByRole('checkbox', { name: /Script results/ })).toBeVisible();
+  await expect(scriptGroup.getByRole('checkbox', { name: /New calculation/ })).toBeVisible();
+  await scriptGroup.getByRole('checkbox', { name: /Script results/ }).check();
+  await page.getByRole('button', { name: 'Save view' }).click();
+
+  const result = page.locator('.view-section').filter({ hasText: 'All items' }).locator('[data-field="scripts"]');
+  await expect(result).toContainText('New calculation:');
+  const first = await result.textContent();
+  await expect.poll(async () => result.textContent(), { timeout: 4_000 }).not.toBe(first);
+
+  await page.reload();
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.locator('.view-section').filter({ hasText: 'All items' }).locator('[data-field="scripts"]')).toContainText('New calculation:');
 });
 
 test('visual view builder supports OR and inclusive comparison operators', async ({ page }) => {
