@@ -17,7 +17,9 @@ export function ViewResults({ view, workspace, onEdit, onState, onReorder, celeb
   const hasLiveScriptField = viewNeedsLiveClock(view);
   useEffect(() => {
     if (!hasLiveScriptField) return undefined;
-    const timer = window.setInterval(() => setLiveNow(new Date()), VIEW_LIVE_TICK_MS);
+    const updateClock = () => setLiveNow(new Date());
+    updateClock();
+    const timer = window.setInterval(updateClock, VIEW_LIVE_TICK_MS);
     return () => window.clearInterval(timer);
   }, [hasLiveScriptField]);
   const renderWorkspace = useMemo(() => clean(workspace), [workspace]);
