@@ -83,6 +83,23 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
   await expect(lockScreen).toHaveCSS('animation-name', 'none');
 });
 
+test('shows the release version on registration, login and settings', async ({ page }) => {
+  const releaseLabel = /^v1\.8\.0 · commit [0-9a-f]{7}$/;
+  await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
+
+  await page.getByLabel('Workspace name').fill('Release version');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+
+  await goToSettings(page);
+  await expect(page.getByText('v1.8.0', { exact: true })).toBeVisible();
+
+  await lockWorkspace(page);
+  await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
+  await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
+});
+
 test('archives Calendar and Automations while marking All items as beta', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Beta labels');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
