@@ -69,6 +69,13 @@ describe('view selectors', () => {
     expect(selectViewItems(workspace, { ...view(), sortSource: 'projectOrder desc nulls last' }).map((item) => item.title)).toEqual(['Unassigned', 'Tagged']);
   });
 
+  it('keeps organization sorting usable before an in-memory legacy workspace is migrated', () => {
+    const workspace = createWorkspace('Legacy live workspace');
+    const item = createItem('Still visible'); workspace.items[item.id] = item;
+    delete (workspace as Partial<typeof workspace>).organizationPreferences;
+    expect(selectViewItems(workspace, { ...view(), sortSource: 'areaOrder desc nulls last' }).map((entry) => entry.title)).toEqual(['Still visible']);
+  });
+
   it('lets a view override its configured sort and reset back to that sort', () => {
     const workspace = createWorkspace('Manual order');
     const alpha = createItem('Alpha'); const beta = createItem('Beta'); const gamma = createItem('Gamma');

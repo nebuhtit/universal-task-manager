@@ -1,11 +1,11 @@
 :root {
   /* Typography */
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", ui-sans-serif, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Helvetica Neue", ui-sans-serif, sans-serif;
   font-size: 15px;
   line-height: 1.45;
   font-synthesis: none;
 
-  --font-family-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", ui-sans-serif, sans-serif;
+  --font-family-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Helvetica Neue", ui-sans-serif, sans-serif;
   --font-family-code: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --font-size-caption: 11px;
   --font-size-secondary: 13px;

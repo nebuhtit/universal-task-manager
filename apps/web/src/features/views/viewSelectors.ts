@@ -1,4 +1,4 @@
-import { compileQuery, compileSort, effectiveWorkspaceNow, listDefinitionFor, organizationDefinitionFor, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { compileQuery, compileSort, effectiveWorkspaceNow, listDefinitionFor, organizationDefinitionFor, organizationPreferencesFor, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
 const recentlyDoneUntil = new Map<string, number>();
@@ -88,18 +88,19 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
         ];
       }));
       const comparator = compileSort(expanded);
+      const preferences = organizationPreferencesFor(workspace);
       const sortable = (item: UniversalItem): UniversalItem => {
         const list = listDefinitionFor(workspace, item.list, now);
         const area = organizationDefinitionFor(workspace, 'area', item.area, now);
         const project = organizationDefinitionFor(workspace, 'project', item.project, now);
-        const tagPriority = item.tags.reduce((maximum, tag) => Math.max(maximum, workspace.organizationPreferences.tagPriorities[tag] ?? 0), 0);
+        const tagPriority = item.tags.reduce((maximum, tag) => Math.max(maximum, preferences.tagPriorities[tag] ?? 0), 0);
         return { ...item, custom: {
           ...item.custom,
           ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
-          __utm_area_priority: area?.priority ?? workspace.organizationPreferences.unassignedAreaPriority,
+          __utm_area_priority: area?.priority ?? preferences.unassignedAreaPriority,
           __utm_area_order: area?.order ?? Number.MAX_SAFE_INTEGER,
           __utm_area_created_at: area?.createdAt ?? item.createdAt,
-          __utm_project_priority: project?.priority ?? workspace.organizationPreferences.unassignedProjectPriority,
+          __utm_project_priority: project?.priority ?? preferences.unassignedProjectPriority,
           __utm_project_order: project?.order ?? Number.MAX_SAFE_INTEGER,
           __utm_project_created_at: project?.createdAt ?? item.createdAt,
           __utm_tag_priority: tagPriority,

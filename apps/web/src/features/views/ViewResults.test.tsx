@@ -28,4 +28,13 @@ describe('ViewResults manual ordering controls', () => {
     const calendar = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer: 'calendar' }} />);
     expect(calendar).not.toContain('aria-label="Reorder Alpha"');
   });
+
+  it('preserves emoji in item titles for list and table views', () => {
+    const workspace = createWorkspace('Emoji');
+    const item = createItem('📌 Call mom 👩‍👦'); workspace.items[item.id] = item;
+    const view: SavedView = { id: 'emoji-view', name: 'Emoji', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] };
+    const props = { workspace, onEdit: vi.fn(), onState: vi.fn() };
+    expect(renderToStaticMarkup(<ViewResults {...props} view={view} />)).toContain('📌 Call mom 👩‍👦');
+    expect(renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer: 'table' }} />)).toContain('📌 Call mom 👩‍👦');
+  });
 });

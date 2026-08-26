@@ -1,4 +1,4 @@
-import type { AreaDefinition, ProjectDefinition, WorkspaceDocument } from './types.js';
+import type { AreaDefinition, OrganizationPreferences, ProjectDefinition, WorkspaceDocument } from './types.js';
 
 export type OrganizationKind = 'area' | 'project';
 export type OrganizationDefinition = AreaDefinition | ProjectDefinition;
@@ -7,6 +7,12 @@ const validDate = (value: string | undefined, fallback: string) => value && Numb
 const namesFromItems = (workspace: WorkspaceDocument, kind: OrganizationKind) => Object.values(workspace.items)
   .map((item) => item[kind])
   .filter((name): name is string => Boolean(name?.trim()));
+
+export const defaultOrganizationPreferences = (): OrganizationPreferences => ({ unassignedAreaPriority: 0, unassignedProjectPriority: 0, tagPriorities: {} });
+
+export function organizationPreferencesFor(workspace: Pick<WorkspaceDocument, 'organizationPreferences'>): OrganizationPreferences {
+  return workspace.organizationPreferences ?? defaultOrganizationPreferences();
+}
 
 export function organizationDefinitionFor(
   workspace: WorkspaceDocument,
