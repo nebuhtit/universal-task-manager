@@ -45,6 +45,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'isSubtask', label: 'Subtask', group: 'Connections' }, { path: 'isParent', label: 'Parent item', group: 'Connections' },
   { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
   { path: 'attachments', label: 'Links', group: 'Connections' },
+  { path: 'scripts', label: 'Script results', group: 'Scripts' },
   { path: 'closure.at', label: 'Closed at', group: 'History' }, { path: 'closure.actor', label: 'Closed by', group: 'History' },
   { path: 'closure.reason', label: 'Closure reason', group: 'History' }, { path: 'closure.automationId', label: 'Closing automation ID', group: 'History' },
   { path: 'occurrence.seriesId', label: 'Series ID', group: 'History' }, { path: 'occurrence.recurrenceId', label: 'Occurrence date', group: 'History' },
@@ -100,6 +101,7 @@ export const viewFieldLabel = (workspace: WorkspaceDocument, path: string) => vi
 
 export const exampleViewFieldValue = (path: string): string => {
   if (path.startsWith('custom.')) return 'Example value';
+  if (path === 'scripts') return 'Remaining: 2h 14m · Finish: Aug 28, 18:00';
   if (path.startsWith('script.')) return '2h 14m';
   return ({
     title: 'Prepare quarterly review', bodyMarkdown: 'Outline, research and final draft', state: 'Active', preset: 'Task', role: 'Standalone', priority: 'High',
@@ -158,6 +160,13 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
     const key = field.slice(7);
     const definition = Object.values(workspace.customFields).find((candidate) => candidate.key === key);
     if (definition?.kind === 'formula') return evaluateFormulas(item, Object.values(workspace.customFields), now).values[key];
+  }
+  if (field === 'scripts' && workspace) {
+    const result = evaluateItemScripts(item, (id) => workspace.items[id], now);
+    return (item.scripts ?? []).map((script) => {
+      const value = result.errors[script.key] ?? formatScriptResult(result.values[script.key], script.resultKind);
+      return `${script.label}: ${value}`;
+    }).join(' · ');
   }
   if (field.startsWith('script.') && workspace) {
     const key = field.slice(7);

@@ -84,7 +84,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.11\.1 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.12\.0 · commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -93,7 +93,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.11.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.12.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -207,6 +207,24 @@ test('mobile shell stays usable at phone width', async ({ page }) => {
   await goToAllItems(page);
   await openNewItem(page);
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+});
+
+test('settings sections stay on one content rail without horizontal overflow', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Settings layout');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await goToSettings(page);
+
+  const cards = page.locator('.settings-page-shell .settings-card');
+  await expect(cards).toHaveCount(6);
+  const boxes = await cards.evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { left: box.left, right: box.right };
+  }));
+  expect(new Set(boxes.map((box) => Math.round(box.left))).size).toBe(1);
+  expect(new Set(boxes.map((box) => Math.round(box.right))).size).toBe(1);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 test.skip('calendar switches modes and creates a timed universal item', async ({ page }, testInfo) => {

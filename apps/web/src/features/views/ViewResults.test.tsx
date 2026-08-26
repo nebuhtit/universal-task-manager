@@ -6,6 +6,7 @@ import { VIEW_LIVE_TICK_MS, ViewResults, viewNeedsLiveClock } from './ViewResult
 describe('ViewResults manual ordering controls', () => {
   it('enables the one-second clock only for displayed script results', () => {
     expect(VIEW_LIVE_TICK_MS).toBe(1_000);
+    expect(viewNeedsLiveClock({ fields: ['title', 'scripts'] })).toBe(true);
     expect(viewNeedsLiveClock({ fields: ['title', 'script.remaining'] })).toBe(true);
     expect(viewNeedsLiveClock({ fields: ['title', 'schedule.dueAt'] })).toBe(false);
   });

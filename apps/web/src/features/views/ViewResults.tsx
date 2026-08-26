@@ -7,7 +7,7 @@ import { boardSettingsFor, moveManualItem, selectViewItems } from './viewSelecto
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 export const VIEW_LIVE_TICK_MS = 1_000;
-export const viewNeedsLiveClock = (view: Pick<SavedView, 'fields'>) => view.fields.some((field) => field.startsWith('script.'));
+export const viewNeedsLiveClock = (view: Pick<SavedView, 'fields'>) => view.fields.some((field) => field === 'scripts' || field.startsWith('script.'));
 
 export function ViewResults({ view, workspace, onEdit, onState, onReorder, celebratingIds = new Set<string>() }: {
   view: SavedView; workspace: WorkspaceDocument; onEdit: (item: UniversalItem) => void;

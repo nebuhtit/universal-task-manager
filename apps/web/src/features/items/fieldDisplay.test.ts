@@ -34,13 +34,15 @@ describe('item field display helpers', () => {
   it('exposes every normal nested family and item script result to saved views', () => {
     const workspace = createWorkspace('View fields');
     const item = createItem('Computed');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:10.000Z' };
     item.scripts = [{ id: 'remaining', key: 'remaining', label: 'Time remaining', source: 'secondsUntil(schedule.startAt)', resultKind: 'number' }];
     workspace.items[item.id] = item;
     const paths = new Set(viewFieldOptions(workspace).map((field) => field.path));
     expect([...paths]).toEqual(expect.arrayContaining([
       'schedule.startAt', 'recurrence.rrule', 'recurrence.anchor', 'progress.mode', 'progress.current', 'habit.completedDates',
-      'closure.automationId', 'occurrence.templateRevision', 'recurrenceOverride.kind', 'script.remaining',
+      'closure.automationId', 'occurrence.templateRevision', 'recurrenceOverride.kind', 'scripts', 'script.remaining',
     ]));
+    expect(readItemField(item, 'scripts', workspace, new Date('2026-08-26T12:00:00.000Z'))).toBe('Time remaining: 10');
   });
 
   it('recalculates a script result for each supplied second', () => {

@@ -425,7 +425,12 @@ label.check input { width: 18px; height: 18px; }
 .trash-confirm strong { color: var(--ink); }
 .trash-confirm span { font-size: 12px; }
 .trash-confirm > div { display: flex; gap: 6px; margin-left: auto; }
-.backup-controls { margin-bottom: 180px; }
+.settings-page-shell,
+.settings-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; width: 100%; min-width: 0; }
+.settings-page-shell > *,
+.settings-page > * { width: 100%; max-width: 100%; min-width: 0; }
+.settings-page .page-title { margin-bottom: 0; }
+.backup-controls { margin-bottom: 0; }
 .views-stack, .views-stack > div, .view-section, .view-section-body { width: 100%; max-width: 100%; min-width: 0; }
 .view-results-scroll { display: block; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overflow-y: visible; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; touch-action: pan-x; contain: inline-size; }
 .view-results-scroll > .renderer-table-wrap { width: max-content; min-width: 100%; overflow: visible; }
@@ -589,9 +594,9 @@ tbody tr:hover { background: var(--soft); }
   .view-section-actions { gap: 3px; }
   .view-section-actions .secondary { padding: 7px 9px; font-size: 11px; }
   .view-section-body { padding: 5px 0 9px; }
-  .backup-controls { margin: 16px 15px 180px; }
+  .backup-controls { margin: 0; }
   .form-grid.two, .form-grid.three, .settings-columns, .automation-layout, .transfer-actions { grid-template-columns: 1fr; }
-  .settings-columns { gap: 12px; }
+  .settings-page-shell, .settings-page, .settings-columns { gap: 12px; }
   .settings-card { width: 100%; min-width: 0; padding: 16px; border-radius: 14px; }
   .settings-card h2 { margin: 2px 0 9px; font-size: 17px; }
   .settings-card p { margin: 0 0 11px; font-size: 12px; line-height: 1.5; }
