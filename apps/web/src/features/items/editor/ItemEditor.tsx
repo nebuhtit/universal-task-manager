@@ -8,11 +8,12 @@ import { CodeEditor } from '../../../components/ui/CodeEditor';
 import { CloseIcon } from '../../../components/ui/icons';
 import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/primitives';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
-import { dateInput, formatViewDate, fromDateInput } from '../../../utils/dates';
+import { formatViewDate } from '../../../utils/dates';
 import { calendarDuration, calendarDurationMs, parseEstimateDuration, parseFriendlyDuration, toIsoDuration, type FriendlyDurationUnit } from '../../../utils/durations';
 import { inferredPreset, priorityNames, stateNames } from '../fieldDisplay';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
 import { ItemSection } from './ItemSection';
+import { DateTimeField } from './fields/DateTimeField';
 import { DatesSection } from './sections/DatesSection';
 import { RemindersSection } from './sections/RemindersSection';
 import { RecurrenceSection } from './sections/RecurrenceSection';
@@ -195,7 +196,7 @@ export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete
   // A compact signal for existing items: it shows which optional sections contain data.
   // New items stay intentionally quiet until the user opens a section.
   const sectionMark = (filled: boolean) => !isNew && filled ? <span className="section-dot" aria-label="Contains data">•</span> : null;
-  const dateField = (label: string, value: string | undefined, onChange: (value: string | undefined) => void, help?: string, onFocus?: () => void, minValue?: string) => <div className="date-field"><div className="date-field-row"><input aria-label={label} type="datetime-local" value={dateInput(value)} min={minValue ? dateInput(minValue) : undefined} onFocus={onFocus} onChange={(event) => onChange(fromDateInput(event.currentTarget.value))} /><button type="button" className="date-clear" aria-label={`Clear ${label}`} disabled={!value} onPointerDown={(event) => event.preventDefault()} onClick={(event) => { event.preventDefault(); event.stopPropagation(); onChange(undefined); }}>Clear</button></div>{value && <small className="formatted-date">{formatViewDate(value, true, workspace.calendarPreferences.language)}</small>}{help && <small>{help}</small>}</div>;
+  const dateField = (label: string, value: string | undefined, onChange: (value: string | undefined) => void, help?: string, onFocus?: () => void, minValue?: string) => <DateTimeField label={label} value={value} language={workspace.calendarPreferences.language} onChange={onChange} help={help} onFocus={onFocus} minValue={minValue} />;
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor" onKeyDown={(event) => {
@@ -214,7 +215,7 @@ export function ItemEditor({ initial, workspace, isNew = false, onSave, onDelete
           <label><span className="hint">Markdown</span><textarea rows={5} value={item.bodyMarkdown} onChange={(event) => patchItem({ bodyMarkdown: event.target.value })} placeholder="Context, links, checklists…" /></label>
           {item.bodyMarkdown && <details className="markdown-details"><summary>Markdown preview</summary><div className="markdown preview"><ReactMarkdown>{item.bodyMarkdown}</ReactMarkdown></div></details>}
         </div></details>
-        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} dateField={dateField} patchSchedule={patchSchedule} scheduledDuration={scheduledDuration} patchScheduledDuration={patchScheduledDuration} applyDurationPreset={applyDurationPreset} timezoneOpen={timezoneOpen} setTimezoneOpen={setTimezoneOpen} />
+        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} patchSchedule={patchSchedule} scheduledDuration={scheduledDuration} patchScheduledDuration={patchScheduledDuration} applyDurationPreset={applyDurationPreset} timezoneOpen={timezoneOpen} setTimezoneOpen={setTimezoneOpen} />
 
         <details><summary>Subtasks {sectionMark(item.relations.some((relation) => relation.type === 'parent'))}</summary><div className="details-body">
           <p className="schedule-explainer">Add existing items as steps of this item. Subtasks remain independent universal items and can be completed or edited on their own.</p>

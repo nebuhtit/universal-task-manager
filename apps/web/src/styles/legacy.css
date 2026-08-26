@@ -22,7 +22,6 @@
 :root[data-theme="dark"] textarea,
 :root[data-theme="dark"] select,
 :root[data-theme="dark"] .secondary,
-:root[data-theme="dark"] .timezone-button,
 :root[data-theme="dark"] .weekday-picker button { background: #202020; color: var(--ink); border-color: var(--line); }
 :root[data-theme="dark"] .weekday-picker button.active { background: #f1f1f1; color: #111; border-color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.22); }
 :root[data-theme="dark"] .sidebar button:hover,
@@ -233,12 +232,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .drawer-actions span, .dialog footer span { flex: 1; }
 label { display: grid; gap: 7px; font-size: 13px; font-weight: 500; margin-bottom: 14px; }
 input, textarea, select { width: 100%; border: 1px solid #d9d9d9; background: #fff; border-radius: 10px; padding: 11px 12px; color: var(--ink); transition: border-color .15s, box-shadow .15s; }
-.date-field { min-width: 0; }
-.date-field-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.date-field-row > input { flex: 1 1 auto; min-width: 0; }
-.date-field .formatted-date { display: block; margin-top: 5px; color: var(--ink); font-weight: 500; }
-.date-clear { flex: 0 0 auto; padding: 8px 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); color: var(--muted); font-size: 11px; font-weight: 500; cursor: pointer; }
-.date-clear:hover:not(:disabled) { color: var(--ink); background: var(--line); }
 input:hover, textarea:hover, select:hover { border-color: #bdbdbd; }
 input:focus, textarea:focus, select:focus { border-color: #8d8d8d; box-shadow: 0 0 0 3px rgba(13,13,13,.06); }
 textarea { resize: vertical; line-height: 1.5; }
@@ -257,15 +250,6 @@ textarea { resize: vertical; line-height: 1.5; }
 .optional-field { margin: 2px 0 10px; }
 .optional-field summary { justify-content: flex-start; gap: 8px; color: var(--muted); font-weight: 400; }
 .optional-field summary span { padding: 2px 6px; border-radius: 99px; background: var(--soft); font-size: 9px; }
-.schedule-tools { display: flex; align-items: center; margin: 0 0 12px; }
-.timezone-button { display: inline-grid; grid-template-columns: auto auto auto; align-items: center; gap: 7px; max-width: 100%; border: 1px solid var(--line); border-radius: 99px; padding: 6px 9px; background: #fff; color: var(--muted); cursor: pointer; font-size: 10px; font-weight: 400; }
-.timezone-button:hover { background: var(--soft); color: var(--ink); }
-.timezone-button strong { overflow: hidden; color: #333; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.timezone-button i { font-style: normal; font-size: 12px; }
-.timezone-panel { margin: -3px 0 13px; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--soft); }
-.timezone-panel label { margin-bottom: 5px; }
-.timezone-panel input { padding: 8px 10px; font-size: 12px; }
-.timezone-panel small { color: var(--muted); font-size: 10px; }
 .tag-collection { display: flex; flex-wrap: wrap; gap: 6px; margin: -5px 0 12px; }
 .tag-collection button { border: 1px solid var(--line); border-radius: 99px; padding: 5px 9px; background: #fff; color: var(--muted); font-size: 10px; font-weight: 400; }
 .tag-collection button.active { border-color: #555; background: #eee; color: #222; }
@@ -314,7 +298,6 @@ details[open] summary::after { content: '−'; }
 .editor-scroll > details > summary { min-height: 44px; align-items: center; font-weight: 550; }
 .editor-scroll > details[open] > summary { color: #222; }
 .schedule-explainer { margin: 0 0 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
-.schedule-grid label small { margin-top: -2px; color: var(--muted); font-size: 10px; font-weight: 400; line-height: 1.4; }
 label.check { display: flex; grid-template-columns: auto 1fr; flex-direction: row; align-items: center; font-weight: 500; }
 label.check input { width: 18px; height: 18px; }
 .inline-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }

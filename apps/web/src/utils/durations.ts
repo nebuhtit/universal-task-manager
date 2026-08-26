@@ -23,7 +23,9 @@ export const calendarDuration = (startAt?: string, endAt?: string): { amount: nu
   const start = startAt ? Date.parse(startAt) : Number.NaN;
   const end = endAt ? Date.parse(endAt) : Number.NaN;
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return { amount: 10, unit: 'minutes' };
-  const minutes = Math.max(1, Math.round((end - start) / 60_000));
+  // datetime-local displays minute precision. Compare the same visible values
+  // so hidden seconds on a freshly-created Start cannot turn 1 hour into 59 min.
+  const minutes = Math.max(1, Math.floor(end / 60_000) - Math.floor(start / 60_000));
   if (minutes % (7 * 24 * 60) === 0) return { amount: minutes / (7 * 24 * 60), unit: 'weeks' };
   if (minutes % (24 * 60) === 0) return { amount: minutes / (24 * 60), unit: 'days' };
   if (minutes % 60 === 0) return { amount: minutes / 60, unit: 'hours' };

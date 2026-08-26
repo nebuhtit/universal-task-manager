@@ -1,0 +1,22 @@
+.date-field { min-width: 0; }
+.date-field-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.date-field-row > input { flex: 1 1 auto; min-width: 0; }
+.date-field .formatted-date { display: block; margin-top: var(--space-1); color: var(--color-text); font-weight: var(--font-weight-medium); }
+.date-clear { flex: 0 0 auto; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+
+.calendar-duration-control { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(42px, .45fr) minmax(0, 1fr); gap: var(--space-2); align-items: center; }
+.calendar-duration-control .duration-amount { min-width: 0; padding-inline: var(--space-2); }
+.calendar-duration-control .duration-unit { min-width: 0; padding-left: var(--space-2); }
+
+.schedule-tools { display: flex; align-items: center; margin: 0 0 var(--space-3); }
+.timezone-button { max-width: 100%; color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: var(--font-weight-regular); }
+.timezone-button strong { overflow: hidden; color: var(--color-text); font-weight: var(--font-weight-medium); text-overflow: ellipsis; white-space: nowrap; }
+.timezone-button i { font-style: normal; }
+.timezone-panel { margin: calc(var(--space-1) * -1) 0 var(--space-3); padding: var(--space-3); }
+.timezone-panel .ui-field { margin: 0; }
+.schedule-grid .ui-field-hint { line-height: 1.4; }
+
+@media (max-width: 640px) {
+  .calendar-duration-control { grid-template-columns: minmax(0, 1.25fr) 46px minmax(0, .95fr); gap: var(--space-1); }
+  .calendar-duration-control select, .calendar-duration-control input { font-size: var(--font-size-caption); }
+}

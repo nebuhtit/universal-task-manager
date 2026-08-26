@@ -18,6 +18,7 @@ describe('duration utilities', () => {
     const start = '2026-08-25T10:00:00.000Z';
     expect(calendarDuration(start, '2026-08-25T10:10:00.000Z')).toEqual({ amount: 10, unit: 'minutes' });
     expect(calendarDuration(start, '2026-08-25T12:00:00.000Z')).toEqual({ amount: 2, unit: 'hours' });
+    expect(calendarDuration('2026-08-25T10:00:47.000Z', '2026-08-25T11:00:00.000Z')).toEqual({ amount: 1, unit: 'hours' });
     expect(calendarDuration(start, start)).toEqual({ amount: 10, unit: 'minutes' });
     expect(calendarDurationMs(2, 'hours')).toBe(7_200_000);
   });
