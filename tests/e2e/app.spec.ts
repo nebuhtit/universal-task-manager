@@ -84,7 +84,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.12\.2 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.12\.3 · commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -93,7 +93,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.12.2', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.12.3', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -524,7 +524,11 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   const editBounds = await view.getByRole('button', { name: /^Edit /  }).boundingBox();
   expect(viewBounds).not.toBeNull();
   expect(editBounds).not.toBeNull();
-  if (testInfo.project.name === 'mobile') expect(viewBounds!.x).toBeLessThanOrEqual(8);
+  if (testInfo.project.name === 'mobile') {
+    expect(viewBounds!.x).toBeLessThanOrEqual(8);
+    await expect(page.locator('body')).toHaveCSS('overflow-x', 'clip');
+    await expect(page.locator('.page-home')).toHaveCSS('overscroll-behavior-x', 'none');
+  }
   expect(editBounds!.x + editBounds!.width).toBeLessThanOrEqual(viewBounds!.x + viewBounds!.width + 1);
 
   await view.getByRole('button', { name: /^Edit /  }).click();
