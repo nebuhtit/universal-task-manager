@@ -1,4 +1,4 @@
-import { compileQuery, compileSort, effectiveWorkspaceNow, listDefinitionFor, organizationDefinitionFor, organizationPreferencesFor, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { compileQuery, compileSort, effectiveWorkspaceNow, listDefinitionFor, orderedOrganizationEntries, orderedTagEntries, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
 const recentlyDoneUntil = new Map<string, number>();
@@ -80,7 +80,8 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
       const expanded = serializeSortRules(rules.flatMap((rule) => {
         if (!organizationSorts.has(rule.expression)) return [rule];
         const prefix = rule.expression === 'listOrder' ? 'list' : rule.expression === 'areaOrder' ? 'area' : rule.expression === 'projectOrder' ? 'project' : 'tag';
-        if (prefix === 'tag') return [{ ...rule, expression: 'custom.__utm_tag_priority' }];
+        if (prefix === 'tag') return [{ ...rule, expression: 'custom.__utm_tag_order' }];
+        if (prefix === 'area' || prefix === 'project') return [{ ...rule, expression: `custom.__utm_${prefix}_order` }];
         return [
           { ...rule, expression: `custom.__utm_${prefix}_priority` },
           { ...rule, expression: `custom.__utm_${prefix}_order`, direction: 'asc' as const },
@@ -88,22 +89,22 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
         ];
       }));
       const comparator = compileSort(expanded);
-      const preferences = organizationPreferencesFor(workspace);
+      const areaOrder = orderedOrganizationEntries(workspace, 'area');
+      const projectOrder = orderedOrganizationEntries(workspace, 'project');
+      const tagOrder = orderedTagEntries(workspace);
+      const rank = (order: Array<string | null>, value: string | null) => {
+        const index = order.indexOf(value);
+        return index < 0 ? 0 : order.length - index;
+      };
       const sortable = (item: UniversalItem): UniversalItem => {
         const list = listDefinitionFor(workspace, item.list, now);
-        const area = organizationDefinitionFor(workspace, 'area', item.area, now);
-        const project = organizationDefinitionFor(workspace, 'project', item.project, now);
-        const tagPriority = item.tags.reduce((maximum, tag) => Math.max(maximum, preferences.tagPriorities[tag] ?? 0), 0);
+        const tagRank = item.tags.length ? Math.max(...item.tags.map((tag) => rank(tagOrder, tag))) : rank(tagOrder, null);
         return { ...item, custom: {
           ...item.custom,
           ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
-          __utm_area_priority: area?.priority ?? preferences.unassignedAreaPriority,
-          __utm_area_order: area?.order ?? Number.MAX_SAFE_INTEGER,
-          __utm_area_created_at: area?.createdAt ?? item.createdAt,
-          __utm_project_priority: project?.priority ?? preferences.unassignedProjectPriority,
-          __utm_project_order: project?.order ?? Number.MAX_SAFE_INTEGER,
-          __utm_project_created_at: project?.createdAt ?? item.createdAt,
-          __utm_tag_priority: tagPriority,
+          __utm_area_order: rank(areaOrder, item.area ?? null),
+          __utm_project_order: rank(projectOrder, item.project ?? null),
+          __utm_tag_order: tagRank,
         } };
       };
       items.sort((left, right) => comparator(sortable(left), sortable(right), now));

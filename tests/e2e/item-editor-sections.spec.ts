@@ -20,38 +20,35 @@ test('low-risk item sections save values and disclosure state', async ({ page })
   await page.getByPlaceholder('Add new item').fill('Design system item');
   await page.getByPlaceholder('Add new item').press('Enter');
 
-  const priority = await openSection(page, 'Priority');
-  await priority.getByLabel('Priority').selectOption('3');
-  const tags = await openSection(page, 'Tags');
-  await tags.getByLabel('Tags').fill('design, calm');
-  const taskLink = await openSection(page, 'Organization');
-  await taskLink.getByLabel('Task list').fill('Phase 3');
-  const contexts = await openSection(page, 'Contexts');
-  await contexts.getByLabel('Contexts').fill('desktop, mobile');
+  const organization = await openSection(page, 'Organization');
+  await organization.getByLabel('Priority').selectOption('3');
+  await organization.getByLabel('Tags').fill('design, calm');
+  await organization.getByLabel('Create Task list').fill('Phase 3');
   await page.getByRole('button', { name: 'Save item' }).click();
 
   await page.getByText('Design system item', { exact: true }).first().click();
   await expect(page.getByLabel('Priority')).toHaveValue('3');
   await expect(page.getByRole('textbox', { name: 'Tags' })).toHaveValue('design, calm');
-  await expect(page.locator('input[aria-label="Task list"]')).toHaveValue('Phase 3');
-  await expect(page.getByLabel('Contexts')).toHaveValue('desktop, mobile');
-  await expect(page.locator('.editor-scroll > details[open]').filter({ has: page.getByText('Priority', { exact: true }) })).toHaveCount(1);
-  for (const title of ['Priority', 'Tags', 'Organization', 'Contexts']) {
-    await expect(page.locator('.editor-scroll > details > summary').filter({ hasText: title }).first().locator('.section-dot')).toHaveCount(1);
-  }
+  await expect(page.getByLabel('Create Task list')).toHaveValue('Phase 3');
+  await expect(page.locator('.editor-scroll > details[open]').filter({ has: page.getByText('Organization', { exact: true }) })).toHaveCount(1);
+  await expect(page.locator('.editor-scroll > details > summary').filter({ hasText: 'Organization' }).first().locator('.section-dot')).toHaveCount(1);
 });
 
 test('template toggle uses the shared checkbox without changing template semantics', async ({ page }) => {
   await createWorkspace(page);
   await page.getByPlaceholder('Add new item').fill('Reusable template');
   await page.getByPlaceholder('Add new item').press('Enter');
-  const template = await openSection(page, 'Template');
+  const more = await openSection(page, 'More');
+  const templateSummary = more.locator('details > summary').filter({ hasText: 'Template' }).first();
+  const template = templateSummary.locator('..');
+  if (!await template.evaluate((element) => (element as HTMLDetailsElement).open)) await templateSummary.click();
   await template.getByRole('checkbox', { name: 'Save this item as a template' }).check();
   await page.getByRole('button', { name: 'Save item' }).click();
 
   await expect(page.getByText('Reusable template', { exact: true })).toHaveCount(0);
   await page.getByPlaceholder('Add new item').fill('From template');
   await page.getByPlaceholder('Add new item').press('Enter');
-  const picker = await openSection(page, 'Choose a saved template');
+  const picker = page.locator('.template-picker');
+  if (!await picker.evaluate((element) => (element as HTMLDetailsElement).open)) await picker.locator(':scope > summary').click();
   await expect(picker.getByRole('button', { name: 'Reusable template' })).toBeVisible();
 });

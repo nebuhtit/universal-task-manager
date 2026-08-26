@@ -8,9 +8,10 @@ describe('OrganizationManager', () => {
     const workspace = createWorkspace('Legacy settings');
     delete (workspace as Partial<typeof workspace>).organizationPreferences;
     const markup = renderToStaticMarkup(<OrganizationManager workspace={workspace} commit={vi.fn()} />);
-    expect(markup).toContain('Items without Area');
-    expect(markup).toContain('Items without Project');
-    expect(markup).toContain('Tag priorities');
+    expect(markup).toContain('No Area');
+    expect(markup).toContain('No Project');
+    expect(markup).toContain('No Tags');
+    expect(markup).not.toContain('Priority 0');
     expect(markup).toContain('aria-label="New tag"');
     expect(markup).toContain('Add tag');
   });

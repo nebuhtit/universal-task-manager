@@ -91,7 +91,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.14\.0 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.15\.0 · commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -100,7 +100,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.14.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.15.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -117,17 +117,21 @@ test('archives Calendar and Automations while marking All items as beta', async 
   await expect(page.getByRole('button', { name: 'Automations', exact: true })).toHaveCount(0);
 });
 
-test('creates and prioritizes a reusable tag from Settings', async ({ page }) => {
+test('creates and manually orders reusable tags from Settings', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Tag settings');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await goToSettings(page);
   await page.getByRole('textbox', { name: 'New tag', exact: true }).fill('#urgent');
-  await page.getByLabel('New tag priority').selectOption('4');
   await page.getByRole('button', { name: 'Add tag' }).click();
   await expect(page.getByText('#urgent', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Priority for tag urgent')).toHaveValue('4');
+  await page.getByRole('textbox', { name: 'New tag', exact: true }).fill('#someday');
+  await page.getByRole('button', { name: 'Add tag' }).click();
+  await expect(page.getByText('#someday', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reorder No Tags' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reorder urgent' })).toBeVisible();
+  await expect(page.getByText('Priority 0', { exact: true })).toHaveCount(0);
 });
 
 test('create, lock, unlock and edit a universal item', async ({ page }) => {
@@ -484,6 +488,11 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await page.getByLabel('Event ends', { exact: true }).fill('2026-08-27T08:30');
   await openEditorSection(page, 'Progress & habit');
   await page.getByLabel('Track as a habit').check();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByText('00:00:00', { exact: true })).toBeVisible();
+  await page.waitForTimeout(1100);
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(page.locator('.habit-timer-history li')).toHaveCount(1);
   await openEditorSection(page, 'Recurrence & auto-renew');
   await page.getByLabel('Make this a recurring series').check();
   await page.getByRole('button', { name: 'Save item' }).click();
@@ -507,6 +516,7 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await habitView.getByText('Daily walk', { exact: true }).click();
   await openEditorSection(page, 'Item JSON');
   await expect(page.getByLabel('Item JSON')).toHaveValue(/"completedDates": \[\s+"\d{4}-\d{2}-\d{2}"/);
+  await expect(page.getByLabel('Item JSON')).toHaveValue(/"timerSessions": \[/);
 });
 
 test('saved view applies multi-rule sort DSL and displayed field selection', async ({ page }, testInfo) => {

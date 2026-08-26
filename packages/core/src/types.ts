@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.9.0';
+export const SCHEMA_VERSION = '1.10.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.14.0';
-export const APP_RELEASED_AT = '2026-08-26T20:39:16.006Z';
+export const APP_VERSION = '1.15.0';
+export const APP_RELEASED_AT = '2026-08-26T21:33:56.000Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -82,6 +82,9 @@ export interface Habit {
   streakMode: 'manual_only' | 'any_closed';
   /** Calendar days completed by the user. Missing scheduled days are skips. */
   completedDates: string[];
+  /** A running stopwatch survives item saves and app restarts. */
+  activeTimerStartedAt?: ISODateTime;
+  timerSessions?: Array<{ id: string; startedAt: ISODateTime; endedAt: ISODateTime; durationSeconds: number }>;
 }
 
 export interface Reminder {
@@ -251,9 +254,10 @@ export interface ListDefinition {
 
 export interface AreaDefinition {
   name: string;
-  priority: 0 | 1 | 2 | 3 | 4;
-  /** Exact manual order within the same priority. Lower values appear first. */
-  order: number;
+  /** Accepted only while normalizing older portable packages. */
+  priority?: 0 | 1 | 2 | 3 | 4;
+  /** Accepted only while normalizing older portable packages. */
+  order?: number;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
 }
@@ -264,9 +268,10 @@ export interface ProjectDefinition extends AreaDefinition {
 }
 
 export interface OrganizationPreferences {
-  unassignedAreaPriority: 0 | 1 | 2 | 3 | 4;
-  unassignedProjectPriority: 0 | 1 | 2 | 3 | 4;
-  tagPriorities: Record<string, 0 | 1 | 2 | 3 | 4>;
+  /** Top-to-bottom order. A single null is the movable unassigned row. */
+  areaOrder: Array<string | null>;
+  projectOrder: Array<string | null>;
+  tagOrder: Array<string | null>;
 }
 
 export interface PortableSource {
@@ -292,6 +297,7 @@ export interface PortablePackage {
   customFields: Record<string, CustomFieldDefinition>;
   areaDefinitions?: Record<string, AreaDefinition>;
   projectDefinitions?: Record<string, ProjectDefinition>;
+  organizationPreferences?: OrganizationPreferences;
   items: UniversalItem[];
   views: SavedView[];
   selection?: PortableSelection;
@@ -503,7 +509,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     listDefinitions: {},
     areaDefinitions: {},
     projectDefinitions: {},
-    organizationPreferences: { unassignedAreaPriority: 0, unassignedProjectPriority: 0, tagPriorities: {} },
+    organizationPreferences: { areaOrder: [null], projectOrder: [null], tagOrder: [null] },
     customFields: {},
     views: {
       '__all_items__': {

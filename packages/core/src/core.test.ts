@@ -513,7 +513,7 @@ describe('interoperability', () => {
     delete (legacyHabit.habit as Partial<NonNullable<UniversalItem['habit']>>).completedDates;
     old.items[legacyHabit.id] = legacyHabit;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.schemaVersion).toBe('1.9.0');
+    expect(migrated.schemaVersion).toBe('1.10.0');
     expect(migrated.listDefinitions.Health).toMatchObject({ name: 'Health', kind: 'list', priority: 0, createdAt: item.createdAt });
     expect(migrated.views[legacyView.id]?.list).toBe('Health');
     expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
@@ -534,6 +534,8 @@ describe('interoperability', () => {
     old.views[areaView.id] = areaView; old.views[projectView.id] = projectView;
     old.listDefinitions.Work = { name: 'Work', kind: 'area', priority: 4, createdAt: areaItem.createdAt, updatedAt: areaItem.updatedAt };
     old.listDefinitions['Vehicle repair'] = { name: 'Vehicle repair', kind: 'project', priority: 3, createdAt: projectItem.createdAt, updatedAt: projectItem.updatedAt };
+    (old as unknown as { schemaVersion: string; organizationPreferences: unknown }).schemaVersion = '1.9.0';
+    (old as unknown as { organizationPreferences: unknown }).organizationPreferences = { unassignedAreaPriority: 0, unassignedProjectPriority: 0, tagPriorities: {} };
     delete (old as Partial<typeof old>).areaDefinitions; delete (old as Partial<typeof old>).projectDefinitions;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
     expect(migrated.items[areaItem.id]).toMatchObject({ area: 'Work' });
@@ -541,8 +543,10 @@ describe('interoperability', () => {
     expect(migrated.items[projectItem.id]).toMatchObject({ project: 'Vehicle repair' });
     expect(migrated.views[areaView.id]).toMatchObject({ area: 'Work' });
     expect(migrated.views[projectView.id]).toMatchObject({ project: 'Vehicle repair' });
-    expect(migrated.areaDefinitions.Work?.priority).toBe(4);
-    expect(migrated.projectDefinitions['Vehicle repair']?.priority).toBe(3);
+    expect(migrated.areaDefinitions.Work?.name).toBe('Work');
+    expect(migrated.projectDefinitions['Vehicle repair']?.name).toBe('Vehicle repair');
+    expect(migrated.organizationPreferences.areaOrder.indexOf('Work')).toBeLessThan(migrated.organizationPreferences.areaOrder.indexOf(null));
+    expect(migrated.organizationPreferences.projectOrder.indexOf('Vehicle repair')).toBeLessThan(migrated.organizationPreferences.projectOrder.indexOf(null));
   });
 
   it('exports a validated portable package and imports conflicts only as copies', () => {

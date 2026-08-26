@@ -19,7 +19,13 @@ test('dates, duration and clearing remain synchronized', async ({ page }) => {
   const ends = page.getByLabel('Event ends', { exact: true });
   const due = page.locator('input[aria-label="Due / Active range ends"]');
 
-  await expect(opens).not.toHaveValue('');
+  await expect(opens).toHaveValue('');
+  const start = await page.evaluate(() => {
+    const date = new Date();
+    date.setSeconds(0, 0);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  await opens.fill(start);
   await expect(due).toHaveValue('');
   await due.click();
   await expect(due).toHaveValue(await opens.inputValue());
@@ -50,7 +56,12 @@ test('dates, duration and clearing remain synchronized', async ({ page }) => {
 test('end and due dates before Event opens remain invalid', async ({ page }) => {
   await createWorkspaceAndItem(page);
   const opens = page.getByLabel('Event opens', { exact: true });
-  const start = await opens.inputValue();
+  const start = await page.evaluate(() => {
+    const date = new Date();
+    date.setSeconds(0, 0);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  await opens.fill(start);
   const earlier = await page.evaluate((value) => {
     const date = new Date(value);
     date.setMinutes(date.getMinutes() - 10);

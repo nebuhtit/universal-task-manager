@@ -28,6 +28,7 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
   await row.getByRole('combobox', { name: 'Property' }).selectOption('state');
   await row.getByRole('combobox', { name: 'Value' }).selectOption('done');
 
+  await openSection(page, 'Show in results');
   await page.getByRole('button', { name: 'Hide all' }).click();
   const core = page.locator('.field-groups details').filter({ has: page.getByText('Core', { exact: true }) });
   if (!await core.evaluate((element) => (element as HTMLDetailsElement).open)) await core.locator(':scope > summary').click();

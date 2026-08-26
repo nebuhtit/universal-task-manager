@@ -85,7 +85,11 @@ export const itemJsonSchema = {
     },
     habit: {
       type: 'object', additionalProperties: false, required: ['target', 'unit', 'streakMode', 'completedDates'],
-      properties: { target: { type: 'number' }, unit: { type: 'string' }, streakMode: { enum: ['manual_only', 'any_closed'] }, completedDates: { type: 'array', uniqueItems: true, items: { type: 'string', format: 'date' } } },
+      properties: {
+        target: { type: 'number' }, unit: { type: 'string' }, streakMode: { enum: ['manual_only', 'any_closed'] }, completedDates: { type: 'array', uniqueItems: true, items: { type: 'string', format: 'date' } },
+        activeTimerStartedAt: { type: 'string', format: 'date-time' },
+        timerSessions: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'startedAt', 'endedAt', 'durationSeconds'], properties: { id: { type: 'string', minLength: 1 }, startedAt: { type: 'string', format: 'date-time' }, endedAt: { type: 'string', format: 'date-time' }, durationSeconds: { type: 'number', minimum: 0 } } } },
+      },
     },
     priority: { type: 'integer', minimum: 0, maximum: 4 },
     list: { type: 'string', minLength: 1 }, area: { type: 'string', minLength: 1 }, project: { type: 'string', minLength: 1 },
@@ -167,7 +171,7 @@ const listDefinitionSchema = {
 } as const;
 
 const areaDefinitionSchema = {
-  type: 'object', additionalProperties: false, required: ['name', 'priority', 'order', 'createdAt', 'updatedAt'],
+  type: 'object', additionalProperties: false, required: ['name', 'createdAt', 'updatedAt'],
   properties: {
     name: { type: 'string', minLength: 1 }, priority: { type: 'integer', minimum: 0, maximum: 4 },
     order: { type: 'number', minimum: 0 }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
@@ -194,6 +198,15 @@ export const portablePackageJsonSchema = {
     customFields: { type: 'object', additionalProperties: customFieldSchema },
     areaDefinitions: { type: 'object', additionalProperties: areaDefinitionSchema },
     projectDefinitions: { type: 'object', additionalProperties: projectDefinitionSchema },
+    organizationPreferences: {
+      type: 'object', additionalProperties: false,
+      required: ['areaOrder', 'projectOrder', 'tagOrder'],
+      properties: {
+        areaOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        projectOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        tagOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+      },
+    },
     items: { type: 'array', items: itemJsonSchema }, views: { type: 'array', items: viewJsonSchema },
     selection: { type: 'object', additionalProperties: true, required: ['type'], properties: { type: { enum: ['single_item', 'view_results', 'all_items', 'view_definition'] } } },
     dependencyItemIds: stringArray, extensions,
@@ -206,7 +219,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.9.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.10.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
@@ -218,11 +231,11 @@ export const workspaceJsonSchema = {
     projectDefinitions: { type: 'object', additionalProperties: projectDefinitionSchema },
     organizationPreferences: {
       type: 'object', additionalProperties: false,
-      required: ['unassignedAreaPriority', 'unassignedProjectPriority', 'tagPriorities'],
+      required: ['areaOrder', 'projectOrder', 'tagOrder'],
       properties: {
-        unassignedAreaPriority: { type: 'integer', minimum: 0, maximum: 4 },
-        unassignedProjectPriority: { type: 'integer', minimum: 0, maximum: 4 },
-        tagPriorities: { type: 'object', additionalProperties: { type: 'integer', minimum: 0, maximum: 4 } },
+        areaOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        projectOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        tagOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
       },
     },
     customFields: { type: 'object', additionalProperties: customFieldSchema },
@@ -355,7 +368,17 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   }
   // Older workspaces could enable habit tracking on any preset. Backfill the
   // history field before strict validation regardless of the item's preset.
-  if (item.habit && typeof item.habit === 'object' && !Array.isArray(item.habit)) (item.habit as Record<string, unknown>).completedDates ??= [];
+  if (item.habit && typeof item.habit === 'object' && !Array.isArray(item.habit)) {
+    const habit = item.habit as Record<string, unknown>;
+    habit.completedDates ??= [];
+    if (Array.isArray(habit.timerSessions)) habit.timerSessions = habit.timerSessions.filter((session): session is Record<string, unknown> => {
+      if (!session || typeof session !== 'object' || Array.isArray(session)) return false;
+      const value = session as Record<string, unknown>;
+      return typeof value.id === 'string' && Boolean(value.id) && typeof value.startedAt === 'string' && Number.isFinite(Date.parse(value.startedAt)) && typeof value.endedAt === 'string' && Number.isFinite(Date.parse(value.endedAt)) && Number.isFinite(Number(value.durationSeconds)) && Number(value.durationSeconds) >= 0;
+    }).map((session) => ({ id: session.id, startedAt: session.startedAt, endedAt: session.endedAt, durationSeconds: Number(session.durationSeconds) }));
+    else delete habit.timerSessions;
+    if (typeof habit.activeTimerStartedAt !== 'string' || !Number.isFinite(Date.parse(habit.activeTimerStartedAt))) delete habit.activeTimerStartedAt;
+  }
   const validation = validateItem(item);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   return { value: item as unknown as UniversalItem, warnings };
@@ -450,12 +473,10 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     ...Object.values(migratedItems).map((item) => item.project).filter((name): name is string => Boolean(name?.trim())),
     ...Object.values(migratedViews).map((view) => view.project).filter((name): name is string => Boolean(name?.trim())),
   ]);
-  const organizationDefinition = (name: string, raw: Record<string, unknown>, itemDates: string[], fallbackOrder: number) => {
+  const organizationDefinition = (name: string, raw: Record<string, unknown>, itemDates: string[]) => {
     const createdAt = typeof raw.createdAt === 'string' && Number.isFinite(Date.parse(raw.createdAt)) ? raw.createdAt : itemDates[0] ?? now;
     return {
       name,
-      priority: Math.max(0, Math.min(4, Math.floor(Number(raw.priority) || 0))),
-      order: Math.max(0, Number.isFinite(Number(raw.order)) ? Number(raw.order) : fallbackOrder),
       createdAt,
       updatedAt: typeof raw.updatedAt === 'string' && Number.isFinite(Date.parse(raw.updatedAt)) ? raw.updatedAt : createdAt,
     };
@@ -464,13 +485,13 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     const direct = rawAreaDefinitions[name]; const legacy = rawListDefinitions[name];
     const raw = direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : {};
     const dates = Object.values(migratedItems).filter((item) => item.area === name).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
-    return [name, organizationDefinition(name, raw, dates, index)];
+    return [name, organizationDefinition(name, raw, dates)];
   }));
   source.projectDefinitions = Object.fromEntries([...projectNames].map((name, index) => {
     const direct = rawProjectDefinitions[name]; const legacy = rawListDefinitions[name];
     const raw = direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : {};
     const dates = Object.values(migratedItems).filter((item) => item.project === name).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
-    const definition = organizationDefinition(name, raw, dates, index);
+    const definition = organizationDefinition(name, raw, dates);
     return [name, { ...definition, ...(typeof raw.area === 'string' && raw.area.trim() ? { area: raw.area.trim() } : {}) }];
   }));
   const rawOrganizationPreferences = source.organizationPreferences && typeof source.organizationPreferences === 'object' && !Array.isArray(source.organizationPreferences)
@@ -480,10 +501,35 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const rawTagPriorities = rawOrganizationPreferences.tagPriorities && typeof rawOrganizationPreferences.tagPriorities === 'object' && !Array.isArray(rawOrganizationPreferences.tagPriorities)
     ? rawOrganizationPreferences.tagPriorities as Record<string, unknown>
     : {};
+  const orderedLegacy = (names: string[], rawDefinitions: Record<string, unknown>, unassignedPriority: unknown) => [...names, null]
+    .sort((left, right) => {
+      const rawFor = (name: string | null) => name === null ? {} : rawDefinitions[name] && typeof rawDefinitions[name] === 'object' && !Array.isArray(rawDefinitions[name]) ? rawDefinitions[name] as Record<string, unknown> : {};
+      const leftRaw = rawFor(left); const rightRaw = rawFor(right);
+      const priority = (name: string | null, raw: Record<string, unknown>) => name === null ? organizationPriority(unassignedPriority) : organizationPriority(raw.priority);
+      const order = (name: string | null, raw: Record<string, unknown>) => name === null ? Number.MAX_SAFE_INTEGER : Number.isFinite(Number(raw.order)) ? Number(raw.order) : Number.MAX_SAFE_INTEGER;
+      const created = (name: string | null, raw: Record<string, unknown>) => name === null ? 0 : Date.parse(typeof raw.createdAt === 'string' ? raw.createdAt : '') || 0;
+      return priority(right, rightRaw) - priority(left, leftRaw) || order(left, leftRaw) - order(right, rightRaw) || created(right, rightRaw) - created(left, leftRaw) || String(left ?? '').localeCompare(String(right ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+    });
+  const normalizeOrder = (value: unknown, names: string[], legacy: Array<string | null>) => {
+    const known = new Set(names); const result: Array<string | null> = [];
+    for (const entry of Array.isArray(value) ? value : legacy) {
+      if (entry === null) { if (!result.includes(null)) result.push(null); }
+      else if (typeof entry === 'string' && known.has(entry) && !result.includes(entry)) result.push(entry);
+    }
+    names.forEach((name) => { if (!result.includes(name)) result.push(name); });
+    if (!result.includes(null)) result.push(null);
+    return result;
+  };
+  const tags = [...new Set([...Object.keys(rawTagPriorities), ...Object.values(migratedItems).flatMap((item) => item.tags)].map((tag) => tag.trim()).filter(Boolean))];
+  const legacyTags: Array<string | null> = [...tags.sort((left, right) => organizationPriority(rawTagPriorities[right]) - organizationPriority(rawTagPriorities[left]) || left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })), null];
+  const legacyDefinitions = (names: string[], direct: Record<string, unknown>) => Object.fromEntries(names.map((name) => {
+    const raw = direct[name] && typeof direct[name] === 'object' && !Array.isArray(direct[name]) ? direct[name] : rawListDefinitions[name];
+    return [name, raw];
+  }));
   source.organizationPreferences = {
-    unassignedAreaPriority: organizationPriority(rawOrganizationPreferences.unassignedAreaPriority),
-    unassignedProjectPriority: organizationPriority(rawOrganizationPreferences.unassignedProjectPriority),
-    tagPriorities: Object.fromEntries(Object.entries(rawTagPriorities).filter(([tag]) => tag.trim()).map(([tag, value]) => [tag, organizationPriority(value)])),
+    areaOrder: normalizeOrder(rawOrganizationPreferences.areaOrder, [...areaNames], orderedLegacy([...areaNames], legacyDefinitions([...areaNames], rawAreaDefinitions), rawOrganizationPreferences.unassignedAreaPriority)),
+    projectOrder: normalizeOrder(rawOrganizationPreferences.projectOrder, [...projectNames], orderedLegacy([...projectNames], legacyDefinitions([...projectNames], rawProjectDefinitions), rawOrganizationPreferences.unassignedProjectPriority)),
+    tagOrder: normalizeOrder(rawOrganizationPreferences.tagOrder, tags, legacyTags),
   };
   source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.tombstones ??= {};
   source.pushPreferences ??= { enabled: false, contentMode: 'generic' };

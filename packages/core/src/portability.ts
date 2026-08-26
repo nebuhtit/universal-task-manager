@@ -1,4 +1,5 @@
 import { APP_ID, APP_NAME, APP_VERSION, createId, SCHEMA_VERSION } from './types.js';
+import { defaultOrganizationPreferences, normalizedOrder } from './organization.js';
 import { migrateItem, migrateView, validatePortablePackage } from './schema.js';
 import type {
   CustomFieldDefinition, PortablePackage, PortableSelection, SavedView, UniversalItem, WorkspaceDocument,
@@ -20,7 +21,7 @@ export function createPortablePackage(workspace: WorkspaceDocument, options: Por
     format: 'utm-portable', formatVersion: 1, kind: options.kind, schemaVersion: SCHEMA_VERSION,
     exportedAt: (options.now ?? new Date()).toISOString(),
     source: { appId: APP_ID, appName: APP_NAME, appVersion: APP_VERSION, workspaceId: workspace.workspaceId },
-    customFields: clone(workspace.customFields), areaDefinitions: clone(workspace.areaDefinitions), projectDefinitions: clone(workspace.projectDefinitions), items: clone(options.items ?? []), views: clone(options.views ?? []),
+    customFields: clone(workspace.customFields), areaDefinitions: clone(workspace.areaDefinitions), projectDefinitions: clone(workspace.projectDefinitions), organizationPreferences: clone(workspace.organizationPreferences), items: clone(options.items ?? []), views: clone(options.views ?? []),
     ...(options.selection ? { selection: clone(options.selection) } : {}),
     dependencyItemIds: [...new Set(options.dependencyItemIds ?? [])],
   };
@@ -56,6 +57,7 @@ export function parsePortablePackage(source: string): ParsedPortablePackage {
     source: raw.source as PortablePackage['source'], customFields: clone((raw.customFields ?? {}) as Record<string, CustomFieldDefinition>),
     areaDefinitions: clone((raw.areaDefinitions ?? {}) as NonNullable<PortablePackage['areaDefinitions']>),
     projectDefinitions: clone((raw.projectDefinitions ?? {}) as NonNullable<PortablePackage['projectDefinitions']>),
+    ...(raw.organizationPreferences ? { organizationPreferences: clone(raw.organizationPreferences) } : {}),
     items, views, ...(raw.selection ? { selection: clone(raw.selection as PortableSelection) } : {}),
     dependencyItemIds: Array.isArray(raw.dependencyItemIds) ? raw.dependencyItemIds.filter((id): id is string => typeof id === 'string') : [],
     ...(raw.extensions && typeof raw.extensions === 'object' ? { extensions: clone(raw.extensions as Record<string, unknown>) } : {}),
@@ -144,6 +146,11 @@ export function applyPortableImport(workspace: WorkspaceDocument, preview: Porta
 
   for (const [name, definition] of Object.entries(preview.package.areaDefinitions ?? {})) workspace.areaDefinitions[name] ??= clone(definition);
   for (const [name, definition] of Object.entries(preview.package.projectDefinitions ?? {})) workspace.projectDefinitions[name] ??= clone(definition);
+  const importedOrganization = preview.package.organizationPreferences ?? defaultOrganizationPreferences();
+  const mergeOrder = (local: Array<string | null>, imported: Array<string | null>, names: string[]) => normalizedOrder(local.some((entry) => entry !== null) ? [...local, ...imported] : imported, names);
+  workspace.organizationPreferences.areaOrder = mergeOrder(workspace.organizationPreferences.areaOrder, importedOrganization.areaOrder, Object.keys(workspace.areaDefinitions));
+  workspace.organizationPreferences.projectOrder = mergeOrder(workspace.organizationPreferences.projectOrder, importedOrganization.projectOrder, Object.keys(workspace.projectDefinitions));
+  workspace.organizationPreferences.tagOrder = mergeOrder(workspace.organizationPreferences.tagOrder, importedOrganization.tagOrder, [...new Set([...workspace.organizationPreferences.tagOrder, ...importedOrganization.tagOrder].filter((tag): tag is string => tag !== null))]);
 
   const keyMap = new Map<string, string>();
   for (const plan of preview.customFields) {

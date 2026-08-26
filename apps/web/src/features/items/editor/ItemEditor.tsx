@@ -23,6 +23,11 @@ import { ScriptsSection } from './sections/ScriptsSection';
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
+const stopwatchDuration = (seconds: number) => {
+  const safe = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safe / 3600); const minutes = Math.floor((safe % 3600) / 60); const remainder = safe % 60;
+  return [hours, minutes, remainder].map((value) => String(value).padStart(2, '0')).join(':');
+};
 
 export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose }: {
   initial: UniversalItem; workspace: WorkspaceDocument; now: Date; isNew?: boolean; onSave: (item: UniversalItem) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
@@ -198,6 +203,19 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   // New items stay intentionally quiet until the user opens a section.
   const sectionMark = (filled: boolean) => !isNew && filled ? <span className="section-dot" aria-label="Contains data">•</span> : null;
   const dateField = (label: string, value: string | undefined, onChange: (value: string | undefined) => void, help?: string, onFocus?: () => void, minValue?: string) => <DateTimeField label={label} value={value} language={workspace.calendarPreferences.language} onChange={onChange} help={help} onFocus={onFocus} minValue={minValue} />;
+  const activeTimerSeconds = item.habit?.activeTimerStartedAt ? Math.max(0, (now.getTime() - Date.parse(item.habit.activeTimerStartedAt)) / 1000) : 0;
+  const startHabitTimer = () => {
+    if (!item.habit || item.habit.activeTimerStartedAt) return;
+    patchItem({ habit: { ...item.habit, activeTimerStartedAt: now.toISOString() } });
+  };
+  const stopHabitTimer = () => {
+    const habit = item.habit; const startedAt = habit?.activeTimerStartedAt;
+    if (!habit || !startedAt) return;
+    const endedAt = now.toISOString();
+    const durationSeconds = Math.max(0, Math.round((Date.parse(endedAt) - Date.parse(startedAt)) / 1000));
+    const { activeTimerStartedAt: _active, ...rest } = habit;
+    patchItem({ habit: { ...rest, timerSessions: [...(habit.timerSessions ?? []), { id: createId(), startedAt, endedAt, durationSeconds }] } });
+  };
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor" onKeyDown={(event) => {
@@ -219,8 +237,8 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
             <div className="form-grid three"><label><FieldIconLabel path="progress.mode" label="Mode" /><select value={item.progress?.mode ?? 'counter'} onChange={(event) => patchItem({ progress: { mode: event.target.value as 'counter', current: item.progress?.current ?? 0, target: item.progress?.target ?? 1 } })}><option>boolean</option><option>percent</option><option>counter</option></select></label>
             <label><FieldIconLabel path="progress.current" label="Current" /><input type="number" value={item.progress?.current ?? 0} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: Number(event.target.value), target: item.progress?.target ?? 1 } })} /></label>
             <label><FieldIconLabel path="progress.target" label="Target" /><input type="number" value={item.progress?.target ?? 1} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: item.progress?.current ?? 0, target: Number(event.target.value) } })} /></label></div>
-            <label className="check"><input type="checkbox" checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { target: item.progress?.target ?? 1, unit: 'times', streakMode: 'manual_only', completedDates: item.habit?.completedDates ?? [] } : undefined })} /> <FieldIconLabel path="isHabit" label="Track as a habit" /></label>
-            {item.habit && <div className="habit-history"><strong>{item.habit.completedDates?.length ?? 0} completions</strong><small>{item.habit.completedDates?.length ? `Completed on ${[...(item.habit.completedDates ?? [])].sort().map((date) => formatViewDate(`${date}T00:00:00`, false, workspace.calendarPreferences.language)).join(', ')}` : 'No completion dates yet.'}</small></div>}
+            <label className="check"><input type="checkbox" checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { ...item.habit, target: item.progress?.target ?? item.habit?.target ?? 1, unit: item.habit?.unit ?? 'times', streakMode: item.habit?.streakMode ?? 'manual_only', completedDates: item.habit?.completedDates ?? [] } : undefined })} /> <FieldIconLabel path="isHabit" label="Track as a habit" /></label>
+            {item.habit && <><div className="habit-stopwatch"><div><strong>{item.habit.activeTimerStartedAt ? stopwatchDuration(activeTimerSeconds) : '00:00:00'}</strong><small>{item.habit.activeTimerStartedAt ? `Started ${formatViewDate(item.habit.activeTimerStartedAt, true, workspace.calendarPreferences.language)}` : 'Simple habit stopwatch'}</small></div>{item.habit.activeTimerStartedAt ? <Button size="compact" onClick={stopHabitTimer}>Stop</Button> : <Button size="compact" onClick={startHabitTimer}>Start</Button>}</div><div className="habit-history"><strong>{item.habit.completedDates?.length ?? 0} completions</strong><small>{item.habit.completedDates?.length ? `Completed on ${[...(item.habit.completedDates ?? [])].sort().map((date) => formatViewDate(`${date}T00:00:00`, false, workspace.calendarPreferences.language)).join(', ')}` : 'No completion dates yet.'}</small>{(item.habit.timerSessions?.length ?? 0) > 0 && <ol className="habit-timer-history">{[...(item.habit.timerSessions ?? [])].reverse().map((session) => <li key={session.id}><span>{formatViewDate(session.startedAt, true, workspace.calendarPreferences.language)} — {formatViewDate(session.endedAt, true, workspace.calendarPreferences.language)}</span><strong>{stopwatchDuration(session.durationSeconds)}</strong></li>)}</ol>}</div></>}
           </div></details>
         </DatesSection>
 

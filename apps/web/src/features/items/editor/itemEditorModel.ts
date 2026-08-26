@@ -54,6 +54,6 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   } else { result.role = 'standalone'; delete result.recurrence; }
   if (result.state === 'done' || result.state === 'cancelled') result.closure = { at: result.closure?.at ?? now.toISOString(), actor: result.closure?.actor ?? 'user', reason: result.state === 'cancelled' ? 'cancelled' : 'manual' };
   else if (result.state === 'open') delete result.closure;
-  if (result.habit) result.habit = { target: result.habit.target ?? result.progress?.target ?? 1, unit: result.habit.unit ?? 'times', streakMode: result.habit.streakMode ?? 'manual_only', completedDates: result.habit.completedDates ?? [] };
+  if (result.habit) result.habit = { target: result.habit.target ?? result.progress?.target ?? 1, unit: result.habit.unit ?? 'times', streakMode: result.habit.streakMode ?? 'manual_only', completedDates: result.habit.completedDates ?? [], ...(result.habit.activeTimerStartedAt ? { activeTimerStartedAt: result.habit.activeTimerStartedAt } : {}), ...(result.habit.timerSessions?.length ? { timerSessions: result.habit.timerSessions } : {}) };
   result.preset = inferredPreset(result); removeDuplicateReminders(result); return clean(result);
 }

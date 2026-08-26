@@ -211,6 +211,13 @@ textarea { resize: vertical; line-height: 1.5; }
 .habit-history { display: grid; gap: 3px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
 .habit-history strong { font-size: 13px; font-weight: 500; }
 .habit-history small { color: var(--muted); line-height: 1.45; }
+.habit-stopwatch { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.habit-stopwatch > div { display: grid; gap: var(--space-1); }
+.habit-stopwatch strong { font-variant-numeric: tabular-nums; }
+.habit-stopwatch small { color: var(--color-text-secondary); }
+.habit-timer-history { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.habit-timer-history li { display: flex; justify-content: space-between; gap: var(--space-3); }
+.habit-timer-history li > span { color: var(--color-text-secondary); }
 .reminder-row { display: grid; grid-template-columns: 1.15fr 1fr 1.1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 @media (max-width: 640px) { .reminder-row { grid-template-columns: 1fr 1fr; } }
 .active-window-summary.incomplete > span { outline: 1px dashed #aaa; }

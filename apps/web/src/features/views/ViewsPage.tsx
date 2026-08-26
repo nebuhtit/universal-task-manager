@@ -46,8 +46,6 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [viewJson, setViewJson] = useState('');
   const [listPriority, setListPriority] = useState<0 | 1 | 2 | 3 | 4>(0);
-  const [areaPriority, setAreaPriority] = useState<0 | 1 | 2 | 3 | 4>(0);
-  const [projectPriority, setProjectPriority] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [viewExpansion, setViewExpansion] = useState<Record<string, boolean>>(() => Object.fromEntries(Object.values(workspace.views).map((view) => [view.id, readUiBoolean(`view:${view.id}`, true)])));
   const handledCreateRequest = useRef(createRequest);
 
@@ -73,8 +71,6 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setViewJson(JSON.stringify(copy, null, 2));
     const definition = listDefinitionFor(workspace, copy.list);
     setListPriority(definition?.priority ?? 0);
-    setAreaPriority(organizationDefinitionFor(workspace, 'area', copy.area)?.priority ?? 0);
-    setProjectPriority(organizationDefinitionFor(workspace, 'project', copy.project)?.priority ?? 0);
     setError('');
   };
   const selectList = (rawList: string) => {
@@ -95,14 +91,12 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     const name = rawName.trim();
     if (!name) {
       const next = { ...editing }; delete next[kind]; setEditing(next);
-      if (kind === 'area') setAreaPriority(0); else setProjectPriority(0);
       return;
     }
     const definition = organizationDefinitionFor(workspace, kind, name);
     const next = { ...editing, [kind]: name };
     if (kind === 'project' && definition && 'area' in definition && definition.area) next.area = definition.area;
     setEditing(next);
-    if (kind === 'area') setAreaPriority(definition?.priority ?? 0); else setProjectPriority(definition?.priority ?? 0);
   };
   const addVisualRow = (join: 'and' | 'or') => syncRowsToDsl([...visualRows, { id: createId(), join, field: 'state', operator: '==', value: 'open' }]);
   const startVisualRows = () => syncRowsToDsl([{ id: createId(), join: 'and', field: 'state', operator: '==', value: 'open' }]);
@@ -185,8 +179,8 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       commit('Save view', (draft) => {
         draft.views[result.id] = clean(saved);
         if (result.list) ensureListDefinition(draft, result.list, { kind: 'list', priority: listPriority });
-        if (result.area) ensureAreaDefinition(draft, result.area, { priority: areaPriority });
-        if (result.project) ensureProjectDefinition(draft, result.project, { ...(result.area ? { area: result.area } : {}), priority: projectPriority });
+        if (result.area) ensureAreaDefinition(draft, result.area);
+        if (result.project) ensureProjectDefinition(draft, result.project, result.area ? { area: result.area } : {});
       });
       setEditing(null);
       setError('');
@@ -258,7 +252,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         <div className="builder-actions"><Select aria-label="Property to pin for new items" value={defaultField} onChange={(event) => setDefaultField(event.target.value)}>{[...new Set(creationDefaultFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup key={group} label={group}>{creationDefaultFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option key={field.path} value={field.path} disabled={Object.hasOwn(editing.creationDefaults ?? {}, field.path)}>{field.label}</option>)}</optgroup>)}</Select><Button size="compact" disabled={Object.hasOwn(editing.creationDefaults ?? {}, defaultField)} onClick={addCreationDefault}>+ Pin property</Button></div>
         <small className="field-hint">Relations, subtasks, item IDs, timestamps, completion history and occurrence identity cannot be copied into new items.</small>
       </fieldset></ViewEditorSection>
-      <ViewEditorSection sectionKey="organization" title="Area, Project & list"><p className="builder-status">These are independent constraints. New items created by this View receive the pinned Area, Project and list automatically.</p><div className="form-grid three"><Field label="Area" hint="Ongoing responsibility."><Input value={editing.area ?? ''} list="view-area-values" placeholder="Choose or type an Area" onChange={(event) => selectOrganization('area', event.target.value)} /></Field><Field label="Project" hint="Finite outcome inside an Area."><Input value={editing.project ?? ''} list="view-project-values" placeholder="Choose or type a Project" onChange={(event) => selectOrganization('project', event.target.value)} /></Field><Field label="Task list" hint="Optional plain list, independent from PARA."><Input value={editing.list ?? ''} list="view-list-values" placeholder="Choose or type a list" onChange={(event) => selectList(event.target.value)} /></Field></div><datalist id="view-area-values">{orderedOrganizationNames(workspace, 'area').map((name) => <option value={name} key={name} />)}</datalist><datalist id="view-project-values">{orderedOrganizationNames(workspace, 'project', editing.area).map((name) => <option value={name} key={name} />)}</datalist><datalist id="view-list-values">{orderedListNames(workspace).map((name) => <option value={name} key={name} />)}</datalist>{editing.area && <Field label="Area priority" hint="4 is highest. Drag order in Settings breaks equal-priority ties."><Select value={areaPriority} onChange={(event) => setAreaPriority(Number(event.target.value) as 0 | 1 | 2 | 3 | 4)}>{[0, 1, 2, 3, 4].map((priority) => <option value={priority} key={priority}>{priority}</option>)}</Select></Field>}{editing.project && <Field label="Project priority" hint="Compared with other Projects; item priority remains separate."><Select value={projectPriority} onChange={(event) => setProjectPriority(Number(event.target.value) as 0 | 1 | 2 | 3 | 4)}>{[0, 1, 2, 3, 4].map((priority) => <option value={priority} key={priority}>{priority}</option>)}</Select></Field>}{editing.list && <Field label="List priority"><Select value={listPriority} onChange={(event) => setListPriority(Number(event.target.value) as 0 | 1 | 2 | 3 | 4)}>{[0, 1, 2, 3, 4].map((priority) => <option value={priority} key={priority}>{priority}</option>)}</Select></Field>}</ViewEditorSection>
+      <ViewEditorSection sectionKey="organization" title="Area, Project & list"><p className="builder-status">These are independent constraints. New items created by this View receive the pinned Area, Project and list automatically. Area and Project priority comes only from their drag order in Settings.</p><div className="form-grid three"><Field label="Area" hint="Ongoing responsibility."><Input value={editing.area ?? ''} list="view-area-values" placeholder="Choose or type an Area" onChange={(event) => selectOrganization('area', event.target.value)} /></Field><Field label="Project" hint="Finite outcome inside an Area."><Input value={editing.project ?? ''} list="view-project-values" placeholder="Choose or type a Project" onChange={(event) => selectOrganization('project', event.target.value)} /></Field><Field label="Task list" hint="Optional plain list, independent from PARA."><Input value={editing.list ?? ''} list="view-list-values" placeholder="Choose or type a list" onChange={(event) => selectList(event.target.value)} /></Field></div><datalist id="view-area-values">{orderedOrganizationNames(workspace, 'area').map((name) => <option value={name} key={name} />)}</datalist><datalist id="view-project-values">{orderedOrganizationNames(workspace, 'project', editing.area).map((name) => <option value={name} key={name} />)}</datalist><datalist id="view-list-values">{orderedListNames(workspace).map((name) => <option value={name} key={name} />)}</datalist>{editing.list && <Field label="List priority"><Select value={listPriority} onChange={(event) => setListPriority(Number(event.target.value) as 0 | 1 | 2 | 3 | 4)}>{[0, 1, 2, 3, 4].map((priority) => <option value={priority} key={priority}>{priority}</option>)}</Select></Field>}</ViewEditorSection>
       {editing.renderer === 'board' && <ViewEditorSection sectionKey="board-columns" title="Board columns"><fieldset className="query-builder board-builder"><p className="builder-status">Group items by status or by tag. Empty columns are hidden by default.</p><Field label="Group columns by"><Select value={boardSettingsFor(editing).groupBy} onChange={(event) => updateBoardSettings({ groupBy: event.target.value as BoardSettings['groupBy'] })}><option value="status">Status</option><option value="tag">Tags</option></Select></Field><Checkbox checked={boardSettingsFor(editing).showEmpty} onChange={(event) => updateBoardSettings({ showEmpty: event.target.checked })} label="Show empty columns" />{boardSettingsFor(editing).groupBy === 'status' ? <><div className="board-column-settings">{boardSettingsFor(editing).states.map((state, index) => <div key={state}><Checkbox checked onChange={() => updateBoardSettings({ states: boardSettingsFor(editing).states.filter((entry) => entry !== state) })} label={stateNames[state]} /><div><IconButton size="compact" variant="ghost" aria-label={`Move ${stateNames[state]} left`} disabled={index === 0} onClick={() => moveBoardState(index, -1)}>←</IconButton><IconButton size="compact" variant="ghost" aria-label={`Move ${stateNames[state]} right`} disabled={index === boardSettingsFor(editing).states.length - 1} onClick={() => moveBoardState(index, 1)}>→</IconButton></div></div>)}</div><div className="builder-actions">{defaultBoardStates.filter((state) => !boardSettingsFor(editing).states.includes(state)).map((state) => <Button size="compact" key={state} onClick={() => updateBoardSettings({ states: [...boardSettingsFor(editing).states, state] })}>+ {stateNames[state]}</Button>)}</div></> : <p className="builder-status">Each existing tag becomes a column automatically. Items without tags appear in “No tags”. Add or remove tags on items to change the columns.</p>}</fieldset></ViewEditorSection>}
       <ViewSortingEditor workspace={workspace} rules={sortRules} source={sortSource} onRules={updateSortRules} onSource={(source, parsed) => { setSortSource(source); if (parsed) setSortRules(parsed); }} />
       <ViewPortabilityEditor view={editing} rules={sortRules} sortSource={sortSource} json={viewJson} onJson={setViewJson} onApplyJson={() => applyViewJson()} onImport={(file) => void importViewTemplate(file)} onExport={onExportView} />
