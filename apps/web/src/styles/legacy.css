@@ -432,7 +432,7 @@ label.check input { width: 18px; height: 18px; }
 .settings-page .page-title { margin-bottom: 0; }
 .backup-controls { margin-bottom: 0; }
 .views-stack, .views-stack > div, .view-section, .view-section-body { width: 100%; max-width: 100%; min-width: 0; }
-.view-results-scroll { display: block; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overflow-y: visible; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; touch-action: pan-x; contain: inline-size; }
+.view-results-scroll { display: block; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overflow-y: visible; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; touch-action: pan-x pan-y; contain: inline-size; }
 .view-results-scroll > .renderer-table-wrap { width: max-content; min-width: 100%; overflow: visible; }
 .renderer-table-wrap table { width: max-content; min-width: 100%; }
 .renderer-table-wrap thead th.state-column,
@@ -580,13 +580,13 @@ tbody tr:hover { background: var(--soft); }
      every editable control at the native minimum so focusing the password or
      an editor field never changes the page scale. */
   input, textarea, select { font-size: 16px !important; }
-  .page-section { padding: 32px 15px 90px; }
+  .page-section { padding: 32px var(--space-3) 90px; }
   .page-title { display: block; margin-bottom: 25px; }
   .page-title > button { margin-top: 18px; }
   .page-title h1 { font-size: 30px; }
   .quick-capture { width: 100%; margin-top: 0; }
-  .views-page { padding-top: 0; }
-  .view-section { padding: 0 12px; }
+  .views-page { padding-top: 0; padding-inline: var(--space-1); }
+  .view-section { padding-inline: var(--space-1); }
   .view-section > .view-section-summary { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 0 5px; }
   .view-section-summary > div:first-child { padding-left: 46px; }
   .view-section.is-reorderable .view-section-summary > div:first-child { padding-left: 74px; }

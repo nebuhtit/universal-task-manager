@@ -84,7 +84,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.12\.1 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.12\.2 · commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -93,7 +93,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.12.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.12.2', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -471,7 +471,7 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await expect(page.getByLabel('Item JSON')).toHaveValue(/"completedDates": \[\s+"\d{4}-\d{2}-\d{2}"/);
 });
 
-test('saved view applies multi-rule sort DSL and displayed field selection', async ({ page }) => {
+test('saved view applies multi-rule sort DSL and displayed field selection', async ({ page }, testInfo) => {
   await page.getByLabel('Workspace name').fill('Sorted views');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
@@ -483,6 +483,9 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
     await page.getByLabel('Title', { exact: true }).fill(title);
     const prioritySection = await openEditorSection(page, 'Priority');
     await prioritySection.locator('select').selectOption(priority);
+    const datesSection = await openEditorSection(page, 'Dates & time');
+    await datesSection.getByLabel('Event opens', { exact: true }).fill('2026-08-26T10:00');
+    await datesSection.getByLabel('Event ends', { exact: true }).fill('2026-08-26T10:10');
     await page.getByRole('button', { name: 'Save item' }).click();
   }
 
@@ -496,6 +499,7 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await sortField.selectOption('priority');
   await expect(page.getByLabel('SQL-like sorting')).toHaveValue('priority asc nulls last');
   await openViewEditorSection(page, 'Visual setup');
+  await openViewEditorSection(page, 'Show in results');
   await page.getByRole('button', { name: 'Hide all' }).click();
   const coreFields = page.locator('.field-groups details').filter({ has: page.getByText('Core', { exact: true }) });
   await coreFields.getByText('Core', { exact: true }).click();
@@ -515,10 +519,12 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await expect(rows.nth(0).locator('td').last()).toHaveText('10 min');
   await expect(rows.nth(1).locator('td').last()).toHaveText('10 min');
   await expect(view.locator('.view-results-scroll')).toHaveCSS('overflow-x', 'auto');
+  await expect(view.locator('.view-results-scroll')).toHaveCSS('touch-action', 'pan-x pan-y');
   const viewBounds = await view.boundingBox();
   const editBounds = await view.getByRole('button', { name: /^Edit /  }).boundingBox();
   expect(viewBounds).not.toBeNull();
   expect(editBounds).not.toBeNull();
+  if (testInfo.project.name === 'mobile') expect(viewBounds!.x).toBeLessThanOrEqual(8);
   expect(editBounds!.x + editBounds!.width).toBeLessThanOrEqual(viewBounds!.x + viewBounds!.width + 1);
 
   await view.getByRole('button', { name: /^Edit /  }).click();
