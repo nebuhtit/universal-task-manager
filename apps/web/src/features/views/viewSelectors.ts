@@ -2,6 +2,26 @@ import { compileQuery, compileSort, listDefinitionFor, parseSortSource, serializ
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
 const recentlyDoneUntil = new Map<string, number>();
+export const MANUAL_ORDER_EXTENSION = 'utm:manualOrder';
+
+export function manualOrderFor(view: SavedView): string[] {
+  const value = view.extensions?.[MANUAL_ORDER_EXTENSION];
+  return Array.isArray(value) ? [...new Set(value.filter((id): id is string => typeof id === 'string' && id.length > 0))] : [];
+}
+
+export function mergeManualOrder(view: SavedView, visibleItemIds: string[], validItemIds?: ReadonlySet<string>): string[] {
+  const visible = [...new Set(visibleItemIds)];
+  const visibleSet = new Set(visible);
+  return [...visible, ...manualOrderFor(view).filter((id) => !visibleSet.has(id) && (!validItemIds || validItemIds.has(id)))];
+}
+
+export function moveManualItem(itemIds: string[], draggedId: string, targetId: string, after = false): string[] {
+  if (draggedId === targetId || !itemIds.includes(draggedId) || !itemIds.includes(targetId)) return itemIds;
+  const next = itemIds.filter((id) => id !== draggedId);
+  const targetIndex = next.indexOf(targetId);
+  next.splice(targetIndex + (after ? 1 : 0), 0, draggedId);
+  return next;
+}
 
 export function setRecentlyDone(itemId: string, until?: number): void {
   if (until === undefined) recentlyDoneUntil.delete(itemId);
@@ -70,6 +90,18 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
       };
       items.sort((left, right) => comparator(sortable(left), sortable(right), now));
     }
+  }
+  const manualOrder = manualOrderFor(view);
+  if (manualOrder.length) {
+    const positions = new Map(manualOrder.map((id, index) => [id, index]));
+    items.sort((left, right) => {
+      const leftPosition = positions.get(left.id);
+      const rightPosition = positions.get(right.id);
+      if (leftPosition === undefined && rightPosition === undefined) return 0;
+      if (leftPosition === undefined) return 1;
+      if (rightPosition === undefined) return -1;
+      return leftPosition - rightPosition;
+    });
   }
   return items;
 }

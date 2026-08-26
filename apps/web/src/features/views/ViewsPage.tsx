@@ -12,7 +12,7 @@ import { readUiBoolean } from '../../components/ui/PersistedDetails';
 import { dateInput, fromDateInput } from '../../utils/dates';
 import { stateNames } from '../items';
 import { SavedViewSection } from './SavedViewSection';
-import { boardSettingsFor, defaultBoardStates, type BoardSettings } from './viewSelectors';
+import { boardSettingsFor, defaultBoardStates, MANUAL_ORDER_EXTENSION, manualOrderFor, mergeManualOrder, type BoardSettings } from './viewSelectors';
 import { exampleViewFieldValue, viewFieldGroups, viewFieldLabel, viewFieldOptions } from './fieldCatalog';
 import { creationDefaultFieldOptions, defaultValueForPath } from './creationDefaults';
 import { parseVisualRows, serializeVisualRows, toSqlExpression, visualFieldKinds, visualOperators, visualOptions, type VisualConditionRow } from './visualFilterModel';
@@ -195,7 +195,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
 
   const views = Object.values(workspace.views);
   const isExpanded = (view: SavedView) => viewExpansion[view.id] ?? readUiBoolean(`view:${view.id}`, true);
-  const renderView = (view: SavedView) => <div className="saved-view-slot" key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} celebratingIds={celebratingIds} showTechnicalSummary={false} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
+  const renderView = (view: SavedView) => <div className="saved-view-slot" key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set(Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id))); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebratingIds={celebratingIds} showTechnicalSummary={false} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
   const expandedViews = views.filter(isExpanded);
   const collapsedViews = views.filter((view) => !isExpanded(view));
 
