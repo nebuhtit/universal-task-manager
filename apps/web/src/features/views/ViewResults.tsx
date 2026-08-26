@@ -6,13 +6,20 @@ import { viewFieldLabel } from './fieldCatalog';
 import { boardSettingsFor, moveManualItem, selectViewItems } from './viewSelectors';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+export const VIEW_LIVE_TICK_MS = 1_000;
+export const viewNeedsLiveClock = (view: Pick<SavedView, 'fields'>) => view.fields.some((field) => field.startsWith('script.'));
 
 export function ViewResults({ view, workspace, onEdit, onState, onReorder, celebratingIds = new Set<string>() }: {
   view: SavedView; workspace: WorkspaceDocument; onEdit: (item: UniversalItem) => void;
   onState: (item: UniversalItem, state: UniversalItem['state']) => void; onReorder?: ((itemIds: string[]) => void) | undefined; celebratingIds?: ReadonlySet<string> | undefined;
 }) {
   const [liveNow, setLiveNow] = useState(() => new Date());
-  useEffect(() => { const timer = window.setInterval(() => setLiveNow(new Date()), 30_000); return () => window.clearInterval(timer); }, []);
+  const hasLiveScriptField = viewNeedsLiveClock(view);
+  useEffect(() => {
+    if (!hasLiveScriptField) return undefined;
+    const timer = window.setInterval(() => setLiveNow(new Date()), VIEW_LIVE_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [hasLiveScriptField]);
   const renderWorkspace = useMemo(() => clean(workspace), [workspace]);
   const renderView = useMemo(() => clean(view), [view]);
   const items = selectViewItems(renderWorkspace, renderView);
@@ -85,5 +92,5 @@ export function ViewResults({ view, workspace, onEdit, onState, onReorder, celeb
     return visibleColumns.length ? <div className="mini-board">{visibleColumns.map(({ key, label, items: columnItems }) => <section key={key}><h4>{label}</h4>{columnItems.map((item) => <article className={`board-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}`} key={item.id}><button className="state-toggle" aria-label={stateButtonLabel(item)} onClick={() => onState(item, nextState(item))}>{isOpen(item) ? '' : '✓'}</button><button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}</div> : <p className="empty">No items match this board.</p>;
   }
   if (renderView.renderer === 'table') return <div className="table-wrap renderer-table-wrap"><table><thead><tr><th className="reorder-column"><span className="sr-only">Manual order</span></th><th className="state-column"><span className="sr-only">Complete</span></th>{visibleFields.map((field) => { const label = viewFieldLabel(renderWorkspace, field); return <th key={field} aria-label={label} title={label}><FieldIcon path={field} label={label} /><span className="sr-only">{label}</span></th>; })}</tr></thead><tbody>{items.map((item) => <tr data-view-item-id={item.id} className={`state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`} key={item.id} onClick={() => onEdit(item)}><td className="reorder-column">{dragHandle(item)}</td><td className="state-column"><button className="state-toggle" aria-label={stateButtonLabel(item)} onClick={(event) => { event.stopPropagation(); onState(item, nextState(item)); }}>{isOpen(item) ? '' : '✓'}</button></td>{visibleFields.map((field) => { const value = displayViewValue(readItemField(item, field, renderWorkspace, liveNow), field, renderWorkspace.calendarPreferences.language); return <td key={field} data-field={field} title={field === 'bodyMarkdown' ? value : undefined}>{value}</td>; })}</tr>)}</tbody></table></div>;
-  return <div className="item-list reorderable-item-list">{items.map((item) => <div data-view-item-id={item.id} className={`reorderable-view-item${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`} key={item.id}>{dragHandle(item)}<ItemCard item={item} celebrating={isCelebrating(item)} fields={visibleFields} workspace={renderWorkspace} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} /></div>)}</div>;
+  return <div className="item-list reorderable-item-list">{items.map((item) => <div data-view-item-id={item.id} className={`reorderable-view-item${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`} key={item.id}>{dragHandle(item)}<ItemCard item={item} celebrating={isCelebrating(item)} fields={visibleFields} workspace={renderWorkspace} now={liveNow} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} /></div>)}</div>;
 }

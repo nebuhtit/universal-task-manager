@@ -45,8 +45,11 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
   { path: 'attachments', label: 'Links', group: 'Connections' },
   { path: 'closure.at', label: 'Closed at', group: 'History' }, { path: 'closure.actor', label: 'Closed by', group: 'History' },
-  { path: 'closure.reason', label: 'Closure reason', group: 'History' }, { path: 'occurrence.seriesId', label: 'Series ID', group: 'History' },
-  { path: 'occurrence.recurrenceId', label: 'Occurrence date', group: 'History' }, { path: 'occurrence.sequence', label: 'Occurrence sequence', group: 'History' },
+  { path: 'closure.reason', label: 'Closure reason', group: 'History' }, { path: 'closure.automationId', label: 'Closing automation ID', group: 'History' },
+  { path: 'occurrence.seriesId', label: 'Series ID', group: 'History' }, { path: 'occurrence.recurrenceId', label: 'Occurrence date', group: 'History' },
+  { path: 'occurrence.sequence', label: 'Occurrence sequence', group: 'History' }, { path: 'occurrence.templateRevision', label: 'Occurrence template revision', group: 'History' },
+  { path: 'recurrenceOverride.kind', label: 'Recurrence override kind', group: 'History' }, { path: 'recurrenceOverride.sourceSeriesId', label: 'Override source series ID', group: 'History' },
+  { path: 'recurrenceOverride.recurrenceId', label: 'Override occurrence date', group: 'History' },
   { path: 'cycleHistory', label: 'Cycle history', group: 'History' },
   { path: 'createdAt', label: 'Created at', group: 'System' }, { path: 'updatedAt', label: 'Last modified', group: 'System' },
   { path: 'createdWithAppName', label: 'Created with app', group: 'System' }, { path: 'createdWithVersion', label: 'Created with version', group: 'System' },
@@ -95,6 +98,7 @@ export const viewFieldLabel = (workspace: WorkspaceDocument, path: string) => vi
 
 export const exampleViewFieldValue = (path: string): string => {
   if (path.startsWith('custom.')) return 'Example value';
+  if (path.startsWith('script.')) return '2h 14m';
   return ({
     title: 'Prepare quarterly review', bodyMarkdown: 'Outline, research and final draft', state: 'Active', preset: 'Task', role: 'Standalone', priority: 'High',
     tags: 'work, writing', contexts: 'office, laptop', 'schedule.availableFrom': 'Aug 24, 09:00', 'schedule.startAt': 'Aug 24, 10:00',

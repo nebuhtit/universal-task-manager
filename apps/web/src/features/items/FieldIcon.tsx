@@ -27,6 +27,8 @@ export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'schedule.timezone' || path === 'recurrence.timezone') return 'globe';
   if (path === 'schedule.estimatedDuration' || path === 'schedule.actualDuration' || path.endsWith('Offset')) return 'duration';
   if (path.startsWith('schedule.')) return 'calendar';
+  if (path === 'recurrence.closeAt') return 'end';
+  if (path === 'recurrence.anchor') return 'start';
   if (path.startsWith('recurrence.')) return 'repeat';
   if (path.startsWith('progress.')) return 'progress';
   if (path === 'reminders') return 'bell';

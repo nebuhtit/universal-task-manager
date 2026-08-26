@@ -1,9 +1,15 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace, type SavedView } from '@utm/core';
-import { ViewResults } from './ViewResults';
+import { VIEW_LIVE_TICK_MS, ViewResults, viewNeedsLiveClock } from './ViewResults';
 
 describe('ViewResults manual ordering controls', () => {
+  it('enables the one-second clock only for displayed script results', () => {
+    expect(VIEW_LIVE_TICK_MS).toBe(1_000);
+    expect(viewNeedsLiveClock({ fields: ['title', 'script.remaining'] })).toBe(true);
+    expect(viewNeedsLiveClock({ fields: ['title', 'schedule.dueAt'] })).toBe(false);
+  });
+
   it('exposes touch and keyboard reorder handles only for ordered row renderers', () => {
     const workspace = createWorkspace('Reorder');
     const item = createItem('Alpha'); workspace.items[item.id] = item;

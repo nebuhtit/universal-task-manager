@@ -3,7 +3,7 @@ import { formatViewDate } from '../../utils/dates';
 import { displayViewValue, inferredPreset, priorityNames, readItemField, viewFieldLabel } from './fieldDisplay';
 import { FieldIcon } from './FieldIcon';
 
-export function ItemCard({ item, onEdit, onState, fields, workspace, celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; celebrating?: boolean }) {
+export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; now?: Date; celebrating?: boolean }) {
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
   const today = new Date().toISOString().slice(0, 10);
   const isHabit = Boolean(item.habit);
@@ -15,7 +15,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, celebrating
       field,
       value: field === 'priority' && item.priority !== undefined
         ? priorityNames[item.priority]
-        : displayViewValue(readItemField(item, field, workspace), field, workspace?.calendarPreferences.language),
+        : displayViewValue(readItemField(item, field, workspace, now), field, workspace?.calendarPreferences.language),
     }));
   return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}`}>
     <button className="state-toggle" aria-label={isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(visiblyClosed ? 'open' : 'done')}>

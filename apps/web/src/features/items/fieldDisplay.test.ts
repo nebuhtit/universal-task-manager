@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createItem, createWorkspace } from '@utm/core';
-import { displayViewValue, isItemTemplate, readItemField, relationContext, viewFieldLabel } from './fieldDisplay';
+import { displayViewValue, isItemTemplate, readItemField, relationContext, viewFieldLabel, viewFieldOptions } from './fieldDisplay';
 
 describe('item field display helpers', () => {
   it('calculates a display duration from item dates', () => {
@@ -29,5 +29,27 @@ describe('item field display helpers', () => {
     const template = createItem('Template');
     template.extensions = { 'utm:template': true };
     expect(isItemTemplate(template)).toBe(true);
+  });
+
+  it('exposes every normal nested family and item script result to saved views', () => {
+    const workspace = createWorkspace('View fields');
+    const item = createItem('Computed');
+    item.scripts = [{ id: 'remaining', key: 'remaining', label: 'Time remaining', source: 'secondsUntil(schedule.startAt)', resultKind: 'number' }];
+    workspace.items[item.id] = item;
+    const paths = new Set(viewFieldOptions(workspace).map((field) => field.path));
+    expect([...paths]).toEqual(expect.arrayContaining([
+      'schedule.startAt', 'recurrence.rrule', 'recurrence.anchor', 'progress.mode', 'progress.current', 'habit.completedDates',
+      'closure.automationId', 'occurrence.templateRevision', 'recurrenceOverride.kind', 'script.remaining',
+    ]));
+  });
+
+  it('recalculates a script result for each supplied second', () => {
+    const workspace = createWorkspace('Live script');
+    const item = createItem('Countdown');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:10.000Z' };
+    item.scripts = [{ id: 'remaining', key: 'remaining', label: 'Seconds remaining', source: 'secondsUntil(schedule.startAt)', resultKind: 'number' }];
+    workspace.items[item.id] = item;
+    expect(readItemField(item, 'script.remaining', workspace, new Date('2026-08-26T12:00:00.000Z'))).toBe(10);
+    expect(readItemField(item, 'script.remaining', workspace, new Date('2026-08-26T12:00:01.000Z'))).toBe(9);
   });
 });

@@ -103,6 +103,18 @@ describe('safe expression language', () => {
     expect(validateWorkspace(workspace)).toEqual({ valid: true, errors: [] });
   });
 
+  it('formats adaptive countdowns from days down to seconds', () => {
+    const item = createItem('Adaptive countdown');
+    item.scripts = [{ id: 'adaptive', key: 'adaptive', label: 'Remaining', source: 'timeUntil(schedule.startAt)', resultKind: 'text' }];
+    const valueAt = (startAt: string, now: string) => {
+      item.schedule = { timezone: 'UTC', startAt };
+      return evaluateItemScripts(item, undefined, new Date(now)).values.adaptive;
+    };
+    expect(valueAt('2026-08-21T12:00:00.000Z', '2026-08-01T12:00:00.000Z')).toBe('20d');
+    expect(valueAt('2026-08-01T17:30:00.000Z', '2026-08-01T12:00:00.000Z')).toBe('5h 30m');
+    expect(valueAt('2026-08-01T12:00:42.000Z', '2026-08-01T12:00:00.000Z')).toBe('42s');
+  });
+
   it('rejects arbitrary JavaScript and detects item script cycles', () => {
     const item = createItem('Unsafe');
     item.scripts = [
