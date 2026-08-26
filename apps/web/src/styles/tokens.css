@@ -77,6 +77,8 @@
   --layout-sidebar-width: 236px;
   --layout-content-max: 1500px;
   --layout-dialog-max: 640px;
+  --layout-topbar-height: 64px;
+  --layout-capture-reserve: 88px;
   --z-overlay: 100;
 
   /* Temporary compatibility aliases. Remove only after legacy migration. */

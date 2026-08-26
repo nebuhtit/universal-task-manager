@@ -7,7 +7,7 @@
 .content {
   grid-column: 2;
   min-width: 0;
-  padding-bottom: 88px;
+  padding-bottom: var(--layout-capture-reserve);
 }
 
 .page-section {

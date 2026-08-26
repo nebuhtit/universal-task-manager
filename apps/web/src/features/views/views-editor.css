@@ -131,7 +131,37 @@
   color: var(--color-text);
 }
 
+.views-page {
+  min-height: calc(100dvh - var(--layout-topbar-height) - var(--layout-capture-reserve));
+  display: flex;
+  flex-direction: column;
+}
+
+.views-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.expanded-views-stack,
+.collapsed-views-stack {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.collapsed-views-stack {
+  margin-top: auto;
+  padding-top: var(--space-4);
+}
+
+.saved-view-slot {
+  width: 100%;
+  min-width: 0;
+}
+
 @media (max-width: 700px) {
+  .views-page { --layout-topbar-height: 60px; }
+
   .view-editor .ui-dialog-content {
     gap: var(--space-2);
     padding-inline: var(--space-3);

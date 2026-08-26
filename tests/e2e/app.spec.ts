@@ -179,8 +179,15 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
   await nowSection.getByRole('button', { name: 'Collapse Now' }).click();
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeHidden();
+  await expect(page.locator('.collapsed-views-stack').locator('.view-section').filter({ hasText: 'Now' })).toBeVisible();
+  await expect.poll(async () => {
+    const stack = await page.locator('.views-stack').boundingBox();
+    const collapsed = await page.locator('.collapsed-views-stack').boundingBox();
+    return stack && collapsed ? Math.abs(stack.y + stack.height - collapsed.y - collapsed.height) : Number.POSITIVE_INFINITY;
+  }).toBeLessThan(2);
   await nowSection.getByRole('button', { name: 'Expand Now' }).click();
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
+  await expect(page.locator('.expanded-views-stack').locator('.view-section').filter({ hasText: 'Now' })).toBeVisible();
 
   await goToSettings(page);
   await expect(page.getByText(/^v\d+\.\d+\.\d+$/, { exact: true })).toBeVisible();

@@ -8,6 +8,7 @@ import { CloseIcon } from '../../components/ui/icons';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { Button, Checkbox, Field, IconButton, Input, Select, Textarea } from '../../components/ui/primitives';
 import { SectionGuide } from '../../components/ui/SectionGuide';
+import { readUiBoolean } from '../../components/ui/PersistedDetails';
 import { dateInput, fromDateInput } from '../../utils/dates';
 import { stateNames } from '../items';
 import { SavedViewSection } from './SavedViewSection';
@@ -44,6 +45,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const [defaultField, setDefaultField] = useState('priority');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [viewJson, setViewJson] = useState('');
+  const [viewExpansion, setViewExpansion] = useState<Record<string, boolean>>(() => Object.fromEntries(Object.values(workspace.views).map((view) => [view.id, readUiBoolean(`view:${view.id}`, true)])));
   const handledCreateRequest = useRef(createRequest);
 
   const syncRowsToDsl = (rows: VisualConditionRow[]) => {
@@ -168,8 +170,14 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   };
   const importViewTemplate = async (file: File) => { const source = await file.text(); setViewJson(source); applyViewJson(source); };
 
+  const views = Object.values(workspace.views);
+  const isExpanded = (view: SavedView) => viewExpansion[view.id] ?? readUiBoolean(`view:${view.id}`, true);
+  const renderView = (view: SavedView) => <div className="saved-view-slot" key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} celebratingIds={celebratingIds} showTechnicalSummary={false} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
+  const expandedViews = views.filter(isExpanded);
+  const collapsedViews = views.filter((view) => !isExpanded(view));
+
   return <section className="page-section views-page">
-    <div className="views-stack">{Object.values(workspace.views).map((view) => <div key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} celebratingIds={celebratingIds} showTechnicalSummary={false} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>)}</div>
+    <div className="views-stack"><div className="expanded-views-stack">{expandedViews.map(renderView)}</div>{collapsedViews.length > 0 && <div className="collapsed-views-stack">{collapsedViews.map(renderView)}</div>}</div>
     {editing && <ResponsiveDialog
       open
       onOpenChange={(open) => { if (!open) setEditing(null); }}

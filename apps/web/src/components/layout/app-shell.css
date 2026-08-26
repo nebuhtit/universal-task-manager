@@ -60,7 +60,7 @@
   position: sticky;
   z-index: 10;
   top: 0;
-  height: 64px;
+  height: var(--layout-topbar-height);
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;

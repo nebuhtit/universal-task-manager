@@ -542,7 +542,7 @@ tbody tr:hover { background: var(--soft); }
 
 @media (max-width: 950px) {
   .app-shell { display: block; }
-  .content { padding-bottom: 96px; }
+  .content { --layout-capture-reserve: 96px; padding-bottom: var(--layout-capture-reserve); }
   .top-summary { font-size: 11px; gap: 5px; }
   .capture-dock { left: 0; bottom: calc(12px + env(safe-area-inset-bottom)); padding: 0 12px; }
   /* On iOS a fixed element is already positioned against the visual viewport.
