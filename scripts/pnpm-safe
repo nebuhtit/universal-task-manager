@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+# Codex bundles pnpm and Node separately. Keep child scripts able to find Node,
+# and never let pnpm silently rebuild node_modules before a command.
+if ! command -v node >/dev/null 2>&1; then
+  pnpm_bin="$(command -v pnpm)"
+  pnpm_dir="$(dirname "$pnpm_bin")"
+  bundled_node_bin="$pnpm_dir/../../node/bin"
+  if [ -x "$bundled_node_bin/node" ]; then
+    PATH="$bundled_node_bin:$PATH"
+    export PATH
+  fi
+fi
+
+export pnpm_config_enable_global_virtual_store=false
+export pnpm_config_verify_deps_before_run=error
+
+exec pnpm "$@"
