@@ -1,0 +1,24 @@
+.all-items-settings-note {
+  padding: var(--space-3);
+  font-size: var(--font-size-secondary);
+}
+
+.all-items-field-groups {
+  display: grid;
+  margin-top: var(--space-3);
+}
+
+.all-items-field-options { display: grid; gap: var(--space-1); padding-bottom: var(--space-2); }
+.all-items-field-options .ui-checkbox { align-items: flex-start; }
+.all-items-field-options .ui-checkbox input { margin-top: var(--space-1); flex: 0 0 auto; }
+.all-items-field-label { min-width: 0; display: grid; gap: var(--space-1); font-size: var(--font-size-secondary); }
+.all-items-field-label > span { overflow-wrap: anywhere; }
+.all-items-field-label small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
+}

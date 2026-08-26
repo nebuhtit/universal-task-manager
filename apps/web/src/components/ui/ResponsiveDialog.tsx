@@ -10,6 +10,7 @@ export interface ResponsiveDialogProps {
   footer?: ReactNode;
   className?: string;
   initialFocus?: boolean | RefObject<HTMLElement | null>;
+  closeLabel?: string;
 }
 
 /**
@@ -26,6 +27,7 @@ export function ResponsiveDialog({
   footer,
   className,
   initialFocus,
+  closeLabel = 'Close dialog',
 }: ResponsiveDialogProps) {
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
@@ -40,7 +42,7 @@ export function ResponsiveDialog({
               <Dialog.Title className="ui-dialog-title">{title}</Dialog.Title>
               {description && <Dialog.Description className="ui-dialog-description">{description}</Dialog.Description>}
             </div>
-            <Dialog.Close className="ui-dialog-close" aria-label="Close dialog">×</Dialog.Close>
+            <Dialog.Close className="ui-dialog-close" aria-label={closeLabel}>×</Dialog.Close>
           </header>
           <div className="ui-dialog-content">{children}</div>
           {footer && <footer className="ui-dialog-footer">{footer}</footer>}

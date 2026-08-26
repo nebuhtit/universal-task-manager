@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { SavedView, UniversalItem, WorkspaceDocument } from '@utm/core';
-import { CloseIcon } from '../../components/ui/icons';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
+import { Button, Checkbox, Disclosure, Surface } from '../../components/ui/primitives';
+import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { formatSystemDateTime } from '../../utils/dates';
 import { ItemCard } from './ItemCard';
 import { isHabitOccurrence, isItemTemplate, stateNames, viewFieldOptions } from './fieldDisplay';
+import './all-items-settings.css';
 
 export const ALL_ITEMS_VIEW_ID = '__all_items__';
 
@@ -27,10 +29,34 @@ function DeletedItemsList({ items, onRestore, onClear, onDelete }: { items: Univ
   </details>;
 }
 
-function AllItemsSettings({ workspace, view, onSave, onClose }: { workspace: WorkspaceDocument; view: SavedView; onSave: (view: SavedView) => void; onClose: () => void }) {
+function AllItemsSettings({ open, workspace, view, onSave, onClose }: { open: boolean; workspace: WorkspaceDocument; view: SavedView; onSave: (view: SavedView) => void; onClose: () => void }) {
   const [fields, setFields] = useState(view.fields ?? []);
+  const wasOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (open && !wasOpen.current) setFields(view.fields ?? []);
+    wasOpen.current = open;
+  }, [open, view.fields]);
   const toggle = (path: string) => setFields((current) => current.includes(path) ? current.filter((entry) => entry !== path) : [...current, path]);
-  return <div className="modal-backdrop"><section className="dialog all-items-settings" role="dialog" aria-modal="true" aria-label="Customize all items"><header><div><p className="dialog-kicker">ALL ITEMS</p><h2>Customize all items</h2></div><button className="icon-button" aria-label="Close all items settings" onClick={onClose}><CloseIcon /></button></header><p className="hint">This uses the same SavedView field model as every other view. The status sections and Trash stay in their current layout.</p><div className="field-groups all-items-field-groups">{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <details key={group} open><summary>{group}</summary><div className="field-options">{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <label className="check" key={field.path}><input type="checkbox" checked={fields.includes(field.path)} onChange={() => toggle(field.path)} />{field.label}<small>{field.path}</small></label>)}</div></details>)}</div><footer className="drawer-actions"><span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => { onSave({ ...view, fields }); onClose(); }}>Save fields</button></footer></section></div>;
+  const options = viewFieldOptions(workspace);
+  return <ResponsiveDialog
+    open={open}
+    onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}
+    title="Customize all items"
+    description="Choose the item properties shown in All items. Status sections and Trash keep their current layout."
+    closeLabel="Close all items settings"
+    className="all-items-settings"
+    footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={() => { onSave({ ...view, fields }); onClose(); }}>Save fields</Button></>}
+  >
+    <Surface variant="muted" className="all-items-settings-note">This uses the same SavedView field model as every other view.</Surface>
+    <div className="all-items-field-groups">{[...new Set(options.map((field) => field.group))].map((group) => <Disclosure key={group} uiKey={`all:settings:${group}`} summary={group} defaultOpen>
+      <div className="all-items-field-options">{options.filter((field) => field.group === group).map((field) => <Checkbox
+        key={field.path}
+        checked={fields.includes(field.path)}
+        onChange={() => toggle(field.path)}
+        label={<span className="all-items-field-label"><span>{field.label}</span><small>{field.path}</small></span>}
+      />)}</div>
+    </Disclosure>)}</div>
+  </ResponsiveDialog>;
 }
 
 function AllItemsCollections({ items, fields, workspace, onEdit, onState }: { items: UniversalItem[]; fields: string[]; workspace: WorkspaceDocument; onEdit: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state']) => void }) {
@@ -68,7 +94,7 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
   const fields = view.fields ?? ['title', 'state'];
   const visibleItems = Object.values(workspace.items).filter((item) => !item.deletedAt && !isItemTemplate(item) && !isHabitOccurrence(workspace, item));
   return <section className="page-section">
-    <header className="all-items-toolbar"><div><p className="eyebrow">EVERYTHING</p><h1>All items</h1></div><button className="secondary" onClick={() => setSettingsOpen(true)}>Customize</button></header>
+    <header className="all-items-toolbar"><div><p className="eyebrow">EVERYTHING</p><h1>All items</h1></div><Button onClick={() => setSettingsOpen(true)}>Customize</Button></header>
     <div className="all-sections">
       {(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); const uiKey = `all:${state}`; return <details key={state} open={readUiBoolean(uiKey, state === 'open' || state === 'auto_closed')} onToggle={(event) => persistUiBoolean(uiKey, event.currentTarget.open)}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</div></details>; })}
       <details open={readUiBoolean('all:templates', templateItems.length > 0)} onToggle={(event) => persistUiBoolean('all:templates', event.currentTarget.open)} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className="item-list">{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></details>
@@ -76,6 +102,6 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
     </div>
     <AllItemsCollections items={visibleItems} fields={fields} workspace={workspace} onEdit={onEdit} onState={onState} />
     <DeletedItemsList items={deletedItems} onRestore={onRestore} onClear={onClearTrash} onDelete={onDelete} />
-    {settingsOpen && <AllItemsSettings workspace={workspace} view={view} onClose={() => setSettingsOpen(false)} onSave={onSaveView} />}
+    <AllItemsSettings open={settingsOpen} workspace={workspace} view={view} onClose={() => setSettingsOpen(false)} onSave={onSaveView} />
   </section>;
 }
