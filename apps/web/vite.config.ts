@@ -1,12 +1,24 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
-const localCommit = (() => {
-  try { return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
+const readLocalCommit = () => {
+  try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
   catch { return 'local'; }
-})();
+};
+const localCommit = readLocalCommit();
+
+const liveBuildInfo: Plugin = {
+  name: 'utm-live-build-info',
+  configureServer(server) {
+    server.middlewares.use('/__utm-build-info', (_request, response) => {
+      response.setHeader('Content-Type', 'application/json');
+      response.setHeader('Cache-Control', 'no-store');
+      response.end(JSON.stringify({ commit: readLocalCommit() }));
+    });
+  },
+};
 
 const base = process.env.VITE_GITHUB_PAGES === 'true' ? '/universal-task-manager/' : '/';
 
@@ -20,6 +32,7 @@ export default defineConfig({
   // without relying on the still-experimental ESM/WASM integration proposal.
   resolve: { conditions: ['webpack'] },
   plugins: [
+    liveBuildInfo,
     react(),
     VitePWA({
       registerType: 'autoUpdate',

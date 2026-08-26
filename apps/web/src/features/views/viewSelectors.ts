@@ -1,4 +1,4 @@
-import { compileQuery, compileSort, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { compileQuery, compileSort, listDefinitionFor, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
 const recentlyDoneUntil = new Map<string, number>();
@@ -54,7 +54,23 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
     return [];
   }
   const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
-  if (sortSource.trim()) items.sort((left, right) => compileSort(sortSource)(left, right, now));
+  if (sortSource.trim()) {
+    const rules = parseSortSource(sortSource);
+    const usesListOrder = rules.some((rule) => rule.expression === 'listOrder');
+    if (!usesListOrder) items.sort((left, right) => compileSort(sortSource)(left, right, now));
+    else {
+      const expanded = serializeSortRules(rules.flatMap((rule) => rule.expression === 'listOrder' ? [
+        { ...rule, expression: 'custom.__utm_list_priority' },
+        { ...rule, expression: 'custom.__utm_list_created_at' },
+      ] : [rule]));
+      const comparator = compileSort(expanded);
+      const sortable = (item: UniversalItem): UniversalItem => {
+        const definition = listDefinitionFor(workspace, item.list, now);
+        return definition ? { ...item, custom: { ...item.custom, __utm_list_priority: definition.priority, __utm_list_created_at: definition.createdAt } } : item;
+      };
+      items.sort((left, right) => comparator(sortable(left), sortable(right), now));
+    }
+  }
   return items;
 }
 

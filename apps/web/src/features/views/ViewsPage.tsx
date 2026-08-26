@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  compileSort, createId, migrateView, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateViewCreationDefaults,
-  type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
+  compileSort, createId, ensureListDefinition, listDefinitionFor, migrateView, orderedListNames, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateViewCreationDefaults,
+  type ListKind, type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../components/ui/CodeEditor';
 import { CloseIcon } from '../../components/ui/icons';
@@ -45,6 +45,8 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const [defaultField, setDefaultField] = useState('priority');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [viewJson, setViewJson] = useState('');
+  const [listKind, setListKind] = useState<ListKind>('area');
+  const [listPriority, setListPriority] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [viewExpansion, setViewExpansion] = useState<Record<string, boolean>>(() => Object.fromEntries(Object.values(workspace.views).map((view) => [view.id, readUiBoolean(`view:${view.id}`, true)])));
   const handledCreateRequest = useRef(createRequest);
 
@@ -68,7 +70,25 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setDefaultField('priority');
     setConfirmDelete(false);
     setViewJson(JSON.stringify(copy, null, 2));
+    const definition = listDefinitionFor(workspace, copy.list);
+    setListKind(definition?.kind ?? 'area');
+    setListPriority(definition?.priority ?? 0);
     setError('');
+  };
+  const selectList = (rawList: string) => {
+    if (!editing) return;
+    const list = rawList.trim();
+    if (!list) {
+      const { list: _list, ...withoutList } = editing;
+      setEditing(withoutList);
+      setListKind('area');
+      setListPriority(0);
+      return;
+    }
+    setEditing({ ...editing, list });
+    const definition = listDefinitionFor(workspace, list);
+    setListKind(definition?.kind ?? 'area');
+    setListPriority(definition?.priority ?? 0);
   };
   const addVisualRow = (join: 'and' | 'or') => syncRowsToDsl([...visualRows, { id: createId(), join, field: 'state', operator: '==', value: 'open' }]);
   const startVisualRows = () => syncRowsToDsl([{ id: createId(), join: 'and', field: 'state', operator: '==', value: 'open' }]);
@@ -148,7 +168,10 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       const parsedSort = parseSortSource(sortSource);
       compileSort(sortSource);
       const saved = { ...result, sortSource: serializeSortRules(parsedSort), sort: parsedSort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) };
-      commit('Save view', (draft) => { draft.views[result.id] = clean(saved); });
+      commit('Save view', (draft) => {
+        draft.views[result.id] = clean(saved);
+        if (result.list) ensureListDefinition(draft, result.list, { kind: listKind, priority: listPriority });
+      });
       setEditing(null);
       setError('');
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
@@ -219,7 +242,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         <div className="builder-actions"><Select aria-label="Property to pin for new items" value={defaultField} onChange={(event) => setDefaultField(event.target.value)}>{[...new Set(creationDefaultFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup key={group} label={group}>{creationDefaultFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option key={field.path} value={field.path} disabled={Object.hasOwn(editing.creationDefaults ?? {}, field.path)}>{field.label}</option>)}</optgroup>)}</Select><Button size="compact" disabled={Object.hasOwn(editing.creationDefaults ?? {}, defaultField)} onClick={addCreationDefault}>+ Pin property</Button></div>
         <small className="field-hint">Relations, subtasks, item IDs, timestamps, completion history and occurrence identity cannot be copied into new items.</small>
       </fieldset></ViewEditorSection>
-      <ViewEditorSection sectionKey="task-list" title="Task list"><Field label="Task list" hint="Choose an existing list or type a new name. Items assigned to it will appear in this view."><Input value={editing.list ?? ''} list="view-list-values" placeholder="Choose or type a list name" onChange={(event) => { const list = event.target.value.trim(); setEditing(list ? { ...editing, list } : (() => { const { list: _list, ...withoutList } = editing; return withoutList; })()); }} /><datalist id="view-list-values">{[...new Set(Object.values(workspace.items).map((item) => item.list).filter((list): list is string => Boolean(list)))].sort().map((list) => <option value={list} key={list} />)}</datalist></Field></ViewEditorSection>
+      <ViewEditorSection sectionKey="task-list" title="Task list & PARA"><p className="builder-status">A list stays a universal item group. Its PARA type describes its purpose; priority controls list-aware sorting.</p><Field label="Task list" hint="Choose an existing list or type a new name. Items assigned to it will appear in this view."><Input value={editing.list ?? ''} list="view-list-values" placeholder="Choose or type a list name" onChange={(event) => selectList(event.target.value)} /><datalist id="view-list-values">{orderedListNames(workspace).map((list) => <option value={list} key={list} />)}</datalist></Field>{editing.list && <><Field label="PARA type"><Select value={listKind} onChange={(event) => setListKind(event.target.value as ListKind)}><option value="project">Project — a result with an end</option><option value="area">Area — ongoing responsibility</option><option value="resource">Resource — useful reference</option><option value="archive">Archive — inactive material</option><option value="list">General list</option></Select></Field><Field label="List priority" hint="4 is highest. Equal priorities put the newer list first."><Select value={listPriority} onChange={(event) => setListPriority(Number(event.target.value) as 0 | 1 | 2 | 3 | 4)}><option value={0}>0 — None</option><option value={1}>1 — Low</option><option value={2}>2 — Medium</option><option value={3}>3 — High</option><option value={4}>4 — Urgent</option></Select></Field></>}</ViewEditorSection>
       {editing.renderer === 'board' && <ViewEditorSection sectionKey="board-columns" title="Board columns"><fieldset className="query-builder board-builder"><p className="builder-status">Group items by status or by tag. Empty columns are hidden by default.</p><Field label="Group columns by"><Select value={boardSettingsFor(editing).groupBy} onChange={(event) => updateBoardSettings({ groupBy: event.target.value as BoardSettings['groupBy'] })}><option value="status">Status</option><option value="tag">Tags</option></Select></Field><Checkbox checked={boardSettingsFor(editing).showEmpty} onChange={(event) => updateBoardSettings({ showEmpty: event.target.checked })} label="Show empty columns" />{boardSettingsFor(editing).groupBy === 'status' ? <><div className="board-column-settings">{boardSettingsFor(editing).states.map((state, index) => <div key={state}><Checkbox checked onChange={() => updateBoardSettings({ states: boardSettingsFor(editing).states.filter((entry) => entry !== state) })} label={stateNames[state]} /><div><IconButton size="compact" variant="ghost" aria-label={`Move ${stateNames[state]} left`} disabled={index === 0} onClick={() => moveBoardState(index, -1)}>←</IconButton><IconButton size="compact" variant="ghost" aria-label={`Move ${stateNames[state]} right`} disabled={index === boardSettingsFor(editing).states.length - 1} onClick={() => moveBoardState(index, 1)}>→</IconButton></div></div>)}</div><div className="builder-actions">{defaultBoardStates.filter((state) => !boardSettingsFor(editing).states.includes(state)).map((state) => <Button size="compact" key={state} onClick={() => updateBoardSettings({ states: [...boardSettingsFor(editing).states, state] })}>+ {stateNames[state]}</Button>)}</div></> : <p className="builder-status">Each existing tag becomes a column automatically. Items without tags appear in “No tags”. Add or remove tags on items to change the columns.</p>}</fieldset></ViewEditorSection>}
       <ViewSortingEditor workspace={workspace} rules={sortRules} source={sortSource} onRules={updateSortRules} onSource={(source, parsed) => { setSortSource(source); if (parsed) setSortRules(parsed); }} />
       <ViewPortabilityEditor view={editing} rules={sortRules} sortSource={sortSource} json={viewJson} onJson={setViewJson} onApplyJson={() => applyViewJson()} onImport={(file) => void importViewTemplate(file)} onExport={onExportView} />

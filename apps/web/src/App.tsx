@@ -44,6 +44,21 @@ import {
 
 const BUILD_COMMIT = (import.meta.env.VITE_COMMIT_SHA || 'local').slice(0, 7);
 
+function useDisplayedCommit(): string {
+  const [commit, setCommit] = useState(BUILD_COMMIT);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return undefined;
+    const refresh = () => void fetch('/__utm-build-info', { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() as Promise<{ commit?: string }> : undefined)
+      .then((result) => { if (result?.commit) setCommit(result.commit.slice(0, 7)); })
+      .catch(() => undefined);
+    refresh();
+    const timer = window.setInterval(refresh, 5_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return commit;
+}
+
 const DIAGNOSTICS_KEY = 'utm:diagnostics:v1';
 type DiagnosticEntry = { at: string; kind: 'error' | 'unhandledrejection' | 'usage'; message: string; page?: string; details?: string };
 const readDiagnostics = (): DiagnosticEntry[] => {
@@ -158,6 +173,7 @@ async function portableFromFile(file: File, workspace: WorkspaceDocument): Promi
 }
 
 function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void> }) {
+  const displayedCommit = useDisplayedCommit();
   const [name, setName] = useState('My workspace');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -232,7 +248,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <hr />
         </div>
       </details>
-      <p className="lock-version">v{APP_VERSION} · commit {BUILD_COMMIT}</p>
+      <p className="lock-version">v{APP_VERSION} · commit {displayedCommit}</p>
     </section>
   </main>;
 }

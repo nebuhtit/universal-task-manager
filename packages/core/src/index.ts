@@ -7,3 +7,4 @@ export * from './interop.js';
 export * from './portability.js';
 export * from './tabular.js';
 export * from './calendar.js';
+export * from './lists.js';

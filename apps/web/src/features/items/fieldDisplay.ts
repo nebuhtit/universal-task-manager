@@ -107,7 +107,7 @@ export const exampleViewFieldValue = (path: string): string => {
     'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', cycleHistory: '4 finished cycles', subtasks: 'Draft outline, Review notes', parent: 'Quarterly review',
     isSubtask: 'Yes', isParent: 'Yes', parentDepth: '1', childDepth: '2', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
     createdWithAppName: 'Universal Task Manager', createdWithVersion: APP_VERSION, createdWithAppId: 'dev.universal-task-manager',
-    schemaVersion: '1.8.0', revision: '7', id: 'itm_example_20260824',
+    schemaVersion: '1.9.0', revision: '7', id: 'itm_example_20260824',
   } as Record<string, string>)[path] ?? 'Example value';
 };
 

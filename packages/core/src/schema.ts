@@ -9,7 +9,7 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.8.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.9.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -87,7 +87,7 @@ export const itemJsonSchema = {
       type: 'object', additionalProperties: false, required: ['target', 'unit', 'streakMode', 'completedDates'],
       properties: { target: { type: 'number' }, unit: { type: 'string' }, streakMode: { enum: ['manual_only', 'any_closed'] }, completedDates: { type: 'array', uniqueItems: true, items: { type: 'string', format: 'date' } } },
     },
-    priority: { type: 'integer', minimum: 0, maximum: 4 }, contexts: stringArray, tags: stringArray,
+    priority: { type: 'integer', minimum: 0, maximum: 4 }, list: { type: 'string', minLength: 1 }, contexts: stringArray, tags: stringArray,
     reminders: {
       type: 'array', items: {
         type: 'object', additionalProperties: false, required: ['id', 'mode', 'urgency', 'repeatUntilAcknowledged'],
@@ -131,7 +131,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.8.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.9.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -139,7 +139,7 @@ export const viewJsonSchema = {
     query: { type: 'object', additionalProperties: false, required: ['source'], properties: { source: { type: 'string' }, ast: { type: 'object', additionalProperties: true } } },
     renderer: { enum: ['list', 'table', 'calendar', 'board'] },
     sort: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['field', 'direction'], properties: { field: { type: 'string' }, direction: { enum: ['asc', 'desc'] }, nulls: { enum: ['first', 'last'] } } } },
-    sortSource: { type: 'string' }, groupBy: { type: 'string' }, fields: stringArray,
+    sortSource: { type: 'string' }, groupBy: { type: 'string' }, fields: stringArray, list: { type: 'string', minLength: 1 },
     creationDefaults: { type: 'object', additionalProperties: true }, extensions,
   },
 } as const;
@@ -151,6 +151,15 @@ const customFieldSchema = {
     kind: { enum: ['text', 'number', 'boolean', 'date', 'datetime', 'duration', 'enum', 'multi_enum', 'url', 'item_ref', 'formula'] },
     required: { type: 'boolean' }, options: stringArray, formula: { type: 'string' },
     formulaResult: { enum: ['text', 'number', 'boolean', 'date', 'datetime', 'duration', 'enum', 'url', 'item_ref'] },
+  },
+} as const;
+
+const listDefinitionSchema = {
+  type: 'object', additionalProperties: false, required: ['name', 'kind', 'priority', 'createdAt', 'updatedAt'],
+  properties: {
+    name: { type: 'string', minLength: 1 }, kind: { enum: ['list', 'project', 'area', 'resource', 'archive'] },
+    priority: { type: 'integer', minimum: 0, maximum: 4 },
+    createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
   },
 } as const;
 
@@ -179,13 +188,15 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.8.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.9.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
+  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
-    items: { type: 'object', additionalProperties: itemJsonSchema }, customFields: { type: 'object', additionalProperties: customFieldSchema },
+    items: { type: 'object', additionalProperties: itemJsonSchema },
+    listDefinitions: { type: 'object', additionalProperties: listDefinitionSchema },
+    customFields: { type: 'object', additionalProperties: customFieldSchema },
     views: { type: 'object', additionalProperties: viewJsonSchema }, dashboards: { type: 'object' }, automations: { type: 'object' },
     automationLog: { type: 'array' }, tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
     calendarPreferences: {
@@ -301,6 +312,15 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   item.schemaVersion = SCHEMA_VERSION;
   item.createdWithAppId ??= APP_ID; item.createdWithAppName ??= APP_NAME; item.createdWithVersion ??= APP_VERSION;
   item.revision ??= 1; item.bodyMarkdown ??= ''; item.contexts ??= []; item.tags ??= []; item.reminders ??= []; item.relations ??= []; item.attachments ??= []; item.custom ??= {};
+  if (!item.list && item.extensions && typeof item.extensions === 'object' && !Array.isArray(item.extensions)) {
+    for (const legacy of Object.values(item.extensions as Record<string, unknown>)) {
+      if (legacy && typeof legacy === 'object' && !Array.isArray(legacy) && typeof (legacy as Record<string, unknown>).list === 'string') {
+        item.list = (legacy as Record<string, unknown>).list;
+        warnings.push('Restored legacy item list membership from extensions');
+        break;
+      }
+    }
+  }
   if (item.preset === 'habit') {
     item.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
   }
@@ -317,6 +337,15 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
   const view = structuredClone(value) as Record<string, unknown>;
   const warnings = preserveUnknown(view, viewKeys, namespace).map((key) => `Moved unknown view field ${key} to extensions.${namespace}`);
   view.query ??= { source: '' }; view.sort ??= []; view.fields ??= [];
+  if (!view.list && view.extensions && typeof view.extensions === 'object' && !Array.isArray(view.extensions)) {
+    for (const legacy of Object.values(view.extensions as Record<string, unknown>)) {
+      if (legacy && typeof legacy === 'object' && !Array.isArray(legacy) && typeof (legacy as Record<string, unknown>).list === 'string') {
+        view.list = (legacy as Record<string, unknown>).list;
+        warnings.push('Restored legacy view list selection from extensions');
+        break;
+      }
+    }
+  }
   const validation = validateView(view);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   const defaultsValidation = validateViewCreationDefaults(view.creationDefaults);
@@ -338,6 +367,23 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     const migrated = migrateView(view, `schema:${previous}`); warnings.push(...migrated.warnings); return [key, migrated.value];
   }));
   source.schemaVersion = SCHEMA_VERSION;
+  const migratedItems = source.items as Record<string, UniversalItem>;
+  const rawListDefinitions = source.listDefinitions && typeof source.listDefinitions === 'object' && !Array.isArray(source.listDefinitions)
+    ? source.listDefinitions as Record<string, unknown>
+    : {};
+  const now = new Date().toISOString();
+  const listNames = new Set(Object.values(migratedItems).map((item) => item.list?.trim()).filter((name): name is string => Boolean(name)));
+  source.listDefinitions = Object.fromEntries([...new Set([...Object.keys(rawListDefinitions), ...listNames])].map((name) => {
+    const raw = rawListDefinitions[name] && typeof rawListDefinitions[name] === 'object' && !Array.isArray(rawListDefinitions[name])
+      ? rawListDefinitions[name] as Record<string, unknown>
+      : {};
+    const itemDates = Object.values(migratedItems).filter((item) => item.list === name).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
+    const createdAt = typeof raw.createdAt === 'string' && Number.isFinite(Date.parse(raw.createdAt)) ? raw.createdAt : itemDates[0] ?? now;
+    const updatedAt = typeof raw.updatedAt === 'string' && Number.isFinite(Date.parse(raw.updatedAt)) ? raw.updatedAt : createdAt;
+    const kind = ['list', 'project', 'area', 'resource', 'archive'].includes(String(raw.kind)) ? raw.kind : 'area';
+    const priority = Math.max(0, Math.min(4, Math.floor(Number(raw.priority) || 0)));
+    return [name, { name, kind, priority, createdAt, updatedAt }];
+  }));
   source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.tombstones ??= {};
   source.pushPreferences ??= { enabled: false, contentMode: 'generic' };
   const pushPreferences = source.pushPreferences as Record<string, unknown>;
@@ -382,7 +428,6 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     appearance.tickSound = appearance.tickSound === true;
     appearance.uiSound = appearance.uiSound === true;
   }
-  const now = new Date().toISOString();
   calendarPreferences.testClock ??= { enabled: false, secondsPerDay: 86_400, startedAt: now, virtualAt: now };
   const testClock = calendarPreferences.testClock as Record<string, unknown>;
   Object.keys(testClock).forEach((key) => {

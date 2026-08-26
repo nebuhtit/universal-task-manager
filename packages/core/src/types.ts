@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.8.0';
+export const SCHEMA_VERSION = '1.9.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.8.1';
-export const APP_RELEASED_AT = '2026-08-26T13:15:19+03:00';
+export const APP_VERSION = '1.9.0';
+export const APP_RELEASED_AT = '2026-08-26T13:32:00+03:00';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -230,6 +230,17 @@ export interface SavedView {
   extensions?: Record<string, unknown>;
 }
 
+export type ListKind = 'list' | 'project' | 'area' | 'resource' | 'archive';
+
+/** Workspace-level metadata for the plain list name stored on each item. */
+export interface ListDefinition {
+  name: string;
+  kind: ListKind;
+  priority: 0 | 1 | 2 | 3 | 4;
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
 export interface PortableSource {
   appId: string;
   appName: string;
@@ -320,6 +331,8 @@ export interface WorkspaceDocument {
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
   items: Record<string, UniversalItem>;
+  /** Shared PARA/order metadata keyed by the exact list name used by items and views. */
+  listDefinitions: Record<string, ListDefinition>;
   customFields: Record<string, CustomFieldDefinition>;
   views: Record<string, SavedView>;
   dashboards: Record<string, Dashboard>;
@@ -437,6 +450,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     createdAt: timestamp,
     updatedAt: timestamp,
     items: {},
+    listDefinitions: {},
     customFields: {},
     views: {
       '__all_items__': {

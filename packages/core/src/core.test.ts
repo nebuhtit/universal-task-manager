@@ -110,11 +110,20 @@ describe('safe expression language', () => {
   });
 
   it('keeps saved-view creation defaults portable while rejecting system and relation fields', () => {
-    const view = migrateView({ id: 'view-defaults', name: 'Draft', query: { source: '' }, renderer: 'table', sort: [], fields: [], creationDefaults: { priority: 3, tags: ['work'], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' } }).value;
+    const view = migrateView({ id: 'view-defaults', name: 'Draft', query: { source: '' }, renderer: 'table', sort: [], fields: [], list: 'Health', creationDefaults: { priority: 3, tags: ['work'], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' } }).value;
+    expect(view.list).toBe('Health');
     expect(view.creationDefaults).toEqual({ priority: 3, tags: ['work'], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' });
     expect(validateViewCreationDefaults({ createdAt: '2026-08-24T10:00:00.000Z' }).valid).toBe(false);
     expect(validateViewCreationDefaults({ relations: [] }).valid).toBe(false);
     expect(() => migrateView({ ...view, creationDefaults: { id: 'old-item' } })).toThrow('not an editable default');
+  });
+
+  it('restores list membership hidden by the older strict schema', () => {
+    const legacy = createItem('Legacy list item');
+    legacy.extensions = { 'schema:1.8.0': { list: 'Family' } };
+    expect(migrateItem(legacy).value.list).toBe('Family');
+    const legacyView = { id: 'legacy-list-view', name: 'Family', query: { source: '' }, renderer: 'list', sort: [], fields: [], extensions: { 'schema:1.8.0': { list: 'Family' } } };
+    expect(migrateView(legacyView).value.list).toBe('Family');
   });
 
   it('sorts by multiple safe DSL expressions with explicit null placement', () => {
@@ -457,18 +466,22 @@ describe('interoperability', () => {
   it('migrates 1.0 JSON and keeps unknown item fields in a namespaced extension', () => {
     const old = createWorkspace();
     old.schemaVersion = '1.0.0';
+    delete (old as Partial<typeof old>).listDefinitions;
     delete (old.calendarPreferences as Partial<typeof old.calendarPreferences>).sleepSchedule;
     // A previously shipped UI briefly stored view-only state here. Unlock must
     // migrate it away rather than rejecting the whole local workspace.
     (old.calendarPreferences as typeof old.calendarPreferences & { staleUiFlag?: boolean }).staleUiFlag = true;
     const item = createItem('Old item') as UniversalItem & { foreignFlag?: string };
-    item.schemaVersion = '1.0.0'; item.foreignFlag = 'preserve me'; old.items[item.id] = item;
+    item.schemaVersion = '1.0.0'; item.foreignFlag = 'preserve me'; item.list = 'Health'; old.items[item.id] = item;
+    const legacyView = Object.values(old.views)[0]!; legacyView.list = 'Health';
     const legacyHabit = createItem('Legacy habit');
     legacyHabit.habit = { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
     delete (legacyHabit.habit as Partial<NonNullable<UniversalItem['habit']>>).completedDates;
     old.items[legacyHabit.id] = legacyHabit;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.schemaVersion).toBe('1.8.0');
+    expect(migrated.schemaVersion).toBe('1.9.0');
+    expect(migrated.listDefinitions.Health).toMatchObject({ name: 'Health', kind: 'area', priority: 0, createdAt: item.createdAt });
+    expect(migrated.views[legacyView.id]?.list).toBe('Health');
     expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
     expect(migrated.calendarPreferences.language).toBe('en');
     expect(migrated.calendarPreferences.appearance).toEqual({ mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 });
