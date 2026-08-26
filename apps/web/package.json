@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@automerge/automerge": "^3.1.2",
+    "@base-ui/react": "^1.7.0",
     "@fullcalendar/react": "^7.0.2",
     "@utm/core": "workspace:*",
     "@utm/sdk": "workspace:*",

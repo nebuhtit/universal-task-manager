@@ -1,0 +1,70 @@
+.ui-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: var(--color-overlay);
+}
+
+.ui-dialog-viewport {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ui-dialog-popup {
+  width: min(100%, var(--layout-dialog-max));
+  max-height: min(90dvh, 900px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+
+.ui-dialog-header,
+.ui-dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.ui-dialog-header { justify-content: space-between; border-bottom: 1px solid var(--color-border); }
+.ui-dialog-footer { justify-content: flex-end; border-top: 1px solid var(--color-border); }
+.ui-dialog-title { margin: 0; font-size: var(--font-size-section); font-weight: var(--font-weight-semibold); }
+.ui-dialog-description { margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--font-size-secondary); }
+.ui-dialog-content { min-height: 0; padding: var(--space-4); overflow: auto; overscroll-behavior: contain; }
+
+.ui-dialog-close {
+  width: var(--control-height-touch);
+  height: var(--control-height-touch);
+  flex: 0 0 var(--control-height-touch);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ui-dialog-close:hover { background: var(--color-interactive-hover); }
+.ui-dialog-close:active { background: var(--color-interactive-active); }
+.ui-dialog-close:focus-visible { outline-color: var(--color-focus-ring); }
+
+@media (max-width: 620px) {
+  .ui-dialog-viewport { place-items: end stretch; padding: 0; }
+  .ui-dialog-popup {
+    width: 100%;
+    max-height: 100dvh;
+    border-width: 1px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

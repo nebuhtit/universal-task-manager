@@ -75,6 +75,8 @@
   /* Shared layout */
   --layout-sidebar-width: 236px;
   --layout-content-max: 1500px;
+  --layout-dialog-max: 640px;
+  --z-overlay: 100;
 
   /* Temporary compatibility aliases. Remove only after legacy migration. */
   --ink: var(--color-text);
