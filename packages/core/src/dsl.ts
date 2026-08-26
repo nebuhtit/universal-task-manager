@@ -131,6 +131,41 @@ export interface EvaluationContext {
   resolveItem?: (id: string) => UniversalItem | undefined;
 }
 
+export interface DueDateBuckets {
+  dueTodayOrOverdue: boolean;
+  dueThisWeekOrOverdue: boolean;
+}
+
+export interface QueryTemporalOptions { timeZone?: string | undefined; weekStartsOn?: 0 | 1 | undefined }
+
+function calendarDateKey(value: Date, timeZone?: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(value);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? '';
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  } catch {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  }
+}
+
+/** Calendar buckets used by saved Views, evaluated in the workspace timezone. */
+export function dueDateBuckets(item: UniversalItem, now = new Date(), options: QueryTemporalOptions = {}): DueDateBuckets {
+  const due = item.schedule?.dueAt ? new Date(item.schedule.dueAt) : undefined;
+  if (!due || !Number.isFinite(due.getTime())) return { dueTodayOrOverdue: false, dueThisWeekOrOverdue: false };
+  const todayKey = calendarDateKey(now, options.timeZone);
+  const dueKey = calendarDateKey(due, options.timeZone);
+  const [year, month, day] = todayKey.split('-').map(Number);
+  const todayOrdinal = new Date(Date.UTC(year!, month! - 1, day!));
+  const weekStartsOn = options.weekStartsOn ?? 1;
+  const daysSinceWeekStart = (todayOrdinal.getUTCDay() - weekStartsOn + 7) % 7;
+  todayOrdinal.setUTCDate(todayOrdinal.getUTCDate() + 6 - daysSinceWeekStart);
+  const weekEndKey = todayOrdinal.toISOString().slice(0, 10);
+  return {
+    dueTodayOrOverdue: dueKey <= todayKey,
+    dueThisWeekOrOverdue: dueKey <= weekEndKey,
+  };
+}
+
 function getPath(root: unknown, path: string): EvalValue {
   let current: unknown = root;
   for (const segment of path.split('.')) {
@@ -262,7 +297,7 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
 }
 
 export interface QueryRelationContext { isSubtask?: boolean; isParent?: boolean; parentDepth?: number; childDepth?: number }
-export function compileQuery(source: string, relationContext?: (item: UniversalItem) => QueryRelationContext): (item: UniversalItem, now?: Date) => boolean {
+export function compileQuery(source: string, relationContext?: (item: UniversalItem) => QueryRelationContext, temporalOptions: QueryTemporalOptions = {}): (item: UniversalItem, now?: Date) => boolean {
   // Compatibility for early Views: before habits became a universal capability,
   // the visual builder expressed them as `preset == "habit"`.
   const normalizedSource = source
@@ -281,7 +316,8 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
       && (due === undefined || Number.isNaN(due) || current.getTime() <= due);
     try {
       const relations = relationContext?.(item) ?? {};
-      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current }));
+      const dueBuckets = dueDateBuckets(item, current, temporalOptions);
+      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

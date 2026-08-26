@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.9.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.9.1';
-export const APP_RELEASED_AT = '2026-08-26T10:51:12.207Z';
+export const APP_VERSION = '1.9.2';
+export const APP_RELEASED_AT = '2026-08-26T11:00:05.523Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -441,8 +441,12 @@ export function backfillItemCreationVersions(workspace: WorkspaceDocument, legac
 
 export function createWorkspace(name = 'My workspace', now = new Date()): WorkspaceDocument {
   const timestamp = now.toISOString();
-  const inboxId = createId();
+  const todayId = createId();
+  const weekId = createId();
   const dashboardId = createId();
+  const activeQuery = 'state == "open" && role != "series_template" && isTemplate != true';
+  const defaultFields = ['title', 'schedule.dueAt', 'bodyMarkdown', 'list', 'tags'];
+  const defaultSort = [{ field: 'schedule.dueAt', direction: 'asc' as const, nulls: 'last' as const }];
   return {
     schemaVersion: SCHEMA_VERSION,
     workspaceId: createId(),
@@ -456,18 +460,26 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       '__all_items__': {
         id: '__all_items__',
         name: 'All items',
-        query: { source: 'role != "series_template" && isTemplate != true' },
+        query: { source: activeQuery },
         renderer: 'list',
-        sort: [{ field: 'updatedAt', direction: 'desc' }],
-        fields: [],
+        sort: defaultSort.map((rule) => ({ ...rule })),
+        fields: [...defaultFields],
       },
-      [inboxId]: {
-        id: inboxId,
-        name: 'Now',
-        query: { source: '(state == "open" || state == "done") && role != "series_template" && isTemplate != true' },
-        renderer: 'table',
-        sort: [{ field: 'schedule.dueAt', direction: 'asc' }],
-        fields: ['title', 'schedule.dueAt', 'priority', 'tags'],
+      [todayId]: {
+        id: todayId,
+        name: 'Today + overdue',
+        query: { source: `${activeQuery} && dueTodayOrOverdue == true` },
+        renderer: 'list',
+        sort: defaultSort.map((rule) => ({ ...rule })),
+        fields: [...defaultFields],
+      },
+      [weekId]: {
+        id: weekId,
+        name: 'This week + overdue',
+        query: { source: `${activeQuery} && dueThisWeekOrOverdue == true` },
+        renderer: 'list',
+        sort: defaultSort.map((rule) => ({ ...rule })),
+        fields: [...defaultFields],
       },
     },
     dashboards: {
@@ -475,8 +487,9 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         id: dashboardId,
         name: 'Home',
         widgets: [
-          { id: createId(), type: 'smart_list', title: 'Now', viewId: inboxId, width: 2, order: 0 },
-          { id: createId(), type: 'habit_summary', title: 'Habits', width: 1, order: 1 },
+          { id: createId(), type: 'smart_list', title: 'Today + overdue', viewId: todayId, width: 2, order: 0 },
+          { id: createId(), type: 'smart_list', title: 'This week + overdue', viewId: weekId, width: 2, order: 1 },
+          { id: createId(), type: 'habit_summary', title: 'Habits', width: 1, order: 2 },
         ],
       },
     },

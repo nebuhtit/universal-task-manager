@@ -22,7 +22,7 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
 
   let items: UniversalItem[];
   try {
-    const predicate = compileQuery(view.query.source || 'true', (item) => relationContext(workspace, item));
+    const predicate = compileQuery(view.query.source || 'true', (item) => relationContext(workspace, item), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
     const matchingRows = available.filter((item) => {
       const visibleByQuery = item.role !== 'series_template' ? predicate(item, now) : Boolean(item.habit) && predicate({ ...item, role: 'standalone' }, now);
       const grace = item.state === 'done' && (recentlyDoneUntil.get(item.id) ?? 0) > now.getTime();

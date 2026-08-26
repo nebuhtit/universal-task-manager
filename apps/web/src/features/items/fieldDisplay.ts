@@ -1,5 +1,6 @@
 import {
   APP_VERSION,
+  dueDateBuckets,
   evaluateFormulas,
   evaluateItemScripts,
   type ItemPreset,
@@ -21,6 +22,8 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
   { path: 'isHabit', label: 'Habit', group: 'Core' }, { path: 'activeRange', label: 'Inside active range now', group: 'Core' },
   { path: 'activeDuration', label: 'Has active range dates', group: 'Core' },
+  { path: 'dueTodayOrOverdue', label: 'Due today or overdue', group: 'Schedule' },
+  { path: 'dueThisWeekOrOverdue', label: 'Due this week or overdue', group: 'Schedule' },
   { path: 'role', label: 'Role', group: 'Core' }, { path: 'priority', label: 'Priority', group: 'Core' },
   { path: 'tags', label: 'Tags', group: 'Core' }, { path: 'contexts', label: 'Contexts', group: 'Core' }, { path: 'list', label: 'Task list', group: 'Core' },
   { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Event opens', group: 'Schedule' },
@@ -126,6 +129,7 @@ export const formatScriptResult = (value: unknown, kind: ItemScriptField['result
 
 export const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument, now = new Date()): unknown => {
   if (field === 'description') field = 'bodyMarkdown';
+  if (field === 'dueTodayOrOverdue' || field === 'dueThisWeekOrOverdue') return dueDateBuckets(item, now, { timeZone: workspace?.calendarPreferences.timezone, weekStartsOn: workspace?.calendarPreferences.weekStartsOn })[field];
   if (field === 'schedule.estimatedDuration') {
     if (item.schedule?.estimatedDuration) return item.schedule.estimatedDuration;
     if (item.schedule?.startAt && item.schedule?.endAt) {

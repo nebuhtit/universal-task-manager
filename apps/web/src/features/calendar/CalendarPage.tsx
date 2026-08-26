@@ -41,7 +41,7 @@ export function CalendarPage({ workspace, commit, onEditItem, createUiItem }: {
       const view = workspace.views[preferences.selectedViewId!];
       if (!view) return (_row: ProjectedOccurrence) => true;
       try {
-        const compiled = compileQuery(view.query.source.trim() || 'true');
+        const compiled = compileQuery(view.query.source.trim() || 'true', undefined, { timeZone: preferences.timezone, weekStartsOn: preferences.weekStartsOn });
         return (row: ProjectedOccurrence) => {
           const source = workspace.items[row.materializedItemId ?? row.sourceItemId];
           if (!source) return false;
@@ -260,4 +260,3 @@ export function CalendarPage({ workspace, commit, onEditItem, createUiItem }: {
     </ResponsiveDialog>
   </section>;
 }
-

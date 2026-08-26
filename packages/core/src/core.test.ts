@@ -45,6 +45,28 @@ describe('safe expression language', () => {
     expect(compileQuery('length(tags) == 0')(createItem('No tags'))).toBe(true);
   });
 
+  it('creates active, today and week starter views with compact fields', () => {
+    const workspace = createWorkspace('Starter views', new Date(2026, 7, 26, 12));
+    const views = Object.values(workspace.views);
+    expect(views.map((view) => view.name)).toEqual(['All items', 'Today + overdue', 'This week + overdue']);
+    expect(views.every((view) => view.renderer === 'list')).toBe(true);
+    expect(views.every((view) => JSON.stringify(view.fields) === JSON.stringify(['title', 'schedule.dueAt', 'bodyMarkdown', 'list', 'tags']))).toBe(true);
+    expect(views[0]?.query.source).toContain('state == "open"');
+  });
+
+  it('filters due-date buckets by local day and Monday-based week', () => {
+    const now = new Date(2026, 7, 26, 12);
+    const itemDueAt = (date: Date) => { const item = createItem('Due'); item.schedule = { dueAt: date.toISOString(), timezone: 'UTC' }; return item; };
+    const today = compileQuery('dueTodayOrOverdue == true', undefined, { timeZone: 'Europe/Moscow', weekStartsOn: 1 });
+    const week = compileQuery('dueThisWeekOrOverdue == true', undefined, { timeZone: 'Europe/Moscow', weekStartsOn: 1 });
+    expect(today(itemDueAt(new Date(2026, 7, 25, 18)), now)).toBe(true);
+    expect(today(itemDueAt(new Date(2026, 7, 26, 20)), now)).toBe(true);
+    expect(today(itemDueAt(new Date(2026, 7, 27, 9)), now)).toBe(false);
+    expect(week(itemDueAt(new Date(2026, 7, 30, 20)), now)).toBe(true);
+    expect(week(itemDueAt(new Date(2026, 7, 31, 9)), now)).toBe(false);
+    expect(today(createItem('No due date'), now)).toBe(false);
+  });
+
   it('detects formula cycles', () => {
     const result = evaluateFormulas(createItem('Cost'), [
       { id: 'a', key: 'a', label: 'A', kind: 'formula', required: false, formula: 'custom.b + 1' },
