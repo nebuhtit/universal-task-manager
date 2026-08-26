@@ -1,0 +1,153 @@
+.ui-dialog-popup.view-editor {
+  width: min(860px, 100%);
+}
+
+.view-editor .ui-dialog-content {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.view-editor .ui-dialog-footer {
+  position: sticky;
+  bottom: 0;
+}
+
+.view-editor-action-spacer {
+  flex: 1 1 auto;
+}
+
+.view-editor-section {
+  border-top: 1px solid var(--color-border);
+}
+
+.view-editor-section > .ui-disclosure-summary {
+  min-height: var(--control-height-touch);
+  padding-inline: var(--space-1);
+  font-size: var(--font-size-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.view-editor-section > .ui-disclosure-content > fieldset,
+.view-editor-section > .ui-disclosure-content > .ui-field {
+  margin-bottom: var(--space-3);
+}
+
+.view-editor-section .query-builder {
+  margin-top: 0;
+}
+
+.view-editor .query-builder,
+.view-editor .sort-rule,
+.view-editor .creation-default-row {
+  border-color: var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.view-editor .visual-condition-row,
+.view-editor .creation-default-row,
+.view-editor .sort-rule {
+  gap: var(--space-2);
+}
+
+.view-editor .ui-field-label,
+.view-editor .builder-status,
+.view-editor .field-hint {
+  font-size: var(--font-size-caption);
+}
+
+.view-editor .view-accent-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.view-editor .view-accent-options {
+  gap: var(--space-2);
+}
+
+.view-editor .view-accent-options .ui-button {
+  border-radius: var(--radius-pill);
+}
+
+.view-editor .view-accent-options .selected {
+  border-color: var(--color-border-strong);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.view-editor .display-fields-example > .ui-disclosure-content > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.view-editor .display-fields-example > .ui-disclosure-content {
+  display: block;
+}
+
+.view-editor .field-groups .ui-disclosure-content {
+  padding-bottom: var(--space-2);
+}
+
+.view-editor .field-options .ui-checkbox {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  min-height: var(--control-height-compact);
+}
+
+.view-editor .field-options .ui-checkbox input {
+  grid-row: span 2;
+}
+
+.view-editor .field-options .ui-checkbox small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-caption);
+  text-overflow: ellipsis;
+}
+
+.view-editor .selected-fields,
+.view-editor .board-column-settings {
+  border-color: var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.view-editor .inline-menu > .ui-disclosure-content > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.view-editor .inline-menu > .ui-disclosure-content button {
+  min-height: var(--control-height-compact);
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+@media (max-width: 700px) {
+  .view-editor .ui-dialog-content {
+    gap: var(--space-2);
+    padding-inline: var(--space-3);
+  }
+
+  .view-editor .visual-condition-row,
+  .view-editor .creation-default-row {
+    grid-template-columns: 1fr;
+  }
+
+  .view-editor .visual-condition-remove,
+  .view-editor .creation-default-remove {
+    width: 100%;
+  }
+
+  .view-editor .field-groups {
+    grid-template-columns: 1fr;
+  }
+}

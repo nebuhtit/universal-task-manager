@@ -52,7 +52,7 @@ async function openEditorSection(page: Page, name: string) {
 }
 
 async function openViewEditorSection(page: Page, name: string) {
-  const details = page.locator('.view-editor > details.view-editor-section').filter({ has: page.getByText(name, { exact: true }) }).first();
+  const details = page.locator('.view-editor details.view-editor-section').filter({ has: page.getByText(name, { exact: true }) }).first();
   if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) await details.locator(':scope > summary').click();
   return details;
 }
@@ -272,7 +272,7 @@ test('edited view parameters change results and survive reload', async ({ page }
   await rule.getByRole('combobox', { name: 'Property' }).selectOption('state');
   await rule.getByRole('combobox', { name: 'Operator' }).selectOption('==');
   await rule.getByRole('combobox', { name: 'Value' }).selectOption('done');
-  await page.locator('.view-editor label').filter({ hasText: /^Renderer/ }).locator('select').selectOption('table');
+  await page.getByRole('combobox', { name: 'Renderer' }).selectOption('table');
   await openViewEditorSection(page, 'Advanced filter code');
   await expect(page.getByLabel('Advanced filter code')).toHaveValue('state == "done"');
   await page.getByRole('button', { name: 'Save view' }).click();
@@ -394,7 +394,7 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await goHome(page);
   const view = page.locator('.view-section').filter({ hasText: 'Now' });
   await view.getByRole('button', { name: /^Edit /  }).click();
-  await page.locator('.view-editor label').filter({ hasText: /^Renderer/ }).locator('select').selectOption('table');
+  await page.getByRole('combobox', { name: 'Renderer' }).selectOption('table');
   await openViewEditorSection(page, 'Sorting');
   const sortField = page.getByRole('combobox', { name: 'Sort field 1' });
   await expect(sortField.locator('option', { hasText: 'Priority' })).toHaveCount(1);
@@ -404,11 +404,11 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await page.getByRole('button', { name: 'Hide all' }).click();
   const coreFields = page.locator('.field-groups details').filter({ has: page.getByText('Core', { exact: true }) });
   await coreFields.getByText('Core', { exact: true }).click();
-  await coreFields.locator('label.check').filter({ hasText: /^Title/ }).getByRole('checkbox').check();
-  await coreFields.locator('label.check').filter({ hasText: /^Priority/ }).getByRole('checkbox').check();
+  await coreFields.getByRole('checkbox', { name: /^Title/ }).check();
+  await coreFields.getByRole('checkbox', { name: /^Priority/ }).check();
   const scheduleFields = page.locator('.field-groups details').filter({ has: page.getByText('Schedule', { exact: true }) });
   await scheduleFields.getByText('Schedule', { exact: true }).click();
-  await scheduleFields.locator('label.check').filter({ hasText: /^Estimated duration/ }).getByRole('checkbox').check();
+  await scheduleFields.getByRole('checkbox', { name: /^Estimated duration/ }).check();
   await page.getByLabel('SQL-like sorting').fill('priority desc nulls last\nlower(title) asc nulls last');
   await page.getByRole('button', { name: 'Save view' }).click();
 
@@ -456,7 +456,7 @@ test('table and board renderers can complete and reopen items', async ({ page })
     await view.getByRole('button', { name: /^Edit /  }).click();
     await openViewEditorSection(page, 'Advanced filter code');
     await page.getByLabel('Advanced filter code').fill('true');
-    await page.locator('.view-editor label').filter({ hasText: /^Renderer/ }).locator('select').selectOption(renderer);
+    await page.getByRole('combobox', { name: 'Renderer' }).selectOption(renderer);
     await page.getByRole('button', { name: 'Save view' }).click();
     await view.getByRole('button', { name: 'Complete Renderer item' }).click();
     await expect(view.getByRole('button', { name: 'Reopen Renderer item' })).toBeVisible();

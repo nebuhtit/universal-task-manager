@@ -1,5 +1,8 @@
 import {
+  cloneElement,
   forwardRef,
+  isValidElement,
+  useId,
   type ButtonHTMLAttributes,
   type HTMLAttributes,
   type InputHTMLAttributes,
@@ -48,12 +51,20 @@ export interface FieldProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 export function Field({ label, htmlFor, hint, error, optional, children, className, ...props }: FieldProps) {
+  const generatedId = useId();
+  const candidate = isValidElement<Record<string, unknown>>(children) ? children : null;
+  const control = candidate && (
+    candidate.type === Input || candidate.type === Select || candidate.type === Textarea
+    || (typeof candidate.type === 'string' && ['input', 'select', 'textarea'].includes(candidate.type))
+  ) ? candidate : null;
+  const controlId = htmlFor ?? (typeof control?.props.id === 'string' ? control.props.id : generatedId);
+  const labelledChild = control && control.props.id === undefined ? cloneElement(control, { id: controlId }) : children;
   return <div className={classes('ui-field', className)} data-invalid={error ? 'true' : undefined} {...props}>
-    <label className="ui-field-label" htmlFor={htmlFor}>
+    <label className="ui-field-label" htmlFor={control ? controlId : htmlFor}>
       <span>{label}</span>
       {optional && <small>Optional</small>}
     </label>
-    {children}
+    {labelledChild}
     {error ? <small className="ui-field-error">{error}</small> : hint ? <small className="ui-field-hint">{hint}</small> : null}
   </div>;
 }

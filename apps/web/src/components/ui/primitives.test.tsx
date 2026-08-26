@@ -26,8 +26,10 @@ describe('UI primitives', () => {
   });
 
   it('connects field labels and exposes errors as visible semantics', () => {
-    const markup = renderToStaticMarkup(<Field label="Title" htmlFor="title" error="Required"><Input id="title" /></Field>);
-    expect(markup).toContain('<label class="ui-field-label" for="title">');
+    const markup = renderToStaticMarkup(<Field label="Title" error="Required"><Input /></Field>);
+    const fieldId = markup.match(/<label class="ui-field-label" for="([^"]+)">/)?.[1];
+    expect(fieldId).toBeTruthy();
+    expect(markup).toContain(`id="${fieldId}"`);
     expect(markup).toContain('data-invalid="true"');
     expect(markup).toContain('class="ui-field-error"');
   });

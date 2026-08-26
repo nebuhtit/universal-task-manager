@@ -337,10 +337,8 @@ label.check input { width: 18px; height: 18px; }
 
 .dialog { width: min(570px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #fff; border: 1px solid rgba(0,0,0,.08); border-radius: 16px; padding: 22px; box-shadow: 0 24px 70px rgba(0,0,0,.18); }
 .dialog.wide-dialog { width: min(760px, 100%); }
-.dialog.view-editor { width: min(860px, 100%); }
 .dialog h2 { margin: 0 0 20px; font-size: 20px; font-weight: 600; letter-spacing: -.015em; }
 .dialog footer { display: flex; gap: 10px; margin-top: 20px; }
-.view-editor-actions { position: sticky; bottom: -22px; z-index: 3; padding: 14px 0 22px; background: var(--paper); border-top: 1px solid var(--line); }
 .section-dot { display: inline-block; margin-left: 5px; color: var(--muted); font-size: 1.25em; line-height: 0; vertical-align: middle; }
 .code-area, code, .mono, .dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 .dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important; font-size: 14px !important; font-weight: 400; line-height: 1.65; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; color: #1f1f1f; background: #f7f7f8; border-color: #d7d7d7; }
@@ -360,8 +358,6 @@ label.check input { width: 18px; height: 18px; }
 .dsl-field { margin-top: 20px; }
 .dsl-field > .hint { margin-top: -4px; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11px; }
 .dialog-kicker { margin: 0 0 5px; color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: .09em; }
-.view-editor > header { margin-bottom: 22px; }
-.view-editor > header h2 { margin-bottom: 0; }
 .query-builder { margin: 4px 0 0; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: #fafafa; }
 .query-builder legend { padding: 0 6px; font-size: 11px; font-weight: 500; color: var(--muted); }
 .query-builder label { margin-bottom: 8px; }
@@ -493,9 +489,6 @@ label.check input { width: 18px; height: 18px; }
 .view-section-body { border-top: 0; }
 .view-accent-picker { margin: 16px 0; }
 .view-editor-section { border-top: 1px solid var(--line); }
-.view-editor-section > summary { min-height: 44px; align-items: center; padding: 11px 2px; color: var(--ink); font-size: 13px; font-weight: 550; }
-.view-editor-section > fieldset,
-.view-editor-section > label { margin-bottom: 14px; }
 .view-editor-section .query-builder { margin-top: 0; }
 .view-accent-options { display: flex; flex-wrap: wrap; gap: 8px; }
 .view-accent-options button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; background: var(--card); color: var(--ink); cursor: pointer; }
@@ -824,8 +817,6 @@ tbody tr:hover { background: var(--soft); }
   .form-grid.two, .form-grid.three, .settings-columns, .automation-layout, .transfer-actions { grid-template-columns: 1fr; }
   .settings-columns { gap: 12px; }
   .settings-card { width: 100%; min-width: 0; padding: 16px; border-radius: 14px; }
-  .view-editor-backdrop { padding: 0; place-items: stretch; }
-  .dialog.view-editor { width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; padding: 14px 12px 0; }
   .settings-card h2 { margin: 2px 0 9px; font-size: 17px; }
   .settings-card p { margin: 0 0 11px; font-size: 12px; line-height: 1.5; }
   .settings-card hr { margin: 18px 0; }
