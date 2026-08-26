@@ -11,5 +11,7 @@ describe('OrganizationManager', () => {
     expect(markup).toContain('Items without Area');
     expect(markup).toContain('Items without Project');
     expect(markup).toContain('Tag priorities');
+    expect(markup).toContain('aria-label="New tag"');
+    expect(markup).toContain('Add tag');
   });
 });

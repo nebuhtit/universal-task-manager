@@ -188,6 +188,10 @@ textarea { resize: vertical; line-height: 1.5; }
 .tag-collection { display: flex; flex-wrap: wrap; gap: 6px; margin: -5px 0 12px; }
 .tag-collection button { border: 1px solid var(--line); border-radius: 99px; padding: 5px 9px; background: #fff; color: var(--muted); font-size: 10px; font-weight: 400; }
 .tag-collection button.active { border-color: #555; background: #eee; color: #222; }
+.organization-fields .ui-field { min-width: 0; }
+.organization-fields .ui-field-control { display: grid; gap: var(--space-2); }
+.item-section .item-section { margin-inline: 0; }
+.item-section .item-section > summary { min-height: var(--control-height-touch); }
 .weekday-picker { display: grid; grid-template-columns: repeat(7, 32px); gap: 6px; margin: -2px 0 14px; }
 .weekday-picker .field-hint { grid-column: 1 / -1; display: block; min-width: 0; line-height: 1.4; }
 .weekday-picker button { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--muted); font-size: 11px; cursor: pointer; }

@@ -53,8 +53,15 @@ async function openNewItem(page: Page) {
 }
 
 async function openEditorSection(page: Page, name: string) {
-  const summary = page.locator('.editor-scroll > details > summary').filter({ hasText: name }).first();
+  const summary = page.locator('.editor-scroll summary').filter({ hasText: name }).first();
   const details = summary.locator('..');
+  await summary.evaluate((element) => {
+    let ancestor = element.parentElement?.parentElement?.closest('details');
+    while (ancestor) {
+      ancestor.open = true;
+      ancestor = ancestor.parentElement?.closest('details');
+    }
+  });
   if (!await details.evaluate((element) => (element as HTMLDetailsElement).open)) await summary.click();
   return details;
 }
@@ -84,7 +91,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.13\.1 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.14\.0 · commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -93,7 +100,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.13.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.14.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -108,6 +115,19 @@ test('archives Calendar and Automations while marking All items as beta', async 
   await expect(page.locator('.sidebar .nav-beta')).toHaveText(['Beta']);
   await expect(page.getByRole('button', { name: 'Calendar', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Automations', exact: true })).toHaveCount(0);
+});
+
+test('creates and prioritizes a reusable tag from Settings', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Tag settings');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await goToSettings(page);
+  await page.getByRole('textbox', { name: 'New tag', exact: true }).fill('#urgent');
+  await page.getByLabel('New tag priority').selectOption('4');
+  await page.getByRole('button', { name: 'Add tag' }).click();
+  await expect(page.getByText('#urgent', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Priority for tag urgent')).toHaveValue('4');
 });
 
 test('create, lock, unlock and edit a universal item', async ({ page }) => {
@@ -128,6 +148,9 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   const editorSections = page.locator('.editor-scroll > details > summary');
   await expect(editorSections.filter({ hasText: 'Description' })).toHaveCount(1);
   await expect(editorSections.filter({ hasText: 'Dates & time' })).toHaveCount(1);
+  await expect(editorSections.filter({ hasText: 'Organization' })).toHaveCount(1);
+  await expect(editorSections.filter({ hasText: 'More' })).toHaveCount(1);
+  await expect(editorSections.filter({ hasText: 'Contexts' })).toHaveCount(0);
   const scheduleSection = page.getByText('Dates & time', { exact: true });
   await expect(scheduleSection).toHaveCSS('font-size', '13px');
   await expect(scheduleSection).toHaveCSS('font-weight', '550');
@@ -150,13 +173,15 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(addReminder).toHaveCSS('font-size', '13px');
   await expect(addReminder).toHaveCSS('font-weight', '400');
   await expect(addReminder).toHaveCSS('padding-top', '8px');
-  await page.getByText('System metadata', { exact: true }).click();
+  await openEditorSection(page, 'System metadata');
   await expect(page.getByText('Created at', { exact: true })).toBeVisible();
   await expect(page.getByText('Last modified', { exact: true })).toBeVisible();
   await expect(page.getByText(/Universal Task Manager v\d+\.\d+\.\d+/, { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
-  const prioritySection = await openEditorSection(page, 'Priority');
-  await prioritySection.locator('select').selectOption({ label: '3 — High' });
+  const organizationSection = await openEditorSection(page, 'Organization');
+  await expect(organizationSection.getByLabel('Choose existing Area')).toBeVisible();
+  await expect(organizationSection.getByLabel('Create Area')).toBeVisible();
+  await organizationSection.getByLabel('Priority').selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
   await page.getByText('Prepare material by Thursday', { exact: true }).first().click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
@@ -310,13 +335,23 @@ test('edited view parameters change results and survive reload', async ({ page }
   await page.getByPlaceholder('Add new item').fill('Visible open item');
   await page.getByPlaceholder('Add new item').press('Enter');
   await page.getByRole('button', { name: 'Close item editor' }).click();
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
 
   let view = page.locator('.view-section').filter({ hasText: 'All items' });
   const editView = view.getByRole('button', { name: /^Edit /  });
   await expect(view.getByText('Export', { exact: true })).toHaveCount(0);
   await editView.click();
+  if ((page.viewportSize()?.width ?? 0) <= 700) {
+    const editor = page.locator('.ui-dialog-popup.view-editor');
+    expect(['clip', 'hidden']).toContain(await editor.evaluate((element) => getComputedStyle(element).overflowX));
+    await expect(editor.locator('.ui-dialog-content')).toHaveCSS('touch-action', 'pan-y');
+    const bounds = await editor.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+  }
   await openViewEditorSection(page, 'Visual setup');
-  await expect(page.locator('.visual-query-builder').getByText('Filter items', { exact: true })).toBeVisible();
+  await expect(page.locator('.visual-query-builder').getByText('1. Filter items', { exact: true })).toBeVisible();
   await expect(page.locator('.visual-query-builder').getByText('Show in results', { exact: true })).toHaveCount(0);
   await expect(page.locator('.view-editor details.view-editor-section').filter({ hasText: 'Show in results' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Definition JSON', exact: true })).toBeHidden();
@@ -395,8 +430,8 @@ test('visual view builder supports OR and inclusive comparison operators', async
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Priority two item');
-  const prioritySection = await openEditorSection(page, 'Priority');
-  await prioritySection.locator('select').selectOption({ label: '2 — Medium' });
+  const organizationSection = await openEditorSection(page, 'Organization');
+  await organizationSection.getByLabel('Priority').selectOption({ label: '2 — Medium' });
   await page.getByRole('button', { name: 'Save item' }).click();
 
   await goHome(page);
@@ -444,9 +479,12 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Daily walk');
-  await page.locator('summary').filter({ hasText: 'Progress & habit' }).click();
+  await openEditorSection(page, 'Dates & time');
+  await page.getByLabel('Event opens', { exact: true }).fill('2026-08-27T08:00');
+  await page.getByLabel('Event ends', { exact: true }).fill('2026-08-27T08:30');
+  await openEditorSection(page, 'Progress & habit');
   await page.getByLabel('Track as a habit').check();
-  await page.locator('summary').filter({ hasText: 'Recurrence & auto-renew' }).click();
+  await openEditorSection(page, 'Recurrence & auto-renew');
   await page.getByLabel('Make this a recurring series').check();
   await page.getByRole('button', { name: 'Save item' }).click();
 
@@ -467,7 +505,7 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await habitView.getByRole('button', { name: 'Complete habit today' }).click();
   await expect(habitView.getByRole('button', { name: 'Undo habit completion today' })).toBeVisible();
   await habitView.getByText('Daily walk', { exact: true }).click();
-  await page.getByText('Item JSON', { exact: true }).click();
+  await openEditorSection(page, 'Item JSON');
   await expect(page.getByLabel('Item JSON')).toHaveValue(/"completedDates": \[\s+"\d{4}-\d{2}-\d{2}"/);
 });
 
@@ -481,8 +519,8 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   for (const [title, priority] of [['Low item', '1'], ['High item', '4']] as const) {
     await openNewItem(page);
     await page.getByLabel('Title', { exact: true }).fill(title);
-    const prioritySection = await openEditorSection(page, 'Priority');
-    await prioritySection.locator('select').selectOption(priority);
+    const organizationSection = await openEditorSection(page, 'Organization');
+    await organizationSection.getByLabel('Priority').selectOption(priority);
     const datesSection = await openEditorSection(page, 'Dates & time');
     await datesSection.getByLabel('Event opens', { exact: true }).fill('2026-08-26T10:00');
     await datesSection.getByLabel('Event ends', { exact: true }).fill('2026-08-26T10:10');
@@ -690,9 +728,8 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Weekly due-only item');
   await openEditorSection(page, 'Dates & time');
-  await expect(page.getByLabel('Event opens', { exact: true })).not.toHaveValue('');
-  await page.getByLabel('Event opens', { exact: true }).fill('');
-  await page.locator('summary').filter({ hasText: 'Recurrence & auto-renew' }).click();
+  await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('');
+  await openEditorSection(page, 'Recurrence & auto-renew');
   await page.getByLabel('Make this a recurring series').check();
   await page.getByLabel('Repeat frequency').selectOption('WEEKLY');
   await page.getByLabel('Repeat interval').fill('2');
@@ -750,7 +787,7 @@ test('active window reuses recurrence fields without duplicating controls', asyn
   await page.getByLabel('Event opens', { exact: true }).fill(dates.opens);
   await page.getByLabel('Event ends', { exact: true }).fill(dates.ends);
   await page.locator('input[aria-label="Due / Active range ends"]').fill(dates.closes);
-  await page.locator('summary').filter({ hasText: 'Recurrence & auto-renew' }).click();
+  await openEditorSection(page, 'Recurrence & auto-renew');
   await page.getByLabel('Make this a recurring series').check();
   await page.getByLabel('Only show during the active range').check();
   await expect(page.locator('.active-window-summary').getByText('Event opens', { exact: true })).toBeVisible();

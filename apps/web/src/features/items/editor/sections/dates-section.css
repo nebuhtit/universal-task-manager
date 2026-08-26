@@ -20,3 +20,17 @@
   .calendar-duration-control { grid-template-columns: minmax(0, 1.25fr) 46px minmax(0, .95fr); gap: var(--space-1); }
   .calendar-duration-control select, .calendar-duration-control input { font-size: var(--font-size-caption); }
 }
+.date-related-sections {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.date-related-sections > details {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.date-related-sections > details > summary {
+  min-height: var(--control-height-touch);
+  align-items: center;
+  font-weight: var(--font-weight-medium);
+}

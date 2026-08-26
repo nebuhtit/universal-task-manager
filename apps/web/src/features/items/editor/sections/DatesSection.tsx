@@ -19,9 +19,10 @@ type Props = {
   applyDurationPreset: (preset: string) => void;
   timezoneOpen: boolean;
   setTimezoneOpen: (updater: (current: boolean) => boolean) => void;
+  children?: ReactNode;
 };
 
-export function DatesSection({ item, workspace, sectionMark, patchSchedule, scheduledDuration, patchScheduledDuration, applyDurationPreset, timezoneOpen, setTimezoneOpen }: Props) {
+export function DatesSection({ item, workspace, sectionMark, patchSchedule, scheduledDuration, patchScheduledDuration, applyDurationPreset, timezoneOpen, setTimezoneOpen, children }: Props) {
   const language = workspace.calendarPreferences.language;
   return <ItemSection sectionKey="dates" title="Dates & time" iconPath="schedule" filledMark={sectionMark(Boolean(item.schedule?.availableFrom || item.schedule?.startAt || item.schedule?.endAt || item.schedule?.dueAt || item.schedule?.estimatedDuration || item.schedule?.allDay))}>
     <p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p>
@@ -35,5 +36,6 @@ export function DatesSection({ item, workspace, sectionMark, patchSchedule, sche
     </div>
     <div className="schedule-tools"><Button size="compact" variant="ghost" className="timezone-button" aria-expanded={timezoneOpen} onClick={() => setTimezoneOpen((current) => !current)}><span>Timezone</span><strong>{item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}</strong><i aria-hidden>{timezoneOpen ? '−' : '⌄'}</i></Button></div>
     {timezoneOpen && <Surface variant="muted" className="timezone-panel"><Field label="Timezone" hint="Used for recurrence and daylight-saving calculations."><Input autoFocus aria-label="Timezone" list="iana-timezones" value={item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} onChange={(event) => patchSchedule({ timezone: event.target.value })} /></Field><datalist id="iana-timezones">{typeof Intl.supportedValuesOf === 'function' && Intl.supportedValuesOf('timeZone').map((timezone) => <option value={timezone} key={timezone} />)}</datalist></Surface>}
+    {children && <div className="date-related-sections">{children}</div>}
   </ItemSection>;
 }

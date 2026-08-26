@@ -162,9 +162,33 @@
 @media (max-width: 700px) {
   .views-page { --layout-topbar-height: 60px; }
 
+  .ui-dialog-viewport:has(.view-editor) {
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: pan-y;
+  }
+
+  .ui-dialog-popup.view-editor {
+    min-width: 0;
+    max-width: 100dvw;
+    overflow-x: clip;
+  }
+
   .view-editor .ui-dialog-content {
+    width: 100%;
+    min-width: 0;
     gap: var(--space-2);
     padding-inline: var(--space-3);
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+  }
+
+  .view-editor .ui-dialog-content > *,
+  .view-editor fieldset,
+  .view-editor .ui-disclosure-content {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .view-editor .visual-condition-row,
