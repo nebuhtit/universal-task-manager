@@ -7,7 +7,7 @@ export const visualOptions: Record<string, string[]> = {
 };
 export const visualFieldKinds: Record<string, 'enum' | 'boolean' | 'number' | 'date' | 'text' | 'multi'> = {
   state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', isTemplate: 'boolean', isSubtask: 'boolean', isParent: 'boolean', activeRange: 'boolean', activeDuration: 'boolean', dueTodayOrOverdue: 'boolean', dueThisWeekOrOverdue: 'boolean', priority: 'number',
-  'schedule.startAt': 'date', 'schedule.endAt': 'date', 'schedule.dueAt': 'date', 'schedule.availableFrom': 'date', title: 'text', description: 'text', tags: 'multi', contexts: 'multi', subtasks: 'multi', parent: 'text',
+  'schedule.startAt': 'date', 'schedule.endAt': 'date', 'schedule.dueAt': 'date', 'schedule.availableFrom': 'date', title: 'text', description: 'text', area: 'text', project: 'text', list: 'text', tags: 'multi', contexts: 'multi', subtasks: 'multi', parent: 'text',
 };
 export const visualOperators = (field: string): string[] => {
   const kind = visualFieldKinds[field] ?? 'text'; const presence = ['is set', 'is not set'];

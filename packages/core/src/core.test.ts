@@ -514,7 +514,7 @@ describe('interoperability', () => {
     old.items[legacyHabit.id] = legacyHabit;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
     expect(migrated.schemaVersion).toBe('1.9.0');
-    expect(migrated.listDefinitions.Health).toMatchObject({ name: 'Health', kind: 'area', priority: 0, createdAt: item.createdAt });
+    expect(migrated.listDefinitions.Health).toMatchObject({ name: 'Health', kind: 'list', priority: 0, createdAt: item.createdAt });
     expect(migrated.views[legacyView.id]?.list).toBe('Health');
     expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
     expect(migrated.calendarPreferences.language).toBe('en');
@@ -523,6 +523,26 @@ describe('interoperability', () => {
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
     expect(migrated.items[legacyHabit.id]!.habit?.completedDates).toEqual([]);
     expect(validateWorkspace(migrated).valid).toBe(true);
+  });
+
+  it('splits legacy PARA lists into independent Area and Project fields', () => {
+    const old = createWorkspace('Legacy PARA');
+    const areaItem = createItem('Area item'); areaItem.list = 'Work'; old.items[areaItem.id] = areaItem;
+    const projectItem = createItem('Project item'); projectItem.list = 'Vehicle repair'; old.items[projectItem.id] = projectItem;
+    const areaView = { ...Object.values(old.views)[0]!, id: createId(), name: 'Work', list: 'Work' };
+    const projectView = { ...Object.values(old.views)[0]!, id: createId(), name: 'Vehicle repair', list: 'Vehicle repair' };
+    old.views[areaView.id] = areaView; old.views[projectView.id] = projectView;
+    old.listDefinitions.Work = { name: 'Work', kind: 'area', priority: 4, createdAt: areaItem.createdAt, updatedAt: areaItem.updatedAt };
+    old.listDefinitions['Vehicle repair'] = { name: 'Vehicle repair', kind: 'project', priority: 3, createdAt: projectItem.createdAt, updatedAt: projectItem.updatedAt };
+    delete (old as Partial<typeof old>).areaDefinitions; delete (old as Partial<typeof old>).projectDefinitions;
+    const migrated = fromCanonicalJSON(JSON.stringify(old));
+    expect(migrated.items[areaItem.id]).toMatchObject({ area: 'Work' });
+    expect(migrated.items[areaItem.id]?.list).toBeUndefined();
+    expect(migrated.items[projectItem.id]).toMatchObject({ project: 'Vehicle repair' });
+    expect(migrated.views[areaView.id]).toMatchObject({ area: 'Work' });
+    expect(migrated.views[projectView.id]).toMatchObject({ project: 'Vehicle repair' });
+    expect(migrated.areaDefinitions.Work?.priority).toBe(4);
+    expect(migrated.projectDefinitions['Vehicle repair']?.priority).toBe(3);
   });
 
   it('exports a validated portable package and imports conflicts only as copies', () => {

@@ -16,7 +16,7 @@ export function listDefinitionFor(workspace: WorkspaceDocument, rawName: string 
     .filter((value) => Number.isFinite(Date.parse(value)))
     .sort();
   const createdAt = timestamps[0] ?? now.toISOString();
-  return { name, kind: 'area', priority: 0, createdAt, updatedAt: createdAt };
+  return { name, kind: 'list', priority: 0, createdAt, updatedAt: createdAt };
 }
 
 /** Creates or updates shared list metadata without changing item membership. */
@@ -33,7 +33,7 @@ export function ensureListDefinition(
   const current = workspace.listDefinitions[name];
   const next: ListDefinition = {
     name,
-    kind: patch.kind ?? current?.kind ?? 'area',
+    kind: patch.kind ?? current?.kind ?? 'list',
     priority: patch.priority ?? current?.priority ?? 0,
     createdAt: validDate(current?.createdAt, timestamp),
     updatedAt: timestamp,

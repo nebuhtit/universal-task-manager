@@ -20,6 +20,8 @@ export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'priority') return 'priority';
   if (path === 'tags') return 'tag';
   if (path === 'contexts') return 'context';
+  if (path === 'area') return 'globe';
+  if (path === 'project') return 'branch';
   if (path === 'list') return 'list';
   if (path === 'schedule.startAt') return 'start';
   if (path === 'schedule.endAt') return 'end';

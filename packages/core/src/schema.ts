@@ -87,7 +87,9 @@ export const itemJsonSchema = {
       type: 'object', additionalProperties: false, required: ['target', 'unit', 'streakMode', 'completedDates'],
       properties: { target: { type: 'number' }, unit: { type: 'string' }, streakMode: { enum: ['manual_only', 'any_closed'] }, completedDates: { type: 'array', uniqueItems: true, items: { type: 'string', format: 'date' } } },
     },
-    priority: { type: 'integer', minimum: 0, maximum: 4 }, list: { type: 'string', minLength: 1 }, contexts: stringArray, tags: stringArray,
+    priority: { type: 'integer', minimum: 0, maximum: 4 },
+    list: { type: 'string', minLength: 1 }, area: { type: 'string', minLength: 1 }, project: { type: 'string', minLength: 1 },
+    contexts: stringArray, tags: stringArray,
     reminders: {
       type: 'array', items: {
         type: 'object', additionalProperties: false, required: ['id', 'mode', 'urgency', 'repeatUntilAcknowledged'],
@@ -139,7 +141,8 @@ export const viewJsonSchema = {
     query: { type: 'object', additionalProperties: false, required: ['source'], properties: { source: { type: 'string' }, ast: { type: 'object', additionalProperties: true } } },
     renderer: { enum: ['list', 'table', 'calendar', 'board'] },
     sort: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['field', 'direction'], properties: { field: { type: 'string' }, direction: { enum: ['asc', 'desc'] }, nulls: { enum: ['first', 'last'] } } } },
-    sortSource: { type: 'string' }, groupBy: { type: 'string' }, fields: stringArray, list: { type: 'string', minLength: 1 },
+    sortSource: { type: 'string' }, groupBy: { type: 'string' }, fields: stringArray,
+    list: { type: 'string', minLength: 1 }, area: { type: 'string', minLength: 1 }, project: { type: 'string', minLength: 1 },
     creationDefaults: { type: 'object', additionalProperties: true }, extensions,
   },
 } as const;
@@ -163,6 +166,19 @@ const listDefinitionSchema = {
   },
 } as const;
 
+const areaDefinitionSchema = {
+  type: 'object', additionalProperties: false, required: ['name', 'priority', 'order', 'createdAt', 'updatedAt'],
+  properties: {
+    name: { type: 'string', minLength: 1 }, priority: { type: 'integer', minimum: 0, maximum: 4 },
+    order: { type: 'number', minimum: 0 }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+  },
+} as const;
+
+const projectDefinitionSchema = {
+  ...areaDefinitionSchema,
+  properties: { ...areaDefinitionSchema.properties, area: { type: 'string', minLength: 1 } },
+} as const;
+
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://universal-task-manager.dev/schema/portable-package-1.6.0.json',
@@ -176,6 +192,8 @@ export const portablePackageJsonSchema = {
       properties: { appId: { type: 'string' }, appName: { type: 'string' }, appVersion: { type: 'string' }, workspaceId: { type: 'string' } },
     },
     customFields: { type: 'object', additionalProperties: customFieldSchema },
+    areaDefinitions: { type: 'object', additionalProperties: areaDefinitionSchema },
+    projectDefinitions: { type: 'object', additionalProperties: projectDefinitionSchema },
     items: { type: 'array', items: itemJsonSchema }, views: { type: 'array', items: viewJsonSchema },
     selection: { type: 'object', additionalProperties: true, required: ['type'], properties: { type: { enum: ['single_item', 'view_results', 'all_items', 'view_definition'] } } },
     dependencyItemIds: stringArray, extensions,
@@ -190,12 +208,14 @@ export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://universal-task-manager.dev/schema/workspace-1.9.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
+  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
     items: { type: 'object', additionalProperties: itemJsonSchema },
     listDefinitions: { type: 'object', additionalProperties: listDefinitionSchema },
+    areaDefinitions: { type: 'object', additionalProperties: areaDefinitionSchema },
+    projectDefinitions: { type: 'object', additionalProperties: projectDefinitionSchema },
     customFields: { type: 'object', additionalProperties: customFieldSchema },
     views: { type: 'object', additionalProperties: viewJsonSchema }, dashboards: { type: 'object' }, automations: { type: 'object' },
     automationLog: { type: 'array' }, tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
@@ -248,7 +268,7 @@ export const validateView = (value: unknown): ValidationResult => validationResu
 
 /** Paths that can safely be copied into a brand-new item from a saved view. */
 export const creationDefaultPaths = new Set([
-  'title', 'bodyMarkdown', 'state', 'priority', 'tags', 'contexts', 'list',
+  'title', 'bodyMarkdown', 'state', 'priority', 'tags', 'contexts', 'list', 'area', 'project',
   'schedule.availableFrom', 'schedule.startAt', 'schedule.endAt', 'schedule.dueAt', 'schedule.estimatedDuration', 'schedule.timezone', 'schedule.allDay',
   'recurrence.rrule', 'recurrence.rdates', 'recurrence.exdates', 'recurrence.timezone', 'recurrence.activationOffset', 'recurrence.dueOffset', 'recurrence.closeAt', 'recurrence.anchor', 'recurrence.autoRenew',
   'progress.mode', 'progress.current', 'progress.target', 'progress.unit',
@@ -368,21 +388,81 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   }));
   source.schemaVersion = SCHEMA_VERSION;
   const migratedItems = source.items as Record<string, UniversalItem>;
+  const migratedViews = source.views as Record<string, SavedView>;
   const rawListDefinitions = source.listDefinitions && typeof source.listDefinitions === 'object' && !Array.isArray(source.listDefinitions)
     ? source.listDefinitions as Record<string, unknown>
     : {};
+  const rawAreaDefinitions = source.areaDefinitions && typeof source.areaDefinitions === 'object' && !Array.isArray(source.areaDefinitions)
+    ? source.areaDefinitions as Record<string, unknown>
+    : {};
+  const rawProjectDefinitions = source.projectDefinitions && typeof source.projectDefinitions === 'object' && !Array.isArray(source.projectDefinitions)
+    ? source.projectDefinitions as Record<string, unknown>
+    : {};
   const now = new Date().toISOString();
+  const legacyKind = (name: string | undefined) => {
+    const raw = name && rawListDefinitions[name];
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? String((raw as Record<string, unknown>).kind ?? '') : '';
+  };
+  // 1.10 and earlier stored PARA meaning inside the plain list field. Split it
+  // once during migration so Area, Project and list can coexist afterwards.
+  Object.values(migratedItems).forEach((item) => {
+    if (!item.list) return;
+    const kind = legacyKind(item.list);
+    if (kind === 'area' && !item.area) { item.area = item.list; delete item.list; }
+    else if (kind === 'project' && !item.project) { item.project = item.list; delete item.list; }
+  });
+  Object.values(migratedViews).forEach((view) => {
+    if (!view.list) return;
+    const kind = legacyKind(view.list);
+    if (kind === 'area' && !view.area) { view.area = view.list; delete view.list; }
+    else if (kind === 'project' && !view.project) { view.project = view.list; delete view.list; }
+  });
   const listNames = new Set(Object.values(migratedItems).map((item) => item.list?.trim()).filter((name): name is string => Boolean(name)));
-  source.listDefinitions = Object.fromEntries([...new Set([...Object.keys(rawListDefinitions), ...listNames])].map((name) => {
+  source.listDefinitions = Object.fromEntries([...new Set([...Object.keys(rawListDefinitions), ...listNames])].filter((name) => !['area', 'project'].includes(legacyKind(name))).map((name) => {
     const raw = rawListDefinitions[name] && typeof rawListDefinitions[name] === 'object' && !Array.isArray(rawListDefinitions[name])
       ? rawListDefinitions[name] as Record<string, unknown>
       : {};
     const itemDates = Object.values(migratedItems).filter((item) => item.list === name).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
     const createdAt = typeof raw.createdAt === 'string' && Number.isFinite(Date.parse(raw.createdAt)) ? raw.createdAt : itemDates[0] ?? now;
     const updatedAt = typeof raw.updatedAt === 'string' && Number.isFinite(Date.parse(raw.updatedAt)) ? raw.updatedAt : createdAt;
-    const kind = ['list', 'project', 'area', 'resource', 'archive'].includes(String(raw.kind)) ? raw.kind : 'area';
+    const kind = ['list', 'resource', 'archive'].includes(String(raw.kind)) ? raw.kind : 'list';
     const priority = Math.max(0, Math.min(4, Math.floor(Number(raw.priority) || 0)));
     return [name, { name, kind, priority, createdAt, updatedAt }];
+  }));
+  const areaNames = new Set([
+    ...Object.keys(rawAreaDefinitions),
+    ...Object.entries(rawListDefinitions).filter(([, raw]) => raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as Record<string, unknown>).kind === 'area').map(([name]) => name),
+    ...Object.values(migratedItems).map((item) => item.area).filter((name): name is string => Boolean(name?.trim())),
+    ...Object.values(migratedViews).map((view) => view.area).filter((name): name is string => Boolean(name?.trim())),
+  ]);
+  const projectNames = new Set([
+    ...Object.keys(rawProjectDefinitions),
+    ...Object.entries(rawListDefinitions).filter(([, raw]) => raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as Record<string, unknown>).kind === 'project').map(([name]) => name),
+    ...Object.values(migratedItems).map((item) => item.project).filter((name): name is string => Boolean(name?.trim())),
+    ...Object.values(migratedViews).map((view) => view.project).filter((name): name is string => Boolean(name?.trim())),
+  ]);
+  const organizationDefinition = (name: string, raw: Record<string, unknown>, itemDates: string[], fallbackOrder: number) => {
+    const createdAt = typeof raw.createdAt === 'string' && Number.isFinite(Date.parse(raw.createdAt)) ? raw.createdAt : itemDates[0] ?? now;
+    return {
+      name,
+      priority: Math.max(0, Math.min(4, Math.floor(Number(raw.priority) || 0))),
+      order: Math.max(0, Number.isFinite(Number(raw.order)) ? Number(raw.order) : fallbackOrder),
+      createdAt,
+      updatedAt: typeof raw.updatedAt === 'string' && Number.isFinite(Date.parse(raw.updatedAt)) ? raw.updatedAt : createdAt,
+    };
+  };
+  source.areaDefinitions = Object.fromEntries([...areaNames].map((name, index) => {
+    const direct = rawAreaDefinitions[name]; const legacy = rawListDefinitions[name];
+    const raw = direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : {};
+    const dates = Object.values(migratedItems).filter((item) => item.area === name).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
+    return [name, organizationDefinition(name, raw, dates, index)];
+  }));
+  source.projectDefinitions = Object.fromEntries([...projectNames].map((name, index) => {
+    const direct = rawProjectDefinitions[name]; const legacy = rawListDefinitions[name];
+    const raw = direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : {};
+    const dates = Object.values(migratedItems).filter((item) => item.project === name).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
+    const definition = organizationDefinition(name, raw, dates, index);
+    return [name, { ...definition, ...(typeof raw.area === 'string' && raw.area.trim() ? { area: raw.area.trim() } : {}) }];
   }));
   source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.tombstones ??= {};
   source.pushPreferences ??= { enabled: false, contentMode: 'generic' };

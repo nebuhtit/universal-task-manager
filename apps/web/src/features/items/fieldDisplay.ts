@@ -25,7 +25,8 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'dueTodayOrOverdue', label: 'Due today or overdue', group: 'Schedule' },
   { path: 'dueThisWeekOrOverdue', label: 'Due this week or overdue', group: 'Schedule' },
   { path: 'role', label: 'Role', group: 'Core' }, { path: 'priority', label: 'Priority', group: 'Core' },
-  { path: 'tags', label: 'Tags', group: 'Core' }, { path: 'contexts', label: 'Contexts', group: 'Core' }, { path: 'list', label: 'Task list', group: 'Core' },
+  { path: 'tags', label: 'Tags', group: 'Core' }, { path: 'contexts', label: 'Contexts', group: 'Core' },
+  { path: 'area', label: 'Area', group: 'Organization' }, { path: 'project', label: 'Project', group: 'Organization' }, { path: 'list', label: 'Task list', group: 'Organization' },
   { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Event opens', group: 'Schedule' },
   { path: 'schedule.endAt', label: 'Event ends', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Due / Active range ends', group: 'Schedule' },
   { path: 'schedule.estimatedDuration', label: 'Estimated duration', group: 'Schedule' }, { path: 'schedule.actualDuration', label: 'Actual duration', group: 'Schedule' },
@@ -52,6 +53,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'recurrenceOverride.recurrenceId', label: 'Override occurrence date', group: 'History' },
   { path: 'cycleHistory', label: 'Cycle history', group: 'History' },
   { path: 'createdAt', label: 'Created at', group: 'System' }, { path: 'updatedAt', label: 'Last modified', group: 'System' },
+  { path: 'deletedAt', label: 'Deleted at', group: 'System' },
   { path: 'createdWithAppName', label: 'Created with app', group: 'System' }, { path: 'createdWithVersion', label: 'Created with version', group: 'System' },
   { path: 'createdWithAppId', label: 'Application ID', group: 'System' }, { path: 'schemaVersion', label: 'Schema version', group: 'System' },
   { path: 'revision', label: 'Revision', group: 'System' }, { path: 'id', label: 'Item ID', group: 'System' },
@@ -101,7 +103,7 @@ export const exampleViewFieldValue = (path: string): string => {
   if (path.startsWith('script.')) return '2h 14m';
   return ({
     title: 'Prepare quarterly review', bodyMarkdown: 'Outline, research and final draft', state: 'Active', preset: 'Task', role: 'Standalone', priority: 'High',
-    tags: 'work, writing', contexts: 'office, laptop', 'schedule.availableFrom': 'Aug 24, 09:00', 'schedule.startAt': 'Aug 24, 10:00',
+    tags: 'work, writing', contexts: 'office, laptop', area: 'Work', project: 'Vehicle repair', list: 'This week', 'schedule.availableFrom': 'Aug 24, 09:00', 'schedule.startAt': 'Aug 24, 10:00',
     'schedule.endAt': 'Aug 24, 11:30', 'schedule.dueAt': 'Aug 28, 18:00', 'schedule.estimatedDuration': '1 hour 30 min',
     'schedule.actualDuration': '1 hour 20 min', 'schedule.timezone': 'Europe/Moscow', 'schedule.allDay': 'No',
     'recurrence.rrule': 'Every week on Monday', 'recurrence.rdates': 'Sep 1, 10:00', 'recurrence.exdates': 'Sep 8, 10:00',

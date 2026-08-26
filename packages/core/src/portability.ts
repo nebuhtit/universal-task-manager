@@ -20,7 +20,7 @@ export function createPortablePackage(workspace: WorkspaceDocument, options: Por
     format: 'utm-portable', formatVersion: 1, kind: options.kind, schemaVersion: SCHEMA_VERSION,
     exportedAt: (options.now ?? new Date()).toISOString(),
     source: { appId: APP_ID, appName: APP_NAME, appVersion: APP_VERSION, workspaceId: workspace.workspaceId },
-    customFields: clone(workspace.customFields), items: clone(options.items ?? []), views: clone(options.views ?? []),
+    customFields: clone(workspace.customFields), areaDefinitions: clone(workspace.areaDefinitions), projectDefinitions: clone(workspace.projectDefinitions), items: clone(options.items ?? []), views: clone(options.views ?? []),
     ...(options.selection ? { selection: clone(options.selection) } : {}),
     dependencyItemIds: [...new Set(options.dependencyItemIds ?? [])],
   };
@@ -54,6 +54,8 @@ export function parsePortablePackage(source: string): ParsedPortablePackage {
     format: 'utm-portable', formatVersion: 1, kind: raw.kind as PortablePackage['kind'], schemaVersion: SCHEMA_VERSION,
     exportedAt: typeof raw.exportedAt === 'string' ? raw.exportedAt : new Date().toISOString(),
     source: raw.source as PortablePackage['source'], customFields: clone((raw.customFields ?? {}) as Record<string, CustomFieldDefinition>),
+    areaDefinitions: clone((raw.areaDefinitions ?? {}) as NonNullable<PortablePackage['areaDefinitions']>),
+    projectDefinitions: clone((raw.projectDefinitions ?? {}) as NonNullable<PortablePackage['projectDefinitions']>),
     items, views, ...(raw.selection ? { selection: clone(raw.selection as PortableSelection) } : {}),
     dependencyItemIds: Array.isArray(raw.dependencyItemIds) ? raw.dependencyItemIds.filter((id): id is string => typeof id === 'string') : [],
     ...(raw.extensions && typeof raw.extensions === 'object' ? { extensions: clone(raw.extensions as Record<string, unknown>) } : {}),
@@ -139,6 +141,9 @@ export function applyPortableImport(workspace: WorkspaceDocument, preview: Porta
   if (preview.errors.length) throw new Error(`Import has blocking errors: ${preview.errors.join('; ')}`);
   const unresolved = preview.customFields.filter((field) => field.choice === 'unresolved');
   if (unresolved.length) throw new Error(`Resolve custom field conflicts: ${unresolved.map((field) => field.source.key).join(', ')}`);
+
+  for (const [name, definition] of Object.entries(preview.package.areaDefinitions ?? {})) workspace.areaDefinitions[name] ??= clone(definition);
+  for (const [name, definition] of Object.entries(preview.package.projectDefinitions ?? {})) workspace.projectDefinitions[name] ??= clone(definition);
 
   const keyMap = new Map<string, string>();
   for (const plan of preview.customFields) {

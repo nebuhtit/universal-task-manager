@@ -7,6 +7,7 @@ describe('view creation defaults', () => {
     const workspace = createWorkspace('Defaults');
     const paths = creationDefaultFieldOptions(workspace).map((field) => field.path);
     expect(paths).toContain('priority');
+    expect(paths).toEqual(expect.arrayContaining(['area', 'project', 'list']));
     expect(paths).not.toContain('id');
     expect(defaultValueForPath(workspace, 'recurrence.rrule')).toBe('FREQ=WEEKLY;INTERVAL=1');
   });

@@ -1,4 +1,4 @@
-import { compileQuery, compileSort, listDefinitionFor, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { compileQuery, compileSort, listDefinitionFor, organizationDefinitionFor, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
 const recentlyDoneUntil = new Map<string, number>();
@@ -37,7 +37,12 @@ export function effectiveWorkspaceNow(workspace: WorkspaceDocument, realNow = ne
 
 export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
   const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
-  const available = Object.values(workspace.items).filter((item) => !item.deletedAt && (!view?.list || item.list === view.list) && (templateFilterRequested || !isItemTemplate(item)) && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
+  const available = Object.values(workspace.items).filter((item) => !item.deletedAt
+    && (!view?.list || item.list === view.list)
+    && (!view?.area || item.area === view.area)
+    && (!view?.project || item.project === view.project)
+    && (templateFilterRequested || !isItemTemplate(item))
+    && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
   if (!view) return available.filter((item) => item.role !== 'series_template');
 
   let items: UniversalItem[];
@@ -76,17 +81,29 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
   const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
   if (sortSource.trim()) {
     const rules = parseSortSource(sortSource);
-    const usesListOrder = rules.some((rule) => rule.expression === 'listOrder');
-    if (!usesListOrder) items.sort((left, right) => compileSort(sortSource)(left, right, now));
+    const organizationSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'areaOrder', 'projectOrder'].includes(expression)));
+    if (!organizationSorts.size) items.sort((left, right) => compileSort(sortSource)(left, right, now));
     else {
-      const expanded = serializeSortRules(rules.flatMap((rule) => rule.expression === 'listOrder' ? [
-        { ...rule, expression: 'custom.__utm_list_priority' },
-        { ...rule, expression: 'custom.__utm_list_created_at' },
-      ] : [rule]));
+      const expanded = serializeSortRules(rules.flatMap((rule) => {
+        if (!organizationSorts.has(rule.expression)) return [rule];
+        const prefix = rule.expression === 'listOrder' ? 'list' : rule.expression === 'areaOrder' ? 'area' : 'project';
+        return [
+          { ...rule, expression: `custom.__utm_${prefix}_priority` },
+          { ...rule, expression: `custom.__utm_${prefix}_order`, direction: 'asc' as const },
+          { ...rule, expression: `custom.__utm_${prefix}_created_at` },
+        ];
+      }));
       const comparator = compileSort(expanded);
       const sortable = (item: UniversalItem): UniversalItem => {
-        const definition = listDefinitionFor(workspace, item.list, now);
-        return definition ? { ...item, custom: { ...item.custom, __utm_list_priority: definition.priority, __utm_list_created_at: definition.createdAt } } : item;
+        const list = listDefinitionFor(workspace, item.list, now);
+        const area = organizationDefinitionFor(workspace, 'area', item.area, now);
+        const project = organizationDefinitionFor(workspace, 'project', item.project, now);
+        return { ...item, custom: {
+          ...item.custom,
+          ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
+          ...(area ? { __utm_area_priority: area.priority, __utm_area_order: area.order, __utm_area_created_at: area.createdAt } : {}),
+          ...(project ? { __utm_project_priority: project.priority, __utm_project_order: project.order, __utm_project_created_at: project.createdAt } : {}),
+        } };
       };
       items.sort((left, right) => comparator(sortable(left), sortable(right), now));
     }

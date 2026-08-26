@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createItem, createWorkspace } from '@utm/core';
+import { createItem, createWorkspace, itemJsonSchema } from '@utm/core';
 import { displayViewValue, isItemTemplate, readItemField, relationContext, viewFieldLabel, viewFieldOptions } from './fieldDisplay';
 
 describe('item field display helpers', () => {
@@ -51,5 +51,15 @@ describe('item field display helpers', () => {
     workspace.items[item.id] = item;
     expect(readItemField(item, 'script.remaining', workspace, new Date('2026-08-26T12:00:00.000Z'))).toBe(10);
     expect(readItemField(item, 'script.remaining', workspace, new Date('2026-08-26T12:00:01.000Z'))).toBe(9);
+  });
+
+  it('keeps every user-meaningful item property represented in the View field catalog', () => {
+    const workspace = createWorkspace('Catalog audit');
+    workspace.customFields.score = { id: 'score', key: 'score', label: 'Score', kind: 'number', required: false };
+    const item = createItem('Computed'); item.scripts = [{ id: 'remaining', key: 'remaining', label: 'Remaining', source: 'timeUntil(schedule.startAt)', resultKind: 'text' }]; workspace.items[item.id] = item;
+    const paths = viewFieldOptions(workspace).map((field) => field.path);
+    const represented = (property: string) => paths.some((path) => path === property || path.startsWith(`${property}.`) || property === 'custom' && path.startsWith('custom.') || property === 'scripts' && path.startsWith('script.'));
+    const missing = Object.keys(itemJsonSchema.properties).filter((property) => property !== 'extensions' && !represented(property));
+    expect(missing).toEqual([]);
   });
 });

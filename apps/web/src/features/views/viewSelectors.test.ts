@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createItem, createWorkspace, ensureListDefinition, type SavedView } from '@utm/core';
+import { createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, reorderOrganization, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
 import { boardSettingsFor, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems } from './viewSelectors';
 
@@ -38,6 +38,19 @@ describe('view selectors', () => {
 
     expect(selectViewItems(workspace, { ...view(), sortSource: 'listOrder desc nulls last' }).map((item) => item.title))
       .toEqual(['New urgent', 'Old urgent', 'Medium', 'Unlisted']);
+  });
+
+  it('filters by independent Area and Project and sorts their priorities separately', () => {
+    const workspace = createWorkspace('PARA view');
+    const vehicle = createItem('Repair vehicle'); vehicle.area = 'Work'; vehicle.project = 'Vehicle'; vehicle.priority = 4;
+    const program = createItem('Build program'); program.area = 'Work'; program.project = 'Program'; program.priority = 2;
+    const vacation = createItem('Book hotel'); vacation.area = 'Vacation'; vacation.project = 'Trip'; vacation.priority = 3;
+    [vehicle, program, vacation].forEach((item) => { workspace.items[item.id] = item; });
+    ensureAreaDefinition(workspace, 'Work', { priority: 4 }); ensureAreaDefinition(workspace, 'Vacation', { priority: 2 });
+    ensureProjectDefinition(workspace, 'Vehicle', { area: 'Work', priority: 4 }); ensureProjectDefinition(workspace, 'Program', { area: 'Work', priority: 4 }); ensureProjectDefinition(workspace, 'Trip', { area: 'Vacation', priority: 3 });
+    reorderOrganization(workspace, 'project', ['Program', 'Vehicle', 'Trip']);
+    expect(selectViewItems(workspace, { ...view(), area: 'Work', sortSource: 'projectOrder desc nulls last' }).map((item) => item.title)).toEqual(['Build program', 'Repair vehicle']);
+    expect(selectViewItems(workspace, { ...view(), area: 'Work', project: 'Vehicle' }).map((item) => item.title)).toEqual(['Repair vehicle']);
   });
 
   it('lets a view override its configured sort and reset back to that sort', () => {

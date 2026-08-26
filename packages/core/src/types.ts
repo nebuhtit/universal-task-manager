@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.9.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.10.3';
-export const APP_RELEASED_AT = '2026-08-26T12:03:44.222Z';
+export const APP_VERSION = '1.11.0';
+export const APP_RELEASED_AT = '2026-08-26T12:33:06.269Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -162,6 +162,10 @@ export interface UniversalItem {
   priority?: 0 | 1 | 2 | 3 | 4;
   /** Optional plain task-list membership. Items can belong to one list or no list. */
   list?: string;
+  /** Ongoing PARA responsibility. Independent from both Project and a plain list. */
+  area?: string;
+  /** Finite PARA outcome. A project may belong to an Area, but the item stores both explicitly. */
+  project?: string;
   contexts: string[];
   tags: string[];
   reminders: Reminder[];
@@ -224,6 +228,10 @@ export interface SavedView {
   fields: string[];
   /** Optional list membership constraint. Empty means all lists. */
   list?: string;
+  /** Optional Area constraint and creation default. */
+  area?: string;
+  /** Optional Project constraint and creation default. */
+  project?: string;
   /** Explicit editable values copied into a fresh item created from this view. */
   creationDefaults?: Record<string, unknown>;
   /** Namespaced data from a newer or foreign schema that this version cannot interpret. */
@@ -239,6 +247,20 @@ export interface ListDefinition {
   priority: 0 | 1 | 2 | 3 | 4;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
+}
+
+export interface AreaDefinition {
+  name: string;
+  priority: 0 | 1 | 2 | 3 | 4;
+  /** Exact manual order within the same priority. Lower values appear first. */
+  order: number;
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
+export interface ProjectDefinition extends AreaDefinition {
+  /** Optional parent Area. Items still persist their Area explicitly. */
+  area?: string;
 }
 
 export interface PortableSource {
@@ -262,6 +284,8 @@ export interface PortablePackage {
   exportedAt: ISODateTime;
   source: PortableSource;
   customFields: Record<string, CustomFieldDefinition>;
+  areaDefinitions?: Record<string, AreaDefinition>;
+  projectDefinitions?: Record<string, ProjectDefinition>;
   items: UniversalItem[];
   views: SavedView[];
   selection?: PortableSelection;
@@ -333,6 +357,10 @@ export interface WorkspaceDocument {
   items: Record<string, UniversalItem>;
   /** Shared PARA/order metadata keyed by the exact list name used by items and views. */
   listDefinitions: Record<string, ListDefinition>;
+  /** PARA Areas keyed by their exact user-visible name. */
+  areaDefinitions: Record<string, AreaDefinition>;
+  /** PARA Projects keyed by their exact user-visible name. */
+  projectDefinitions: Record<string, ProjectDefinition>;
   customFields: Record<string, CustomFieldDefinition>;
   views: Record<string, SavedView>;
   dashboards: Record<string, Dashboard>;
@@ -455,6 +483,8 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     updatedAt: timestamp,
     items: {},
     listDefinitions: {},
+    areaDefinitions: {},
+    projectDefinitions: {},
     customFields: {},
     views: {
       '__all_items__': {
