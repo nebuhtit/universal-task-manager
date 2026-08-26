@@ -1,0 +1,106 @@
+:root {
+  /* Typography */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", ui-sans-serif, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  font-synthesis: none;
+
+  --font-family-ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", ui-sans-serif, sans-serif;
+  --font-family-code: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-size-caption: 11px;
+  --font-size-secondary: 13px;
+  --font-size-body: 15px;
+  --font-size-section: 18px;
+  --font-size-title: clamp(1.75rem, 3vw, 2.375rem);
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Spacing */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-8: 48px;
+
+  /* Shape and controls */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --control-height-compact: 36px;
+  --control-height-default: 40px;
+  --control-height-touch: 44px;
+
+  /* Semantic colors */
+  color: #0d0d0d;
+  background: #ffffff;
+  --color-background: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #ffffff;
+  --color-surface-muted: #f7f7f8;
+  --color-text: #0d0d0d;
+  --color-text-secondary: #676767;
+  --color-border: #e5e5e5;
+  --color-border-strong: #bdbdbd;
+  --color-accent: #333333;
+  --color-accent-contrast: #ffffff;
+  --color-destructive: #b42318;
+  --color-warning: #9a6700;
+  --color-success: #237a3b;
+  --color-focus-ring: rgba(0, 0, 0, 0.22);
+  --color-overlay: rgba(0, 0, 0, 0.42);
+
+  /* Elevation and motion */
+  --shadow-surface: 0 4px 18px rgba(0, 0, 0, 0.06);
+  --shadow-elevated: 0 12px 36px rgba(0, 0, 0, 0.08);
+  --motion-fast: 120ms;
+  --motion-default: 200ms;
+  --motion-easing-standard: ease;
+  --motion-easing-enter: ease-out;
+
+  /* Shared layout */
+  --layout-sidebar-width: 236px;
+  --layout-content-max: 1500px;
+
+  /* Temporary compatibility aliases. Remove only after legacy migration. */
+  --ink: var(--color-text);
+  --paper: var(--color-background);
+  --card: var(--color-surface);
+  --line: var(--color-border);
+  --muted: var(--color-text-secondary);
+  --acid: var(--color-accent);
+  --moss: var(--color-accent);
+  --orange: var(--color-accent);
+  --blue: #eeeeee;
+  --soft: var(--color-surface-muted);
+  --shadow: var(--shadow-elevated);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  color: #f1f1f1;
+  background: #000000;
+  --color-background: #000000;
+  --color-surface: #000000;
+  --color-surface-elevated: #111111;
+  --color-surface-muted: #080808;
+  --color-text: #f1f1f1;
+  --color-text-secondary: #a7a7a7;
+  --color-border: #373737;
+  --color-border-strong: #626262;
+  --color-accent: #dedede;
+  --color-accent-contrast: #111111;
+  --color-destructive: #ffb4ab;
+  --color-warning: #f3c969;
+  --color-success: #8bd49c;
+  /* Preserve the current focus appearance during the mechanical extraction. */
+  --color-focus-ring: rgba(0, 0, 0, 0.22);
+  --color-overlay: rgba(0, 0, 0, 0.68);
+  --shadow-surface: 0 4px 18px rgba(0, 0, 0, 0.24);
+  --shadow-elevated: 0 12px 36px rgba(0, 0, 0, 0.38);
+  --blue: #111111;
+}

@@ -1,0 +1,17 @@
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--layout-sidebar-width) minmax(0, 1fr);
+}
+
+.content {
+  grid-column: 2;
+  min-width: 0;
+  padding-bottom: 88px;
+}
+
+.page-section {
+  max-width: var(--layout-content-max);
+  margin: 0 auto;
+  padding: 36px 4.5vw 72px;
+}
