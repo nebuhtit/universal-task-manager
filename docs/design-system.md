@@ -28,6 +28,16 @@ Light and dark themes assign the semantic values. Feature selectors must not int
 
 The old `--ink`, `--paper`, `--card`, `--line`, `--muted`, and related variables are compatibility aliases, not the API for new components.
 
+## Base primitives
+
+`Button`, `IconButton`, `Field`, `Input`, `Textarea`, `Select`, `Checkbox`, `Surface`, and `Disclosure` form the intentionally small base layer in `components/ui/primitives.tsx`.
+
+- Interactive primitives render native HTML and preserve its keyboard and disabled semantics.
+- `IconButton` requires an accessible `aria-label`.
+- Primary mobile controls use the touch control height.
+- `Disclosure` composes `PersistedDetails`; it does not create a second disclosure-state mechanism.
+- Feature-specific styling and domain behavior do not belong in these primitives.
+
 ## Migration rules
 
 1. Identify the smallest related file set before editing.

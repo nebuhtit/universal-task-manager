@@ -47,8 +47,17 @@
   --color-border: #e5e5e5;
   --color-border-strong: #bdbdbd;
   --color-accent: #333333;
+  --color-accent-hover: #1f1f1f;
+  --color-accent-active: #111111;
   --color-accent-contrast: #ffffff;
+  --color-interactive-hover: #eeeeee;
+  --color-interactive-active: #dedede;
+  --color-interactive-disabled: #f1f1f1;
+  --color-text-disabled: #9a9a9a;
   --color-destructive: #b42318;
+  --color-destructive-hover: #912018;
+  --color-destructive-active: #761b15;
+  --color-destructive-contrast: #ffffff;
   --color-warning: #9a6700;
   --color-success: #237a3b;
   --color-focus-ring: rgba(0, 0, 0, 0.22);
@@ -61,6 +70,7 @@
   --motion-default: 200ms;
   --motion-easing-standard: ease;
   --motion-easing-enter: ease-out;
+  --opacity-disabled: 0.62;
 
   /* Shared layout */
   --layout-sidebar-width: 236px;
@@ -93,8 +103,17 @@
   --color-border: #373737;
   --color-border-strong: #626262;
   --color-accent: #dedede;
+  --color-accent-hover: #ffffff;
+  --color-accent-active: #c7c7c7;
   --color-accent-contrast: #111111;
+  --color-interactive-hover: #202020;
+  --color-interactive-active: #303030;
+  --color-interactive-disabled: #181818;
+  --color-text-disabled: #777777;
   --color-destructive: #ffb4ab;
+  --color-destructive-hover: #ffc6bf;
+  --color-destructive-active: #ffdad5;
+  --color-destructive-contrast: #3d0705;
   --color-warning: #f3c969;
   --color-success: #8bd49c;
   /* Preserve the current focus appearance during the mechanical extraction. */
