@@ -5,6 +5,7 @@ import { Button, Checkbox, Disclosure, Surface } from '../../components/ui/primi
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { formatSystemDateTime } from '../../utils/dates';
 import { ItemCard } from './ItemCard';
+import { FieldIcon } from './FieldIcon';
 import { isHabitOccurrence, isItemTemplate, stateNames, viewFieldOptions } from './fieldDisplay';
 import './all-items-settings.css';
 
@@ -53,7 +54,7 @@ function AllItemsSettings({ open, workspace, view, onSave, onClose }: { open: bo
         key={field.path}
         checked={fields.includes(field.path)}
         onChange={() => toggle(field.path)}
-        label={<span className="all-items-field-label"><span>{field.label}</span><small>{field.path}</small></span>}
+        label={<span className="all-items-field-label"><span><FieldIcon path={field.path} label={field.label} />{field.label}</span><small>{field.path}</small></span>}
       />)}</div>
     </Disclosure>)}</div>
   </ResponsiveDialog>;

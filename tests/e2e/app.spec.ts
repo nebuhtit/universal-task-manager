@@ -84,7 +84,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.8\.0 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.8\.1 · commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -93,7 +93,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.8.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.8.1', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -491,6 +491,10 @@ test('table and board renderers can complete and reopen items', async ({ page })
     await page.getByLabel('Advanced filter code').fill('true');
     await page.getByRole('combobox', { name: 'Renderer' }).selectOption(renderer);
     await page.getByRole('button', { name: 'Save view' }).click();
+    if (renderer === 'table') {
+      await expect(view.locator('thead th:not(.state-column) .property-icon').first()).toBeVisible();
+      await expect(view.locator('thead th:not(.state-column)').first()).toHaveAttribute('title', /Title|State|Event|Due|Priority|Tags/);
+    }
     await view.getByRole('button', { name: 'Complete Renderer item' }).click();
     await expect(view.getByRole('button', { name: 'Reopen Renderer item' })).toBeVisible();
     await view.getByRole('button', { name: 'Reopen Renderer item' }).click();

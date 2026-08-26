@@ -1,5 +1,6 @@
 export { AllItemsPage, ALL_ITEMS_VIEW_ID, allItemsViewFor } from './AllItemsPage';
 export { ItemCard } from './ItemCard';
+export { FieldIcon } from './FieldIcon';
 export {
   displayViewValue,
   exampleViewFieldValue,
