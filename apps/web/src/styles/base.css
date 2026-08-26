@@ -58,6 +58,6 @@ a {
 
   .lock-shell,
   .splash {
-    animation: none;
+    animation: none !important;
   }
 }
