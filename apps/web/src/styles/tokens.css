@@ -42,6 +42,7 @@
   --color-surface: #ffffff;
   --color-surface-elevated: #ffffff;
   --color-surface-muted: #f7f7f8;
+  --color-surface-translucent: rgba(255, 255, 255, 0.92);
   --color-text: #0d0d0d;
   --color-text-secondary: #676767;
   --color-border: #e5e5e5;
@@ -100,6 +101,7 @@
   --color-surface: #000000;
   --color-surface-elevated: #111111;
   --color-surface-muted: #080808;
+  --color-surface-translucent: rgba(0, 0, 0, 0.92);
   --color-text: #f1f1f1;
   --color-text-secondary: #a7a7a7;
   --color-border: #373737;
