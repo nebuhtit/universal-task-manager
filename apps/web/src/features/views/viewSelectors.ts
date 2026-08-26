@@ -74,12 +74,13 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
   const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
   if (sortSource.trim()) {
     const rules = parseSortSource(sortSource);
-    const organizationSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'areaOrder', 'projectOrder'].includes(expression)));
+    const organizationSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'areaOrder', 'projectOrder', 'tagOrder'].includes(expression)));
     if (!organizationSorts.size) items.sort((left, right) => compileSort(sortSource)(left, right, now));
     else {
       const expanded = serializeSortRules(rules.flatMap((rule) => {
         if (!organizationSorts.has(rule.expression)) return [rule];
-        const prefix = rule.expression === 'listOrder' ? 'list' : rule.expression === 'areaOrder' ? 'area' : 'project';
+        const prefix = rule.expression === 'listOrder' ? 'list' : rule.expression === 'areaOrder' ? 'area' : rule.expression === 'projectOrder' ? 'project' : 'tag';
+        if (prefix === 'tag') return [{ ...rule, expression: 'custom.__utm_tag_priority' }];
         return [
           { ...rule, expression: `custom.__utm_${prefix}_priority` },
           { ...rule, expression: `custom.__utm_${prefix}_order`, direction: 'asc' as const },
@@ -91,11 +92,17 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
         const list = listDefinitionFor(workspace, item.list, now);
         const area = organizationDefinitionFor(workspace, 'area', item.area, now);
         const project = organizationDefinitionFor(workspace, 'project', item.project, now);
+        const tagPriority = item.tags.reduce((maximum, tag) => Math.max(maximum, workspace.organizationPreferences.tagPriorities[tag] ?? 0), 0);
         return { ...item, custom: {
           ...item.custom,
           ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
-          ...(area ? { __utm_area_priority: area.priority, __utm_area_order: area.order, __utm_area_created_at: area.createdAt } : {}),
-          ...(project ? { __utm_project_priority: project.priority, __utm_project_order: project.order, __utm_project_created_at: project.createdAt } : {}),
+          __utm_area_priority: area?.priority ?? workspace.organizationPreferences.unassignedAreaPriority,
+          __utm_area_order: area?.order ?? Number.MAX_SAFE_INTEGER,
+          __utm_area_created_at: area?.createdAt ?? item.createdAt,
+          __utm_project_priority: project?.priority ?? workspace.organizationPreferences.unassignedProjectPriority,
+          __utm_project_order: project?.order ?? Number.MAX_SAFE_INTEGER,
+          __utm_project_created_at: project?.createdAt ?? item.createdAt,
+          __utm_tag_priority: tagPriority,
         } };
       };
       items.sort((left, right) => comparator(sortable(left), sortable(right), now));

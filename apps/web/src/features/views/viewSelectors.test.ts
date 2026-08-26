@@ -53,6 +53,22 @@ describe('view selectors', () => {
     expect(selectViewItems(workspace, { ...view(), area: 'Work', project: 'Vehicle' }).map((item) => item.title)).toEqual(['Repair vehicle']);
   });
 
+  it('sorts by tag priority and applies explicit priorities to missing Area and Project', () => {
+    const workspace = createWorkspace('Organization fallbacks');
+    const tagged = createItem('Tagged'); tagged.tags = ['focus']; tagged.area = 'Work'; tagged.project = 'Launch';
+    const unassigned = createItem('Unassigned');
+    workspace.items[tagged.id] = tagged; workspace.items[unassigned.id] = unassigned;
+    ensureAreaDefinition(workspace, 'Work', { priority: 2 });
+    ensureProjectDefinition(workspace, 'Launch', { priority: 2 });
+    workspace.organizationPreferences.tagPriorities.focus = 4;
+    workspace.organizationPreferences.unassignedAreaPriority = 3;
+    workspace.organizationPreferences.unassignedProjectPriority = 3;
+
+    expect(selectViewItems(workspace, { ...view(), sortSource: 'tagOrder desc nulls last' }).map((item) => item.title)).toEqual(['Tagged', 'Unassigned']);
+    expect(selectViewItems(workspace, { ...view(), sortSource: 'areaOrder desc nulls last' }).map((item) => item.title)).toEqual(['Unassigned', 'Tagged']);
+    expect(selectViewItems(workspace, { ...view(), sortSource: 'projectOrder desc nulls last' }).map((item) => item.title)).toEqual(['Unassigned', 'Tagged']);
+  });
+
   it('lets a view override its configured sort and reset back to that sort', () => {
     const workspace = createWorkspace('Manual order');
     const alpha = createItem('Alpha'); const beta = createItem('Beta'); const gamma = createItem('Gamma');

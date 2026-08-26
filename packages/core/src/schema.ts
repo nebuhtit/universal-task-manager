@@ -208,7 +208,7 @@ export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://universal-task-manager.dev/schema/workspace-1.9.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
+  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
@@ -216,6 +216,15 @@ export const workspaceJsonSchema = {
     listDefinitions: { type: 'object', additionalProperties: listDefinitionSchema },
     areaDefinitions: { type: 'object', additionalProperties: areaDefinitionSchema },
     projectDefinitions: { type: 'object', additionalProperties: projectDefinitionSchema },
+    organizationPreferences: {
+      type: 'object', additionalProperties: false,
+      required: ['unassignedAreaPriority', 'unassignedProjectPriority', 'tagPriorities'],
+      properties: {
+        unassignedAreaPriority: { type: 'integer', minimum: 0, maximum: 4 },
+        unassignedProjectPriority: { type: 'integer', minimum: 0, maximum: 4 },
+        tagPriorities: { type: 'object', additionalProperties: { type: 'integer', minimum: 0, maximum: 4 } },
+      },
+    },
     customFields: { type: 'object', additionalProperties: customFieldSchema },
     views: { type: 'object', additionalProperties: viewJsonSchema }, dashboards: { type: 'object' }, automations: { type: 'object' },
     automationLog: { type: 'array' }, tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
@@ -464,6 +473,18 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     const definition = organizationDefinition(name, raw, dates, index);
     return [name, { ...definition, ...(typeof raw.area === 'string' && raw.area.trim() ? { area: raw.area.trim() } : {}) }];
   }));
+  const rawOrganizationPreferences = source.organizationPreferences && typeof source.organizationPreferences === 'object' && !Array.isArray(source.organizationPreferences)
+    ? source.organizationPreferences as Record<string, unknown>
+    : {};
+  const organizationPriority = (value: unknown) => Math.max(0, Math.min(4, Math.floor(Number(value) || 0)));
+  const rawTagPriorities = rawOrganizationPreferences.tagPriorities && typeof rawOrganizationPreferences.tagPriorities === 'object' && !Array.isArray(rawOrganizationPreferences.tagPriorities)
+    ? rawOrganizationPreferences.tagPriorities as Record<string, unknown>
+    : {};
+  source.organizationPreferences = {
+    unassignedAreaPriority: organizationPriority(rawOrganizationPreferences.unassignedAreaPriority),
+    unassignedProjectPriority: organizationPriority(rawOrganizationPreferences.unassignedProjectPriority),
+    tagPriorities: Object.fromEntries(Object.entries(rawTagPriorities).filter(([tag]) => tag.trim()).map(([tag, value]) => [tag, organizationPriority(value)])),
+  };
   source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.tombstones ??= {};
   source.pushPreferences ??= { enabled: false, contentMode: 'generic' };
   const pushPreferences = source.pushPreferences as Record<string, unknown>;

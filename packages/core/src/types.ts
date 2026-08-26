@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.9.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.12.3';
-export const APP_RELEASED_AT = '2026-08-26T18:50:29.030Z';
+export const APP_VERSION = '1.13.0';
+export const APP_RELEASED_AT = '2026-08-26T19:07:26.388Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -263,6 +263,12 @@ export interface ProjectDefinition extends AreaDefinition {
   area?: string;
 }
 
+export interface OrganizationPreferences {
+  unassignedAreaPriority: 0 | 1 | 2 | 3 | 4;
+  unassignedProjectPriority: 0 | 1 | 2 | 3 | 4;
+  tagPriorities: Record<string, 0 | 1 | 2 | 3 | 4>;
+}
+
 export interface PortableSource {
   appId: string;
   appName: string;
@@ -361,6 +367,7 @@ export interface WorkspaceDocument {
   areaDefinitions: Record<string, AreaDefinition>;
   /** PARA Projects keyed by their exact user-visible name. */
   projectDefinitions: Record<string, ProjectDefinition>;
+  organizationPreferences: OrganizationPreferences;
   customFields: Record<string, CustomFieldDefinition>;
   views: Record<string, SavedView>;
   dashboards: Record<string, Dashboard>;
@@ -496,6 +503,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     listDefinitions: {},
     areaDefinitions: {},
     projectDefinitions: {},
+    organizationPreferences: { unassignedAreaPriority: 0, unassignedProjectPriority: 0, tagPriorities: {} },
     customFields: {},
     views: {
       '__all_items__': {

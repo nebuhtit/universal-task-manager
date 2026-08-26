@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPortableImport, buildPortableImportPreview, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, orderedOrganizationNames, parsePortablePackage, reorderOrganization, serializePortablePackage } from './index.js';
+import { applyPortableImport, buildPortableImportPreview, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, migrateWorkspace, orderedOrganizationNames, parsePortablePackage, reorderOrganization, serializePortablePackage } from './index.js';
 
 describe('PARA organization', () => {
   it('keeps Area and Project independent on one universal item', () => {
@@ -33,5 +33,12 @@ describe('PARA organization', () => {
     applyPortableImport(target, buildPortableImportPreview(parsed, target));
     expect(target.areaDefinitions.Work?.priority).toBe(4);
     expect(target.projectDefinitions.Launch).toMatchObject({ area: 'Work', priority: 3 });
+  });
+
+  it('backfills organization priorities for older workspaces', () => {
+    const legacy = structuredClone(createWorkspace('Legacy preferences')) as unknown as Record<string, unknown>;
+    delete legacy.organizationPreferences;
+    const migrated = migrateWorkspace(legacy).value;
+    expect(migrated.organizationPreferences).toEqual({ unassignedAreaPriority: 0, unassignedProjectPriority: 0, tagPriorities: {} });
   });
 });
