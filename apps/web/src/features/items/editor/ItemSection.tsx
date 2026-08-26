@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
 import { PersistedDetails } from '../../../components/ui/PersistedDetails';
+import { FieldIconLabel } from '../FieldIcon';
 
-export function ItemSection({ sectionKey, title, filledMark, compact = false, children }: {
+export function ItemSection({ sectionKey, title, iconPath, filledMark, compact = false, children }: {
   sectionKey: string;
   title: ReactNode;
+  iconPath?: string;
   filledMark?: ReactNode;
   compact?: boolean;
   children: ReactNode;
@@ -13,7 +15,7 @@ export function ItemSection({ sectionKey, title, filledMark, compact = false, ch
     defaultOpen={false}
     className={compact ? 'item-section compact-property' : 'item-section'}
   >
-    <summary>{title} {filledMark}</summary>
+    <summary>{iconPath ? <FieldIconLabel path={iconPath} label={title} /> : title} {filledMark}</summary>
     <div className="details-body">{children}</div>
   </PersistedDetails>;
 }

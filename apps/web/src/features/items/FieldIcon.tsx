@@ -8,8 +8,8 @@ type FieldIconName =
   | 'history' | 'user' | 'id' | 'template' | 'script' | 'custom' | 'system';
 
 export const fieldIconName = (path: string): FieldIconName => {
-  if (path.startsWith('custom.')) return 'custom';
-  if (path.startsWith('script.')) return 'script';
+  if (path === 'custom' || path.startsWith('custom.')) return 'custom';
+  if (path === 'script' || path.startsWith('script.')) return 'script';
   if (path === 'title') return 'title';
   if (path === 'bodyMarkdown' || path === 'description') return 'description';
   if (path === 'state') return 'state';
@@ -77,4 +77,9 @@ export function FieldIcon({ path, label, className = '' }: { path: string; label
   return <span className={`property-icon ${className}`.trim()} title={label} aria-hidden>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>
   </span>;
+}
+
+export function FieldIconLabel({ path, label }: { path: string; label: ReactNode }) {
+  const accessibleLabel = typeof label === 'string' ? label : path;
+  return <span className="property-label"><FieldIcon path={path} label={accessibleLabel} />{label}</span>;
 }

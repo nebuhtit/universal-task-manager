@@ -3,6 +3,7 @@ import type { UniversalItem, WorkspaceDocument } from '@utm/core';
 import { SectionGuide } from '../../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../../utils/dates';
 import { toIsoDuration, type FriendlyDurationUnit } from '../../../../utils/durations';
+import { FieldIconLabel } from '../../FieldIcon';
 
 type Props = {
   item: UniversalItem; workspace: WorkspaceDocument; sectionMark: (filled: boolean) => ReactNode;
@@ -14,7 +15,7 @@ type Props = {
 };
 
 export function RecurrenceSection({ item, workspace, sectionMark, recurring, setRecurring, patchRecurrence, repeatFrequency, repeatInterval, repeatIntervalDraft, setRepeatIntervalDraft, repeatUnit, repeatDays, updateRrule, activeRange, activation }: Props) {
-  return <details><summary>Recurrence &amp; auto-renew {sectionMark(recurring)}</summary><div className="details-body">
+  return <details><summary><FieldIconLabel path="recurrence.rrule" label="Recurrence & auto-renew" /> {sectionMark(recurring)}</summary><div className="details-body">
     <label className="check"><input type="checkbox" checked={recurring} onChange={(event) => { const enabled = event.target.checked; setRecurring(enabled); if (enabled && !item.recurrence) patchRecurrence({ rrule: 'FREQ=WEEKLY;INTERVAL=1' }); }} /> Make this a recurring series</label>
     {recurring && <>
       <SectionGuide title="How recurring items work"><ul><li>A series is one source item; each cycle has its own history.</li><li><strong>Only show during the active range</strong> uses Event opens and Due: complete once during that period, then the next cycle waits until it opens.</li><li>Most weekly tasks only need Repeat and, optionally, the active range. Advanced settings are for unusual activation and auto-close rules.</li></ul></SectionGuide>

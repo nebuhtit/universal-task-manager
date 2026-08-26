@@ -3,6 +3,7 @@ import { CodeEditor } from '../../../../components/ui/CodeEditor';
 import { CloseIcon } from '../../../../components/ui/icons';
 import { SectionGuide } from '../../../../components/ui/SectionGuide';
 import { formatScriptResult } from '../../fieldDisplay';
+import { FieldIconLabel } from '../../FieldIcon';
 
 type Props = {
   item: UniversalItem;
@@ -13,7 +14,7 @@ type Props = {
 export function ScriptsSection({ item, patchItem, scriptResults }: Props) {
   const patchScript = (id: string, patch: Partial<ItemScriptField>) => patchItem({ scripts: (item.scripts ?? []).map((script) => script.id === id ? { ...script, ...patch } : script) });
   const addScript = () => patchItem({ scripts: [...(item.scripts ?? []), { id: createId(), key: `calculation_${(item.scripts?.length ?? 0) + 1}`, label: 'New calculation', source: 'timeUntil(schedule.startAt)', resultKind: 'text' }] });
-  return <details><summary>Scripts {Boolean(item.scripts?.length) && <span className="summary-count">{item.scripts!.length}</span>}</summary><div className="details-body item-scripts">
+  return <details><summary><FieldIconLabel path="script" label="Scripts" /> {Boolean(item.scripts?.length) && <span className="summary-count">{item.scripts!.length}</span>}</summary><div className="details-body item-scripts">
     <p className="schedule-explainer">Add computed fields to this item. Expressions look like JavaScript, but run in a safe read-only engine: no <code>eval</code>, network, files or workspace changes.</p>
     <SectionGuide title="Variables and examples"><ul><li>Current item: <code>schedule.startAt</code>, <code>schedule.estimatedDuration</code>, <code>priority</code>, <code>custom.rate</code>.</li><li>Compact countdown text: <code>timeUntil(schedule.startAt)</code> → <em>2h 14m</em>.</li><li>Whole-number countdowns for Views: <code>secondsUntil(schedule.startAt)</code>, <code>minutesUntil(schedule.startAt)</code>, <code>hoursUntil(schedule.startAt)</code>, <code>daysUntil(schedule.startAt)</code>. A past time is negative.</li><li>Duration result: choose <strong>Duration</strong>, then use <code>durationUntil(schedule.startAt)</code> or <code>durationBetween(schedule.startAt, schedule.endAt)</code>. Use <code>formatDuration(durationUntil(schedule.startAt))</code> for text.</li><li>Add duration: <code>timeUntil(addDuration(schedule.startAt, schedule.estimatedDuration))</code>.</li><li>Linked item: <code>linked(&quot;related&quot;, &quot;schedule.dueAt&quot;)</code>. Exact item: <code>item(&quot;ITEM_ID&quot;, &quot;priority&quot;)</code>. Another calculation: <code>script.my_key</code>.</li></ul></SectionGuide>
     {(item.scripts ?? []).map((script) => <article className="item-script-row" key={script.id}>
