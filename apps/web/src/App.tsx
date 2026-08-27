@@ -39,7 +39,7 @@ import {
   type ItemPreset, type PortableImportPreview, type PortableSelection, type SavedView, type TestClockUnit, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
-  createLocalWorkspace, exportContainer, importAsLocalWorkspace,
+  createLocalWorkspace, createUnencryptedLocalWorkspace, exportContainer, importAsLocalWorkspace,
   mergeIntoLocalWorkspace, restoreLocalWorkspace, unlockLocalWorkspace, validateContainer,
   type UnlockedWorkspace,
 } from '@utm/sdk';
@@ -170,6 +170,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState<File | null>(null);
+  const [unencryptedTestWorkspace, setUnencryptedTestWorkspace] = useState(false);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
     if (saved && interfaceLanguages.some((option) => option.value === saved)) return saved;
@@ -188,8 +189,8 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     if (selectedBackup) { await importWorkspace(selectedBackup); return; }
     setError(''); setBusy(true);
     try {
-      if (!exists && password !== confirm) throw new Error('Passwords do not match');
-      await onReady(exists ? await unlockLocalWorkspace(password) : await createLocalWorkspace(password, name, language), language);
+      if (!exists && !unencryptedTestWorkspace && password !== confirm) throw new Error('Passwords do not match');
+      await onReady(exists ? await unlockLocalWorkspace(password) : unencryptedTestWorkspace ? await createUnencryptedLocalWorkspace(name, language) : await createLocalWorkspace(password, name, language), language);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
@@ -217,16 +218,18 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       <label className="language-picker">Language<select value={language} onChange={(event) => setLanguage(event.target.value as WorkspaceLanguage)}>{interfaceLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <form onSubmit={submit}>
         {!exists && <label>{selectedBackup ? 'Backup file' : 'Workspace name'}<input value={selectedBackup ? selectedBackup.name : name} readOnly={Boolean(selectedBackup)} onChange={(event) => setName(event.target.value)} required /></label>}
-        <label>{selectedBackup ? 'Backup password' : 'Password'}<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>
-        {!exists && !selectedBackup && <label>Confirm password<input type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
+        {!(!exists && unencryptedTestWorkspace) && <label>{selectedBackup ? 'Backup password' : 'Password'}<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>}
+        {!exists && !selectedBackup && !unencryptedTestWorkspace && <label>Confirm password<input type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
+        {!exists && !selectedBackup && <label className="check"><input type="checkbox" checked={unencryptedTestWorkspace} onChange={(event) => { setUnencryptedTestWorkspace(event.target.checked); setError(''); }} />Create a local test workspace without password or encryption</label>}
+        {!exists && unencryptedTestWorkspace && <p className="error" role="alert">Test mode: anyone with access to this browser profile can read these items. Do not use it for personal data, and do not rely on it as a backup.</p>}
         {error && <p className="error" role="alert">{error}</p>}
-        {!selectedBackup && <button className="primary wide" disabled={busy}>{busy ? 'Working…' : exists ? 'Unlock' : 'Create encrypted workspace'}</button>}
+        {!selectedBackup && <button className="primary wide" disabled={busy}>{busy ? 'Working…' : exists ? 'Unlock' : unencryptedTestWorkspace ? 'Create unencrypted test workspace' : 'Create encrypted workspace'}</button>}
         {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Importing…' : 'Import selected backup'}</button>}
       </form>
       {!exists && <div className="import-lock">
         <span>Already have an encrypted workspace?</span>
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
-        <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setName(file.name); setConfirm(''); setError(''); }} />
+        <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setUnencryptedTestWorkspace(false); setName(file.name); setConfirm(''); setError(''); }} />
         <small>Choose the file first, enter its password, then tap Import selected backup.</small>
       </div>}
       <details className="install-guide">

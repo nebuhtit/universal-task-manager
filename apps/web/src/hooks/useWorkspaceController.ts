@@ -5,7 +5,7 @@ import {
   migrateWorkspace, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
-import { hasLocalWorkspace, lock, saveLocalWorkspace, type UnlockedWorkspace } from '@utm/sdk';
+import { localWorkspaceMode, lock, saveLocalWorkspace, unlockUnencryptedLocalWorkspace, type UnlockedWorkspace } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
 import { reminderTime } from '../push';
 import { recordDiagnostic } from '../services/diagnostics';
@@ -33,7 +33,17 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const deliveredReminderIds = useRef(new Set<string>());
   const workspace = session?.document as WorkspaceDocument | undefined;
 
-  useEffect(() => { void hasLocalWorkspace().then((exists) => setBoot(exists ? 'locked' : 'empty')); }, []);
+  useEffect(() => {
+    void localWorkspaceMode().then(async (mode) => {
+      if (!mode) { setBoot('empty'); return; }
+      if (mode === 'plaintext') {
+        try { await activate(await unlockUnencryptedLocalWorkspace()); }
+        catch { setBoot('locked'); }
+        return;
+      }
+      setBoot('locked');
+    });
+  }, []);
 
   const commit = (message: string, mutation: (draft: WorkspaceDocument) => void): boolean => {
     if (!session) return false;
@@ -49,7 +59,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     }
     const next = { ...session, document }; setSession(next);
     saveQueue.current = saveQueue.current.then(async () => {
-      await saveLocalWorkspace(document, session.dataKey);
+      await saveLocalWorkspace(document, session.dataKey, session.storageMode);
       recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
     }).catch((reason) => {
       setSession((current) => current?.document === document ? previous : current);
@@ -83,7 +93,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const groups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>(); const rank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) { if (item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } }
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
-    await saveLocalWorkspace(updated, unlocked.dataKey); setSession({ ...unlocked, document: updated }); setBoot('ready');
+    await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode); setSession({ ...unlocked, document: updated }); setBoot('ready');
     recordDiagnostic({ kind: 'result', message: 'Workspace activation completed', operation: 'Activate workspace', outcome: 'succeeded', durationMs: Math.round(performance.now() - activationStartedAt), details: JSON.stringify({ created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
     if (warning && !/timed out/i.test(warning)) onToast(`Workspace opened. Recurrence sync will retry in the background (${warning}).`);
     setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
@@ -128,7 +138,10 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const timer = window.setInterval(tick, 1_000); return () => { cancelled = true; window.clearInterval(timer); };
   }, [workspace?.updatedAt, workspace?.calendarPreferences.testClock?.enabled]);
 
-  const lockWorkspace = () => { if (session) lock(session); deliveredReminderIds.current.clear(); setSession(null); setBoot('locked'); };
+  const lockWorkspace = () => {
+    if (session?.storageMode === 'plaintext') { onToast('An unencrypted test workspace cannot be locked. Create an encrypted workspace to use password lock.'); return; }
+    if (session) lock(session); deliveredReminderIds.current.clear(); setSession(null); setBoot('locked');
+  };
   const adoptSession = (next: UnlockedWorkspace, lockCurrent = false) => { if (lockCurrent && session) lock(session); deliveredReminderIds.current.clear(); setSession(next); setBoot('ready'); };
   return { boot, session, workspace, activate, commit, lockWorkspace, adoptSession };
 }

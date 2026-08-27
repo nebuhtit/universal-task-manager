@@ -7,15 +7,21 @@ import {
 } from './crypto.js';
 import { createAutomergeDocument, merge, unlock } from './container.js';
 
-interface LocalMetadata { version: 1; wrappedKey: EncryptedEnvelope; createdAt: string }
-interface LocalBlock { version: 1; nonce: string; ciphertext: string }
-export interface UnlockedWorkspace { document: Automerge.Doc<WorkspaceDocument>; dataKey: Uint8Array }
+interface EncryptedLocalMetadata { version: 1; wrappedKey: EncryptedEnvelope; createdAt: string; mode?: 'encrypted' }
+interface PlaintextLocalMetadata { version: 1; mode: 'plaintext'; createdAt: string }
+type LocalMetadata = EncryptedLocalMetadata | PlaintextLocalMetadata;
+interface EncryptedLocalBlock { version: 1; mode?: never; nonce: string; ciphertext: string }
+interface PlaintextLocalBlock { version: 1; mode: 'plaintext'; binary: Uint8Array }
+type LocalBlock = EncryptedLocalBlock | PlaintextLocalBlock;
+export interface UnlockedWorkspace { document: Automerge.Doc<WorkspaceDocument>; dataKey: Uint8Array; storageMode?: 'encrypted' | 'plaintext' }
 
 const DB_NAME = 'utm-secure-v1';
 const STORE = 'encrypted-records';
 const META_KEY = 'metadata';
 const BLOCK_KEY = 'workspace';
 const BLOCK_AAD = 'utm:local:workspace:v1';
+
+const isPlaintextBlock = (block: LocalBlock): block is PlaintextLocalBlock => block.mode === 'plaintext';
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -53,6 +59,13 @@ async function putRecords(records: Array<[string, unknown]>): Promise<void> {
 
 export async function hasLocalWorkspace(): Promise<boolean> { return Boolean(await getRecord<LocalMetadata>(META_KEY)); }
 
+/** A plaintext workspace is deliberately opt-in and meant only for local testing. */
+export async function localWorkspaceMode(): Promise<'encrypted' | 'plaintext' | null> {
+  const metadata = await getRecord<LocalMetadata>(META_KEY);
+  if (!metadata) return null;
+  return metadata.mode === 'plaintext' ? 'plaintext' : 'encrypted';
+}
+
 export async function createLocalWorkspace(password: string, name = 'My workspace', language: WorkspaceLanguage = 'en'): Promise<UnlockedWorkspace> {
   if (await hasLocalWorkspace()) throw new Error('A local workspace already exists');
   const dataKey = await randomKey();
@@ -61,34 +74,58 @@ export async function createLocalWorkspace(password: string, name = 'My workspac
   workspace.calendarPreferences.language = language;
   const document = createAutomergeDocument(workspace);
   const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
-  const metadata: LocalMetadata = { version: 1, wrappedKey, createdAt: new Date().toISOString() };
-  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies LocalBlock]]);
-  return { document, dataKey };
+  const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey, createdAt: new Date().toISOString() };
+  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
+  return { document, dataKey, storageMode: 'encrypted' };
+}
+
+export async function createUnencryptedLocalWorkspace(name = 'Test workspace', language: WorkspaceLanguage = 'en'): Promise<UnlockedWorkspace> {
+  if (await hasLocalWorkspace()) throw new Error('A local workspace already exists');
+  const workspace = createWorkspace(name);
+  workspace.calendarPreferences.language = language;
+  const document = createAutomergeDocument(workspace);
+  const metadata: PlaintextLocalMetadata = { version: 1, mode: 'plaintext', createdAt: new Date().toISOString() };
+  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, mode: 'plaintext', binary: Automerge.save(document) } satisfies PlaintextLocalBlock]]);
+  return { document, dataKey: new Uint8Array(), storageMode: 'plaintext' };
 }
 
 export async function unlockLocalWorkspace(password: string): Promise<UnlockedWorkspace> {
   const metadata = await getRecord<LocalMetadata>(META_KEY);
   const block = await getRecord<LocalBlock>(BLOCK_KEY);
   if (!metadata || !block) throw new Error('No local workspace exists');
+  if (metadata.mode === 'plaintext' || isPlaintextBlock(block)) throw new Error('This local workspace is configured without encryption');
   const dataKey = await unwrapKey(metadata.wrappedKey, password);
   const binary = await decryptWithKey(block, dataKey, BLOCK_AAD);
-  try { return { document: Automerge.load<WorkspaceDocument>(binary), dataKey }; }
+  try { return { document: Automerge.load<WorkspaceDocument>(binary), dataKey, storageMode: 'encrypted' }; }
   catch { throw new Error('Decrypted local workspace is damaged'); }
 }
 
-export async function saveLocalWorkspace(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array): Promise<void> {
+export async function unlockUnencryptedLocalWorkspace(): Promise<UnlockedWorkspace> {
+  const metadata = await getRecord<LocalMetadata>(META_KEY);
+  const block = await getRecord<LocalBlock>(BLOCK_KEY);
+  if (!metadata || !block) throw new Error('No local workspace exists');
+  if (metadata.mode !== 'plaintext' || !isPlaintextBlock(block)) throw new Error('This local workspace requires its password');
+  try { return { document: Automerge.load<WorkspaceDocument>(block.binary), dataKey: new Uint8Array(), storageMode: 'plaintext' }; }
+  catch { throw new Error('Plaintext local workspace is damaged'); }
+}
+
+export async function saveLocalWorkspace(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array, storageMode: UnlockedWorkspace['storageMode'] = 'encrypted'): Promise<void> {
+  if (storageMode === 'plaintext') {
+    await putRecords([[BLOCK_KEY, { version: 1, mode: 'plaintext', binary: Automerge.save(document) } satisfies PlaintextLocalBlock]]);
+    return;
+  }
   const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
-  await putRecords([[BLOCK_KEY, { version: 1, ...encrypted } satisfies LocalBlock]]);
+  await putRecords([[BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
 }
 
 export async function importAsLocalWorkspace(source: string, password: string): Promise<UnlockedWorkspace> {
   if (await hasLocalWorkspace()) throw new Error('A local workspace already exists');
   const incoming = await unlock(source, password);
   const dataKey = await randomKey();
-  const metadata: LocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
+  const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
   const encrypted = await encryptWithKey(Automerge.save(incoming.document), dataKey, BLOCK_AAD);
-  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies LocalBlock]]);
-  return { document: incoming.document, dataKey };
+  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
+  return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
 
 /**
@@ -103,10 +140,10 @@ export async function importAsLocalWorkspace(source: string, password: string): 
 export async function restoreLocalWorkspace(source: string, password: string): Promise<UnlockedWorkspace> {
   const incoming = await unlock(source, password);
   const dataKey = await randomKey();
-  const metadata: LocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
+  const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
   const encrypted = await encryptWithKey(Automerge.save(incoming.document), dataKey, BLOCK_AAD);
-  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies LocalBlock]]);
-  return { document: incoming.document, dataKey };
+  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
+  return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
 
 export async function mergeIntoLocalWorkspace(
@@ -115,13 +152,15 @@ export async function mergeIntoLocalWorkspace(
   password: string,
 ): Promise<{ unlocked: UnlockedWorkspace; changedItems: number }> {
   const merged = await merge(current.document, source, password);
-  await saveLocalWorkspace(merged.document, current.dataKey);
-  return { unlocked: { document: merged.document, dataKey: current.dataKey }, changedItems: merged.changedItems };
+  const storageMode = current.storageMode ?? 'encrypted';
+  await saveLocalWorkspace(merged.document, current.dataKey, storageMode);
+  return { unlocked: { document: merged.document, dataKey: current.dataKey, storageMode }, changedItems: merged.changedItems };
 }
 
 export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
   const metadata = await getRecord<LocalMetadata>(META_KEY);
   if (!metadata) throw new Error('No local workspace exists');
+  if (metadata.mode === 'plaintext') throw new Error('This local workspace has no password');
   const key = await unwrapKey(metadata.wrappedKey, oldPassword);
   try { await putRecords([[META_KEY, { ...metadata, wrappedKey: await wrapKey(key, newPassword) } satisfies LocalMetadata]]); }
   finally { await ready(); key.fill(0); }
