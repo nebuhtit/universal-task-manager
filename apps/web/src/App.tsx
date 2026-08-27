@@ -46,19 +46,19 @@ import {
 
 const BUILD_COMMIT = (import.meta.env.VITE_COMMIT_SHA || 'local').slice(0, 7);
 
-function useDisplayedCommit(): string {
-  const [commit, setCommit] = useState(BUILD_COMMIT);
+function useDisplayedBuild(): { commit: string; dirty: boolean } {
+  const [build, setBuild] = useState({ commit: BUILD_COMMIT, dirty: false });
   useEffect(() => {
     if (!import.meta.env.DEV) return undefined;
     const refresh = () => void fetch('/__utm-build-info', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() as Promise<{ commit?: string }> : undefined)
-      .then((result) => { if (result?.commit) setCommit(result.commit.slice(0, 7)); })
+      .then((response) => response.ok ? response.json() as Promise<{ commit?: string; dirty?: boolean }> : undefined)
+      .then((result) => { if (result?.commit) setBuild({ commit: result.commit.slice(0, 7), dirty: Boolean(result.dirty) }); })
       .catch(() => undefined);
     refresh();
     const timer = window.setInterval(refresh, 5_000);
     return () => window.clearInterval(timer);
   }, []);
-  return commit;
+  return build;
 }
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -163,7 +163,7 @@ async function portableFromFile(file: File, workspace: WorkspaceDocument): Promi
 }
 
 function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void> }) {
-  const displayedCommit = useDisplayedCommit();
+  const displayedBuild = useDisplayedBuild();
   const [name, setName] = useState('My workspace');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -238,7 +238,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <hr />
         </div>
       </details>
-      <p className="lock-version">v{APP_VERSION} · commit {displayedCommit}</p>
+      <p className="lock-version">v{APP_VERSION} · {import.meta.env.DEV && displayedBuild.dirty ? 'local changes · ' : ''}commit {displayedBuild.commit}</p>
     </section>
   </main>;
 }
@@ -606,7 +606,7 @@ export default function App() {
         <section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="number" min="0" step="1" value={workspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} onChange={(event) => commit('Change backup reminder', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), reminderDays: Math.max(0, Number(event.target.value) || 0) }; })} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section>
       </section>}
     </AppShell>
-    {page !== 'settings' && <div className="capture-dock"><div className="quick-capture"><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); captureQuickItem(); } }} placeholder="Add new item" aria-label="Add new item"/></div></div>}
+    {page !== 'settings' && <div className="capture-dock"><form className="quick-capture" onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Add new item" aria-label="Add new item"/></form></div>}
     {editor && <ItemEditor initial={editor} workspace={workspace} now={systemNow} isNew={editorIsNew} onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata)} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', systemNow); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={(item) => { const isNew = !workspace.items[item.id]; let recurrenceError = ''; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (item.area) ensureAreaDefinition(draft, item.area); if (item.project) ensureProjectDefinition(draft, item.project, item.area ? { area: item.area } : {}); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: systemNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, systemNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } }); if (saved) { setEditorIsNew(false); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = systemNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { setEditorIsNew(false); setEditor(null); } }} />}
     {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { adoptSession(next); setToast(message); }} onReplaced={(next, message) => { adoptSession(next, true); setToast(message); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}

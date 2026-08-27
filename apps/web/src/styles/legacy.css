@@ -87,7 +87,7 @@
 .all-items-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 16px; }
 .all-items-toolbar h1 { margin: 3px 0 0; font-size: clamp(24px, 3vw, 34px); font-weight: 600; }
 
-.settings-card > header, .dialog > header, .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.settings-card > header, .dialog > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .settings-card h2 { margin: 3px 0 14px; font-size: 18px; letter-spacing: -.015em; font-weight: 600; }
 .item-list { display: grid; gap: 5px; }
 .reorderable-view-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; min-width: 0; border-radius: var(--radius-sm); transition: background var(--motion-fast) var(--motion-easing-standard), opacity var(--motion-fast) var(--motion-easing-standard); }
@@ -157,14 +157,16 @@
 button:disabled { opacity: .45; cursor: not-allowed; }
 
 .modal-backdrop { position: fixed; z-index: 100; inset: 0; background: rgba(0,0,0,.42); backdrop-filter: blur(3px); display: grid; place-items: center; padding: 16px; }
-.drawer { position: absolute; right: 0; top: 0; bottom: 0; width: min(680px, 100%); background: var(--paper); box-shadow: -20px 0 70px rgba(0,0,0,.18); display: flex; flex-direction: column; animation: slide-in .22s ease-out; }
-@keyframes slide-in { from { transform: translateX(40px); opacity: 0; } }
-.drawer-head { padding: 20px 24px 16px; border-bottom: 1px solid var(--line); }
-.drawer-head h2 { margin: 4px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
-.editor-scroll { flex: 1; overflow: auto; padding: 18px 24px 26px; }
-.drawer-actions { border-top: 1px solid var(--line); padding: 16px 28px calc(16px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 10px; }
+.item-editor-dialog { width: min(680px, 100%); }
+.item-editor-dialog .ui-dialog-title { display: grid; gap: var(--space-1); }
+.item-editor-heading { font-size: 22px; font-weight: var(--font-weight-semibold); letter-spacing: -.02em; }
+.item-editor-dialog .ui-dialog-content { padding: 18px 24px 26px; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+.editor-scroll { min-height: 0; }
+.item-editor-dialog .ui-dialog-footer { padding: 16px 28px calc(16px + env(safe-area-inset-bottom)); }
+.item-editor-actions { display: flex; width: 100%; align-items: center; gap: 10px; }
+@media (min-width: 621px) { .item-editor-dialog { justify-self: end; align-self: stretch; max-height: 100dvh; border-radius: 0; } }
 .editor-error { margin: 0 28px 12px; }
-.drawer-actions span, .dialog footer span { flex: 1; }
+.item-editor-actions span, .dialog footer span { flex: 1; }
 label { display: grid; gap: 7px; font-size: 13px; font-weight: 500; margin-bottom: 14px; }
 input, textarea, select { width: 100%; border: 1px solid #d9d9d9; background: #fff; border-radius: 10px; padding: 11px 12px; color: var(--ink); transition: border-color .15s, box-shadow .15s; }
 input:hover, textarea:hover, select:hover { border-color: #bdbdbd; }
@@ -626,9 +628,9 @@ tbody tr:hover { background: var(--soft); }
   .sort-rule > label:first-child, .rule-order { grid-column: 1 / -1; }
   .field-groups { grid-template-columns: 1fr; }
   .import-row { grid-template-columns: 1fr; gap: 5px; padding: 10px 0; }
-  .drawer-head, .editor-scroll, .drawer-actions { padding-left: 17px; padding-right: 17px; }
+  .item-editor-dialog .ui-dialog-header, .item-editor-dialog .ui-dialog-content, .item-editor-dialog .ui-dialog-footer { padding-left: 17px; padding-right: 17px; }
   .editor-error { margin-left: 17px; margin-right: 17px; }
-  .drawer { width: 100%; top: 4vh; border-radius: 20px 20px 0 0; }
+  .item-editor-dialog { width: 100%; max-height: calc(100dvh - 4vh); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
   .mini-board { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .lock-card { padding: 25px; border-radius: 19px; }
   .import-lock { display: block; }

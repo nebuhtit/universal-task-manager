@@ -1,5 +1,5 @@
 import { Dialog } from '@base-ui/react/dialog';
-import type { ReactNode, RefObject } from 'react';
+import type { ComponentProps, ReactNode, RefObject } from 'react';
 
 export interface ResponsiveDialogProps {
   open: boolean;
@@ -10,6 +10,7 @@ export interface ResponsiveDialogProps {
   footer?: ReactNode;
   className?: string;
   initialFocus?: boolean | RefObject<HTMLElement | null>;
+  finalFocus?: ComponentProps<typeof Dialog.Popup>['finalFocus'];
   closeLabel?: string;
 }
 
@@ -27,6 +28,7 @@ export function ResponsiveDialog({
   footer,
   className,
   initialFocus,
+  finalFocus,
   closeLabel = 'Close dialog',
 }: ResponsiveDialogProps) {
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -36,6 +38,7 @@ export function ResponsiveDialog({
         <Dialog.Popup
           className={['ui-dialog-popup', className].filter(Boolean).join(' ')}
           initialFocus={initialFocus}
+          finalFocus={finalFocus}
         >
           <header className="ui-dialog-header">
             <div>

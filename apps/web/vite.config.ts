@@ -7,6 +7,10 @@ const readLocalCommit = () => {
   try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
   catch { return 'local'; }
 };
+const hasLocalChanges = () => {
+  try { return execFileSync('git', ['status', '--porcelain'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().length > 0; }
+  catch { return false; }
+};
 const localCommit = readLocalCommit();
 
 const liveBuildInfo: Plugin = {
@@ -15,7 +19,7 @@ const liveBuildInfo: Plugin = {
     server.middlewares.use('/__utm-build-info', (_request, response) => {
       response.setHeader('Content-Type', 'application/json');
       response.setHeader('Cache-Control', 'no-store');
-      response.end(JSON.stringify({ commit: readLocalCommit() }));
+      response.end(JSON.stringify({ commit: readLocalCommit(), dirty: hasLocalChanges() }));
     });
   },
 };

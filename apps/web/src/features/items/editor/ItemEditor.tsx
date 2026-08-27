@@ -7,6 +7,7 @@ import {
 import { CodeEditor } from '../../../components/ui/CodeEditor';
 import { CloseIcon } from '../../../components/ui/icons';
 import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/primitives';
+import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
 import { calendarDuration, calendarDurationMs, parseFriendlyDuration, toIsoDuration, type FriendlyDurationUnit } from '../../../utils/durations';
@@ -44,6 +45,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const suppressFocusRestore = useRef(false);
   // The global quick-capture field deliberately offers one fast second Enter.
   // As soon as the person explores another editor control, saving becomes an
   // explicit action so Enter can safely be used for tags and other fields.
@@ -175,9 +177,15 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   const exportItemJson = () => onExportItem(item, 'json');
   const exportItem = (format: PortableFormat, metadata = false) => onExportItem(item, format, metadata);
 
-  const save = () => {
+  const save = ({ dismissKeyboard = false }: { dismissKeyboard?: boolean } = {}) => {
     setError('');
     try {
+      if (dismissKeyboard) {
+        // Base UI normally restores focus to the quick-capture input when this
+        // dialog closes. That would immediately reopen the iOS keyboard.
+        suppressFocusRestore.current = true;
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      }
       onSave(normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now }));
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
@@ -189,7 +197,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
       event.preventDefault();
       event.stopImmediatePropagation();
       quickTitleSaveAllowed.current = false;
-      save();
+      save({ dismissKeyboard: true });
     };
     window.addEventListener('keydown', saveFromRetainedMobileKeyboard, true);
     return () => window.removeEventListener('keydown', saveFromRetainedMobileKeyboard, true);
@@ -198,7 +206,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   useLayoutEffect(() => {
     if (!retainedQuickCaptureFocus) return;
     titleInputRef.current?.focus({ preventScroll: true });
-    editorScrollRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    editorScrollRef.current?.parentElement?.scrollTo({ top: 0, behavior: 'instant' });
     window.scrollTo(0, 0);
   }, [retainedQuickCaptureFocus]);
 
@@ -220,18 +228,16 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     patchItem({ habit: { ...rest, timerSessions: [...(habit.timerSessions ?? []), { id: createId(), startedAt, endedAt, durationSeconds }] } });
   };
 
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor" onFocusCapture={(event) => {
+  return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <button className="danger" onClick={() => onDelete(item)}>Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
+    <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
       if (event.target !== titleInputRef.current) quickTitleSaveAllowed.current = false;
     }} onKeyDown={(event) => {
       if (event.key !== 'Enter' || event.defaultPrevented || event.nativeEvent.isComposing) return;
       if (!quickTitleSaveAllowed.current || event.target !== titleInputRef.current || !item.title.trim()) return;
       event.preventDefault();
       quickTitleSaveAllowed.current = false;
-      save();
+      save({ dismissKeyboard: true });
     }}>
-      <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
-      <div className="editor-scroll" ref={editorScrollRef}>
         <label className="item-title-field"><FieldIconLabel path="title" label="Title" /><input ref={titleInputRef} autoFocus={focusTitleOnOpen} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
         {isNew && templates.length > 0 && <details className="template-picker"><summary><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></summary><div className="details-body"><p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>{templates.map((template) => <button type="button" className="template-option" key={template.id} onClick={() => applyTemplate(template)}>{template.title || 'Untitled template'}</button>)}</div></details>}
         <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} patchSchedule={patchSchedule} scheduledDuration={scheduledDuration} patchScheduledDuration={patchScheduledDuration} applyDurationPreset={applyDurationPreset}>
@@ -288,9 +294,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
         {Boolean(item.cycleHistory?.length) && <details><summary><FieldIconLabel path="cycleHistory" label="Cycle history" /> <span className="summary-count">{item.cycleHistory!.length}</span></summary><div className="details-body cycle-history"><p className="field-hint">Finished auto-renew cycles stay inside this item. Its current Dates &amp; time always describe the active or most recent cycle.</p>{[...item.cycleHistory!].reverse().map((cycle) => <article key={cycle.recurrenceId}><div><strong>{cycle.state === 'auto_closed' ? 'Auto closed' : cycle.state === 'done' ? 'Completed' : 'Cancelled'}</strong><time dateTime={cycle.closedAt}>{formatViewDate(cycle.closedAt, true, workspace.calendarPreferences.language)}</time></div><small>{cycle.startAt ? `Opened ${formatViewDate(cycle.startAt, true, workspace.calendarPreferences.language)}` : `Cycle ${formatViewDate(cycle.recurrenceId, true, workspace.calendarPreferences.language)}`}{cycle.dueAt ? ` · Due ${formatViewDate(cycle.dueAt, true, workspace.calendarPreferences.language)}` : ''}</small></article>)}</div></details>}
         <details><summary><FieldIconLabel path="system" label="System metadata" /></summary><div className="details-body metadata-grid"><div><span>Created at</span><output><time dateTime={item.createdAt}>{formatViewDate(item.createdAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Last modified</span><output><time dateTime={item.updatedAt}>{formatViewDate(item.updatedAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Created by application</span><output>{item.createdWithAppName} v{item.createdWithVersion}</output></div><div><span>Application ID</span><output className="mono">{item.createdWithAppId}</output></div><div><span>Item schema</span><output>{item.schemaVersion}</output></div><div><span>Item ID</span><output>{item.id}</output></div></div></details>
         </ItemSection>
-      </div>
       {error && <p className="editor-error error" role="alert">{error}</p>}
-      <footer className="drawer-actions">{workspace.items[item.id] && <button className="danger" onClick={() => onDelete(item)}>Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={save}>Save item</button></footer>
-    </section>
-  </div>;
+    </div>
+  </ResponsiveDialog>;
 }
