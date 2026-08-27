@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DIAGNOSTICS_KEY, readDiagnostics, recordDiagnostic } from './diagnostics';
+import { DIAGNOSTICS_KEY, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled } from './diagnostics';
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -30,5 +30,12 @@ describe('local diagnostics', () => {
     const entries = readDiagnostics();
     expect(entries).toHaveLength(500);
     expect(entries[0]?.message).toBe('5');
+  });
+
+  it('can stop recording without deleting existing diagnostics', () => {
+    recordDiagnostic({ kind: 'action', message: 'before' });
+    setDiagnosticsEnabled(false);
+    recordDiagnostic({ kind: 'action', message: 'after' });
+    expect(readDiagnostics().map((entry) => entry.message)).toEqual(['before']);
   });
 });

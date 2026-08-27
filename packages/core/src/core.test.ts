@@ -513,11 +513,12 @@ describe('interoperability', () => {
     delete (legacyHabit.habit as Partial<NonNullable<UniversalItem['habit']>>).completedDates;
     old.items[legacyHabit.id] = legacyHabit;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.schemaVersion).toBe('1.10.0');
+    expect(migrated.schemaVersion).toBe('1.10.1');
     expect(migrated.listDefinitions.Health).toMatchObject({ name: 'Health', kind: 'list', priority: 0, createdAt: item.createdAt });
     expect(migrated.views[legacyView.id]?.list).toBe('Health');
     expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
     expect(migrated.calendarPreferences.language).toBe('en');
+    expect(migrated.calendarPreferences.diagnosticsEnabled).toBe(true);
     expect(migrated.calendarPreferences.appearance).toEqual({ mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 });
     expect((migrated.calendarPreferences as typeof migrated.calendarPreferences & { staleUiFlag?: boolean }).staleUiFlag).toBeUndefined();
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });

@@ -219,7 +219,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.10.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.10.1.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
@@ -243,7 +243,7 @@ export const workspaceJsonSchema = {
     automationLog: { type: 'array' }, tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
     calendarPreferences: {
       type: 'object', additionalProperties: false,
-      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'includeStates'],
+      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'includeStates', 'diagnosticsEnabled'],
       properties: {
         timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
         workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
@@ -252,6 +252,7 @@ export const workspaceJsonSchema = {
         timeFormat: { const: '24h' }, language: { enum: ['en', 'ru', 'es', 'de', 'fr', 'ko'] }, selectedViewId: { type: 'string' },
         appearance: { type: 'object', additionalProperties: false, required: ['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound'], properties: { mode: { enum: ['system', 'light', 'dark', 'scheduled'] }, lightAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, darkAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, tickSound: { type: 'boolean' }, uiSound: { type: 'boolean' }, soundDefaultsVersion: { const: 1 } } },
         includeStates: { type: 'array', items: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] } },
+        diagnosticsEnabled: { type: 'boolean' },
         testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
         backupPreferences: { type: 'object', additionalProperties: false, required: ['reminderDays'], properties: { reminderDays: { type: 'integer', minimum: 0 }, lastBackupAt: { type: 'string', format: 'date-time' }, locationLabel: { type: 'string' } } },
       },
@@ -539,7 +540,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.calendarPreferences ??= {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, weekends: true,
-    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 }, includeStates: ['open', 'done'],
+    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 }, includeStates: ['open', 'done'], diagnosticsEnabled: true,
   };
   const calendarPreferences = source.calendarPreferences as Record<string, unknown>;
   // Preferences are persisted locally and evolve faster than the workspace
@@ -549,7 +550,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'backupPreferences',
+    'backupPreferences', 'diagnosticsEnabled',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
@@ -557,6 +558,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const legacyWorkingHours = calendarPreferences.workingHours as { start?: string; end?: string } | undefined;
   calendarPreferences.sleepSchedule ??= { wake: legacyWorkingHours?.start ?? '08:00', sleep: legacyWorkingHours?.end ?? '22:00' };
   if (!['en', 'ru', 'es', 'de', 'fr', 'ko'].includes(String(calendarPreferences.language))) calendarPreferences.language = 'en';
+  calendarPreferences.diagnosticsEnabled = calendarPreferences.diagnosticsEnabled !== false;
   calendarPreferences.appearance ??= { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 };
   const appearance = calendarPreferences.appearance as Record<string, unknown>;
   Object.keys(appearance).forEach((key) => {

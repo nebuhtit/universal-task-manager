@@ -1,4 +1,5 @@
 export const DIAGNOSTICS_KEY = 'utm:diagnostics:v1';
+export const DIAGNOSTICS_ENABLED_KEY = 'utm:diagnostics-enabled:v1';
 export const DIAGNOSTICS_CHANGED_EVENT = 'utm:diagnostics-changed';
 
 export type DiagnosticKind = 'action' | 'result' | 'error' | 'unhandledrejection' | 'usage';
@@ -15,6 +16,20 @@ export type DiagnosticEntry = {
 
 const bounded = (value: string | undefined, limit: number): string | undefined => value?.slice(0, limit);
 
+export const diagnosticsEnabled = (): boolean => {
+  try { return localStorage.getItem(DIAGNOSTICS_ENABLED_KEY) !== 'false'; }
+  catch { return true; }
+};
+
+export const setDiagnosticsEnabled = (enabled: boolean): void => {
+  try {
+    localStorage.setItem(DIAGNOSTICS_ENABLED_KEY, String(enabled));
+    window.dispatchEvent(new Event(DIAGNOSTICS_CHANGED_EVENT));
+  } catch {
+    // Diagnostics preferences must never interfere with application behavior.
+  }
+};
+
 export const readDiagnostics = (): DiagnosticEntry[] => {
   try {
     const value = JSON.parse(localStorage.getItem(DIAGNOSTICS_KEY) ?? '[]');
@@ -30,6 +45,7 @@ export const readDiagnostics = (): DiagnosticEntry[] => {
  */
 export const recordDiagnostic = (entry: Omit<DiagnosticEntry, 'at'>): void => {
   try {
+    if (!diagnosticsEnabled()) return;
     const safeEntry: DiagnosticEntry = {
       ...(entry.operation ? { operation: entry.operation.slice(0, 160) } : {}),
       ...(entry.outcome ? { outcome: entry.outcome } : {}),

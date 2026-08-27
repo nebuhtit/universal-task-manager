@@ -21,7 +21,7 @@ import { useToast } from './hooks/useToast';
 import { useUiSounds } from './hooks/useUiSounds';
 import { useViewport } from './hooks/useViewport';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
-import { clearDiagnostics, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, type DiagnosticEntry } from './services/diagnostics';
+import { clearDiagnostics, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
 import {
   ViewsPage,
   applyViewCreationDefaults,
@@ -453,6 +453,9 @@ export default function App() {
     if (language === 'en') return;
     return installDomLocalization(language);
   }, [workspace?.calendarPreferences.language]);
+  useEffect(() => {
+    if (workspace) setDiagnosticsEnabled(workspace.calendarPreferences.diagnosticsEnabled !== false);
+  }, [workspace?.calendarPreferences.diagnosticsEnabled]);
   useAppearance(workspace?.calendarPreferences.appearance, boot === 'ready', systemNow);
   useUiSounds(workspace?.calendarPreferences.appearance.uiSound);
   useEffect(() => {
@@ -599,7 +602,7 @@ export default function App() {
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'settings' && <section className="page-section settings-page-shell">
         <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} />
-        <section className="settings-card diagnostics-card"><p className="eyebrow">DIAGNOSTICS</p><h2>Actions, results and error log</h2><p>Local diagnostics record operation names, results, durations and crashes without task content. Nothing is uploaded automatically.</p><div className="diagnostics-actions"><span>{diagnosticCount} recorded entries</span><button className="secondary" onClick={downloadDiagnostics} disabled={!diagnosticCount}>Download log</button><button className="secondary" onClick={clearDiagnostics}>Clear log</button></div></section>
+        <section className="settings-card diagnostics-card"><p className="eyebrow">DIAGNOSTICS</p><h2>Actions, results and error log</h2><p>Local diagnostics record operation names, results, durations and crashes without task content. Nothing is uploaded automatically.</p><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.diagnosticsEnabled !== false} onChange={(event) => { setDiagnosticsEnabled(event.target.checked); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = event.target.checked; }); }} />Record local diagnostics</label><div className="diagnostics-actions"><span>{diagnosticCount} recorded entries</span><button className="secondary" onClick={downloadDiagnostics} disabled={!diagnosticCount}>Download log</button><button className="secondary" onClick={clearDiagnostics}>Clear log</button></div></section>
         <section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="number" min="0" step="1" value={workspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} onChange={(event) => commit('Change backup reminder', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), reminderDays: Math.max(0, Number(event.target.value) || 0) }; })} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section>
       </section>}
     </AppShell>

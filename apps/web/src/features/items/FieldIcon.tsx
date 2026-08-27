@@ -44,7 +44,7 @@ export const fieldIconName = (path: string): FieldIconName => {
 };
 
 const paths: Record<FieldIconName, ReactNode> = {
-  title: <path d="M5 6h14M12 6v12M8 18h8"/>,
+  title: <><path d="m5 19 1.5-4.5L16.8 4.2a2.1 2.1 0 0 1 3 3L9.5 17.5z"/><path d="m14.5 6.5 3 3"/><path d="M5 21h14"/></>,
   description: <><path d="M5 4h11l3 3v13H5z"/><path d="M8 10h8M8 14h8M8 18h5"/></>,
   state: <><circle cx="12" cy="12" r="8"/><path d="m8.5 12 2.2 2.2 4.8-5"/></>,
   type: <><path d="m12 3 8 4-8 4-8-4z"/><path d="m4 12 8 4 8-4M4 17l8 4 8-4"/></>,

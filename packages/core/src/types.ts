@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.10.0';
+export const SCHEMA_VERSION = '1.10.1';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.15.0';
-export const APP_RELEASED_AT = '2026-08-26T21:33:56.000Z';
+export const APP_VERSION = '1.15.1';
+export const APP_RELEASED_AT = '2026-08-27T08:02:46.000Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -413,6 +413,8 @@ export interface CalendarPreferences {
   appearance: { mode: 'system' | 'light' | 'dark' | 'scheduled'; lightAt: string; darkAt: string; tickSound: boolean; uiSound: boolean; /** Records the one-time upgrade that enabled calm sounds by default. */ soundDefaultsVersion?: 1 };
   selectedViewId?: string;
   includeStates: ItemState[];
+  /** Opt-in local operation logs used for troubleshooting; never uploaded automatically. */
+  diagnosticsEnabled: boolean;
   /** Optional accelerated clock for local recurrence testing; never enabled by default. */
   testClock?: TestClockPreferences;
   backupPreferences?: { reminderDays: number; lastBackupAt?: ISODateTime; locationLabel?: string };
@@ -556,6 +558,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, sleepSchedule: { wake: '08:00', sleep: '22:00' },
       weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 },
       includeStates: ['open', 'done'],
+      diagnosticsEnabled: true,
       testClock: { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours', startedAt: now.toISOString(), virtualAt: now.toISOString() },
       backupPreferences: { reminderDays: 7 },
     },

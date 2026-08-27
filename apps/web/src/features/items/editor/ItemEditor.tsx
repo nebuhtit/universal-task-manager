@@ -9,7 +9,7 @@ import { CloseIcon } from '../../../components/ui/icons';
 import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/primitives';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
-import { calendarDuration, calendarDurationMs, parseEstimateDuration, parseFriendlyDuration, toIsoDuration, type FriendlyDurationUnit } from '../../../utils/durations';
+import { calendarDuration, calendarDurationMs, parseFriendlyDuration, toIsoDuration, type FriendlyDurationUnit } from '../../../utils/durations';
 import { inferredPreset, priorityNames, stateNames } from '../fieldDisplay';
 import { FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
@@ -37,7 +37,6 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   const [contexts, setContexts] = useState(item.contexts.join(', '));
   const [recurring, setRecurring] = useState(item.role === 'series_template');
   const [repeatIntervalDraft, setRepeatIntervalDraft] = useState('1');
-  const [timezoneOpen, setTimezoneOpen] = useState(false);
   const [error, setError] = useState('');
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(initial, null, 2));
   const [jsonDirty, setJsonDirty] = useState(false);
@@ -45,6 +44,10 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  // The global quick-capture field deliberately offers one fast second Enter.
+  // As soon as the person explores another editor control, saving becomes an
+  // explicit action so Enter can safely be used for tags and other fields.
+  const quickTitleSaveAllowed = useRef(isNew);
   const retainedQuickCaptureFocus = useRef(typeof document !== 'undefined' && Boolean(document.activeElement?.closest('.quick-capture'))).current;
   const templates = Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.extensions?.['utm:template'] === true && candidate.id !== item.id);
   const focusTitleOnOpen = typeof window !== 'undefined' && window.matchMedia('(min-width: 621px)').matches;
@@ -98,7 +101,6 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   }, [item.id, item.recurrence?.rrule]);
   const activation = parseFriendlyDuration(item.recurrence?.activationOffset);
   const activeRange = recurring && Boolean(item.recurrence?.autoRenew) && item.recurrence?.closeAt === 'due' && activation.amount === 0;
-  const estimate = item.schedule?.estimatedDuration ? parseEstimateDuration(item.schedule.estimatedDuration) : { amount: 45, unit: 'minutes' as FriendlyDurationUnit };
   const scheduledDuration = calendarDuration(item.schedule?.startAt, item.schedule?.endAt);
   const patchScheduledDuration = (amount: number, unit: FriendlyDurationUnit) => {
     const start = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
@@ -183,9 +185,10 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     const saveFromRetainedMobileKeyboard = (event: KeyboardEvent) => {
       if (event.key !== 'Enter' || event.isComposing) return;
       const target = event.target;
-      if (!(target instanceof HTMLInputElement) || !target.closest('.quick-capture')) return;
+      if (!quickTitleSaveAllowed.current || !item.title.trim() || !(target instanceof HTMLInputElement) || !target.closest('.quick-capture')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
+      quickTitleSaveAllowed.current = false;
       save();
     };
     window.addEventListener('keydown', saveFromRetainedMobileKeyboard, true);
@@ -218,18 +221,20 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   };
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor" onKeyDown={(event) => {
+    <section className="drawer" role="dialog" aria-modal="true" aria-label="Item editor" onFocusCapture={(event) => {
+      if (event.target !== titleInputRef.current) quickTitleSaveAllowed.current = false;
+    }} onKeyDown={(event) => {
       if (event.key !== 'Enter' || event.defaultPrevented || event.nativeEvent.isComposing) return;
-      const target = event.target;
-      if (!(target instanceof HTMLInputElement) || ['button', 'checkbox', 'radio', 'file', 'range', 'color'].includes(target.type)) return;
+      if (!quickTitleSaveAllowed.current || event.target !== titleInputRef.current || !item.title.trim()) return;
       event.preventDefault();
+      quickTitleSaveAllowed.current = false;
       save();
     }}>
       <header className="drawer-head"><div><p className="eyebrow">UNIVERSAL ITEM</p><h2>{workspace.items[item.id] ? 'Edit item' : 'New item'}</h2></div><button className="icon-button" aria-label="Close item editor" onClick={onClose}><CloseIcon /></button></header>
       <div className="editor-scroll" ref={editorScrollRef}>
         <label className="item-title-field"><FieldIconLabel path="title" label="Title" /><input ref={titleInputRef} autoFocus={focusTitleOnOpen} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
         {isNew && templates.length > 0 && <details className="template-picker"><summary><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></summary><div className="details-body"><p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>{templates.map((template) => <button type="button" className="template-option" key={template.id} onClick={() => applyTemplate(template)}>{template.title || 'Untitled template'}</button>)}</div></details>}
-        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} patchSchedule={patchSchedule} scheduledDuration={scheduledDuration} patchScheduledDuration={patchScheduledDuration} applyDurationPreset={applyDurationPreset} timezoneOpen={timezoneOpen} setTimezoneOpen={setTimezoneOpen}>
+        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} patchSchedule={patchSchedule} scheduledDuration={scheduledDuration} patchScheduledDuration={patchScheduledDuration} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           <details><summary><FieldIconLabel path="habit.completedDates" label="Progress & habit" /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">
@@ -244,12 +249,12 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
 
         <ItemSection sectionKey="organization" title="Organization" iconPath="list" filledMark={sectionMark(Boolean(item.area || item.project || item.list || item.priority || commaList(tags).length))}>
           <div className="form-grid two organization-fields">
-            <Field label="Area" optional hint="Choose an existing Area or type a new one."><Select aria-label="Choose existing Area" value={item.area ?? ''} onChange={(event) => patchItem({ area: event.target.value || undefined, project: undefined })}><option value="">No Area</option>{orderedOrganizationNames(workspace, 'area').map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Area" value={item.area ?? ''} onChange={(event) => patchItem({ area: event.target.value.trim() || undefined })} placeholder="Or create a new Area" /></Field>
-            <Field label="Project" optional hint="Choose an existing Project or type a new one."><Select aria-label="Choose existing Project" value={item.project ?? ''} onChange={(event) => { const project = event.target.value; const definition = organizationDefinitionFor(workspace, 'project', project); patchItem({ project: project || undefined, ...(definition && 'area' in definition && definition.area ? { area: definition.area } : {}) }); }}><option value="">No Project</option>{orderedOrganizationNames(workspace, 'project', item.area).map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Project" value={item.project ?? ''} onChange={(event) => patchItem({ project: event.target.value.trim() || undefined })} placeholder="Or create a new Project" /></Field>
+            <Field label="Area" optional><Select aria-label="Choose existing Area" value={item.area ?? ''} onChange={(event) => patchItem({ area: event.target.value || undefined, project: undefined })}><option value="">No Area</option>{orderedOrganizationNames(workspace, 'area').map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Area" value={item.area ?? ''} onChange={(event) => patchItem({ area: event.target.value.trim() || undefined })} placeholder="Or create a new Area" /></Field>
+            <Field label="Project" optional><Select aria-label="Choose existing Project" value={item.project ?? ''} onChange={(event) => { const project = event.target.value; const definition = organizationDefinitionFor(workspace, 'project', project); patchItem({ project: project || undefined, ...(definition && 'area' in definition && definition.area ? { area: definition.area } : {}) }); }}><option value="">No Project</option>{orderedOrganizationNames(workspace, 'project', item.area).map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Project" value={item.project ?? ''} onChange={(event) => patchItem({ project: event.target.value.trim() || undefined })} placeholder="Or create a new Project" /></Field>
             <Field label="Task list" optional><Select aria-label="Choose existing Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value || undefined })}><option value="">No list</option>{orderedListNames(workspace).map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value.trim() || undefined })} placeholder="Or create a new list" /></Field>
             <Field label="Priority"><Select aria-label="Priority" value={item.priority ?? 0} onChange={(event) => patchItem({ priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{([0, 1, 2, 3, 4] as NonNullable<UniversalItem['priority']>[]).map((priority) => <option key={priority} value={priority}>{priority ? `${priority} — ${priorityNames[priority]}` : 'None'}</option>)}</Select></Field>
           </div>
-          <Field label="Tags" hint="Choose known tags below or type new ones."><Input aria-label="Tags" value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Add tags separated by commas" /></Field>{collectedTags.length > 0 && <div className="tag-collection" aria-label="Available tags">{collectedTags.map((tag) => <Button size="compact" variant="ghost" className={commaList(tags).includes(tag) ? 'active' : ''} aria-pressed={commaList(tags).includes(tag)} key={tag} onClick={() => toggleTag(tag)}>#{tag}</Button>)}</div>}
+          <Field label="Tags"><Input aria-label="Tags" value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Add tags separated by commas" /></Field>{collectedTags.length > 0 && <div className="tag-collection" aria-label="Available tags">{collectedTags.map((tag) => <Button size="compact" variant="ghost" className={commaList(tags).includes(tag) ? 'active' : ''} aria-pressed={commaList(tags).includes(tag)} key={tag} onClick={() => toggleTag(tag)}>#{tag}</Button>)}</div>}
         </ItemSection>
 
         <details className="description-section"><summary><FieldIconLabel path="bodyMarkdown" label="Description" /> {sectionMark(Boolean(item.bodyMarkdown.trim()))}</summary><div className="details-body">
@@ -266,7 +271,6 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
           <div className="inline-row"><input aria-label="New subtask title" value={newSubtaskTitle} onChange={(event) => setNewSubtaskTitle(event.target.value)} placeholder="New subtask title" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const title = newSubtaskTitle.trim(); if (!title) return; const subtask = onCreateSubtask(title, item.id); patchItem({ relations: [...item.relations, { id: createId(), targetId: subtask.id, type: 'parent' }] }); setNewSubtaskTitle(''); } }} /><button className="secondary" onClick={() => { const title = newSubtaskTitle.trim(); if (!title) return; const subtask = onCreateSubtask(title, item.id); patchItem({ relations: [...item.relations, { id: createId(), targetId: subtask.id, type: 'parent' }] }); setNewSubtaskTitle(''); }}>Add subtask</button></div>
         </div></details>
 
-        <details className="compact-property"><summary><FieldIconLabel path="schedule.estimatedDuration" label="Estimated duration" /> {sectionMark(Boolean(item.schedule?.estimatedDuration))}</summary><div className="details-body"><label><div className="duration-control"><input className="duration-amount" type="number" min="0" aria-label="Estimated duration amount" value={item.schedule?.estimatedDuration ? estimate.amount : ''} onChange={(event) => patchSchedule({ estimatedDuration: event.target.value ? toIsoDuration(Math.max(0, Number(event.target.value) || 0), estimate.unit) : undefined })} placeholder="45" /><select className="duration-unit" aria-label="Estimated duration unit" value={estimate.unit} onChange={(event) => patchSchedule({ estimatedDuration: toIsoDuration(estimate.amount, event.target.value as FriendlyDurationUnit) })}><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="weeks">Weeks</option></select></div><small>How much time you expect this item to take.</small></label></div></details>
         <ItemSection sectionKey="status" title="Status" iconPath="state" filledMark={sectionMark(item.state !== 'open')}><Field label="Item status" hint="Status normally changes through completion, cancellation, auto-renew or archiving."><Select aria-label="Item status" value={item.state} onChange={(event) => { const state = event.target.value as UniversalItem['state']; patchItem({ state, closure: state === 'open' ? undefined : { at: item.closure?.at ?? now.toISOString(), actor: item.closure?.actor ?? 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' } }); }}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state} value={state}>{stateNames[state as UniversalItem['state']]}</option>)}</Select></Field>{(item.state === 'done' || item.state === 'cancelled') && <label>Actually {item.state === 'done' ? 'completed' : 'cancelled'} at {dateField(`Actually ${item.state === 'done' ? 'completed' : 'cancelled'} at`, item.closure?.at, (value) => { if (value) patchItem({ closure: { at: value, actor: item.closure?.actor ?? 'user', reason: item.state === 'cancelled' ? 'cancelled' : 'manual' } }); else patchItem({ closure: undefined }); }, 'Defaults to now. Change this when you are recording the item after it happened. For a completion-anchored series, the next cycle uses this time when this cycle is first closed.')}</label>}</ItemSection>
 
         <details><summary><FieldIconLabel path="relations" label="Relations & links" /> {sectionMark(item.relations.length > 0 || item.attachments.length > 0 || parentItems.length > 0)}</summary><div className="details-body">
