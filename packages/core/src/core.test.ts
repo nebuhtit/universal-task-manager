@@ -557,6 +557,15 @@ describe('interoperability', () => {
     expect(validateWorkspace(migrated).valid).toBe(true);
   });
 
+  it('adds a stable View order to workspaces created before View drag-and-drop', () => {
+    const old = createWorkspace('Legacy View order');
+    const expected = Object.keys(old.views);
+    delete (old as Partial<typeof old>).viewOrder;
+    const migrated = migrateWorkspace(old).value;
+    expect(migrated.viewOrder).toEqual(expected);
+    expect(validateWorkspace(migrated).valid).toBe(true);
+  });
+
   it('splits legacy PARA lists into independent Area and Project fields', () => {
     const old = createWorkspace('Legacy PARA');
     const areaItem = createItem('Area item'); areaItem.list = 'Work'; old.items[areaItem.id] = areaItem;

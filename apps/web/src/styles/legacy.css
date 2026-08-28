@@ -430,11 +430,13 @@ label.check input { width: 18px; height: 18px; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
 .view-section { border: 0; border-radius: 0; padding: 0; background: transparent; }
 .view-section > .view-section-summary { position: relative; display: block; width: 100%; min-width: 0; overflow: hidden; padding: 14px 0 8px; }
-.view-section-summary > div:first-child { width: 100%; min-width: 0; overflow: hidden; padding-inline: 74px; text-align: center; }
+.view-section-summary > .view-section-title { width: 100%; min-width: 0; overflow: hidden; padding-inline: 74px; text-align: center; }
 .view-section-summary h2 { max-width: 100%; margin: 5px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section.is-collapsed .view-section-summary h2 { color: var(--muted); font-weight: 400; opacity: .62; }
 .view-section-actions { position: absolute; inset-inline-end: 0; top: 14px; display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
+.view-section-reorder { position: absolute; inset-inline-start: 0; top: 14px; z-index: 1; }
+.view-section-reorder .ui-reorder-handle { min-height: 30px; }
 .view-section-actions .secondary { white-space: nowrap; }
 .view-settings-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); }
 .view-collapse-button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; padding: 0; background: transparent; color: var(--muted); font-size: 16px; font-weight: 400; cursor: pointer; }
@@ -627,7 +629,7 @@ tbody tr:hover { background: var(--soft); }
   .views-page { padding-top: 0; padding-inline: var(--space-1); }
   .view-section { padding-inline: var(--space-1); }
   .view-section > .view-section-summary { padding: 8px 0 5px; }
-  .view-section-summary > div:first-child { padding-inline: 66px; }
+  .view-section-summary > .view-section-title { padding-inline: 66px; }
   .view-section-summary h2 { margin: 3px 0 2px; font-size: 17px; }
   .view-section-actions { top: 8px; gap: 3px; }
   .view-section-actions .secondary { padding: 7px 9px; font-size: 11px; }

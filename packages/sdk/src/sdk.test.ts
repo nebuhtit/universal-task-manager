@@ -2,6 +2,7 @@ import * as Automerge from '@automerge/automerge';
 import { describe, expect, it } from 'vitest';
 import { createId, createItem, createWorkspace } from '@utm/core';
 import { createAutomergeDocument, exportContainer, merge, toJSON, unlock, validateContainer } from './container.js';
+import { encryptBytes, encryptWithKey, randomKey } from './crypto.js';
 import { decryptWorkspaceFile } from './storage.js';
 
 const password = 'correct horse battery staple';
@@ -25,6 +26,22 @@ describe('encrypted .utmb container', () => {
     expect(readable.source.magic).toBe('UTM-ENCRYPTED');
     expect(readable.readme.importantFields.extensions).toContain('Lossless');
     expect(readable.workspace.items[item.id]?.title).toBe('Human-readable task');
+  });
+
+  it.each([
+    ['utm:workspace-key:v1', 'utm:local:workspace:v1'],
+    ['utm:workspace-key', 'utm:local:block:v1'],
+    ['utm:local:key:v1', 'utm:workspace:v1'],
+  ])('decrypts local recovery variants inside .utmb (%s / %s)', async (keyAad, blockAad) => {
+    const workspace = createWorkspace('Local recovery');
+    const item = createItem('Recovered local item'); workspace.items[item.id] = item;
+    const dataKey = await randomKey();
+    const metadata = { version: 1, wrappedKey: await encryptBytes(dataKey, password, keyAad), createdAt: new Date().toISOString() };
+    const encrypted = await encryptWithKey(Automerge.save(createAutomergeDocument(workspace)), dataKey, blockAad);
+    const source = JSON.stringify({ magic: 'UTM-LOCAL-ENCRYPTED', version: 1, metadata, workspace: { version: 1, ...encrypted } });
+    const readable = await decryptWorkspaceFile(source, password);
+    expect(readable.source.magic).toBe('UTM-LOCAL-ENCRYPTED');
+    expect(readable.workspace.items[item.id]?.title).toBe('Recovered local item');
   });
 
   it('keeps computed fields and saved-view defaults through encrypted transfer', async () => {

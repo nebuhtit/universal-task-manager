@@ -30,7 +30,7 @@ const en = {
   Language: 'Язык', 'Build your own system': 'Создайте свою систему', 'Unlock your workspace': 'Разблокируйте пространство',
   'Workspace name': 'Название пространства', Password: 'Пароль', 'Confirm password': 'Подтвердите пароль', Unlock: 'Разблокировать',
   'Create encrypted workspace': 'Создать зашифрованное пространство', 'Working…': 'Выполняется…',
-  'Already have an encrypted workspace?': 'Уже есть зашифрованное пространство?', 'Import .utm': 'Импорт .utm',
+  'Already have an encrypted workspace?': 'Уже есть зашифрованное пространство?', 'Import .utm': 'Импорт .utmb',
   'Cannot unlock or need to clear this site\'s data?': 'Не получается войти или нужно очистить данные сайта?',
   'Save encrypted recovery copy + log': 'Сохранить зашифрованную копию и лог',
   'No password is required to save it. Workspace data remains encrypted; safe troubleshooting entries are included in the same file.': 'Для сохранения пароль не нужен. Данные пространства остаются зашифрованными, а безопасная диагностика входа включается в тот же файл.',

@@ -230,7 +230,7 @@ export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://universal-task-manager.dev/schema/workspace-1.18.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'migrationIssues', 'tombstones', 'calendarPreferences', 'pushPreferences'],
+  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'viewOrder', 'dashboards', 'automations', 'automationLog', 'migrationIssues', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
@@ -249,7 +249,7 @@ export const workspaceJsonSchema = {
       },
     },
     customFields: { type: 'object', additionalProperties: customFieldSchema },
-    views: { type: 'object', additionalProperties: viewJsonSchema }, dashboards: { type: 'object' }, automations: { type: 'object' },
+    views: { type: 'object', additionalProperties: viewJsonSchema }, viewOrder: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true }, dashboards: { type: 'object' }, automations: { type: 'object' },
     automationLog: { type: 'array' },
     migrationIssues: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'entityType', 'entityId', 'sourceVersion', 'code', 'disabledCapability', 'status', 'detectedAt'], properties: { id: { type: 'string', minLength: 1 }, entityType: { enum: ['workspace', 'item', 'view', 'automation'] }, entityId: { type: 'string', minLength: 1 }, sourceVersion: { type: 'string', minLength: 1 }, code: { type: 'string', minLength: 1 }, disabledCapability: { enum: ['recurrence', 'script', 'filter', 'automation', 'reminder', 'entity'] }, status: { enum: ['needs_repair', 'resolved'] }, detectedAt: { type: 'string', format: 'date-time' } } } },
     tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
@@ -484,6 +484,8 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.schemaVersion = SCHEMA_VERSION;
   const migratedItems = source.items as Record<string, UniversalItem>;
   const migratedViews = source.views as Record<string, SavedView>;
+  const requestedViewOrder = Array.isArray(source.viewOrder) ? source.viewOrder.filter((id): id is string => typeof id === 'string' && Boolean(migratedViews[id])) : [];
+  source.viewOrder = [...new Set([...requestedViewOrder, ...Object.keys(migratedViews)])];
   const rawListDefinitions = source.listDefinitions && typeof source.listDefinitions === 'object' && !Array.isArray(source.listDefinitions)
     ? source.listDefinitions as Record<string, unknown>
     : {};

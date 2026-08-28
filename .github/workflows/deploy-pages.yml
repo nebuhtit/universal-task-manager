@@ -28,6 +28,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Build referenced workspace packages before the web typecheck consumes
+      # their declaration files. The final build below still receives the
+      # release commit metadata used by the deployed version label.
+      - run: pnpm --filter @utm/core build && pnpm --filter @utm/sdk build
+      - run: pnpm typecheck
+      - run: pnpm test -- --run
       - run: pnpm build
         env:
           VITE_GITHUB_PAGES: 'true'

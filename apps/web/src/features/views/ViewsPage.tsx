@@ -28,6 +28,12 @@ import './views-editor.css';
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
+const orderedSavedViews = (workspace: WorkspaceDocument) => {
+  const listed = workspace.viewOrder ?? [];
+  const known = new Set(Object.keys(workspace.views));
+  return [...listed.filter((id) => known.has(id)), ...Object.keys(workspace.views).filter((id) => !listed.includes(id))]
+    .map((id) => workspace.views[id]!).filter((view) => !isViewTemplate(view));
+};
 
 const viewAccentOptions = [
   { value: '#d9485f', label: 'Coral' }, { value: '#c27a00', label: 'Amber' }, { value: '#087f73', label: 'Teal' },
@@ -319,14 +325,23 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     } catch (reason) { setError(`Template was not saved: ${reason instanceof Error ? reason.message : String(reason)}`); }
   };
 
-  const views = Object.values(workspace.views).filter((view) => !isViewTemplate(view));
+  const views = orderedSavedViews(workspace);
   const isExpanded = (view: SavedView) => viewExpansion[view.id] ?? readUiBoolean(`view:${view.id}`, true);
-  const renderView = (view: SavedView) => <div className="saved-view-slot" key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set(Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id))); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebratingIds={celebratingIds} showTechnicalSummary={false} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
+  const renderView = (view: SavedView, reorderHandle?: ReactNode) => <div className="saved-view-slot" key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set(Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id))); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebratingIds={celebratingIds} showTechnicalSummary={false} reorderHandle={reorderHandle} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
   const expandedViews = views.filter(isExpanded);
   const collapsedViews = views.filter((view) => !isExpanded(view));
+  const collapsedViewReorder = useReorderList(collapsedViews, (next) => {
+    const movedIds = new Set(collapsedViews.map((view) => view.id));
+    commit('Reorder collapsed Views', (draft) => {
+      const current = [...(draft.viewOrder ?? []), ...Object.keys(draft.views).filter((id) => !(draft.viewOrder ?? []).includes(id))];
+      const replacement = next.map((view) => view.id);
+      let index = 0;
+      draft.viewOrder = current.map((id) => movedIds.has(id) ? replacement[index++]! : id);
+    });
+  });
 
   return <section className="page-section views-page">
-    <div className="views-stack"><div className="expanded-views-stack">{expandedViews.map(renderView)}</div>{collapsedViews.length > 0 && <div className="collapsed-views-stack">{collapsedViews.map(renderView)}</div>}</div>
+    <div className="views-stack"><div className="expanded-views-stack">{expandedViews.map(renderView)}</div>{collapsedViews.length > 0 && <div className="collapsed-views-stack" ref={collapsedViewReorder.container}>{collapsedViews.map((view, index) => <div key={view.id} {...collapsedViewReorder.rowProps(index)}>{renderView(view, collapsedViewReorder.handle(index, `view ${view.name}`))}</div>)}</div>}</div>
     {editing && <ResponsiveDialog
       open
       onOpenChange={(open) => { if (!open) { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'dialog-dismiss' }) }); setEditing(null); } }}

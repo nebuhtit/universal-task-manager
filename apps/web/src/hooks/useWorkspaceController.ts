@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import * as Automerge from '@automerge/automerge';
 import {
   backfillItemCreationVersions, collectScheduledEvents, consolidateHabitOccurrences, createId, effectiveWorkspaceNow,
-  migrateWorkspace, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents,
+  migrateWorkspace, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, validateWorkspace,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import { localWorkspaceMode, lock, saveLocalWorkspace, saveMigratedLocalWorkspace, unlockUnencryptedLocalWorkspace, type UnlockedWorkspace } from '@utm/sdk';
@@ -86,6 +86,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
     const sourceVersion = String((unlocked.document as WorkspaceDocument).schemaVersion ?? '1.0.0');
     const now = effectiveWorkspaceNow(unlocked.document as WorkspaceDocument); const migration = migrateWorkspace(clean(unlocked.document as WorkspaceDocument));
+    const integrity = validateWorkspace(migration.value);
+    if (!integrity.valid) throw new Error(`Workspace integrity check failed (${integrity.errors.length} issues)`);
     const migratedDocument = Automerge.change(unlocked.document, 'Migrate workspace metadata and reminders', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
       if (targetWorkspace.schemaVersion !== migration.value.schemaVersion || migration.warnings.length > 0 || !targetWorkspace.calendarPreferences?.language) { const target = targetWorkspace as unknown as Record<string, unknown>; Object.keys(target).forEach((key) => delete target[key]); Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); }); }

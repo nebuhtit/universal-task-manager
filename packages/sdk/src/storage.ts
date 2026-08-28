@@ -31,9 +31,8 @@ const BLOCK_KEY = 'workspace';
 const SNAPSHOT_KEYS = ['workspace-snapshot-1', 'workspace-snapshot-2'] as const;
 const MIRROR_KEYS = ['workspace-verified-mirror-1', 'workspace-verified-mirror-2'] as const;
 const BLOCK_AAD = 'utm:local:workspace:v1';
-// A few early recovery builds used these labels while the recovery export was
-// being introduced. Keep read compatibility so a copied .utmlocal never
-// becomes undecryptable merely because the app was updated.
+// Previous encrypted container revisions used these authenticated labels.
+// They remain decoder variants inside the single public .utmb format.
 const LEGACY_BLOCK_AAD = ['utm:local:block:v1', 'utm:workspace:v1'] as const;
 const LEGACY_KEY_AAD = ['utm:workspace-key', 'utm:local:key:v1'] as const;
 
@@ -67,6 +66,7 @@ async function verifyEncryptedDocument(block: EncryptedLocalBlock, dataKey: Uint
 export interface LocalWorkspaceSnapshotInfo { id: string; createdAt: string; schemaVersion: string; reason: string }
 interface LocalWorkspaceSnapshot extends LocalWorkspaceSnapshotInfo { metadata: LocalMetadata; workspace: LocalBlock }
 interface VerifiedWorkspaceMirror { savedAt: string; metadata: EncryptedLocalMetadata; workspace: EncryptedLocalBlock }
+export interface LocalProtectionStatus { verifiedMirrors: number; latestVerifiedAt?: string }
 
 const isPlaintextBlock = (block: LocalBlock): block is PlaintextLocalBlock => block.mode === 'plaintext';
 
@@ -129,6 +129,12 @@ async function saveVerifiedMirror(metadata: EncryptedLocalMetadata, workspace: E
 
 async function latestVerifiedMirror(): Promise<VerifiedWorkspaceMirror | undefined> {
   return await getRecord<VerifiedWorkspaceMirror>(MIRROR_KEYS[0]) ?? await getRecord<VerifiedWorkspaceMirror>(MIRROR_KEYS[1]);
+}
+
+export async function getLocalProtectionStatus(): Promise<LocalProtectionStatus> {
+  const mirrors = await Promise.all(MIRROR_KEYS.map((key) => getRecord<VerifiedWorkspaceMirror>(key)));
+  const available = mirrors.filter((mirror): mirror is VerifiedWorkspaceMirror => Boolean(mirror));
+  return { verifiedMirrors: available.length, ...(available[0]?.savedAt ? { latestVerifiedAt: available[0].savedAt } : {}) };
 }
 
 export async function hasLocalWorkspace(): Promise<boolean> { return Boolean(await getRecord<LocalMetadata>(META_KEY) ?? await latestVerifiedMirror()); }
@@ -317,7 +323,7 @@ export async function decryptWorkspaceFile(source: string, password: string): Pr
       readme: WORKSPACE_FORMAT_GUIDE, workspace: structuredClone(incoming.payload.snapshot),
     };
   }
-  throw new Error('Choose an encrypted UTM backup (.utmb, .utm or .utmlocal)');
+  throw new Error('Choose an encrypted UTM backup (.utmb)');
 }
 
 /**
