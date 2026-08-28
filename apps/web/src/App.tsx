@@ -191,6 +191,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [decryptPassword, setDecryptPassword] = useState('');
   const [decryptError, setDecryptError] = useState('');
   const [decryptBusy, setDecryptBusy] = useState(false);
+  const [online, setOnline] = useState(() => navigator.onLine);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
     if (saved && interfaceLanguages.some((option) => option.value === saved)) return saved;
@@ -208,6 +209,11 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     const refresh = () => setDiagnosticCount(readDiagnostics().length);
     window.addEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
+  }, []);
+  useEffect(() => {
+    const onOnline = () => setOnline(true); const onOffline = () => setOnline(false);
+    window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
   }, []);
 
   const submit = async (event: FormEvent) => {
@@ -285,6 +291,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       <p className="eyebrow">UNIVERSAL TASK MANAGER</p>
       <span className="auth-beta" aria-label="Beta version">BETA</span>
       <h1>{exists ? 'Unlock your workspace' : 'Build your own system'}</h1>
+      {!online && <p className="offline-notice" role="status"><strong>No internet connection.</strong> Offline mode is active. You can still download the encrypted local database and troubleshooting log below; online hosting features are unavailable.</p>}
       <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
       <label className="language-picker">Language<select value={language} onChange={(event) => setLanguage(event.target.value as WorkspaceLanguage)}>{interfaceLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <form onSubmit={submit}>
