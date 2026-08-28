@@ -105,8 +105,14 @@ const downloadText = (content: string, filename: string, type = 'application/jso
 const downloadDiagnosticsFile = () => downloadText(JSON.stringify(readDiagnostics(), null, 2), 'utm-diagnostics.json');
 const downloadLockedRecoveryCopy = async (source?: string, filenamePrefix = 'universal-locked-recovery') => {
   const recovery = JSON.parse(source ?? await exportEncryptedLocalBackup()) as Record<string, unknown>;
+  if (recovery.magic !== 'UTM-LOCAL-ENCRYPTED' || recovery.version !== 1 || !recovery.metadata || !recovery.workspace) {
+    throw new Error('Recovery copy failed structural validation and was not downloaded');
+  }
   recovery.diagnostics = readDiagnostics();
-  downloadText(JSON.stringify(recovery), `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.utmlocal`, 'application/octet-stream');
+  // Keep the release and schema visible in Files so several recovery copies
+  // cannot be confused during an incident.
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', 'Z');
+  downloadText(JSON.stringify(recovery), `${filenamePrefix}-utm-v${APP_VERSION}-schema-${SCHEMA_VERSION}-${stamp}.utmlocal`, 'application/octet-stream');
 };
 const downloadBlob = (content: BlobPart, filename: string, type: string) => {
   const url = URL.createObjectURL(new Blob([content], { type }));
