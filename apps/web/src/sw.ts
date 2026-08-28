@@ -9,6 +9,16 @@ self.skipWaiting();
 clientsClaim();
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
+// Keep the app shell available when GitHub (or the LAN host) is temporarily
+// unreachable. IndexedDB remains local, so the cached shell can still expose
+// the sign-in Help and export the encrypted workspace recovery copy.
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith((async () => {
+    try { return await fetch(event.request); }
+    catch { return (await caches.match(new URL('index.html', self.registration.scope).href)) || Response.error(); }
+  })());
+});
 
 type PushPayload = { title?: string; body?: string; url?: string; tag?: string; urgency?: 'normal' | 'urgent' | 'critical' };
 
