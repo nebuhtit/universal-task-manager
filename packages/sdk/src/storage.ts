@@ -30,6 +30,20 @@ const META_KEY = 'metadata';
 const BLOCK_KEY = 'workspace';
 const SNAPSHOT_KEYS = ['workspace-snapshot-1', 'workspace-snapshot-2'] as const;
 const BLOCK_AAD = 'utm:local:workspace:v1';
+// A few early recovery builds used these labels while the recovery export was
+// being introduced. Keep read compatibility so a copied .utmlocal never
+// becomes undecryptable merely because the app was updated.
+const LEGACY_BLOCK_AAD = ['utm:local:block:v1', 'utm:workspace:v1'] as const;
+
+async function decryptLocalBlock(block: EncryptedLocalBlock, dataKey: Uint8Array): Promise<Uint8Array> {
+  try { return await decryptWithKey(block, dataKey, BLOCK_AAD); }
+  catch (primary) {
+    for (const aad of LEGACY_BLOCK_AAD) {
+      try { return await decryptWithKey(block, dataKey, aad); } catch { /* try next compatibility label */ }
+    }
+    throw primary;
+  }
+}
 
 export interface LocalWorkspaceSnapshotInfo { id: string; createdAt: string; schemaVersion: string; reason: string }
 interface LocalWorkspaceSnapshot extends LocalWorkspaceSnapshotInfo { metadata: LocalMetadata; workspace: LocalBlock }
@@ -227,7 +241,7 @@ export async function decryptWorkspaceFile(source: string, password: string): Pr
     if (parsed.version !== 1 || !metadata?.wrappedKey || !block?.nonce || !block.ciphertext) throw new Error('Encrypted recovery copy is incomplete');
     const dataKey = await unwrapKey(metadata.wrappedKey, password);
     try {
-      const binary = await decryptWithKey(block, dataKey, BLOCK_AAD);
+      const binary = await decryptLocalBlock(block, dataKey);
       let document: Automerge.Doc<WorkspaceDocument>;
       try { document = Automerge.load<WorkspaceDocument>(binary); }
       catch { throw new Error('Decrypted recovery copy is damaged'); }
