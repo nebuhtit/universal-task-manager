@@ -62,6 +62,12 @@ export const readDiagnostics = (): DiagnosticEntry[] => {
 export const recordDiagnostic = (entry: Omit<DiagnosticEntry, 'at'>): void => {
   try {
     if (!diagnosticsEnabled()) return;
+    // The troubleshooting log is for incidents, not an audit trail of normal
+    // use. Keep failures and unhandled errors, plus objectively slow work that
+    // can point to a future failure; discard successful routine UI activity.
+    const isProblem = entry.kind === 'error' || entry.kind === 'unhandledrejection' || entry.outcome === 'failed';
+    const isSlow = typeof entry.durationMs === 'number' && entry.durationMs >= 1_500;
+    if (!isProblem && !isSlow) return;
     const safeEntry: DiagnosticEntry = {
       ...(entry.operation ? { operation: entry.operation.slice(0, 160) } : {}),
       ...(entry.outcome ? { outcome: entry.outcome } : {}),

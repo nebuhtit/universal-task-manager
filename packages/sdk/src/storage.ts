@@ -134,6 +134,7 @@ export async function createLocalWorkspace(password: string, name = 'My workspac
   workspace.calendarPreferences.language = language;
   const document = createAutomergeDocument(workspace);
   const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
+  await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey, createdAt: new Date().toISOString() };
   await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
   return { document, dataKey, storageMode: 'encrypted' };
@@ -246,6 +247,7 @@ export async function importAsLocalWorkspace(source: string, password: string): 
   const dataKey = await randomKey();
   const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
   const encrypted = await encryptWithKey(Automerge.save(incoming.document), dataKey, BLOCK_AAD);
+  await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
   return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
@@ -298,6 +300,7 @@ export async function restoreLocalWorkspace(source: string, password: string): P
   const dataKey = await randomKey();
   const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
   const encrypted = await encryptWithKey(Automerge.save(incoming.document), dataKey, BLOCK_AAD);
+  await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
   return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
