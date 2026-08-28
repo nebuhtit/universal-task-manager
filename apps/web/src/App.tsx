@@ -213,7 +213,13 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   useEffect(() => {
     const onOnline = () => setOnline(true); const onOffline = () => setOnline(false);
     window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline);
-    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+    // Safari can keep navigator.onLine=true after a PWA has been fully closed.
+    // This request is deliberately not precached; any HTTP response proves the
+    // host is reachable, while a network failure exposes offline recovery mode.
+    const probe = () => void fetch('/__utm-build-info', { cache: 'no-store' }).then(() => setOnline(true)).catch(() => setOnline(false));
+    probe();
+    const timer = window.setInterval(probe, 15_000);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); window.clearInterval(timer); };
   }, []);
 
   const submit = async (event: FormEvent) => {
@@ -317,7 +323,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <p><strong>iPhone or iPad:</strong> open this page in Safari, tap Share, then choose <em>Add to Home Screen</em>.</p>
           <p><strong>Android:</strong> open it in Chrome, tap the menu, then choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
           <p>Each device has its own encrypted workspace. Use an encrypted <code>.utmb</code> backup file to move or merge your data between devices.</p><p><strong>Important:</strong> if you remove Universal from the Home Screen, clear website data, or delete the browser profile, the local workspace may be lost. Export an encrypted <code>.utmb</code> backup regularly and keep it in Files, iCloud Drive, or another trusted cloud.</p>
-          <details className="notification-help"><summary>Recovery if the hosting site is unavailable</summary><div>
+          <details className="notification-help"><summary>If the hosting site is unavailable</summary><div>
             <p>Your data is stored locally in the browser, not on GitHub or another host. To make a portable copy, open <em>Settings → Encrypted Transfer → Export encrypted .utmb</em>; in the Files/Save dialog choose a folder and confirm. The locked sign-in screen also has <em>Save encrypted recovery copy + log</em>, which creates a <code>.utmlocal</code> copy without unlocking.</p>
             <p><strong>iPhone/iPad:</strong> after export open the <em>Files</em> app and check <em>Downloads</em>, <em>On My iPhone/iPad</em> or <em>iCloud Drive</em> (the location you selected in the save dialog). Swipe down in that folder and search for <code>.utmb</code>, <code>.utmlocal</code> or <code>universal-</code>. If the site is unavailable, open any working copy of Universal, tap <em>Choose backup file</em> on the sign-in screen, select the file in Files and enter the workspace password.</p>
             <p><strong>Android:</strong> exports normally appear in <em>Files → Downloads</em> (or the folder selected by the browser). Use the Files search for <code>.utmb</code>, <code>.utmlocal</code> or <code>universal-</code>, then choose the file from the sign-in screen of any working Universal copy.</p>
