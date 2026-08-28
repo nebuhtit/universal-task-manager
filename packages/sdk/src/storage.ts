@@ -29,6 +29,7 @@ const STORE = 'encrypted-records';
 const META_KEY = 'metadata';
 const BLOCK_KEY = 'workspace';
 const SNAPSHOT_KEYS = ['workspace-snapshot-1', 'workspace-snapshot-2'] as const;
+const MIRROR_KEYS = ['workspace-verified-mirror-1', 'workspace-verified-mirror-2'] as const;
 const BLOCK_AAD = 'utm:local:workspace:v1';
 // A few early recovery builds used these labels while the recovery export was
 // being introduced. Keep read compatibility so a copied .utmlocal never
@@ -65,6 +66,7 @@ async function verifyEncryptedDocument(block: EncryptedLocalBlock, dataKey: Uint
 
 export interface LocalWorkspaceSnapshotInfo { id: string; createdAt: string; schemaVersion: string; reason: string }
 interface LocalWorkspaceSnapshot extends LocalWorkspaceSnapshotInfo { metadata: LocalMetadata; workspace: LocalBlock }
+interface VerifiedWorkspaceMirror { savedAt: string; metadata: EncryptedLocalMetadata; workspace: EncryptedLocalBlock }
 
 const isPlaintextBlock = (block: LocalBlock): block is PlaintextLocalBlock => block.mode === 'plaintext';
 
@@ -117,11 +119,23 @@ async function transactRecords(records: Array<[string, unknown]>, deleteKeys: st
   } finally { db.close(); }
 }
 
-export async function hasLocalWorkspace(): Promise<boolean> { return Boolean(await getRecord<LocalMetadata>(META_KEY)); }
+async function saveVerifiedMirror(metadata: EncryptedLocalMetadata, workspace: EncryptedLocalBlock): Promise<void> {
+  const previous = await getRecord<VerifiedWorkspaceMirror>(MIRROR_KEYS[0]);
+  await putRecords([
+    [MIRROR_KEYS[0], { savedAt: new Date().toISOString(), metadata, workspace } satisfies VerifiedWorkspaceMirror],
+    ...(previous ? [[MIRROR_KEYS[1], previous] as [string, unknown]] : []),
+  ]);
+}
+
+async function latestVerifiedMirror(): Promise<VerifiedWorkspaceMirror | undefined> {
+  return await getRecord<VerifiedWorkspaceMirror>(MIRROR_KEYS[0]) ?? await getRecord<VerifiedWorkspaceMirror>(MIRROR_KEYS[1]);
+}
+
+export async function hasLocalWorkspace(): Promise<boolean> { return Boolean(await getRecord<LocalMetadata>(META_KEY) ?? await latestVerifiedMirror()); }
 
 /** A plaintext workspace is deliberately opt-in and meant only for local testing. */
 export async function localWorkspaceMode(): Promise<'encrypted' | 'plaintext' | null> {
-  const metadata = await getRecord<LocalMetadata>(META_KEY);
+  const metadata = await getRecord<LocalMetadata>(META_KEY) ?? (await latestVerifiedMirror())?.metadata;
   if (!metadata) return null;
   return metadata.mode === 'plaintext' ? 'plaintext' : 'encrypted';
 }
@@ -136,7 +150,9 @@ export async function createLocalWorkspace(password: string, name = 'My workspac
   const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
   await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey, createdAt: new Date().toISOString() };
-  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
+  const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
+  await putRecords([[META_KEY, metadata], [BLOCK_KEY, block]]);
+  await saveVerifiedMirror(metadata, block);
   return { document, dataKey, storageMode: 'encrypted' };
 }
 
@@ -153,12 +169,21 @@ export async function createUnencryptedLocalWorkspace(name = 'Test workspace', l
 export async function unlockLocalWorkspace(password: string): Promise<UnlockedWorkspace> {
   const metadata = await getRecord<LocalMetadata>(META_KEY);
   const block = await getRecord<LocalBlock>(BLOCK_KEY);
-  if (!metadata || !block) throw new Error('No local workspace exists');
-  if (metadata.mode === 'plaintext' || isPlaintextBlock(block)) throw new Error('This local workspace is configured without encryption');
-  const dataKey = await unwrapLocalKey(metadata.wrappedKey, password);
-  const binary = await decryptWithKey(block, dataKey, BLOCK_AAD);
-  try { return { document: Automerge.load<WorkspaceDocument>(binary), dataKey, storageMode: 'encrypted' }; }
-  catch { throw new Error('Decrypted local workspace is damaged'); }
+  if (metadata?.mode === 'plaintext' || (block && isPlaintextBlock(block))) throw new Error('This local workspace is configured without encryption');
+  const mirror = await latestVerifiedMirror();
+  const candidates = [metadata && block && !isPlaintextBlock(block) ? { metadata, workspace: block, mirrored: false } : undefined, mirror ? { ...mirror, mirrored: true } : undefined].filter(Boolean) as Array<{ metadata: EncryptedLocalMetadata; workspace: EncryptedLocalBlock; mirrored: boolean }>;
+  if (!candidates.length) throw new Error('No local workspace exists');
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    let dataKey: Uint8Array | undefined;
+    try {
+      dataKey = await unwrapLocalKey(candidate.metadata.wrappedKey, password);
+      const document = Automerge.load<WorkspaceDocument>(await decryptLocalBlock(candidate.workspace, dataKey));
+      if (candidate.mirrored) await putRecords([[META_KEY, candidate.metadata], [BLOCK_KEY, candidate.workspace]]);
+      return { document, dataKey, storageMode: 'encrypted' };
+    } catch (reason) { if (dataKey) dataKey.fill(0); lastError = reason; }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Encrypted local workspace could not be opened');
 }
 
 export async function unlockUnencryptedLocalWorkspace(): Promise<UnlockedWorkspace> {
@@ -176,8 +201,12 @@ export async function saveLocalWorkspace(document: Automerge.Doc<WorkspaceDocume
     return;
   }
   const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
-  await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
-  await putRecords([[BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
+  const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
+  await verifyEncryptedDocument(block, dataKey);
+  const metadata = await getRecord<EncryptedLocalMetadata>(META_KEY);
+  if (!metadata) throw new Error('Encrypted workspace metadata is missing');
+  await putRecords([[BLOCK_KEY, block]]);
+  await saveVerifiedMirror(metadata, block);
 }
 
 /** Atomically stores the current encrypted block as a rollback point and writes the migrated document. */
@@ -196,6 +225,7 @@ export async function saveMigratedLocalWorkspace(document: Automerge.Doc<Workspa
     [SNAPSHOT_KEYS[0], snapshot],
     ...(previousSnapshot ? [[SNAPSHOT_KEYS[1], { ...previousSnapshot, id: SNAPSHOT_KEYS[1] }] as [string, unknown]] : []),
   ], previousSnapshot ? [] : [SNAPSHOT_KEYS[1]]);
+  if (metadata.mode !== 'plaintext' && !isPlaintextBlock(nextBlock)) await saveVerifiedMirror(metadata, nextBlock);
 }
 
 export async function listLocalWorkspaceSnapshots(): Promise<LocalWorkspaceSnapshotInfo[]> {
@@ -224,6 +254,7 @@ export async function restoreLocalWorkspaceSnapshot(id: string, password: string
   const previousSnapshot = await getRecord<LocalWorkspaceSnapshot>(SNAPSHOT_KEYS[0]);
   const current: LocalWorkspaceSnapshot = { id: SNAPSHOT_KEYS[0], createdAt: new Date().toISOString(), schemaVersion: String((document as WorkspaceDocument).schemaVersion ?? 'unknown'), reason: 'before snapshot restore', metadata: currentMetadata, workspace: currentBlock };
   await transactRecords([[META_KEY, snapshot.metadata], [BLOCK_KEY, snapshot.workspace], [SNAPSHOT_KEYS[0], current], ...(previousSnapshot ? [[SNAPSHOT_KEYS[1], { ...previousSnapshot, id: SNAPSHOT_KEYS[1] }] as [string, unknown]] : [])]);
+  await saveVerifiedMirror(snapshot.metadata, snapshot.workspace);
   return { document, dataKey, storageMode: 'encrypted' };
 }
 
@@ -241,6 +272,7 @@ export async function importAsLocalWorkspace(source: string, password: string): 
     try { document = Automerge.load<WorkspaceDocument>(binary); }
     catch { throw new Error('Decrypted recovery copy is damaged'); }
     await putRecords([[META_KEY, metadata], [BLOCK_KEY, block]]);
+    await saveVerifiedMirror(metadata, block);
     return { document, dataKey, storageMode: 'encrypted' };
   }
   const incoming = await unlock(source, password);
@@ -248,7 +280,9 @@ export async function importAsLocalWorkspace(source: string, password: string): 
   const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
   const encrypted = await encryptWithKey(Automerge.save(incoming.document), dataKey, BLOCK_AAD);
   await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
-  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
+  const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
+  await putRecords([[META_KEY, metadata], [BLOCK_KEY, block]]);
+  await saveVerifiedMirror(metadata, block);
   return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
 
@@ -301,7 +335,9 @@ export async function restoreLocalWorkspace(source: string, password: string): P
   const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
   const encrypted = await encryptWithKey(Automerge.save(incoming.document), dataKey, BLOCK_AAD);
   await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
-  await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
+  const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
+  await putRecords([[META_KEY, metadata], [BLOCK_KEY, block]]);
+  await saveVerifiedMirror(metadata, block);
   return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
 
@@ -341,8 +377,9 @@ export async function inspectEncryptedLocalRecords(): Promise<{ metadata: unknow
 
 /** Export the encrypted browser records without decrypting them. Useful for recovery before unlock. */
 export async function exportEncryptedLocalBackup(): Promise<string> {
-  const metadata = await getRecord<LocalMetadata>(META_KEY);
-  const workspace = await getRecord<LocalBlock>(BLOCK_KEY);
+  const mirror = await latestVerifiedMirror();
+  const metadata = await getRecord<LocalMetadata>(META_KEY) ?? mirror?.metadata;
+  const workspace = await getRecord<LocalBlock>(BLOCK_KEY) ?? mirror?.workspace;
   if (!metadata || !workspace || metadata.mode === 'plaintext' || isPlaintextBlock(workspace)) {
     throw new Error('No encrypted local workspace exists');
   }
