@@ -56,6 +56,13 @@ async function decryptLocalBlock(block: EncryptedLocalBlock, dataKey: Uint8Array
   }
 }
 
+/** Verify the exact bytes that will be persisted can be authenticated and loaded. */
+async function verifyEncryptedDocument(block: EncryptedLocalBlock, dataKey: Uint8Array): Promise<void> {
+  const binary = await decryptLocalBlock(block, dataKey);
+  try { Automerge.load<WorkspaceDocument>(binary); }
+  catch { throw new Error('Encrypted workspace round-trip verification failed'); }
+}
+
 export interface LocalWorkspaceSnapshotInfo { id: string; createdAt: string; schemaVersion: string; reason: string }
 interface LocalWorkspaceSnapshot extends LocalWorkspaceSnapshotInfo { metadata: LocalMetadata; workspace: LocalBlock }
 
@@ -168,6 +175,7 @@ export async function saveLocalWorkspace(document: Automerge.Doc<WorkspaceDocume
     return;
   }
   const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
+  await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   await putRecords([[BLOCK_KEY, { version: 1, ...encrypted } satisfies EncryptedLocalBlock]]);
 }
 
@@ -181,6 +189,7 @@ export async function saveMigratedLocalWorkspace(document: Automerge.Doc<Workspa
   const nextBlock: LocalBlock = metadata.mode === 'plaintext'
     ? { version: 1, mode: 'plaintext', binary: Automerge.save(document) }
     : { version: 1, ...await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD) };
+  if (!isPlaintextBlock(nextBlock)) await verifyEncryptedDocument(nextBlock, dataKey);
   await transactRecords([
     [BLOCK_KEY, nextBlock],
     [SNAPSHOT_KEYS[0], snapshot],
