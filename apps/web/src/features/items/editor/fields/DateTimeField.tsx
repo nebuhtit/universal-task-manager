@@ -32,6 +32,6 @@ export function DateTimeField({ label, value, language, onChange, help, onFocus,
       >Clear</Button>
     </div>
     {value && <small className="formatted-date">{formatViewDate(value, true, language)}</small>}
-    {help && <small>{help}</small>}
+    {help && <small className="ui-field-hint">{help}</small>}
   </div>;
 }

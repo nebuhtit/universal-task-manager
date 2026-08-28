@@ -7,7 +7,7 @@ export function ViewEditorSection({ sectionKey, title, children, className }: {
   children: ReactNode;
   className?: string | undefined;
 }) {
-  return <Disclosure uiKey={`view-editor:${sectionKey}`} summary={title} className={['view-editor-section', className].filter(Boolean).join(' ')}>
+  return <Disclosure uiKey={`view-editor:${sectionKey}`} persist={false} summary={title} className={['view-editor-section', className].filter(Boolean).join(' ')}>
     {children}
   </Disclosure>;
 }

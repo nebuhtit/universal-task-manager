@@ -3,6 +3,7 @@ import {
   forwardRef,
   isValidElement,
   useId,
+  useState,
   type ButtonHTMLAttributes,
   type HTMLAttributes,
   type InputHTMLAttributes,
@@ -105,10 +106,16 @@ export interface DisclosureProps {
   summary: ReactNode;
   children: ReactNode;
   defaultOpen?: boolean;
+  persist?: boolean;
   className?: string;
 }
 
-export function Disclosure({ uiKey, summary, children, defaultOpen = false, className }: DisclosureProps) {
+export function Disclosure({ uiKey, summary, children, defaultOpen = false, persist = true, className }: DisclosureProps) {
+  const [transientOpen, setTransientOpen] = useState(defaultOpen);
+  if (!persist) return <details open={transientOpen} onToggle={(event) => setTransientOpen(event.currentTarget.open)} className={classes('ui-disclosure', className)}>
+    <summary className="ui-disclosure-summary">{summary}</summary>
+    <div className="ui-disclosure-content">{children}</div>
+  </details>;
   return <PersistedDetails uiKey={uiKey} defaultOpen={defaultOpen} className={classes('ui-disclosure', className)}>
     <summary className="ui-disclosure-summary">{summary}</summary>
     <div className="ui-disclosure-content">{children}</div>

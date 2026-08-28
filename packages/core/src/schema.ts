@@ -1,6 +1,7 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION } from './types.js';
+import { normalizedOrganizationPriorityOrder } from './organization.js';
 import type { PortablePackage, SavedView, UniversalItem, WorkspaceDocument } from './types.js';
 
 const scalar = { type: ['string', 'number', 'boolean', 'null'] } as const;
@@ -9,13 +10,13 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.9.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.17.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
   required: [
     'id', 'schemaVersion', 'createdWithAppId', 'createdWithAppName', 'createdWithVersion', 'revision', 'role', 'preset',
-    'title', 'bodyMarkdown', 'state', 'createdAt', 'updatedAt', 'contexts', 'tags', 'reminders', 'relations', 'attachments', 'custom',
+    'title', 'bodyMarkdown', 'state', 'createdAt', 'updatedAt', 'contexts', 'tags', 'areas', 'projects', 'reminders', 'relations', 'attachments', 'custom',
   ],
   properties: {
     id: { type: 'string', minLength: 1 },
@@ -92,7 +93,8 @@ export const itemJsonSchema = {
       },
     },
     priority: { type: 'integer', minimum: 0, maximum: 4 },
-    list: { type: 'string', minLength: 1 }, area: { type: 'string', minLength: 1 }, project: { type: 'string', minLength: 1 },
+    list: { type: 'string', minLength: 1 }, areas: stringArray, projects: stringArray,
+    area: { type: 'string', minLength: 1 }, project: { type: 'string', minLength: 1 },
     contexts: stringArray, tags: stringArray,
     reminders: {
       type: 'array', items: {
@@ -137,7 +139,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.9.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.17.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -180,12 +182,18 @@ const areaDefinitionSchema = {
 
 const projectDefinitionSchema = {
   ...areaDefinitionSchema,
-  properties: { ...areaDefinitionSchema.properties, area: { type: 'string', minLength: 1 } },
+  required: [...areaDefinitionSchema.required, 'areas'],
+  properties: { ...areaDefinitionSchema.properties, areas: stringArray, area: { type: 'string', minLength: 1 } },
+} as const;
+
+const organizationPriorityEntrySchema = {
+  type: 'object', additionalProperties: false, required: ['kind', 'name'],
+  properties: { kind: { enum: ['area', 'project', 'tag'] }, name: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] }, area: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
 } as const;
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.6.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.17.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -200,11 +208,12 @@ export const portablePackageJsonSchema = {
     projectDefinitions: { type: 'object', additionalProperties: projectDefinitionSchema },
     organizationPreferences: {
       type: 'object', additionalProperties: false,
-      required: ['areaOrder', 'projectOrder', 'tagOrder'],
+      required: ['areaOrder', 'projectOrder', 'tagOrder', 'priorityOrder'],
       properties: {
         areaOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         projectOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         tagOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        priorityOrder: { type: 'array', items: organizationPriorityEntrySchema },
       },
     },
     items: { type: 'array', items: itemJsonSchema }, views: { type: 'array', items: viewJsonSchema },
@@ -219,7 +228,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.10.1.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.17.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
@@ -231,11 +240,12 @@ export const workspaceJsonSchema = {
     projectDefinitions: { type: 'object', additionalProperties: projectDefinitionSchema },
     organizationPreferences: {
       type: 'object', additionalProperties: false,
-      required: ['areaOrder', 'projectOrder', 'tagOrder'],
+      required: ['areaOrder', 'projectOrder', 'tagOrder', 'priorityOrder'],
       properties: {
         areaOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         projectOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         tagOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        priorityOrder: { type: 'array', items: organizationPriorityEntrySchema },
       },
     },
     customFields: { type: 'object', additionalProperties: customFieldSchema },
@@ -243,7 +253,7 @@ export const workspaceJsonSchema = {
     automationLog: { type: 'array' }, tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
     calendarPreferences: {
       type: 'object', additionalProperties: false,
-      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'includeStates', 'diagnosticsEnabled'],
+      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'includeStates', 'diagnosticsEnabled', 'showExplanations'],
       properties: {
         timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
         workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
@@ -253,6 +263,7 @@ export const workspaceJsonSchema = {
         appearance: { type: 'object', additionalProperties: false, required: ['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound'], properties: { mode: { enum: ['system', 'light', 'dark', 'scheduled'] }, lightAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, darkAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, tickSound: { type: 'boolean' }, uiSound: { type: 'boolean' }, soundDefaultsVersion: { const: 1 } } },
         includeStates: { type: 'array', items: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] } },
         diagnosticsEnabled: { type: 'boolean' },
+        showExplanations: { type: 'boolean' },
         testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
         backupPreferences: { type: 'object', additionalProperties: false, required: ['reminderDays'], properties: { reminderDays: { type: 'integer', minimum: 0 }, lastBackupAt: { type: 'string', format: 'date-time' }, locationLabel: { type: 'string' } } },
       },
@@ -327,7 +338,7 @@ export function validateWorkspace(value: unknown): ValidationResult {
   const doc = value as WorkspaceDocument;
   for (const [key, item] of Object.entries(doc.items)) {
     if (item.id !== key) result.errors.push(`items.${key}.id must match its map key`);
-    if (item.role === 'series_template' && (!item.recurrence || !item.schedule?.startAt)) result.errors.push(`items.${key} recurring template requires recurrence and schedule.startAt`);
+    if (item.role === 'series_template' && (!item.recurrence || (!item.schedule?.startAt && !item.schedule?.dueAt))) result.errors.push(`items.${key} recurring template requires recurrence and schedule.startAt or schedule.dueAt`);
   }
   result.valid = result.errors.length === 0;
   return result;
@@ -355,6 +366,12 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   item.schemaVersion = SCHEMA_VERSION;
   item.createdWithAppId ??= APP_ID; item.createdWithAppName ??= APP_NAME; item.createdWithVersion ??= APP_VERSION;
   item.revision ??= 1; item.bodyMarkdown ??= ''; item.contexts ??= []; item.tags ??= []; item.reminders ??= []; item.relations ??= []; item.attachments ??= []; item.custom ??= {};
+  const stringValues = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean) : [];
+  item.areas = [...new Set([...stringValues(item.areas), ...(typeof item.area === 'string' && item.area.trim() ? [item.area.trim()] : [])])];
+  item.projects = [...new Set([...stringValues(item.projects), ...(typeof item.project === 'string' && item.project.trim() ? [item.project.trim()] : [])])];
+  if (typeof item.area === 'string' && item.area.trim()) warnings.push('Migrated legacy item Area to areas');
+  if (typeof item.project === 'string' && item.project.trim()) warnings.push('Migrated legacy item Project to projects');
+  delete item.area; delete item.project;
   if (!item.list && item.extensions && typeof item.extensions === 'object' && !Array.isArray(item.extensions)) {
     for (const legacy of Object.values(item.extensions as Record<string, unknown>)) {
       if (legacy && typeof legacy === 'object' && !Array.isArray(legacy) && typeof (legacy as Record<string, unknown>).list === 'string') {
@@ -441,8 +458,8 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   Object.values(migratedItems).forEach((item) => {
     if (!item.list) return;
     const kind = legacyKind(item.list);
-    if (kind === 'area' && !item.area) { item.area = item.list; delete item.list; }
-    else if (kind === 'project' && !item.project) { item.project = item.list; delete item.list; }
+    if (kind === 'area') { if (!item.areas.includes(item.list)) item.areas.push(item.list); delete item.list; }
+    else if (kind === 'project') { if (!item.projects.includes(item.list)) item.projects.push(item.list); delete item.list; }
   });
   Object.values(migratedViews).forEach((view) => {
     if (!view.list) return;
@@ -464,14 +481,19 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   }));
   const areaNames = new Set([
     ...Object.keys(rawAreaDefinitions),
+    ...Object.values(rawProjectDefinitions).flatMap((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+      const raw = value as Record<string, unknown>;
+      return [...(Array.isArray(raw.areas) ? raw.areas.filter((area): area is string => typeof area === 'string') : []), ...(typeof raw.area === 'string' ? [raw.area] : [])];
+    }).map((name) => name.trim()).filter(Boolean),
     ...Object.entries(rawListDefinitions).filter(([, raw]) => raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as Record<string, unknown>).kind === 'area').map(([name]) => name),
-    ...Object.values(migratedItems).map((item) => item.area).filter((name): name is string => Boolean(name?.trim())),
+    ...Object.values(migratedItems).flatMap((item) => item.areas),
     ...Object.values(migratedViews).map((view) => view.area).filter((name): name is string => Boolean(name?.trim())),
   ]);
   const projectNames = new Set([
     ...Object.keys(rawProjectDefinitions),
     ...Object.entries(rawListDefinitions).filter(([, raw]) => raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as Record<string, unknown>).kind === 'project').map(([name]) => name),
-    ...Object.values(migratedItems).map((item) => item.project).filter((name): name is string => Boolean(name?.trim())),
+    ...Object.values(migratedItems).flatMap((item) => item.projects),
     ...Object.values(migratedViews).map((view) => view.project).filter((name): name is string => Boolean(name?.trim())),
   ]);
   const organizationDefinition = (name: string, raw: Record<string, unknown>, itemDates: string[]) => {
@@ -485,15 +507,19 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.areaDefinitions = Object.fromEntries([...areaNames].map((name, index) => {
     const direct = rawAreaDefinitions[name]; const legacy = rawListDefinitions[name];
     const raw = direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : {};
-    const dates = Object.values(migratedItems).filter((item) => item.area === name).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
+    const dates = Object.values(migratedItems).filter((item) => item.areas.includes(name)).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
     return [name, organizationDefinition(name, raw, dates)];
   }));
   source.projectDefinitions = Object.fromEntries([...projectNames].map((name, index) => {
     const direct = rawProjectDefinitions[name]; const legacy = rawListDefinitions[name];
     const raw = direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : {};
-    const dates = Object.values(migratedItems).filter((item) => item.project === name).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
+    const dates = Object.values(migratedItems).filter((item) => item.projects.includes(name)).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
     const definition = organizationDefinition(name, raw, dates);
-    return [name, { ...definition, ...(typeof raw.area === 'string' && raw.area.trim() ? { area: raw.area.trim() } : {}) }];
+    const areas = [...new Set([
+      ...(Array.isArray(raw.areas) ? raw.areas.filter((area): area is string => typeof area === 'string') : []),
+      ...(typeof raw.area === 'string' ? [raw.area] : []),
+    ].map((area) => area.trim()).filter(Boolean))];
+    return [name, { ...definition, areas }];
   }));
   const rawOrganizationPreferences = source.organizationPreferences && typeof source.organizationPreferences === 'object' && !Array.isArray(source.organizationPreferences)
     ? source.organizationPreferences as Record<string, unknown>
@@ -527,11 +553,29 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     const raw = direct[name] && typeof direct[name] === 'object' && !Array.isArray(direct[name]) ? direct[name] : rawListDefinitions[name];
     return [name, raw];
   }));
-  source.organizationPreferences = {
-    areaOrder: normalizeOrder(rawOrganizationPreferences.areaOrder, [...areaNames], orderedLegacy([...areaNames], legacyDefinitions([...areaNames], rawAreaDefinitions), rawOrganizationPreferences.unassignedAreaPriority)),
-    projectOrder: normalizeOrder(rawOrganizationPreferences.projectOrder, [...projectNames], orderedLegacy([...projectNames], legacyDefinitions([...projectNames], rawProjectDefinitions), rawOrganizationPreferences.unassignedProjectPriority)),
-    tagOrder: normalizeOrder(rawOrganizationPreferences.tagOrder, tags, legacyTags),
-  };
+  const areaOrder = normalizeOrder(rawOrganizationPreferences.areaOrder, [...areaNames], orderedLegacy([...areaNames], legacyDefinitions([...areaNames], rawAreaDefinitions), rawOrganizationPreferences.unassignedAreaPriority));
+  const projectOrder = normalizeOrder(rawOrganizationPreferences.projectOrder, [...projectNames], orderedLegacy([...projectNames], legacyDefinitions([...projectNames], rawProjectDefinitions), rawOrganizationPreferences.unassignedProjectPriority));
+  const tagOrder = normalizeOrder(rawOrganizationPreferences.tagOrder, tags, legacyTags);
+  const priorityOrder: Array<{ kind: 'area' | 'project' | 'tag'; name: string | null; area?: string | null }> = [];
+  for (const entry of Array.isArray(rawOrganizationPreferences.priorityOrder) ? rawOrganizationPreferences.priorityOrder : []) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const raw = entry as Record<string, unknown>;
+    if (!['area', 'project', 'tag'].includes(String(raw.kind)) || raw.name !== null && typeof raw.name !== 'string') continue;
+    priorityOrder.push({
+      kind: raw.kind as 'area' | 'project' | 'tag',
+      name: typeof raw.name === 'string' ? raw.name.trim() || null : null,
+      ...(raw.kind === 'project' && raw.name !== null && Object.prototype.hasOwnProperty.call(raw, 'area') ? { area: typeof raw.area === 'string' ? raw.area.trim() || null : null } : {}),
+    });
+  }
+  source.organizationPreferences = { areaOrder, projectOrder, tagOrder, priorityOrder: priorityOrder.length ? priorityOrder : [
+    ...areaOrder.map((name) => ({ kind: 'area' as const, name })),
+    ...projectOrder.map((name) => ({ kind: 'project' as const, name })),
+    ...tagOrder.map((name) => ({ kind: 'tag' as const, name })),
+  ] };
+  (source.organizationPreferences as { priorityOrder: typeof priorityOrder }).priorityOrder = normalizedOrganizationPriorityOrder(
+    (source.organizationPreferences as { priorityOrder: typeof priorityOrder }).priorityOrder,
+    source as unknown as WorkspaceDocument,
+  );
   source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.tombstones ??= {};
   source.pushPreferences ??= { enabled: false, contentMode: 'generic' };
   const pushPreferences = source.pushPreferences as Record<string, unknown>;
@@ -540,7 +584,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.calendarPreferences ??= {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, weekends: true,
-    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 }, includeStates: ['open', 'done'], diagnosticsEnabled: true,
+    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 }, includeStates: ['open', 'done'], diagnosticsEnabled: true, showExplanations: false,
   };
   const calendarPreferences = source.calendarPreferences as Record<string, unknown>;
   // Preferences are persisted locally and evolve faster than the workspace
@@ -550,7 +594,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'backupPreferences', 'diagnosticsEnabled',
+    'backupPreferences', 'diagnosticsEnabled', 'showExplanations',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
@@ -559,6 +603,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   calendarPreferences.sleepSchedule ??= { wake: legacyWorkingHours?.start ?? '08:00', sleep: legacyWorkingHours?.end ?? '22:00' };
   if (!['en', 'ru', 'es', 'de', 'fr', 'ko'].includes(String(calendarPreferences.language))) calendarPreferences.language = 'en';
   calendarPreferences.diagnosticsEnabled = calendarPreferences.diagnosticsEnabled !== false;
+  calendarPreferences.showExplanations = calendarPreferences.showExplanations === true;
   calendarPreferences.appearance ??= { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 };
   const appearance = calendarPreferences.appearance as Record<string, unknown>;
   Object.keys(appearance).forEach((key) => {

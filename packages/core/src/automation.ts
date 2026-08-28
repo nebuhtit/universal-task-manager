@@ -18,6 +18,13 @@ export interface AutomationRunResult {
 }
 
 const writableRoots = new Set(['title', 'bodyMarkdown', 'priority', 'contexts', 'tags', 'custom', 'schedule']);
+const MAX_AUTOMATION_LOG_BYTES = 20 * 1024 * 1024;
+
+function trimAutomationLog(log: AutomationLogEntry[]): AutomationLogEntry[] {
+  const next = log.slice(-2_000);
+  while (next.length > 1 && new TextEncoder().encode(JSON.stringify(next)).byteLength > MAX_AUTOMATION_LOG_BYTES) next.shift();
+  return next;
+}
 
 function setPath(item: UniversalItem, path: string, value: CustomValue): void {
   const parts = path.split('.');
@@ -161,7 +168,7 @@ export function runAutomationEvents(
       }
     }
   }
-  workspace.automationLog = workspace.automationLog.slice(-2_000);
+  workspace.automationLog = trimAutomationLog(workspace.automationLog);
   workspace.updatedAt = (options.now ?? new Date()).toISOString();
   return { workspace, notifications, processedEvents, actionsApplied };
 }

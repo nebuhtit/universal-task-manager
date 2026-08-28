@@ -8,7 +8,7 @@ import {
 import { localWorkspaceMode, lock, saveLocalWorkspace, unlockUnencryptedLocalWorkspace, type UnlockedWorkspace } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
 import { reminderTime } from '../push';
-import { recordDiagnostic } from '../services/diagnostics';
+import { diagnosticFailureCode, recordDiagnostic } from '../services/diagnostics';
 import { applyReconciliationResult, commitWorkspaceDocument } from '../services/workspaceLifecycle';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -38,7 +38,10 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       if (!mode) { setBoot('empty'); return; }
       if (mode === 'plaintext') {
         try { await activate(await unlockUnencryptedLocalWorkspace()); }
-        catch { setBoot('locked'); }
+        catch (reason) {
+          recordDiagnostic({ kind: 'error', message: 'Automatic test workspace entry failed', operation: 'Unlock unencrypted test workspace', outcome: 'failed', details: diagnosticFailureCode(reason) });
+          setBoot('locked');
+        }
         return;
       }
       setBoot('locked');
@@ -71,33 +74,51 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
 
   const activate = async (unlocked: UnlockedWorkspace, selectedLanguage?: WorkspaceLanguage) => {
     const activationStartedAt = performance.now();
-    recordDiagnostic({ kind: 'action', message: 'Workspace activation started', operation: 'Activate workspace', outcome: 'started' });
-    deliveredReminderIds.current.clear();
+    let activationCheckpointAt = activationStartedAt;
+    const activationStages: Record<string, number> = {};
+    const finishActivationStage = (stage: string) => {
+      const now = performance.now();
+      activationStages[stage] = Math.round(now - activationCheckpointAt);
+      activationCheckpointAt = now;
+    };
+    try {
+      deliveredReminderIds.current.clear();
     let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
     const now = effectiveWorkspaceNow(unlocked.document as WorkspaceDocument); const migration = migrateWorkspace(clean(unlocked.document as WorkspaceDocument));
     const migratedDocument = Automerge.change(unlocked.document, 'Migrate workspace metadata and reminders', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
-      if (targetWorkspace.schemaVersion !== migration.value.schemaVersion || !targetWorkspace.calendarPreferences?.language) { const target = targetWorkspace as unknown as Record<string, unknown>; Object.keys(target).forEach((key) => delete target[key]); Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); }); }
+      if (targetWorkspace.schemaVersion !== migration.value.schemaVersion || migration.warnings.length > 0 || !targetWorkspace.calendarPreferences?.language) { const target = targetWorkspace as unknown as Record<string, unknown>; Object.keys(target).forEach((key) => delete target[key]); Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); }); }
       if (selectedLanguage) targetWorkspace.calendarPreferences.language = selectedLanguage;
       backfillItemCreationVersions(targetWorkspace); Object.values(targetWorkspace.items).forEach(removeDuplicateReminders); consolidateHabitOccurrences(targetWorkspace, now);
     });
+    finishActivationStage('migration');
+    if (migration.warnings.length > 0) recordDiagnostic({ kind: 'result', message: 'Legacy workspace data normalized during entry', operation: 'Activate workspace', outcome: 'succeeded', details: JSON.stringify({ warningCount: migration.warnings.length, schemaVersion: migration.value.schemaVersion }) });
     let reconciliation: ReconcileResult; let warning = '';
     try { reconciliation = await reconcileOffMainThread(migratedDocument as WorkspaceDocument, now); }
     catch (reason) { reconciliation = { created: [], updated: [], autoClosed: [], removedIds: [], untouched: 0 }; warning = reason instanceof Error ? reason.message : String(reason); }
+    finishActivationStage('recurrence');
     let updated = applyReconciliationResult(migratedDocument as Automerge.Doc<WorkspaceDocument>, reconciliation, now, 'Unlock reconciliation');
     updated = Automerge.change(updated, 'Unlock scheduled events', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
       const events: DomainEvent[] = reconciliation.created.map((item) => ({ id: createId(), type: 'occurrence.activated', at: now.toISOString(), itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }));
       events.push(...collectScheduledEvents(targetWorkspace, now)); notifications = runAutomationEvents(targetWorkspace, events, { now }).notifications;
     });
+    finishActivationStage('scheduledEvents');
     const groups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>(); const rank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) { if (item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } }
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
-    await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode); setSession({ ...unlocked, document: updated }); setBoot('ready');
-    recordDiagnostic({ kind: 'result', message: 'Workspace activation completed', operation: 'Activate workspace', outcome: 'succeeded', durationMs: Math.round(performance.now() - activationStartedAt), details: JSON.stringify({ created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
+    await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode);
+    finishActivationStage('persistence');
+    setSession({ ...unlocked, document: updated }); setBoot('ready');
+    const activationDurationMs = Math.round(performance.now() - activationStartedAt);
+    if (warning || activationDurationMs >= 1_500) recordDiagnostic({ kind: 'result', message: warning ? 'Workspace activation completed with a recurrence warning' : 'Workspace activation was slow', operation: 'Activate workspace', outcome: 'succeeded', durationMs: activationDurationMs, details: JSON.stringify({ stages: activationStages, recurrenceWarning: Boolean(warning), created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
     if (warning && !/timed out/i.test(warning)) onToast(`Workspace opened. Recurrence sync will retry in the background (${warning}).`);
     setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
-    if (Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
+      if (Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
+    } catch (reason) {
+      recordDiagnostic({ kind: 'error', message: 'Workspace activation failed', operation: 'Activate workspace', outcome: 'failed', durationMs: Math.round(performance.now() - activationStartedAt), details: diagnosticFailureCode(reason) });
+      throw reason;
+    }
   };
 
   useEffect(() => {

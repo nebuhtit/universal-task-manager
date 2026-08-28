@@ -28,4 +28,11 @@ describe('AppShell', () => {
     expect(markup).toContain('aria-label="Dismiss backup reminder"');
     expect(markup).toContain('role="status"');
   });
+
+  it('renders undo actions with their remaining seconds', () => {
+    const markup = renderToStaticMarkup(<ShellNotices backupReminder={false} toast="" undoNotices={[{ id: 'undo-1', label: 'Item completed', secondsLeft: 4 }]} onUndo={noop} onBackup={noop} onDismissBackup={noop} />);
+    expect(markup).toContain('Item completed');
+    expect(markup).toContain('4 seconds remaining');
+    expect(markup).toContain('Undo');
+  });
 });

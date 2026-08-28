@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
-  createId, evaluateFormulas, evaluateItemScripts, migrateItem, orderedListNames, orderedOrganizationNames, organizationDefinitionFor, parsePortablePackage,
+  createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationDefinitionFor, parsePortablePackage,
   type Schedule, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../../components/ui/CodeEditor';
@@ -30,11 +30,32 @@ const stopwatchDuration = (seconds: number) => {
   return [hours, minutes, remainder].map((value) => String(value).padStart(2, '0')).join(':');
 };
 
+type TokenSuggestion = { value: string; meta?: string };
+function TokenField({ label, values, draft, suggestions, placeholder, onDraft, onAdd, onRemove }: {
+  label: string; values: string[]; draft: string; suggestions: TokenSuggestion[]; placeholder: string;
+  onDraft: (value: string) => void; onAdd: (value: string) => void; onRemove: (value: string) => void;
+}) {
+  const commitDraft = () => { const value = label === 'Tags' ? draft.trim().replace(/^#+/, '') : draft.trim(); if (value) onAdd(value); onDraft(''); };
+  const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' || event.key === ',') { event.preventDefault(); event.stopPropagation(); commitDraft(); }
+    else if (event.key === 'Backspace' && !draft && values.length) { event.preventDefault(); onRemove(values[values.length - 1]!); }
+  };
+  return <Field label={label} optional><div className="organization-token-field">
+    {values.length > 0 && <div className="organization-token-values">{values.map((value) => <Button size="compact" variant="ghost" key={value} aria-label={`Remove ${label.slice(0, -1)} ${value}`} onClick={() => onRemove(value)}><span>{label === 'Tags' ? '#' : ''}{value}</span><CloseIcon /></Button>)}</div>}
+    <Input aria-label={`Add ${label.slice(0, -1)}`} value={draft} onChange={(event) => onDraft(event.target.value)} onKeyDown={keyDown} placeholder={placeholder} />
+    {suggestions.length > 0 && <div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{suggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span>{label === 'Tags' ? '#' : ''}{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div>}
+  </div></Field>;
+}
+
 export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose }: {
-  initial: UniversalItem; workspace: WorkspaceDocument; now: Date; isNew?: boolean; onSave: (item: UniversalItem) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
+  initial: UniversalItem; workspace: WorkspaceDocument; now: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string }) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const [item, setItem] = useState(() => clean(initial));
   const [tags, setTags] = useState(item.tags.join(', '));
+  const [areaDraft, setAreaDraft] = useState('');
+  const [projectDraft, setProjectDraft] = useState('');
+  const [tagDraft, setTagDraft] = useState('');
+  const [convertedProject, setConvertedProject] = useState<string>();
   const [contexts, setContexts] = useState(item.contexts.join(', '));
   const [recurring, setRecurring] = useState(item.role === 'series_template');
   const [repeatIntervalDraft, setRepeatIntervalDraft] = useState('1');
@@ -128,12 +149,44 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     }
     else if (preset) patchScheduledDuration(Number(preset), 'minutes');
   };
-  const knownTags = [...new Set(Object.values(workspace.items).flatMap((entry) => entry.tags))].sort((left, right) => left.localeCompare(right));
-  const collectedTags = [...new Set([...knownTags, ...commaList(tags)])];
+  const selectedAreas = itemAreas(item);
+  const selectedProjects = itemProjects(item);
+  const selectedTags = commaList(tags);
+  const areaNames = [...new Set([...Object.keys(workspace.areaDefinitions), ...Object.values(workspace.items).flatMap(itemAreas)])];
+  const projectNames = [...new Set([...Object.keys(workspace.projectDefinitions), ...Object.values(workspace.items).flatMap(itemProjects)])];
+  const projectAreas = (project: string) => organizationDefinitionFor(workspace, 'project', project)?.areas ?? [];
+  const relatedAreas = new Set(selectedProjects.flatMap(projectAreas));
+  const relatedProjects = new Set(projectNames.filter((project) => projectAreas(project).some((area) => selectedAreas.includes(area))));
+  const suggestionOrder = (kind: 'area' | 'project', selected: string[], related: Set<string>) => (left: string, right: string) => {
+    const tier = (value: string) => selected.includes(value) ? 0 : related.has(value) ? 1 : 2;
+    const difference = tier(left) - tier(right); if (difference) return difference;
+    const definitions = kind === 'area' ? workspace.areaDefinitions : workspace.projectDefinitions;
+    return Date.parse(definitions[right]?.createdAt ?? '') - Date.parse(definitions[left]?.createdAt ?? '') || left.localeCompare(right);
+  };
+  const areaSuggestions: TokenSuggestion[] = areaNames.sort(suggestionOrder('area', selectedAreas, relatedAreas)).map((value) => {
+    const related = selectedProjects.filter((project) => projectAreas(project).includes(value));
+    return related.length ? { value, meta: `Contains: ${related.join(', ')}` } : { value };
+  });
+  const projectSuggestions = projectNames.sort(suggestionOrder('project', selectedProjects, relatedProjects)).map((value) => ({
+    value, meta: projectAreas(value).length ? `In: ${projectAreas(value).join(', ')}` : 'No Area',
+  }));
+  const knownTags = orderedTagEntries(workspace).filter((tag): tag is string => tag !== null);
+  const collectedTags = [...new Set([...selectedTags, ...knownTags])];
   const toggleTag = (tag: string) => setTags((current) => {
     const values = commaList(current);
     return (values.includes(tag) ? values.filter((value) => value !== tag) : [...values, tag]).join(', ');
   });
+  const addArea = (area: string) => patchItem({ areas: [...new Set([...selectedAreas, area.trim()].filter(Boolean))] });
+  const removeArea = (area: string) => patchItem({ areas: selectedAreas.filter((value) => value !== area) });
+  const addProject = (project: string) => {
+    const value = project.trim(); if (!value) return;
+    patchItem({ projects: [...new Set([...selectedProjects, value])], areas: [...new Set([...selectedAreas, ...projectAreas(value)])] });
+  };
+  const removeProject = (project: string) => patchItem({ projects: selectedProjects.filter((value) => value !== project) });
+  const convertItemToProject = () => {
+    const project = item.title.trim(); if (!project) return;
+    addProject(project); setConvertedProject(project);
+  };
   useEffect(() => { if (!jsonDirty) setJsonDraft(JSON.stringify(item, null, 2)); }, [item, jsonDirty]);
 
   const readImportedItem = (source: string): UniversalItem => {
@@ -186,7 +239,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
         suppressFocusRestore.current = true;
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
-      onSave(normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now }));
+      onSave(normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now }), convertedProject ? { convertedProject } : undefined);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   useEffect(() => {
@@ -228,7 +281,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     patchItem({ habit: { ...rest, timerSessions: [...(habit.timerSessions ?? []), { id: createId(), startedAt, endedAt, durationSeconds }] } });
   };
 
-  return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <button className="danger" onClick={() => onDelete(item)}>Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
+  return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <button className="danger" onClick={() => onDelete(item)}>Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
     <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
       if (event.target !== titleInputRef.current) quickTitleSaveAllowed.current = false;
     }} onKeyDown={(event) => {
@@ -253,14 +306,15 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
           </div></details>
         </DatesSection>
 
-        <ItemSection sectionKey="organization" title="Organization" iconPath="list" filledMark={sectionMark(Boolean(item.area || item.project || item.list || item.priority || commaList(tags).length))}>
+        <ItemSection sectionKey="organization" title="Organization" iconPath="list" filledMark={sectionMark(Boolean(selectedAreas.length || selectedProjects.length || item.list || item.priority || selectedTags.length))}>
           <div className="form-grid two organization-fields">
-            <Field label="Area" optional><Select aria-label="Choose existing Area" value={item.area ?? ''} onChange={(event) => patchItem({ area: event.target.value || undefined, project: undefined })}><option value="">No Area</option>{orderedOrganizationNames(workspace, 'area').map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Area" value={item.area ?? ''} onChange={(event) => patchItem({ area: event.target.value.trim() || undefined })} placeholder="Or create a new Area" /></Field>
-            <Field label="Project" optional><Select aria-label="Choose existing Project" value={item.project ?? ''} onChange={(event) => { const project = event.target.value; const definition = organizationDefinitionFor(workspace, 'project', project); patchItem({ project: project || undefined, ...(definition && 'area' in definition && definition.area ? { area: definition.area } : {}) }); }}><option value="">No Project</option>{orderedOrganizationNames(workspace, 'project', item.area).map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Project" value={item.project ?? ''} onChange={(event) => patchItem({ project: event.target.value.trim() || undefined })} placeholder="Or create a new Project" /></Field>
+            <TokenField label="Areas" values={selectedAreas} draft={areaDraft} suggestions={areaSuggestions} placeholder="Choose or create an Area" onDraft={setAreaDraft} onAdd={addArea} onRemove={removeArea} />
+            <TokenField label="Projects" values={selectedProjects} draft={projectDraft} suggestions={projectSuggestions} placeholder="Choose or create a Project" onDraft={setProjectDraft} onAdd={addProject} onRemove={removeProject} />
             <Field label="Task list" optional><Select aria-label="Choose existing Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value || undefined })}><option value="">No list</option>{orderedListNames(workspace).map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value.trim() || undefined })} placeholder="Or create a new list" /></Field>
             <Field label="Priority"><Select aria-label="Priority" value={item.priority ?? 0} onChange={(event) => patchItem({ priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{([0, 1, 2, 3, 4] as NonNullable<UniversalItem['priority']>[]).map((priority) => <option key={priority} value={priority}>{priority ? `${priority} — ${priorityNames[priority]}` : 'None'}</option>)}</Select></Field>
           </div>
-          <Field label="Tags"><Input aria-label="Tags" value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Add tags separated by commas" /></Field>{collectedTags.length > 0 && <div className="tag-collection" aria-label="Available tags">{collectedTags.map((tag) => <Button size="compact" variant="ghost" className={commaList(tags).includes(tag) ? 'active' : ''} aria-pressed={commaList(tags).includes(tag)} key={tag} onClick={() => toggleTag(tag)}>#{tag}</Button>)}</div>}
+          <TokenField label="Tags" values={selectedTags} draft={tagDraft} suggestions={collectedTags.map((value) => ({ value }))} placeholder="Add a tag and press Enter" onDraft={setTagDraft} onAdd={(tag) => { if (!selectedTags.includes(tag)) setTags([...selectedTags, tag].join(', ')); }} onRemove={(tag) => { if (selectedTags.includes(tag)) toggleTag(tag); }} />
+          <div className="organization-convert"><Button size="compact" onClick={convertItemToProject} disabled={!item.title.trim() || convertedProject === item.title.trim()}>{convertedProject === item.title.trim() ? 'Item will be kept in this Project' : 'Convert item to Project'}</Button></div>
         </ItemSection>
 
         <details className="description-section"><summary><FieldIconLabel path="bodyMarkdown" label="Description" /> {sectionMark(Boolean(item.bodyMarkdown.trim()))}</summary><div className="details-body">

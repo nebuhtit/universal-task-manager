@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DIAGNOSTICS_KEY, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled } from './diagnostics';
+import { diagnosticFailureCode, DIAGNOSTICS_KEY, MAX_DIAGNOSTIC_ENTRIES, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled } from './diagnostics';
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -25,10 +25,10 @@ describe('local diagnostics', () => {
     expect(JSON.parse(localStorage.getItem(DIAGNOSTICS_KEY) ?? '[]')).toHaveLength(1);
   });
 
-  it('retains only the latest 500 entries', () => {
-    for (let index = 0; index < 505; index += 1) recordDiagnostic({ kind: 'action', message: String(index) });
+  it('retains enough detailed entries for troubleshooting while bounding the count', () => {
+    for (let index = 0; index < MAX_DIAGNOSTIC_ENTRIES + 5; index += 1) recordDiagnostic({ kind: 'action', message: String(index) });
     const entries = readDiagnostics();
-    expect(entries).toHaveLength(500);
+    expect(entries).toHaveLength(MAX_DIAGNOSTIC_ENTRIES);
     expect(entries[0]?.message).toBe('5');
   });
 
@@ -37,5 +37,12 @@ describe('local diagnostics', () => {
     setDiagnosticsEnabled(false);
     recordDiagnostic({ kind: 'action', message: 'after' });
     expect(readDiagnostics().map((entry) => entry.message)).toEqual(['before']);
+  });
+
+  it('classifies pre-unlock failures without retaining their arbitrary text', () => {
+    expect(diagnosticFailureCode(new Error('Wrong password or damaged encrypted data'))).toBe('password-or-encrypted-data');
+    expect(diagnosticFailureCode(new Error('IndexedDB transaction failed'))).toBe('browser-storage');
+    expect(diagnosticFailureCode(new Error('Attempting to change an outdated document'))).toBe('workspace-document');
+    expect(diagnosticFailureCode(new Error('Title: private item text'))).toBe('unexpected');
   });
 });

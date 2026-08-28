@@ -32,6 +32,14 @@ async function goToSettings(page: Page) {
   }
 }
 
+async function goToPara(page: Page) {
+  if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: 'PARA' }).click();
+  else {
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.locator('.mobile-nav-menu').getByRole('button', { name: 'PARA' }).click();
+  }
+}
+
 async function goToCalendar(page: Page) {
   if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
   else {
@@ -91,7 +99,7 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.15\.0 · commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.19\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -100,7 +108,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.15.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.19.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -117,20 +125,21 @@ test('archives Calendar and Automations while marking All items as beta', async 
   await expect(page.getByRole('button', { name: 'Automations', exact: true })).toHaveCount(0);
 });
 
-test('creates and manually orders reusable tags from Settings', async ({ page }) => {
+test('creates and manually orders reusable tags from PARA', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Tag settings');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await goToSettings(page);
+  await goToPara(page);
   await page.getByRole('textbox', { name: 'New tag', exact: true }).fill('#urgent');
-  await page.getByRole('button', { name: 'Add tag' }).click();
-  await expect(page.getByText('#urgent', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Add Tag' }).click();
+  await expect(page.locator('.organization-tag-catalog .organization-tag-entry').filter({ hasText: '#urgent' })).toBeVisible();
   await page.getByRole('textbox', { name: 'New tag', exact: true }).fill('#someday');
-  await page.getByRole('button', { name: 'Add tag' }).click();
-  await expect(page.getByText('#someday', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reorder No Tags' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reorder urgent' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add Tag' }).click();
+  await expect(page.locator('.organization-tag-catalog .organization-tag-entry').filter({ hasText: '#someday' })).toBeVisible();
+  const tagCatalog = page.locator('.organization-tag-catalog');
+  await expect(tagCatalog.getByRole('button', { name: 'Reorder No Tags' })).toBeVisible();
+  await expect(tagCatalog.getByRole('button', { name: 'Reorder Tag urgent' })).toBeVisible();
   await expect(page.getByText('Priority 0', { exact: true })).toHaveCount(0);
 });
 
@@ -165,13 +174,9 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(page.getByLabel('Event ends', { exact: true })).toHaveValue('');
   await expect(page.locator('input[aria-label="Due / Active range ends"]')).toBeVisible();
   await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue('');
-  await expect(page.getByLabel('Available to work from', { exact: true })).toBeHidden();
-  await page.locator('details.optional-field > summary').click();
-  await expect(page.getByLabel('Available to work from', { exact: true })).toBeVisible();
-  await expect(page.getByText('A deadline is the latest completion time.', { exact: false })).toBeVisible();
-  await expect(page.getByLabel('Timezone', { exact: true })).toBeHidden();
-  await page.getByRole('button', { name: /^Timezone / }).click();
-  await expect(page.getByLabel('Timezone', { exact: true })).not.toHaveValue('');
+  await expect(page.getByLabel('Available to work from', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Timezone', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Latest acceptable completion time.', { exact: false })).toBeHidden();
   await openEditorSection(page, 'Reminders');
   const addReminder = page.getByRole('button', { name: '+ Add reminder' });
   await expect(addReminder).toHaveCSS('font-size', '13px');
@@ -183,19 +188,17 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(page.getByText(/Universal Task Manager v\d+\.\d+\.\d+/, { exact: true })).toBeVisible();
   await expect(page.getByText('dev.universal-task-manager', { exact: true })).toBeVisible();
   const organizationSection = await openEditorSection(page, 'Organization');
-  await expect(organizationSection.getByLabel('Choose existing Area')).toBeVisible();
-  await expect(organizationSection.getByLabel('Create Area')).toBeVisible();
+  await expect(organizationSection.getByLabel('Add Area')).toBeVisible();
+  await expect(organizationSection.getByLabel('Add Project')).toBeVisible();
+  await expect(organizationSection.getByLabel('Add Tag')).toBeVisible();
   await organizationSection.getByLabel('Priority').selectOption({ label: '3 — High' });
   await page.getByRole('button', { name: 'Save item' }).click();
   await page.getByText('Prepare material by Thursday', { exact: true }).first().click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
   const closeEditor = page.getByRole('button', { name: 'Close item editor' });
-  await expect(closeEditor.locator('svg.close-icon')).toBeVisible();
-  await expect(closeEditor).toHaveCSS('display', 'grid');
-  await expect(closeEditor).toHaveCSS('align-items', 'center');
-  await expect(closeEditor).toHaveCSS('justify-items', 'center');
-  await expect(closeEditor).toHaveCSS('width', '28px');
-  await expect(closeEditor).toHaveCSS('height', '28px');
+  await expect(closeEditor).toHaveText('×');
+  await expect(closeEditor).toHaveCSS('width', '44px');
+  await expect(closeEditor).toHaveCSS('height', '44px');
   await expect(page.getByRole('button', { name: 'Delete' })).toHaveCSS('background-color', 'rgb(243, 243, 243)');
   await closeEditor.click();
 
@@ -249,7 +252,7 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await goToSettings(page);
 
   const cards = page.locator('.settings-page-shell .settings-card');
-  await expect(cards).toHaveCount(6);
+  await expect(cards).toHaveCount(5);
   const boxes = await cards.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { left: box.left, right: box.right };
@@ -489,7 +492,7 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await openEditorSection(page, 'Progress & habit');
   await page.getByLabel('Track as a habit').check();
   await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await expect(page.getByText('00:00:00', { exact: true })).toBeVisible();
+  await expect(page.locator('.habit-stopwatch strong')).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
   await page.waitForTimeout(1100);
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(page.locator('.habit-timer-history li')).toHaveCount(1);
@@ -728,7 +731,7 @@ test('closed items do not emit overdue reminders', async ({ page }) => {
   await expect(page.locator('.notice-card')).toHaveCount(0);
 });
 
-test('recurring item accepts Deadline as its schedule anchor and explains missing dates', async ({ page }) => {
+test('recurring item accepts Deadline as its schedule anchor and handles missing dates', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Recurring items');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
@@ -739,32 +742,33 @@ test('recurring item accepts Deadline as its schedule anchor and explains missin
   await page.getByLabel('Title', { exact: true }).fill('Weekly due-only item');
   await openEditorSection(page, 'Dates & time');
   await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('');
+  const dueSetup = await page.evaluate(() => {
+    const date = new Date(Date.now() + 3_600_000);
+    const value = new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    return { value, weekday: ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][date.getDay()]! };
+  });
   await openEditorSection(page, 'Recurrence & auto-renew');
   await page.getByLabel('Make this a recurring series').check();
   await page.getByLabel('Repeat frequency').selectOption('WEEKLY');
   await page.getByLabel('Repeat interval').fill('2');
-  await page.getByRole('button', { name: 'Repeat on TH' }).click();
+  await page.getByRole('button', { name: `Repeat on ${dueSetup.weekday}` }).click();
   await page.getByText('Advanced recurrence behavior', { exact: true }).click();
   await page.getByLabel('Activation amount').fill('3');
   await page.getByLabel('Activation unit').selectOption('days');
-  await expect(page.getByLabel(/Repeat rule/)).toHaveValue('FREQ=WEEKLY;INTERVAL=2;BYDAY=TH');
+  await expect(page.getByLabel(/Repeat rule/)).toHaveValue(`FREQ=WEEKLY;INTERVAL=2;BYDAY=${dueSetup.weekday}`);
   await expect(page.getByLabel(/Activation duration/)).toHaveValue('P3D');
   await page.getByRole('button', { name: 'Save item' }).click();
   await expect(page.getByRole('alert')).toHaveText('A recurring item needs a Scheduled start or Deadline.');
 
-  const dueInOneHour = await page.evaluate(() => {
-    const date = new Date(Date.now() + 3_600_000);
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-  });
-  await page.locator('input[aria-label="Due / Active range ends"]').fill(dueInOneHour);
-  await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue(dueInOneHour);
+  await page.locator('input[aria-label="Due / Active range ends"]').fill(dueSetup.value);
+  await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue(dueSetup.value);
   await page.getByRole('button', { name: 'Save item' }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
 
   await goToAllItems(page);
   const templatesSection = page.locator('.all-sections > details.recurring-items').filter({ has: page.getByText('Recurring items', { exact: true }) }).first();
   if (!await templatesSection.evaluate((element) => (element as HTMLDetailsElement).open)) await templatesSection.locator(':scope > summary').click();
-  await expect(templatesSection.getByText('These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.')).toBeVisible();
+  await expect(templatesSection.getByText('These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.')).toBeHidden();
   await expect(templatesSection.locator(':scope > summary b')).toHaveText('1');
 
   await goHome(page);

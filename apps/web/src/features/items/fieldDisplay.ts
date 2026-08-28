@@ -26,7 +26,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'dueThisWeekOrOverdue', label: 'Due this week or overdue', group: 'Schedule' },
   { path: 'role', label: 'Role', group: 'Core' }, { path: 'priority', label: 'Priority', group: 'Core' },
   { path: 'tags', label: 'Tags', group: 'Core' }, { path: 'contexts', label: 'Contexts', group: 'Core' },
-  { path: 'area', label: 'Area', group: 'Organization' }, { path: 'project', label: 'Project', group: 'Organization' }, { path: 'list', label: 'Task list', group: 'Organization' },
+  { path: 'area', label: 'Areas', group: 'Organization' }, { path: 'project', label: 'Projects', group: 'Organization' }, { path: 'list', label: 'Task list', group: 'Organization' },
   { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Event opens', group: 'Schedule' },
   { path: 'schedule.endAt', label: 'Event ends', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Due / Active range ends', group: 'Schedule' },
   { path: 'schedule.estimatedDuration', label: 'Estimated duration', group: 'Schedule' }, { path: 'schedule.actualDuration', label: 'Actual duration', group: 'Schedule' },
@@ -118,7 +118,7 @@ export const exampleViewFieldValue = (path: string): string => {
     'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', cycleHistory: '4 finished cycles', subtasks: 'Draft outline, Review notes', parent: 'Quarterly review',
     isSubtask: 'Yes', isParent: 'Yes', parentDepth: '1', childDepth: '2', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
     createdWithAppName: 'Universal Task Manager', createdWithVersion: APP_VERSION, createdWithAppId: 'dev.universal-task-manager',
-    schemaVersion: '1.9.0', revision: '7', id: 'itm_example_20260824',
+    schemaVersion: '1.17.0', revision: '7', id: 'itm_example_20260824',
   } as Record<string, string>)[path] ?? 'Example value';
 };
 
@@ -137,6 +137,8 @@ export const formatScriptResult = (value: unknown, kind: ItemScriptField['result
 
 export const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument, now = new Date()): unknown => {
   if (field === 'description') field = 'bodyMarkdown';
+  if (field === 'area' || field === 'areas') return [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])])];
+  if (field === 'project' || field === 'projects') return [...new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])])];
   if (field === 'dueTodayOrOverdue' || field === 'dueThisWeekOrOverdue') return dueDateBuckets(item, now, { timeZone: workspace?.calendarPreferences.timezone, weekStartsOn: workspace?.calendarPreferences.weekStartsOn })[field];
   if (field === 'schedule.estimatedDuration') {
     if (item.schedule?.estimatedDuration) return item.schedule.estimatedDuration;

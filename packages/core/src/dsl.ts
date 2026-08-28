@@ -237,8 +237,8 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
       switch (expression.operator) {
         // A missing optional property is the same as an explicit JSON null for
         // filters. This makes `field == null` reliable for "not filled" views.
-        case '==': return (left === undefined && right === null) || (left === null && right === undefined) || JSON.stringify(left) === JSON.stringify(right);
-        case '!=': return !((left === undefined && right === null) || (left === null && right === undefined) || JSON.stringify(left) === JSON.stringify(right));
+        case '==': return (Array.isArray(left) && !Array.isArray(right) ? left.includes(scalar(right)) : Array.isArray(right) && !Array.isArray(left) ? right.includes(scalar(left)) : (left === undefined && right === null) || (left === null && right === undefined) || JSON.stringify(left) === JSON.stringify(right));
+        case '!=': return !(Array.isArray(left) && !Array.isArray(right) ? left.includes(scalar(right)) : Array.isArray(right) && !Array.isArray(left) ? right.includes(scalar(left)) : (left === undefined && right === null) || (left === null && right === undefined) || JSON.stringify(left) === JSON.stringify(right));
         case '>': return scalar(left)! > scalar(right)!;
         case '>=': return scalar(left)! >= scalar(right)!;
         case '<': return scalar(left)! < scalar(right)!;

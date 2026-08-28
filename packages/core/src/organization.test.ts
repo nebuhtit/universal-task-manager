@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { applyPortableImport, buildPortableImportPreview, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, migrateWorkspace, orderedOrganizationNames, orderedTagEntries, parsePortablePackage, reorderOrganization, serializePortablePackage } from './index.js';
+import { applyPortableImport, buildPortableImportPreview, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, serializePortablePackage } from './index.js';
 
 describe('PARA organization', () => {
   it('keeps Area and Project independent on one universal item', () => {
     const workspace = createWorkspace('PARA');
-    const item = createItem('Repair the vehicle'); item.area = 'Work'; item.project = 'Vehicle repair'; workspace.items[item.id] = item;
+    const item = createItem('Repair the vehicle'); item.areas = ['Work']; item.projects = ['Vehicle repair']; workspace.items[item.id] = item;
     ensureAreaDefinition(workspace, 'Work');
     ensureProjectDefinition(workspace, 'Vehicle repair', { area: 'Work' });
-    expect(item).toMatchObject({ area: 'Work', project: 'Vehicle repair' });
-    expect(workspace.projectDefinitions['Vehicle repair']).toMatchObject({ area: 'Work' });
+    expect(item).toMatchObject({ areas: ['Work'], projects: ['Vehicle repair'] });
+    expect(workspace.projectDefinitions['Vehicle repair']).toMatchObject({ areas: ['Work'] });
     ensureProjectDefinition(workspace, 'Vehicle repair', { area: '' });
-    expect(workspace.projectDefinitions['Vehicle repair']?.area).toBeUndefined();
+    expect(workspace.projectDefinitions['Vehicle repair']?.areas).toEqual([]);
   });
 
   it('uses one manual order including the movable unassigned row', () => {
@@ -32,17 +32,18 @@ describe('PARA organization', () => {
   it('keeps Area and Project definitions in portable packages', () => {
     const workspace = createWorkspace('Portable PARA');
     ensureAreaDefinition(workspace, 'Work');
-    ensureProjectDefinition(workspace, 'Launch', { area: 'Work' });
-    reorderOrganization(workspace, 'area', ['Work', null]);
+    ensureAreaDefinition(workspace, 'Personal');
+    ensureProjectDefinition(workspace, 'Launch', { areas: ['Work', 'Personal'] });
+    reorderOrganization(workspace, 'area', ['Work', 'Personal', null]);
     const parsed = parsePortablePackage(serializePortablePackage(createPortablePackage(workspace, { kind: 'items' }))).package;
     expect(parsed.areaDefinitions?.Work?.name).toBe('Work');
-    expect(parsed.projectDefinitions?.Launch).toMatchObject({ area: 'Work' });
-    expect(parsed.organizationPreferences?.areaOrder).toEqual(['Work', null]);
+    expect(parsed.projectDefinitions?.Launch).toMatchObject({ areas: ['Work', 'Personal'] });
+    expect(parsed.organizationPreferences?.areaOrder).toEqual(['Work', 'Personal', null]);
     const target = createWorkspace('Imported PARA');
     applyPortableImport(target, buildPortableImportPreview(parsed, target));
     expect(target.areaDefinitions.Work?.name).toBe('Work');
-    expect(target.projectDefinitions.Launch).toMatchObject({ area: 'Work' });
-    expect(target.organizationPreferences.areaOrder).toEqual(['Work', null]);
+    expect(target.projectDefinitions.Launch).toMatchObject({ areas: ['Work', 'Personal'] });
+    expect(target.organizationPreferences.areaOrder).toEqual(['Work', 'Personal', null]);
   });
 
   it('migrates legacy priorities into one effective manual order', () => {
@@ -58,5 +59,210 @@ describe('PARA organization', () => {
     expect(migrated.organizationPreferences.areaOrder).toEqual(['Health', 'Work', null, 'Later']);
     expect(migrated.organizationPreferences.tagOrder).toEqual(['focus', 'someday', null]);
     expect(migrated.areaDefinitions.Work).not.toHaveProperty('priority');
+  });
+
+  it('uses the first matching entry in one mixed Area, Project and Tag ladder', () => {
+    const workspace = createWorkspace('Unified priority');
+    ensureAreaDefinition(workspace, 'Work'); ensureAreaDefinition(workspace, 'Personal');
+    ensureProjectDefinition(workspace, 'Launch', { areas: ['Work', 'Personal'] });
+    workspace.organizationPreferences.tagOrder = ['urgent', null];
+    reorderOrganizationPriority(workspace, [
+      { kind: 'tag', name: 'urgent' }, { kind: 'area', name: 'Work' }, { kind: 'project', name: 'Launch' },
+      { kind: 'area', name: 'Personal' }, { kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null },
+    ]);
+    const tagged = createItem('Tagged'); tagged.areas = ['Personal']; tagged.tags = ['urgent'];
+    const work = createItem('Work'); work.areas = ['Work']; work.projects = ['Launch'];
+    const unassigned = createItem('Unassigned');
+    expect(organizationPriorityRank(workspace, tagged)).toBeGreaterThan(organizationPriorityRank(workspace, work));
+    expect(organizationPriorityRank(workspace, work)).toBeGreaterThan(organizationPriorityRank(workspace, unassigned));
+  });
+
+  it('mirrors the complete Tags catalog order into existing Unified slots, including No Tags', () => {
+    const workspace = createWorkspace('Tag subset order');
+    ensureAreaDefinition(workspace, 'Work');
+    ensureTagDefinition(workspace, 'a'); ensureTagDefinition(workspace, 'b'); ensureTagDefinition(workspace, 'c');
+    reorderOrganizationPriority(workspace, [
+      { kind: 'area', name: 'Work' }, { kind: 'tag', name: 'a' }, { kind: 'project', name: null },
+      { kind: 'tag', name: 'b' }, { kind: 'tag', name: null }, { kind: 'area', name: null }, { kind: 'tag', name: 'c' },
+    ]);
+    const noTagsIndex = orderedOrganizationPriorityEntries(workspace).findIndex((entry) => entry.kind === 'tag' && entry.name === null);
+
+    reorderTagSubset(workspace, ['c', null, 'a', 'b']);
+
+    expect(orderedTagEntries(workspace).filter((tag): tag is string => tag !== null)).toEqual(['c', 'a', 'b']);
+    expect(orderedOrganizationPriorityEntries(workspace).map((entry) => entry.kind === 'tag' ? entry.name : entry.kind)).toEqual([
+      'area', 'c', 'project', null, 'a', 'area', 'b',
+    ]);
+    expect(orderedOrganizationPriorityEntries(workspace).findIndex((entry) => entry.kind === 'tag' && entry.name === null)).not.toBe(noTagsIndex);
+    const severalTags = createItem('Several tags'); severalTags.tags = ['a', 'b'];
+    const topTag = createItem('Top tag'); topTag.tags = ['c'];
+    expect(organizationPriorityRank(workspace, topTag)).toBeGreaterThan(organizationPriorityRank(workspace, severalTags));
+  });
+
+  it('mirrors Tag moves in Unified priority back to the catalog', () => {
+    const workspace = createWorkspace('Unified Tag sync');
+    ensureTagDefinition(workspace, 'a'); ensureTagDefinition(workspace, 'b'); ensureTagDefinition(workspace, 'c');
+    const current = orderedOrganizationPriorityEntries(workspace);
+    const actualTags = current.filter((entry) => entry.kind === 'tag' && entry.name !== null);
+    const others = current.filter((entry) => !(entry.kind === 'tag' && entry.name !== null));
+    reorderOrganizationPriority(workspace, [actualTags[2]!, others[0]!, actualTags[0]!, ...others.slice(1), actualTags[1]!]);
+    expect(orderedTagEntries(workspace).filter((tag): tag is string => tag !== null)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('reorders Projects inside one Area without moving unrelated priority slots', () => {
+    const workspace = createWorkspace('Nested Project order');
+    ensureAreaDefinition(workspace, 'Work');
+    ensureAreaDefinition(workspace, 'Personal');
+    ensureProjectDefinition(workspace, 'Alpha', { areas: ['Work'] });
+    ensureProjectDefinition(workspace, 'Other', { areas: ['Personal'] });
+    ensureProjectDefinition(workspace, 'Beta', { areas: ['Work'] });
+    reorderOrganization(workspace, 'project', ['Alpha', 'Other', 'Beta', null]);
+    reorderOrganizationPriority(workspace, [
+      { kind: 'tag', name: null },
+      { kind: 'project', name: 'Alpha' },
+      { kind: 'area', name: 'Work' },
+      { kind: 'project', name: 'Other' },
+      { kind: 'project', name: 'Beta' },
+      { kind: 'area', name: 'Personal' },
+      { kind: 'area', name: null },
+      { kind: 'project', name: null },
+    ]);
+
+    reorderProjectSubset(workspace, ['Beta', 'Alpha'], 'Work');
+
+    expect(workspace.organizationPreferences.projectOrder).toEqual(['Beta', 'Other', 'Alpha', null]);
+    expect(workspace.organizationPreferences.priorityOrder.slice(0, 6)).toEqual([
+      { kind: 'tag', name: null },
+      { kind: 'project', name: 'Beta', area: 'Work' },
+      { kind: 'area', name: 'Work' },
+      { kind: 'project', name: 'Other', area: 'Personal' },
+      { kind: 'project', name: 'Alpha', area: 'Work' },
+      { kind: 'area', name: 'Personal' },
+    ]);
+  });
+
+  it('reorders Area cards including No Area without moving Project or Tag slots', () => {
+    const workspace = createWorkspace('Area card order');
+    ensureAreaDefinition(workspace, 'Work');
+    ensureAreaDefinition(workspace, 'Personal');
+    ensureProjectDefinition(workspace, 'Launch', { areas: ['Work'] });
+    reorderOrganizationPriority(workspace, [
+      { kind: 'area', name: 'Work' },
+      { kind: 'project', name: 'Launch' },
+      { kind: 'area', name: null },
+      { kind: 'tag', name: null },
+      { kind: 'area', name: 'Personal' },
+      { kind: 'project', name: null },
+    ]);
+
+    reorderAreaSubset(workspace, ['Personal', 'Work', null]);
+
+    expect(workspace.organizationPreferences.areaOrder).toEqual(['Personal', 'Work', null]);
+    expect(workspace.organizationPreferences.priorityOrder.slice(0, 6)).toEqual([
+      { kind: 'area', name: 'Personal' },
+      { kind: 'area', name: 'Work' },
+      { kind: 'project', name: 'Launch', area: 'Work' },
+      { kind: 'tag', name: null },
+      { kind: 'area', name: null },
+      { kind: 'project', name: null },
+    ]);
+  });
+
+  it('creates one independently movable Project occurrence for every linked Area', () => {
+    const workspace = createWorkspace('Scoped Project priority');
+    ensureAreaDefinition(workspace, 'Work');
+    ensureAreaDefinition(workspace, 'Personal');
+    ensureProjectDefinition(workspace, 'Shared', { areas: ['Work', 'Personal'] });
+
+    const occurrences = orderedOrganizationPriorityEntries(workspace).filter((entry) => entry.kind === 'project' && entry.name === 'Shared');
+    expect(occurrences).toEqual([
+      { kind: 'project', name: 'Shared', area: 'Work' },
+      { kind: 'project', name: 'Shared', area: 'Personal' },
+    ]);
+
+    const customized = orderedOrganizationPriorityEntries(workspace);
+    const personal = customized.find((entry) => entry.kind === 'project' && entry.name === 'Shared' && entry.area === 'Personal')!;
+    reorderOrganizationPriority(workspace, [personal, ...customized.filter((entry) => entry !== personal)]);
+    expect(orderedOrganizationPriorityEntries(workspace)[0]).toEqual({ kind: 'project', name: 'Shared', area: 'Personal' });
+
+    const item = createItem('Uses shared project'); item.projects = ['Shared']; item.areas = ['Work', 'Personal'];
+    expect(organizationPriorityRank(workspace, item)).toBe(orderedOrganizationPriorityEntries(workspace).length);
+  });
+
+  it('updates scoped Project occurrences when Area links change', () => {
+    const workspace = createWorkspace('Relationship sync');
+    ensureAreaDefinition(workspace, 'Work');
+    ensureAreaDefinition(workspace, 'Personal');
+    ensureProjectDefinition(workspace, 'Launch', { areas: ['Work'] });
+    ensureProjectDefinition(workspace, 'Launch', { areas: ['Personal'] });
+    expect(orderedOrganizationPriorityEntries(workspace).filter((entry) => entry.kind === 'project' && entry.name === 'Launch')).toEqual([
+      { kind: 'project', name: 'Launch', area: 'Personal' },
+    ]);
+  });
+
+  it('expands a legacy unscoped Project priority into every linked Area', () => {
+    const legacy = createWorkspace('Legacy scoped migration') as unknown as Record<string, unknown>;
+    legacy.schemaVersion = '1.16.0';
+    legacy.areaDefinitions = {
+      Work: { name: 'Work', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      Personal: { name: 'Personal', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+    };
+    legacy.projectDefinitions = {
+      Shared: { name: 'Shared', areas: ['Work', 'Personal'], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+    };
+    legacy.organizationPreferences = {
+      areaOrder: ['Work', 'Personal', null], projectOrder: ['Shared', null], tagOrder: [null],
+      priorityOrder: [{ kind: 'project', name: 'Shared' }, { kind: 'area', name: 'Work' }, { kind: 'area', name: 'Personal' }, { kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null }],
+    };
+
+    const migrated = migrateWorkspace(legacy).value;
+    expect(migrated.schemaVersion).toBe('1.17.0');
+    expect(migrated.organizationPreferences.priorityOrder.slice(0, 2)).toEqual([
+      { kind: 'project', name: 'Shared', area: 'Work' },
+      { kind: 'project', name: 'Shared', area: 'Personal' },
+    ]);
+  });
+
+  it('renames an Area atomically across items, Projects, Views and priority', () => {
+    const workspace = createWorkspace('Area rename');
+    ensureAreaDefinition(workspace, 'Work');
+    ensureProjectDefinition(workspace, 'Launch', { areas: ['Work'] });
+    const item = createItem('Ship'); item.areas = ['Work']; item.area = 'Work'; workspace.items[item.id] = item;
+    workspace.views.rename = { id: 'rename', name: 'Work', query: { source: 'area == "Work"' }, renderer: 'list', sort: [], sortSource: 'area == "Work" asc', fields: ['title'], area: 'Work', creationDefaults: { area: 'Work', areas: ['Work'] } };
+
+    expect(renameAreaDefinition(workspace, 'Work', 'Career', new Date('2026-08-28T08:00:00.000Z'))).toBe(true);
+    expect(workspace.areaDefinitions.Work).toBeUndefined();
+    expect(workspace.areaDefinitions.Career?.name).toBe('Career');
+    expect(workspace.projectDefinitions.Launch?.areas).toEqual(['Career']);
+    expect(item).toMatchObject({ area: 'Career', areas: ['Career'] });
+    expect(workspace.views.rename).toMatchObject({ area: 'Career', creationDefaults: { area: 'Career', areas: ['Career'] } });
+    expect(workspace.views.rename?.query.source).toBe('area == "Career"');
+    expect(orderedOrganizationPriorityEntries(workspace)).toContainEqual({ kind: 'project', name: 'Launch', area: 'Career' });
+  });
+
+  it('renames a Project atomically and rejects conflicting names', () => {
+    const workspace = createWorkspace('Project rename');
+    ensureProjectDefinition(workspace, 'Launch'); ensureProjectDefinition(workspace, 'Existing');
+    const item = createItem('Ship'); item.projects = ['Launch']; item.project = 'Launch'; workspace.items[item.id] = item;
+    workspace.views.rename = { id: 'rename', name: 'Launch', query: { source: 'project == "Launch"' }, renderer: 'list', sort: [], fields: ['title'], project: 'Launch', creationDefaults: { project: 'Launch', projects: ['Launch'] } };
+
+    expect(renameProjectDefinition(workspace, 'Launch', 'Existing')).toBe(false);
+    expect(renameProjectDefinition(workspace, 'Launch', 'Release')).toBe(true);
+    expect(workspace.projectDefinitions.Launch).toBeUndefined();
+    expect(workspace.projectDefinitions.Release?.name).toBe('Release');
+    expect(item).toMatchObject({ project: 'Release', projects: ['Release'] });
+    expect(workspace.views.rename).toMatchObject({ project: 'Release', creationDefaults: { project: 'Release', projects: ['Release'] } });
+  });
+
+  it('renames a Tag across items, View defaults and Unified priority', () => {
+    const workspace = createWorkspace('Tag rename');
+    ensureTagDefinition(workspace, 'urgent');
+    const item = createItem('Ship'); item.tags = ['urgent']; workspace.items[item.id] = item;
+    workspace.views.rename = { id: 'rename', name: 'Urgent', query: { source: 'tags contains "urgent"' }, renderer: 'list', sort: [], fields: ['title'], creationDefaults: { tags: ['urgent'] } };
+    expect(renameTagDefinition(workspace, 'urgent', 'now')).toBe(true);
+    expect(item.tags).toEqual(['now']);
+    expect(workspace.views.rename).toMatchObject({ creationDefaults: { tags: ['now'] } });
+    expect(workspace.views.rename?.query.source).toBe('tags contains "now"');
+    expect(orderedOrganizationPriorityEntries(workspace)).toContainEqual({ kind: 'tag', name: 'now' });
   });
 });

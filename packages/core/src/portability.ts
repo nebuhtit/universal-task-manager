@@ -1,8 +1,8 @@
 import { APP_ID, APP_NAME, APP_VERSION, createId, SCHEMA_VERSION } from './types.js';
-import { defaultOrganizationPreferences, normalizedOrder } from './organization.js';
+import { defaultOrganizationPreferences, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, normalizedOrder, normalizedOrganizationPriorityOrder } from './organization.js';
 import { migrateItem, migrateView, validatePortablePackage } from './schema.js';
 import type {
-  CustomFieldDefinition, PortablePackage, PortableSelection, SavedView, UniversalItem, WorkspaceDocument,
+  CustomFieldDefinition, OrganizationPreferences, PortablePackage, PortableSelection, ProjectDefinition, SavedView, UniversalItem, WorkspaceDocument,
 } from './types.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -51,13 +51,33 @@ export function parsePortablePackage(source: string): ParsedPortablePackage {
   const views = (Array.isArray(raw.views) ? raw.views : []).map((view) => {
     const migrated = migrateView(view, namespace); resolvedWarnings.push(...migrated.warnings); return migrated.value;
   });
+  const projectDefinitions = Object.fromEntries(Object.entries((raw.projectDefinitions ?? {}) as Record<string, unknown>).map(([name, value]) => {
+    const definition = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    const areas = [...new Set([
+      ...(Array.isArray(definition.areas) ? definition.areas.filter((area): area is string => typeof area === 'string') : []),
+      ...(typeof definition.area === 'string' ? [definition.area] : []),
+    ].map((area) => area.trim()).filter(Boolean))];
+    return [name, { ...definition, name, areas } as unknown as ProjectDefinition];
+  }));
+  const rawPreferences = raw.organizationPreferences && typeof raw.organizationPreferences === 'object' ? raw.organizationPreferences as Partial<OrganizationPreferences> : {};
+  const defaults = defaultOrganizationPreferences();
+  const organizationPreferences: OrganizationPreferences = {
+    areaOrder: Array.isArray(rawPreferences.areaOrder) ? rawPreferences.areaOrder : defaults.areaOrder,
+    projectOrder: Array.isArray(rawPreferences.projectOrder) ? rawPreferences.projectOrder : defaults.projectOrder,
+    tagOrder: Array.isArray(rawPreferences.tagOrder) ? rawPreferences.tagOrder : defaults.tagOrder,
+    priorityOrder: Array.isArray(rawPreferences.priorityOrder) ? rawPreferences.priorityOrder : [
+      ...(Array.isArray(rawPreferences.areaOrder) ? rawPreferences.areaOrder : defaults.areaOrder).map((name) => ({ kind: 'area' as const, name })),
+      ...(Array.isArray(rawPreferences.projectOrder) ? rawPreferences.projectOrder : defaults.projectOrder).map((name) => ({ kind: 'project' as const, name })),
+      ...(Array.isArray(rawPreferences.tagOrder) ? rawPreferences.tagOrder : defaults.tagOrder).map((name) => ({ kind: 'tag' as const, name })),
+    ],
+  };
   const portable: PortablePackage = {
     format: 'utm-portable', formatVersion: 1, kind: raw.kind as PortablePackage['kind'], schemaVersion: SCHEMA_VERSION,
     exportedAt: typeof raw.exportedAt === 'string' ? raw.exportedAt : new Date().toISOString(),
     source: raw.source as PortablePackage['source'], customFields: clone((raw.customFields ?? {}) as Record<string, CustomFieldDefinition>),
     areaDefinitions: clone((raw.areaDefinitions ?? {}) as NonNullable<PortablePackage['areaDefinitions']>),
-    projectDefinitions: clone((raw.projectDefinitions ?? {}) as NonNullable<PortablePackage['projectDefinitions']>),
-    ...(raw.organizationPreferences ? { organizationPreferences: clone(raw.organizationPreferences) } : {}),
+    projectDefinitions,
+    organizationPreferences,
     items, views, ...(raw.selection ? { selection: clone(raw.selection as PortableSelection) } : {}),
     dependencyItemIds: Array.isArray(raw.dependencyItemIds) ? raw.dependencyItemIds.filter((id): id is string => typeof id === 'string') : [],
     ...(raw.extensions && typeof raw.extensions === 'object' ? { extensions: clone(raw.extensions as Record<string, unknown>) } : {}),
@@ -144,13 +164,27 @@ export function applyPortableImport(workspace: WorkspaceDocument, preview: Porta
   const unresolved = preview.customFields.filter((field) => field.choice === 'unresolved');
   if (unresolved.length) throw new Error(`Resolve custom field conflicts: ${unresolved.map((field) => field.source.key).join(', ')}`);
 
+  const localOrganization = {
+    areaOrder: [...workspace.organizationPreferences.areaOrder],
+    projectOrder: [...workspace.organizationPreferences.projectOrder],
+    tagOrder: [...workspace.organizationPreferences.tagOrder],
+  };
   for (const [name, definition] of Object.entries(preview.package.areaDefinitions ?? {})) workspace.areaDefinitions[name] ??= clone(definition);
-  for (const [name, definition] of Object.entries(preview.package.projectDefinitions ?? {})) workspace.projectDefinitions[name] ??= clone(definition);
+  for (const [name, definition] of Object.entries(preview.package.projectDefinitions ?? {})) {
+    const existing = workspace.projectDefinitions[name];
+    workspace.projectDefinitions[name] = existing
+      ? { ...existing, areas: [...new Set([...(existing.areas ?? []), ...(definition.areas ?? [])])] }
+      : clone(definition);
+    definition.areas.forEach((area) => ensureAreaDefinition(workspace, area, {}, new Date(definition.createdAt)));
+  }
   const importedOrganization = preview.package.organizationPreferences ?? defaultOrganizationPreferences();
   const mergeOrder = (local: Array<string | null>, imported: Array<string | null>, names: string[]) => normalizedOrder(local.some((entry) => entry !== null) ? [...local, ...imported] : imported, names);
-  workspace.organizationPreferences.areaOrder = mergeOrder(workspace.organizationPreferences.areaOrder, importedOrganization.areaOrder, Object.keys(workspace.areaDefinitions));
-  workspace.organizationPreferences.projectOrder = mergeOrder(workspace.organizationPreferences.projectOrder, importedOrganization.projectOrder, Object.keys(workspace.projectDefinitions));
-  workspace.organizationPreferences.tagOrder = mergeOrder(workspace.organizationPreferences.tagOrder, importedOrganization.tagOrder, [...new Set([...workspace.organizationPreferences.tagOrder, ...importedOrganization.tagOrder].filter((tag): tag is string => tag !== null))]);
+  workspace.organizationPreferences.areaOrder = mergeOrder(localOrganization.areaOrder, importedOrganization.areaOrder, Object.keys(workspace.areaDefinitions));
+  workspace.organizationPreferences.projectOrder = mergeOrder(localOrganization.projectOrder, importedOrganization.projectOrder, Object.keys(workspace.projectDefinitions));
+  workspace.organizationPreferences.tagOrder = mergeOrder(localOrganization.tagOrder, importedOrganization.tagOrder, [...new Set([...localOrganization.tagOrder, ...importedOrganization.tagOrder].filter((tag): tag is string => tag !== null))]);
+  const priorityKey = (entry: OrganizationPreferences['priorityOrder'][number]) => JSON.stringify([entry.kind, entry.name, entry.kind === 'project' && entry.name !== null ? entry.area ?? null : undefined]);
+  workspace.organizationPreferences.priorityOrder = [...workspace.organizationPreferences.priorityOrder, ...importedOrganization.priorityOrder]
+    .filter((entry, index, entries) => entries.findIndex((candidate) => priorityKey(candidate) === priorityKey(entry)) === index);
 
   const keyMap = new Map<string, string>();
   for (const plan of preview.customFields) {
@@ -183,6 +217,9 @@ export function applyPortableImport(workspace: WorkspaceDocument, preview: Porta
       copiedItems += 1;
     } else addedItems += 1;
     workspace.items[item.id] = item;
+    item.areas.forEach((area) => ensureAreaDefinition(workspace, area));
+    item.projects.forEach((project) => ensureProjectDefinition(workspace, project));
+    item.tags.forEach((tag) => ensureTagDefinition(workspace, tag));
   }
 
   for (const plan of preview.views) {
@@ -198,6 +235,7 @@ export function applyPortableImport(workspace: WorkspaceDocument, preview: Porta
     else addedViews += 1;
     workspace.views[view.id] = view;
   }
+  workspace.organizationPreferences.priorityOrder = normalizedOrganizationPriorityOrder(workspace.organizationPreferences.priorityOrder, workspace);
   workspace.updatedAt = new Date().toISOString();
   return { addedItems, copiedItems, addedViews, copiedViews, skipped };
 }

@@ -8,13 +8,13 @@ describe('View creation defaults', () => {
   it('prefills independent Area, Project and list while keeping item urgency separate', () => {
     const source = createItem('New item');
     const created = applyViewCreationDefaults(source, view());
-    expect(created).toMatchObject({ area: 'Work', project: 'Vehicle repair', list: 'This week', priority: 4 });
+    expect(created).toMatchObject({ areas: ['Work'], projects: ['Vehicle repair'], list: 'This week', priority: 4 });
     expect(source).not.toHaveProperty('area');
   });
 
   it('inherits an Area from Project metadata when the View pins only the Project', () => {
     const workspace = createWorkspace('Project parent'); ensureProjectDefinition(workspace, 'Vehicle repair', { area: 'Work' });
     const { area: _area, list: _list, creationDefaults: _defaults, ...projectView } = view();
-    expect(applyViewCreationDefaults(createItem(''), projectView, workspace)).toMatchObject({ project: 'Vehicle repair', area: 'Work' });
+    expect(applyViewCreationDefaults(createItem(''), projectView, workspace)).toMatchObject({ projects: ['Vehicle repair'], areas: ['Work'] });
   });
 });

@@ -29,10 +29,13 @@ export const applyViewCreationDefaults = (item: UniversalItem, view: SavedView, 
   if (Array.isArray(nextItem.reminders)) nextItem.reminders = nextItem.reminders.map((reminder) => { const { acknowledgedAt: _acknowledgedAt, ...freshReminder } = reminder; return { ...freshReminder, id: createId() }; });
   // Explicit View organization always wins over a conflicting generic default.
   if (view.list) nextItem.list = view.list;
-  const projectArea = view.project && workspace ? organizationDefinitionFor(workspace, 'project', view.project) : undefined;
-  if (view.area) nextItem.area = view.area;
-  else if (projectArea?.area) nextItem.area = projectArea.area;
-  if (view.project) nextItem.project = view.project;
+  const projectDefinition = view.project && workspace ? organizationDefinitionFor(workspace, 'project', view.project) : undefined;
+  const defaultAreas = view.area ? [] : Array.isArray(nextItem.areas) ? nextItem.areas : nextItem.area ? [nextItem.area] : [];
+  const defaultProjects = view.project ? [] : Array.isArray(nextItem.projects) ? nextItem.projects : nextItem.project ? [nextItem.project] : [];
+  nextItem.areas = [...new Set([...defaultAreas, ...(view.area ? [view.area] : projectDefinition?.areas ?? [])])];
+  nextItem.projects = [...new Set([...defaultProjects, ...(view.project ? [view.project] : [])])];
+  delete nextItem.area;
+  delete nextItem.project;
   nextItem.preset = inferredPreset(nextItem);
   return nextItem;
 };

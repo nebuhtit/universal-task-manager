@@ -153,6 +153,11 @@
   font-size: var(--font-size-secondary);
 }
 
+.undo-toast-stack { position: fixed; z-index: calc(var(--z-overlay) + 101); left: 50%; bottom: var(--space-5); width: min(420px, calc(100vw - var(--space-5))); display: grid; gap: var(--space-2); transform: translateX(-50%); }
+.undo-toast { position: static; width: 100%; display: flex; align-items: center; gap: var(--space-2); transform: none; }
+.undo-toast > span { min-width: 0; flex: 1; }
+.undo-toast > strong { min-width: 1.5em; color: var(--color-accent-contrast); text-align: center; font-variant-numeric: tabular-nums; }
+
 .backup-reminder { max-width: min(640px, calc(100vw - var(--space-5))); display: flex; align-items: center; gap: var(--space-3); pointer-events: none; }
 .backup-reminder > span { min-width: 0; }
 .backup-reminder button { pointer-events: auto; }

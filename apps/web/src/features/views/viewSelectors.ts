@@ -1,4 +1,4 @@
-import { compileQuery, compileSort, effectiveWorkspaceNow, listDefinitionFor, orderedOrganizationEntries, orderedTagEntries, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { compileQuery, compileSort, effectiveWorkspaceNow, itemAreas, itemProjects, listDefinitionFor, orderedOrganizationEntries, orderedTagEntries, organizationPriorityRank, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
 const recentlyDoneUntil = new Map<string, number>();
@@ -32,8 +32,8 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
   const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
   const available = Object.values(workspace.items).filter((item) => !item.deletedAt
     && (!view?.list || item.list === view.list)
-    && (!view?.area || item.area === view.area)
-    && (!view?.project || item.project === view.project)
+    && (!view?.area || itemAreas(item).includes(view.area))
+    && (!view?.project || itemProjects(item).includes(view.project))
     && (templateFilterRequested || !isItemTemplate(item))
     && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
   if (!view) return available.filter((item) => item.role !== 'series_template');
@@ -42,7 +42,9 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
   try {
     const predicate = compileQuery(view.query.source || 'true', (item) => relationContext(workspace, item), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
     const matchingRows = available.filter((item) => {
-      const visibleByQuery = item.role !== 'series_template' ? predicate(item, now) : Boolean(item.habit) && predicate({ ...item, role: 'standalone' }, now);
+      const areas = itemAreas(item); const projects = itemProjects(item);
+      const queryItem = { ...item, area: areas.length ? areas : undefined, project: projects.length ? projects : undefined } as unknown as UniversalItem;
+      const visibleByQuery = item.role !== 'series_template' ? predicate(queryItem, now) : Boolean(item.habit) && predicate({ ...queryItem, role: 'standalone' }, now);
       const grace = item.state === 'done' && (recentlyDoneUntil.get(item.id) ?? 0) > Date.now();
       return visibleByQuery || grace;
     });
@@ -74,11 +76,12 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
   const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
   if (sortSource.trim()) {
     const rules = parseSortSource(sortSource);
-    const organizationSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'areaOrder', 'projectOrder', 'tagOrder'].includes(expression)));
+    const organizationSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'organizationOrder', 'areaOrder', 'projectOrder', 'tagOrder'].includes(expression)));
     if (!organizationSorts.size) items.sort((left, right) => compileSort(sortSource)(left, right, now));
     else {
       const expanded = serializeSortRules(rules.flatMap((rule) => {
         if (!organizationSorts.has(rule.expression)) return [rule];
+        if (rule.expression === 'organizationOrder') return [{ ...rule, expression: 'custom.__utm_organization_order' }];
         const prefix = rule.expression === 'listOrder' ? 'list' : rule.expression === 'areaOrder' ? 'area' : rule.expression === 'projectOrder' ? 'project' : 'tag';
         if (prefix === 'tag') return [{ ...rule, expression: 'custom.__utm_tag_order' }];
         if (prefix === 'area' || prefix === 'project') return [{ ...rule, expression: `custom.__utm_${prefix}_order` }];
@@ -102,8 +105,9 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
         return { ...item, custom: {
           ...item.custom,
           ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
-          __utm_area_order: rank(areaOrder, item.area ?? null),
-          __utm_project_order: rank(projectOrder, item.project ?? null),
+          __utm_organization_order: organizationPriorityRank(workspace, item),
+          __utm_area_order: itemAreas(item).length ? Math.max(...itemAreas(item).map((area) => rank(areaOrder, area))) : rank(areaOrder, null),
+          __utm_project_order: itemProjects(item).length ? Math.max(...itemProjects(item).map((project) => rank(projectOrder, project))) : rank(projectOrder, null),
           __utm_tag_order: tagRank,
         } };
       };

@@ -32,7 +32,7 @@ function projection(item: UniversalItem, sourceItemId = item.id, virtual = false
 export function projectOccurrences(workspace: WorkspaceDocument, rangeStart: Date, rangeEnd: Date): ProjectedOccurrence[] {
   if (!(rangeStart < rangeEnd)) throw new Error('Calendar range end must be after its start');
   const output: ProjectedOccurrence[] = [];
-  const templates = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.recurrence && item.schedule?.startAt && !item.deletedAt);
+  const templates = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.recurrence && (item.schedule?.startAt || item.schedule?.dueAt) && !item.deletedAt);
   const knownSeries = new Set(templates.map((item) => item.id));
 
   for (const item of Object.values(workspace.items)) {
@@ -70,7 +70,7 @@ export function materializeProjectedOccurrence(workspace: WorkspaceDocument, pro
   if (!series?.recurrence) throw new Error('Recurring series no longer exists');
   const id = deterministicOccurrenceId(series.id, projected.recurrenceId);
   if (workspace.items[id]) return workspace.items[id]!;
-  const sequence = buildRecurrenceRule(series).between(new Date(at(series.schedule!.startAt!) - 1), new Date(projected.recurrenceId), true).length - 1;
+  const sequence = buildRecurrenceRule(series).between(new Date(at(series.schedule!.startAt ?? series.schedule!.dueAt) - 1), new Date(projected.recurrenceId), true).length - 1;
   const item = createOccurrence(series, new Date(projected.recurrenceId), Math.max(0, sequence));
   item.createdAt = now.toISOString(); item.updatedAt = now.toISOString();
   workspace.items[item.id] = item;
@@ -139,7 +139,7 @@ export function moveRecurringOccurrence(workspace: WorkspaceDocument, projected:
   if (countPart) {
     const total = Number(countPart.slice('COUNT='.length));
     const rule = buildRecurrenceRule({ ...series, recurrence: oldRule });
-    const beforeCount = rule.between(new Date(at(series.schedule!.startAt!) - 1), new Date(projected.recurrenceId), false).length;
+    const beforeCount = rule.between(new Date(at(series.schedule!.startAt ?? series.schedule!.dueAt) - 1), new Date(projected.recurrenceId), false).length;
     futureParts = futureParts.map((part) => part.startsWith('COUNT=') ? `COUNT=${Math.max(1, total - beforeCount)}` : part);
   }
   split.recurrence = { ...oldRule, rrule: futureParts.join(';') };

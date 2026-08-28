@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.10.1';
+export const SCHEMA_VERSION = '1.17.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.15.2';
-export const APP_RELEASED_AT = '2026-08-27T12:06:47.000Z';
+export const APP_VERSION = '1.19.0';
+export const APP_RELEASED_AT = '2026-08-28T12:30:00.000Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -165,9 +165,13 @@ export interface UniversalItem {
   priority?: 0 | 1 | 2 | 3 | 4;
   /** Optional plain task-list membership. Items can belong to one list or no list. */
   list?: string;
-  /** Ongoing PARA responsibility. Independent from both Project and a plain list. */
+  /** Ongoing PARA responsibilities. Independent from Projects and a plain list. */
+  areas: string[];
+  /** Finite PARA outcomes. Projects may belong to several Areas. */
+  projects: string[];
+  /** Legacy scalar accepted only while migrating older workspaces. */
   area?: string;
-  /** Finite PARA outcome. A project may belong to an Area, but the item stores both explicitly. */
+  /** Legacy scalar accepted only while migrating older workspaces. */
   project?: string;
   contexts: string[];
   tags: string[];
@@ -263,8 +267,19 @@ export interface AreaDefinition {
 }
 
 export interface ProjectDefinition extends AreaDefinition {
-  /** Optional parent Area. Items still persist their Area explicitly. */
+  /** Parent Areas. An empty array means the Project is unassigned. */
+  areas: string[];
+  /** Legacy scalar accepted only while migrating older workspaces. */
   area?: string;
+}
+
+export type OrganizationPriorityKind = 'area' | 'project' | 'tag';
+export interface OrganizationPriorityEntry {
+  kind: OrganizationPriorityKind;
+  /** Null represents No Area, No Project, or No Tags for its kind. */
+  name: string | null;
+  /** Project occurrence scope. A Project linked to several Areas has one entry per Area. */
+  area?: string | null;
 }
 
 export interface OrganizationPreferences {
@@ -272,6 +287,8 @@ export interface OrganizationPreferences {
   areaOrder: Array<string | null>;
   projectOrder: Array<string | null>;
   tagOrder: Array<string | null>;
+  /** Unified top-to-bottom priority across Areas, Projects and Tags. */
+  priorityOrder: OrganizationPriorityEntry[];
 }
 
 export interface PortableSource {
@@ -415,6 +432,8 @@ export interface CalendarPreferences {
   includeStates: ItemState[];
   /** Opt-in local operation logs used for troubleshooting; never uploaded automatically. */
   diagnosticsEnabled: boolean;
+  /** Optional inline guides and explanatory copy; disabled by default for a compact interface. */
+  showExplanations: boolean;
   /** Optional accelerated clock for local recurrence testing; never enabled by default. */
   testClock?: TestClockPreferences;
   backupPreferences?: { reminderDays: number; lastBackupAt?: ISODateTime; locationLabel?: string };
@@ -511,7 +530,10 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     listDefinitions: {},
     areaDefinitions: {},
     projectDefinitions: {},
-    organizationPreferences: { areaOrder: [null], projectOrder: [null], tagOrder: [null] },
+    organizationPreferences: {
+      areaOrder: [null], projectOrder: [null], tagOrder: [null],
+      priorityOrder: [{ kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null }],
+    },
     customFields: {},
     views: {
       '__all_items__': {
@@ -559,6 +581,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 },
       includeStates: ['open', 'done'],
       diagnosticsEnabled: true,
+      showExplanations: false,
       testClock: { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours', startedAt: now.toISOString(), virtualAt: now.toISOString() },
       backupPreferences: { reminderDays: 7 },
     },
@@ -588,6 +611,8 @@ export function createItem(
     updatedAt: timestamp,
     contexts: [],
     tags: [],
+    areas: [],
+    projects: [],
     reminders: [],
     relations: [],
     attachments: [],

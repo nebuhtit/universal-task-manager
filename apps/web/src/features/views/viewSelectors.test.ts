@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, reorderOrganization, type SavedView } from '@utm/core';
+import { createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
 import { boardSettingsFor, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems } from './viewSelectors';
 
@@ -42,15 +42,18 @@ describe('view selectors', () => {
 
   it('filters by independent Area and Project and sorts their manual orders separately', () => {
     const workspace = createWorkspace('PARA view');
-    const vehicle = createItem('Repair vehicle'); vehicle.area = 'Work'; vehicle.project = 'Vehicle'; vehicle.priority = 4;
-    const program = createItem('Build program'); program.area = 'Work'; program.project = 'Program'; program.priority = 2;
-    const vacation = createItem('Book hotel'); vacation.area = 'Vacation'; vacation.project = 'Trip'; vacation.priority = 3;
+    const vehicle = createItem('Repair vehicle'); vehicle.areas = ['Work']; vehicle.projects = ['Vehicle']; vehicle.priority = 4;
+    const program = createItem('Build program'); program.areas = ['Work', 'Learning']; program.projects = ['Program']; program.priority = 2;
+    const vacation = createItem('Book hotel'); vacation.areas = ['Vacation']; vacation.projects = ['Trip']; vacation.priority = 3;
     [vehicle, program, vacation].forEach((item) => { workspace.items[item.id] = item; });
     ensureAreaDefinition(workspace, 'Work'); ensureAreaDefinition(workspace, 'Vacation');
     ensureProjectDefinition(workspace, 'Vehicle', { area: 'Work' }); ensureProjectDefinition(workspace, 'Program', { area: 'Work' }); ensureProjectDefinition(workspace, 'Trip', { area: 'Vacation' });
     reorderOrganization(workspace, 'project', ['Program', 'Vehicle', 'Trip', null]);
     expect(selectViewItems(workspace, { ...view(), area: 'Work', sortSource: 'projectOrder desc nulls last' }).map((item) => item.title)).toEqual(['Build program', 'Repair vehicle']);
     expect(selectViewItems(workspace, { ...view(), area: 'Work', project: 'Vehicle' }).map((item) => item.title)).toEqual(['Repair vehicle']);
+    expect(selectViewItems(workspace, view('area == "Learning"')).map((item) => item.title)).toEqual(['Build program']);
+    const unassigned = createItem('No Area'); workspace.items[unassigned.id] = unassigned;
+    expect(selectViewItems(workspace, view('area == null')).map((item) => item.title)).toEqual(['No Area']);
   });
 
   it('sorts by configurable Area, Project and best-tag positions including missing values', () => {
@@ -83,6 +86,22 @@ describe('view selectors', () => {
     expect(selectViewItems(workspace, { ...view(), sortSource: 'areaOrder desc\ntagOrder desc' }).map((item) => item.title)).toEqual(['Work first', 'Tag first']);
     expect(selectViewItems(workspace, { ...view(), sortSource: 'tagOrder desc\nprojectOrder desc' }).map((item) => item.title)).toEqual(['Tag first', 'Work first']);
     expect(selectViewItems(workspace, { ...view(), sortSource: 'areaOrder asc' }).map((item) => item.title)).toEqual(['Tag first', 'Work first']);
+  });
+
+  it('sorts by the first match in the unified organization ladder', () => {
+    const workspace = createWorkspace('Unified organization view');
+    const tagged = createItem('Urgent exception'); tagged.areas = ['Personal']; tagged.tags = ['urgent'];
+    const work = createItem('Work item'); work.areas = ['Work']; work.projects = ['Launch'];
+    const empty = createItem('No organization');
+    [tagged, work, empty].forEach((item) => { workspace.items[item.id] = item; });
+    ensureAreaDefinition(workspace, 'Work'); ensureAreaDefinition(workspace, 'Personal'); ensureProjectDefinition(workspace, 'Launch', { areas: ['Work'] });
+    workspace.organizationPreferences.tagOrder = ['urgent', null];
+    reorderOrganizationPriority(workspace, [
+      { kind: 'tag', name: 'urgent' }, { kind: 'area', name: 'Work' }, { kind: 'project', name: 'Launch' },
+      { kind: 'area', name: 'Personal' }, { kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null },
+    ]);
+    expect(selectViewItems(workspace, { ...view(), sortSource: 'organizationOrder desc' }).map((item) => item.title)).toEqual(['Urgent exception', 'Work item', 'No organization']);
+    expect(selectViewItems(workspace, { ...view(), sortSource: 'organizationOrder asc' }).map((item) => item.title)).toEqual(['No organization', 'Work item', 'Urgent exception']);
   });
 
   it('keeps organization sorting usable before an in-memory legacy workspace is migrated', () => {

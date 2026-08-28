@@ -62,7 +62,7 @@ describe('item field display helpers', () => {
     workspace.customFields.score = { id: 'score', key: 'score', label: 'Score', kind: 'number', required: false };
     const item = createItem('Computed'); item.scripts = [{ id: 'remaining', key: 'remaining', label: 'Remaining', source: 'timeUntil(schedule.startAt)', resultKind: 'text' }]; workspace.items[item.id] = item;
     const paths = viewFieldOptions(workspace).map((field) => field.path);
-    const represented = (property: string) => paths.some((path) => path === property || path.startsWith(`${property}.`) || property === 'custom' && path.startsWith('custom.') || property === 'scripts' && path.startsWith('script.'));
+    const represented = (property: string) => paths.some((path) => path === property || path.startsWith(`${property}.`) || property === 'areas' && path === 'area' || property === 'projects' && path === 'project' || property === 'custom' && path.startsWith('custom.') || property === 'scripts' && path.startsWith('script.'));
     const missing = Object.keys(itemJsonSchema.properties).filter((property) => property !== 'extensions' && !represented(property));
     expect(missing).toEqual([]);
   });

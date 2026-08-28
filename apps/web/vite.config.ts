@@ -34,7 +34,13 @@ export default defineConfig({
   },
   // Automerge's webpack export embeds its WASM as base64, which works in Vite
   // without relying on the still-experimental ESM/WASM integration proposal.
-  resolve: { conditions: ['webpack'] },
+  resolve: {
+    conditions: ['webpack'],
+    // Workspace symlinks can otherwise let the dev server optimize React from
+    // more than one path. A remote Safari client then sees an Invalid Hook Call
+    // after HMR even though production has one React runtime.
+    dedupe: ['react', 'react-dom'],
+  },
   plugins: [
     liveBuildInfo,
     react(),

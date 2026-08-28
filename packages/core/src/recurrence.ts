@@ -62,15 +62,16 @@ function addDates(rule: RRuleSetType, values: string[], timezone: string, exclud
 }
 
 export function buildRecurrenceRule(series: UniversalItem): RecurrenceIterator {
-  if (!series.recurrence || !series.schedule?.startAt) throw new Error(`Series ${series.id} has no recurrence start`);
-  const timezone = series.recurrence.timezone || series.schedule.timezone || 'UTC';
+  const anchor = series.schedule?.startAt ?? series.schedule?.dueAt;
+  if (!series.recurrence || !anchor) throw new Error(`Series ${series.id} has no recurrence start or deadline`);
+  const timezone = series.recurrence.timezone || series.schedule?.timezone || 'UTC';
   const value = series.recurrence.rrule.replace(/^RRULE:/, '');
   const parsed = RRule.fromString(value);
   const recurring = new RRule({
     ...parsed.origOptions,
     // rrule's Date values are floating wall-clock values. Keeping IANA conversion
     // here makes a 09:00 Europe/Berlin series remain 09:00 after DST changes.
-    dtstart: toFloating(new Date(series.schedule.startAt), timezone),
+    dtstart: toFloating(new Date(anchor), timezone),
     tzid: null,
   });
   const set = new RRuleSet();
@@ -99,7 +100,9 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
   // a new item would create forbidden cross-document references, so occurrences
   // are always materialized from a detached snapshot.
   const detached = JSON.parse(JSON.stringify(series)) as UniversalItem;
-  const originalAnchor = new Date(detached.schedule!.startAt!).getTime();
+  const originalAnchorValue = detached.schedule?.startAt ?? detached.schedule?.dueAt;
+  if (!originalAnchorValue) throw new Error(`Series ${series.id} has no recurrence start or deadline`);
+  const originalAnchor = new Date(originalAnchorValue).getTime();
   const delta = anchor.getTime() - originalAnchor;
   const activationOffset = detached.recurrence?.activationOffset ? durationToMs(detached.recurrence.activationOffset) : 0;
   const dueOffset = detached.recurrence?.dueOffset ? durationToMs(detached.recurrence.dueOffset) : undefined;
@@ -107,7 +110,7 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
   const schedule = {
     ...detached.schedule!,
     availableFrom: new Date(anchor.getTime() - activationOffset).toISOString(),
-    startAt: anchor.toISOString(),
+    ...(detached.schedule?.startAt ? { startAt: anchor.toISOString() } : {}),
     ...(detached.schedule?.endAt ? { endAt: shiftIso(detached.schedule.endAt, delta)! } : {}),
     ...(dueOffset !== undefined
       ? { dueAt: new Date(anchor.getTime() + dueOffset).toISOString() }
@@ -344,7 +347,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
   let untouched = 0;
   consolidateHabitOccurrences(workspace, now);
   const templates = Object.values(workspace.items).filter(
-    (item) => item.role === 'series_template' && item.recurrence && item.schedule?.startAt && !item.deletedAt,
+    (item) => item.role === 'series_template' && item.recurrence && (item.schedule?.startAt || item.schedule?.dueAt) && !item.deletedAt,
   );
   for (const series of templates) {
     if (series.habit) {
@@ -353,7 +356,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
     }
     const rule = buildRecurrenceRule(series);
     const recurrence = series.recurrence!;
-    const start = new Date(series.schedule!.startAt!);
+    const start = new Date(series.schedule!.startAt ?? series.schedule!.dueAt!);
     const next = rule.after(now, true);
     const anchors = recurrence.anchor === 'completion'
       ? [start]
@@ -402,7 +405,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
 }
 
 export function makeSeries(item: UniversalItem, rrule: string, options?: Partial<UniversalItem['recurrence']>): UniversalItem {
-  if (!item.schedule?.startAt) throw new Error('A recurring item needs schedule.startAt');
+  if (!item.schedule?.startAt && !item.schedule?.dueAt) throw new Error('A recurring item needs schedule.startAt or schedule.dueAt');
   return {
     ...item,
     role: 'series_template',

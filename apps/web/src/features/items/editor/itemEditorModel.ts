@@ -29,7 +29,13 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
     if (scriptKeys.has(script.key)) throw new Error(`Script key “${script.key}” is duplicated.`);
     scriptKeys.add(script.key); parseExpression(script.source);
   }
-  let result = { ...clean(item), title: item.title.trim(), tags: commaList(input.tags), contexts: commaList(input.contexts), updatedAt: now.toISOString(), revision: item.revision + (workspace.items[item.id] ? 1 : 0) };
+  let result = {
+    ...clean(item), title: item.title.trim(), tags: commaList(input.tags), contexts: commaList(input.contexts),
+    areas: [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])].map((value) => value.trim()).filter(Boolean))],
+    projects: [...new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])].map((value) => value.trim()).filter(Boolean))],
+    updatedAt: now.toISOString(), revision: item.revision + (workspace.items[item.id] ? 1 : 0),
+  };
+  delete result.area; delete result.project;
   const opensAt = result.schedule?.startAt ? Date.parse(result.schedule.startAt) : Number.NaN;
   const endsAt = result.schedule?.endAt ? Date.parse(result.schedule.endAt) : Number.NaN;
   const dueAt = result.schedule?.dueAt ? Date.parse(result.schedule.dueAt) : Number.NaN;

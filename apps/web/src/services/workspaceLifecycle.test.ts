@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as Automerge from '@automerge/automerge';
-import { createItem, createWorkspace, type WorkspaceDocument } from '@utm/core';
+import { createItem, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, renameProjectDefinition, reorderTagSubset, type WorkspaceDocument } from '@utm/core';
 import { applyReconciliationResult, commitWorkspaceDocument } from './workspaceLifecycle';
 
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
@@ -21,5 +21,23 @@ describe('workspace lifecycle integration', () => {
     const next = applyReconciliationResult(seeded, { created: [created], updated: [changed], autoClosed: [closed], removedIds: [removed.id], untouched: 0 }, now);
     expect(next.items[created.id]?.title).toBe('Created'); expect(next.items[updated.id]?.title).toBe('After'); expect(next.items[closed.id]?.state).toBe('auto_closed');
     expect(next.items[removed.id]).toBeUndefined(); expect(next.tombstones[removed.id]).toBe(now.toISOString());
+  });
+
+  it('renames a Project inside an Automerge transaction', () => {
+    const base = createWorkspace('Rename integration');
+    ensureAreaDefinition(base, 'Work'); ensureProjectDefinition(base, 'Launch', { areas: ['Work'] });
+    const source = Automerge.from(base as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
+    const next = commitWorkspaceDocument(source, 'Rename Project', (draft) => { renameProjectDefinition(draft, 'Launch', 'Release'); });
+    expect(next.projectDefinitions.Launch).toBeUndefined();
+    expect(next.projectDefinitions.Release).toMatchObject({ name: 'Release', areas: ['Work'] });
+  });
+
+  it('reorders Tags inside an Automerge transaction', () => {
+    const base = createWorkspace('Tag reorder integration');
+    ensureTagDefinition(base, 'a'); ensureTagDefinition(base, 'b');
+    const source = Automerge.from(base as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
+    const next = commitWorkspaceDocument(source, 'Reorder Tags', (draft) => { reorderTagSubset(draft, ['b', 'a']); });
+    expect(next.organizationPreferences.tagOrder.filter(Boolean)).toEqual(['b', 'a']);
+    expect(next.organizationPreferences.priorityOrder.filter((entry) => entry.kind === 'tag' && entry.name !== null).map((entry) => entry.name)).toEqual(['b', 'a']);
   });
 });

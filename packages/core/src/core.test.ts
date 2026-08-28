@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, SCHEMA_VERSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, migrateView, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
@@ -240,6 +240,20 @@ describe('recurrence and auto-renew', () => {
       '2026-03-29T07:00:00.000Z',
       '2026-04-05T07:00:00.000Z',
     ]);
+  });
+
+  it('materializes a due-only recurring item without inventing a scheduled start', () => {
+    const now = new Date('2026-08-28T10:00:00.000Z');
+    const workspace = createWorkspace('Due-only recurrence', now);
+    const item = createItem('Weekly deadline', 'task', now);
+    item.schedule = { timezone: 'UTC', dueAt: '2026-08-28T11:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=WEEKLY', { activationOffset: 'P3D' });
+    workspace.items[series.id] = series;
+
+    const result = reconcileRecurrences(workspace, now);
+    expect(result.created).toHaveLength(1);
+    expect(result.created[0]!.schedule?.startAt).toBeUndefined();
+    expect(result.created[0]!.schedule?.dueAt).toBe('2026-08-28T11:00:00.000Z');
   });
 
   it('keeps a recurring habit as one item and stores only completed dates', () => {
@@ -513,12 +527,13 @@ describe('interoperability', () => {
     delete (legacyHabit.habit as Partial<NonNullable<UniversalItem['habit']>>).completedDates;
     old.items[legacyHabit.id] = legacyHabit;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.schemaVersion).toBe('1.10.1');
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     expect(migrated.listDefinitions.Health).toMatchObject({ name: 'Health', kind: 'list', priority: 0, createdAt: item.createdAt });
     expect(migrated.views[legacyView.id]?.list).toBe('Health');
     expect(migrated.calendarPreferences.sleepSchedule).toEqual({ wake: '08:00', sleep: '22:00' });
     expect(migrated.calendarPreferences.language).toBe('en');
     expect(migrated.calendarPreferences.diagnosticsEnabled).toBe(true);
+    expect(migrated.calendarPreferences.showExplanations).toBe(false);
     expect(migrated.calendarPreferences.appearance).toEqual({ mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 });
     expect((migrated.calendarPreferences as typeof migrated.calendarPreferences & { staleUiFlag?: boolean }).staleUiFlag).toBeUndefined();
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
@@ -539,9 +554,9 @@ describe('interoperability', () => {
     (old as unknown as { organizationPreferences: unknown }).organizationPreferences = { unassignedAreaPriority: 0, unassignedProjectPriority: 0, tagPriorities: {} };
     delete (old as Partial<typeof old>).areaDefinitions; delete (old as Partial<typeof old>).projectDefinitions;
     const migrated = fromCanonicalJSON(JSON.stringify(old));
-    expect(migrated.items[areaItem.id]).toMatchObject({ area: 'Work' });
+    expect(migrated.items[areaItem.id]).toMatchObject({ areas: ['Work'] });
     expect(migrated.items[areaItem.id]?.list).toBeUndefined();
-    expect(migrated.items[projectItem.id]).toMatchObject({ project: 'Vehicle repair' });
+    expect(migrated.items[projectItem.id]).toMatchObject({ projects: ['Vehicle repair'] });
     expect(migrated.views[areaView.id]).toMatchObject({ area: 'Work' });
     expect(migrated.views[projectView.id]).toMatchObject({ project: 'Vehicle repair' });
     expect(migrated.areaDefinitions.Work?.name).toBe('Work');

@@ -21,7 +21,7 @@ import { useToast } from './hooks/useToast';
 import { useUiSounds } from './hooks/useUiSounds';
 import { useViewport } from './hooks/useViewport';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
-import { clearDiagnostics, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
+import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
 import {
   ViewsPage,
   applyViewCreationDefaults,
@@ -34,7 +34,7 @@ import {
   collectItemDependencies, createId, createItem, createPortablePackage,
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences,
   runAutomationEvents, serializePortablePackage,
-  createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, fromICS, packageToTabular, parseCsv, tabularToPackage, testClockDisplay, testDayDurationSeconds, toCsv, toICS,
+  createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, packageToTabular, parseCsv, tabularToPackage, testClockDisplay, testDayDurationSeconds, toCsv, toICS,
   type AutomationAction, type AutomationRule, type CustomFieldDefinition,
   type ItemPreset, type PortableImportPreview, type PortableSelection, type SavedView, type TestClockUnit, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
@@ -49,7 +49,8 @@ const BUILD_COMMIT = (import.meta.env.VITE_COMMIT_SHA || 'local').slice(0, 7);
 function useDisplayedBuild(): { commit: string; dirty: boolean } {
   const [build, setBuild] = useState({ commit: BUILD_COMMIT, dirty: false });
   useEffect(() => {
-    if (!import.meta.env.DEV) return undefined;
+    // A previously installed PWA shell can be served by the service worker even
+    // while its URL points at Vite dev. The live endpoint remains authoritative.
     const refresh = () => void fetch('/__utm-build-info', { cache: 'no-store' })
       .then((response) => response.ok ? response.json() as Promise<{ commit?: string; dirty?: boolean }> : undefined)
       .then((result) => { if (result?.commit) setBuild({ commit: result.commit.slice(0, 7), dirty: Boolean(result.dirty) }); })
@@ -62,6 +63,8 @@ function useDisplayedBuild(): { commit: string; dirty: boolean } {
 }
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+type PendingUndoAction = { id: string; label: string; expiresAt: number; undo: () => void };
+const UNDO_WINDOW_MS = 4_000;
 
 /**
  * A visible recurring cycle is an occurrence, while recurrence settings belong
@@ -99,6 +102,7 @@ const downloadText = (content: string, filename: string, type = 'application/jso
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
+const downloadDiagnosticsFile = () => downloadText(JSON.stringify(readDiagnostics(), null, 2), 'utm-diagnostics.json');
 const downloadBlob = (content: BlobPart, filename: string, type: string) => {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
@@ -171,6 +175,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [busy, setBusy] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState<File | null>(null);
   const [unencryptedTestWorkspace, setUnencryptedTestWorkspace] = useState(false);
+  const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
     if (saved && interfaceLanguages.some((option) => option.value === saved)) return saved;
@@ -183,15 +188,32 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     window.localStorage.setItem('utm-interface-language', language);
     return installDomLocalization(language);
   }, [language]);
+  useEffect(() => {
+    const refresh = () => setDiagnosticCount(readDiagnostics().length);
+    window.addEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
+  }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (selectedBackup) { await importWorkspace(selectedBackup); return; }
+    const startedAt = performance.now();
+    const operation = exists ? 'Unlock local workspace' : unencryptedTestWorkspace ? 'Create unencrypted test workspace' : 'Create encrypted workspace';
     setError(''); setBusy(true);
     try {
       if (!exists && !unencryptedTestWorkspace && password !== confirm) throw new Error('Passwords do not match');
-      await onReady(exists ? await unlockLocalWorkspace(password) : unencryptedTestWorkspace ? await createUnencryptedLocalWorkspace(name, language) : await createLocalWorkspace(password, name, language), language);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      const unlocked = exists
+        ? await unlockLocalWorkspace(password)
+        : unencryptedTestWorkspace
+          ? await createUnencryptedLocalWorkspace(name, language)
+          : await createLocalWorkspace(password, name, language);
+      await onReady(unlocked, language);
+      const durationMs = Math.round(performance.now() - startedAt);
+      if (durationMs >= 1_500) recordDiagnostic({ kind: 'result', message: 'Workspace entry was slow', operation, outcome: 'succeeded', durationMs });
+    } catch (reason) {
+      recordDiagnostic({ kind: 'error', message: 'Workspace entry failed', operation, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
     finally { setBusy(false); }
   };
 
@@ -200,11 +222,20 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       setError('Enter the complete backup password, then tap Import selected backup.');
       return;
     }
+    const startedAt = performance.now();
+    const operation = 'Import encrypted workspace at setup';
     setBusy(true); setError('');
     try {
-      await onReady(await importAsLocalWorkspace(await readEncryptedBackup(file), password), language);
+      const backup = await readEncryptedBackup(file);
+      const unlocked = await importAsLocalWorkspace(backup, password);
+      await onReady(unlocked, language);
+      const durationMs = Math.round(performance.now() - startedAt);
+      if (durationMs >= 1_500) recordDiagnostic({ kind: 'result', message: 'Workspace backup import was slow', operation, outcome: 'succeeded', durationMs });
     }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    catch (reason) {
+      recordDiagnostic({ kind: 'error', message: 'Workspace entry failed', operation, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
@@ -241,7 +272,11 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <hr />
         </div>
       </details>
-      <p className="lock-version">v{APP_VERSION} · {import.meta.env.DEV && displayedBuild.dirty ? 'local changes · ' : ''}commit {displayedBuild.commit}</p>
+      <details className="install-guide">
+        <summary>Troubleshooting log ({diagnosticCount})</summary>
+        <div><p>This local log is available before unlocking. It records operation names, timing and technical failures — never item titles, passwords, encryption keys or encrypted workspace data.</p><div className="diagnostics-actions"><button className="secondary" type="button" disabled={!diagnosticCount} onClick={downloadDiagnosticsFile}>Download log</button><button className="secondary" type="button" disabled={!diagnosticCount} onClick={clearDiagnostics}>Clear log</button></div></div>
+      </details>
+      <p className="lock-version">v{APP_VERSION} · {displayedBuild.dirty ? 'local changes · ' : ''}commit {displayedBuild.commit}</p>
     </section>
   </main>;
 }
@@ -302,13 +337,19 @@ function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile, o
   };
   const testClock = workspace.calendarPreferences.testClock ?? { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours' as const, startedAt: new Date().toISOString(), virtualAt: new Date().toISOString() };
   const testClockInput = testClockDisplay(testClock);
-  const changeTestClock = (patch: { enabled?: boolean; value?: number; unit?: TestClockUnit }) => commit('Change accelerated test clock', (draft) => {
+  const [testClockDraft, setTestClockDraft] = useState(() => ({ enabled: testClock.enabled, value: String(testClockInput.value), unit: testClockInput.unit }));
+  useEffect(() => {
+    setTestClockDraft({ enabled: testClock.enabled, value: String(testClockInput.value), unit: testClockInput.unit });
+  }, [testClock.enabled, testClock.secondsPerDay, testClockInput.unit, testClockInput.value]);
+  const draftTestClockValue = Number(testClockDraft.value);
+  const validTestClockDraft = Number.isFinite(draftTestClockValue) && draftTestClockValue > 0;
+  const testClockDraftChanged = testClockDraft.enabled !== testClock.enabled || testClockDraft.unit !== testClockInput.unit || (validTestClockDraft && draftTestClockValue !== testClockInput.value);
+  const applyTestClock = () => commit('Apply accelerated test clock', (draft) => {
     const realNow = new Date();
     const current = draft.calendarPreferences.testClock ?? testClock;
-    const currentInput = testClockDisplay(current);
-    const value = Math.max(0.01, patch.value ?? currentInput.value);
-    const unit = patch.unit ?? currentInput.unit;
-    const enabled = patch.enabled ?? current.enabled;
+    const value = Math.max(0.01, draftTestClockValue);
+    const unit = testClockDraft.unit;
+    const enabled = testClockDraft.enabled;
     const virtualNow = current.enabled ? effectiveWorkspaceNow(draft, realNow) : realNow;
     draft.calendarPreferences.testClock = {
       ...current, enabled, secondsPerDay: testDayDurationSeconds(value, unit), dayDurationValue: value, dayDurationUnit: unit,
@@ -316,9 +357,8 @@ function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile, o
     };
   });
   return <div className="settings-page"><div className="page-title"><div><h1>Settings</h1></div></div>
-    <section className="settings-card"><p className="eyebrow">APPEARANCE</p><h2>Theme</h2><p>Choose a light, dark or system theme. Scheduled mode switches automatically using the times below.</p><label>Theme<select value={workspace.calendarPreferences.appearance.mode} onChange={(event) => commit('Change theme mode', (draft) => { draft.calendarPreferences.appearance.mode = event.target.value as WorkspaceDocument['calendarPreferences']['appearance']['mode']; })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option><option value="scheduled">Scheduled</option></select></label>{workspace.calendarPreferences.appearance.mode === 'scheduled' && <div className="form-grid two"><label>Light theme starts<input type="time" value={workspace.calendarPreferences.appearance.lightAt} onChange={(event) => commit('Change light theme schedule', (draft) => { draft.calendarPreferences.appearance.lightAt = event.target.value; })} /></label><label>Dark theme starts<input type="time" value={workspace.calendarPreferences.appearance.darkAt} onChange={(event) => commit('Change dark theme schedule', (draft) => { draft.calendarPreferences.appearance.darkAt = event.target.value; })} /></label></div>}<hr/><p className="eyebrow">SOUND</p><h2>Interface sounds</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.uiSound} onChange={(event) => commit('Toggle interface sounds', (draft) => { draft.calendarPreferences.appearance.uiSound = event.target.checked; })} />Play calm sounds for buttons and controls</label><h2>Completion sound</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.tickSound} onChange={(event) => commit('Toggle completion sound', (draft) => { draft.calendarPreferences.appearance.tickSound = event.target.checked; })} />Play a short sound when an item is completed</label></section>
-    <OrganizationManager workspace={workspace} commit={commit} />
-    <div className="settings-columns"><section className="settings-card"><header><div><p className="eyebrow">DATA MODEL</p><h2>Custom fields</h2></div><button className="secondary" onClick={() => setField({ id: createId(), key: '', label: '', kind: 'text', required: false })}>+ Add</button></header>{Object.values(workspace.customFields).map((entry) => <button className="setting-row" key={entry.id} onClick={() => setField(clean(entry))}><span><strong>{entry.label}</strong><small>custom.{entry.key}</small></span><span>{entry.kind}</span></button>)}{!Object.keys(workspace.customFields).length && <p className="empty">No custom fields yet.</p>}<hr/><p className="eyebrow">TESTING</p><h2>Accelerated day</h2><p>Choose how much real time equals one simulated day. The visible clock, Views, scripts, active ranges, recurrence, Calendar and local reminders follow it.</p><label className="check"><input type="checkbox" checked={testClock.enabled} onChange={(event) => changeTestClock({ enabled: event.target.checked })} /> Enable accelerated test clock</label>{testClock.enabled && <div className="form-grid two"><label>One simulated day<input type="number" min="0.01" step="any" value={testClockInput.value} onChange={(event) => changeTestClock({ value: Number(event.target.value) || 0.01 })} /></label><label>Unit<select value={testClockInput.unit} onChange={(event) => changeTestClock({ unit: event.target.value as TestClockUnit })}><option value="seconds">Seconds</option><option value="minutes">Minutes</option><option value="hours">Hours</option></select></label></div>}<p className="hint">Example: 30 seconds = one simulated day. Backup schedules, diagnostics and background push remain on real time to avoid false alerts or external deliveries during a test.</p></section>
+    <section className="settings-card"><p className="eyebrow">APPEARANCE</p><h2>Theme</h2><p>Choose a light, dark or system theme. Scheduled mode switches automatically using the times below.</p><label>Theme<select value={workspace.calendarPreferences.appearance.mode} onChange={(event) => commit('Change theme mode', (draft) => { draft.calendarPreferences.appearance.mode = event.target.value as WorkspaceDocument['calendarPreferences']['appearance']['mode']; })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option><option value="scheduled">Scheduled</option></select></label>{workspace.calendarPreferences.appearance.mode === 'scheduled' && <div className="form-grid two"><label>Light theme starts<input type="time" value={workspace.calendarPreferences.appearance.lightAt} onChange={(event) => commit('Change light theme schedule', (draft) => { draft.calendarPreferences.appearance.lightAt = event.target.value; })} /></label><label>Dark theme starts<input type="time" value={workspace.calendarPreferences.appearance.darkAt} onChange={(event) => commit('Change dark theme schedule', (draft) => { draft.calendarPreferences.appearance.darkAt = event.target.value; })} /></label></div>}<hr/><p className="eyebrow">GUIDANCE</p><h2>Detailed explanations</h2><label className="check explanations-setting"><input type="checkbox" checked={workspace.calendarPreferences.showExplanations} onChange={(event) => commit('Toggle detailed explanations', (draft) => { draft.calendarPreferences.showExplanations = event.target.checked; })} />Show explanatory text and guides throughout the interface</label><hr/><p className="eyebrow">SOUND</p><h2>Interface sounds</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.uiSound} onChange={(event) => commit('Toggle interface sounds', (draft) => { draft.calendarPreferences.appearance.uiSound = event.target.checked; })} />Play calm sounds for buttons and controls</label><h2>Completion sound</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.tickSound} onChange={(event) => commit('Toggle completion sound', (draft) => { draft.calendarPreferences.appearance.tickSound = event.target.checked; })} />Play a short sound when an item is completed</label></section>
+    <div className="settings-columns"><section className="settings-card"><header><div><p className="eyebrow">DATA MODEL</p><h2>Custom fields</h2></div><button className="secondary" onClick={() => setField({ id: createId(), key: '', label: '', kind: 'text', required: false })}>+ Add</button></header>{Object.values(workspace.customFields).map((entry) => <button className="setting-row" key={entry.id} onClick={() => setField(clean(entry))}><span><strong>{entry.label}</strong><small>custom.{entry.key}</small></span><span>{entry.kind}</span></button>)}{!Object.keys(workspace.customFields).length && <p className="empty">No custom fields yet.</p>}<hr/><p className="eyebrow">TESTING</p><h2>Accelerated day</h2><p>Choose how much real time equals one simulated day. The visible clock, Views, scripts, active ranges, recurrence, Calendar and local reminders follow it.</p><label className="check"><input type="checkbox" checked={testClockDraft.enabled} onChange={(event) => setTestClockDraft((current) => ({ ...current, enabled: event.target.checked }))} /> Enable accelerated test clock</label><div className="form-grid two"><label>One simulated day<input type="number" min="0.01" step="any" inputMode="decimal" value={testClockDraft.value} onChange={(event) => setTestClockDraft((current) => ({ ...current, value: event.target.value }))} /></label><label>Unit<select value={testClockDraft.unit} onChange={(event) => setTestClockDraft((current) => ({ ...current, unit: event.target.value as TestClockUnit }))}><option value="seconds">Seconds</option><option value="minutes">Minutes</option><option value="hours">Hours</option></select></label></div><button className="secondary" disabled={!validTestClockDraft || !testClockDraftChanged} onClick={applyTestClock}>Apply</button><p className="hint">Changes start only after Apply. Example: 30 seconds = one simulated day. Backup schedules, diagnostics and background push remain on real time to avoid false alerts or external deliveries during a test.</p></section>
     <section className="settings-card"><p className="eyebrow">INTERFACE</p><h2>Interface language</h2><p>Choose the language used by the app on this device. Item titles and your data are never translated.</p><label>Language<select value={workspace.calendarPreferences.language} onChange={(event) => commit('Change interface language', (draft) => { draft.calendarPreferences.language = event.target.value as WorkspaceDocument['calendarPreferences']['language']; })}>{interfaceLanguages.map((language) => <option value={language.value} key={language.value}>{language.label}</option>)}</select></label><hr/><p className="eyebrow">PORTABILITY</p><h2>Move your data</h2><p>Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.</p><div className="settings-actions"><button className="secondary" onClick={onTransfer}><LineIcon name="transfer"/> Encrypted Transfer</button><details className="inline-menu"><summary>Export all…</summary><div><button onClick={() => exportAll('json')}>JSON</button><button onClick={() => exportAll('csv')}>CSV</button><button onClick={() => exportAll('xlsx')}>Excel</button><button onClick={() => exportAll('ics')}>iCalendar</button><button onClick={() => exportAll('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary" onClick={() => jsonInput.current?.click()}>Import data…</button><input ref={jsonInput} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportFile(file); event.currentTarget.value = ''; }} /></div><hr/><p className="eyebrow">DEVICE</p><h2>Notifications</h2><p>Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.</p><button className="secondary" onClick={onNotify}>Allow local notifications</button><div className="background-push"><div><strong>Background notifications</strong><small>{workspace.pushPreferences.enabled ? 'Enabled for this encrypted workspace copy.' : 'Off — reminders stay only on this device while the app is open.'}</small></div>{workspace.pushPreferences.enabled ? <button className="secondary" onClick={onDisableBackground}>Disable</button> : <button className="secondary" onClick={onEnableBackground}>Enable background delivery</button>}</div>{workspace.pushPreferences.enabled && <label className="push-privacy">Lock-screen content<select value={workspace.pushPreferences.contentMode} onChange={(event) => onBackgroundContent(event.target.value as WorkspaceDocument['pushPreferences']['contentMode'])}><option value="generic">Generic — no task title leaves this device</option><option value="detailed">Show task title and urgency</option></select></label>}<p className="hint">For iPhone, install Universal to the Home Screen, then enable this from the installed app. The Worker never receives your password or encrypted database.</p><details className="notification-help"><summary>iPhone background notification instructions</summary><div><p>First add Universal to the Home Screen and open it from there. Tap <em>Allow local notifications</em> if iOS has not granted permission yet. Then tap <em>Enable background delivery</em> and enter the notification access code supplied by the workspace owner. This is optional; without it, reminders remain local to the device.</p><p>Background delivery is checked about every 15 minutes on the free service, so it is not an exact alarm. GitHub only hosts the app files; it does not receive your workspace or notification list. When detailed lock-screen content is selected, the push service temporarily receives the task title, Start, Deadline and reminder urgency needed to send the notification.</p></div></details><hr/><p className="eyebrow">LOCAL WORKSPACE</p><h2>Workspace storage</h2><p>Your workspace is encrypted and stored in this browser's private app storage (IndexedDB). iPhone does not expose a normal folder path for site data.</p><dl><div><dt>Storage</dt><dd>Encrypted local browser storage</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div><div><dt>Portable backup</dt><dd>Encrypted <code>.utmb</code> file</dd></div></dl><p className="hint">Use Encrypted Transfer above to save a <code>.utmb</code> backup in Files, iCloud Drive or another cloud. Legacy <code>.utm</code> files are still accepted. The app validates the encrypted contents instead of trusting the filename.</p><div className="backup-notice"><strong>Backups are manual in this web app</strong><span>Browsers and iOS do not allow a PWA to silently write encrypted backups into a user-selected folder. Choose a folder in Files when exporting, then replace the previous backup there.</span></div><p className="hint">This release supports one local workspace owner. Separate user accounts and permissions are not enabled yet; adding names here would not create real security boundaries.</p><hr/><p className="eyebrow">APPLICATION</p><h2>{APP_NAME}</h2><dl><div><dt>Version</dt><dd>v{APP_VERSION}</dd></div><div><dt>Released</dt><dd><time dateTime={APP_RELEASED_AT}>{formatRussianDateTime(APP_RELEASED_AT)}</time></dd></div></dl><hr/><p className="eyebrow">WORKSPACE</p><h2>{workspace.name}</h2><dl><div><dt>Schema</dt><dd>{workspace.schemaVersion}</dd></div><div><dt>Items</dt><dd>{Object.keys(workspace.items).length}</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div></dl></section></div>
     {field && <div className="modal-backdrop"><section className="dialog"><header><h2>Custom field</h2><button className="icon-button" onClick={() => setField(null)}>×</button></header><label>Label<input value={field.label} onChange={(event) => setField({ ...field, label: event.target.value, key: field.key || event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_') })} /></label><label>Key<input value={field.key} pattern="[a-z][a-z0-9_]*" onChange={(event) => setField({ ...field, key: event.target.value })} /></label><label>Type<select value={field.kind} onChange={(event) => setField({ ...field, kind: event.target.value as CustomFieldDefinition['kind'] })}>{['text', 'number', 'boolean', 'date', 'datetime', 'duration', 'enum', 'multi_enum', 'url', 'item_ref', 'formula'].map((kind) => <option key={kind}>{kind}</option>)}</select></label>{field.kind === 'formula' && <label>Formula DSL<input value={field.formula ?? ''} onChange={(event) => setField({ ...field, formula: event.target.value })} placeholder="custom.rate * custom.hours" /></label>}<footer><button className="danger" onClick={() => { commit('Delete custom field', (draft) => { delete draft.customFields[field.id]; }); setField(null); }}>Delete</button><span/><button className="primary" disabled={!field.label || !/^[a-z][a-z0-9_]*$/.test(field.key)} onClick={() => { if (field.formula) parseExpression(field.formula); commit('Save custom field', (draft) => { draft.customFields[field.id] = clean(field); }); setField(null); }}>Save field</button></footer></section></div>}
   </div>;
@@ -394,6 +434,8 @@ export default function App() {
   const [backupReminder, setBackupReminder] = useState(false);
   const [quick, setQuick] = useState('');
   const [celebratingIds, setCelebratingIds] = useState<Set<string>>(new Set());
+  const [undoActions, setUndoActions] = useState<PendingUndoAction[]>([]);
+  const [undoClock, setUndoClock] = useState(() => Date.now());
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
   const [clockTick, refreshClock] = useState(() => Date.now());
   const seenNoticeIds = useRef(new Set<string>());
@@ -402,6 +444,12 @@ export default function App() {
   const captureInputRef = useRef<HTMLInputElement>(null);
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
   const { boot, session, workspace, activate, commit, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  const queueUndo = (label: string, undo: () => void) => setUndoActions((current) => [...current, { id: createId(), label, expiresAt: Date.now() + UNDO_WINDOW_MS, undo }]);
+  const runUndo = (id: string) => {
+    const action = undoActions.find((candidate) => candidate.id === id);
+    if (action && action.expiresAt > Date.now()) action.undo();
+    setUndoActions((current) => current.filter((candidate) => candidate.id !== id));
+  };
   const systemNow = workspace ? effectiveWorkspaceNow(workspace, new Date(clockTick)) : new Date(clockTick);
   useEffect(() => {
     const capture = (kind: DiagnosticEntry['kind'], message: string, details?: string) => { recordDiagnostic({ kind, message, page, ...(details ? { details } : {}) }); setDiagnosticCount(readDiagnostics().length); };
@@ -432,6 +480,13 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
+    if (!undoActions.length) return;
+    const refresh = () => { const now = Date.now(); setUndoClock(now); setUndoActions((current) => current.filter((action) => action.expiresAt > now)); };
+    const timer = window.setInterval(refresh, 200);
+    return () => window.clearInterval(timer);
+  }, [undoActions.length]);
+  useEffect(() => { setUndoActions([]); }, [workspace?.workspaceId]);
+  useEffect(() => {
     const fresh = notices.filter((notice) => !seenNoticeIds.current.has(notice.id));
     if (!fresh.length) return;
     fresh.forEach((notice) => {
@@ -459,6 +514,10 @@ export default function App() {
   useEffect(() => {
     if (workspace) setDiagnosticsEnabled(workspace.calendarPreferences.diagnosticsEnabled !== false);
   }, [workspace?.calendarPreferences.diagnosticsEnabled]);
+  useEffect(() => {
+    document.documentElement.dataset.explanations = workspace?.calendarPreferences.showExplanations ? 'on' : 'off';
+    return () => { delete document.documentElement.dataset.explanations; };
+  }, [workspace?.calendarPreferences.showExplanations]);
   useAppearance(workspace?.calendarPreferences.appearance, boot === 'ready', systemNow);
   useUiSounds(workspace?.calendarPreferences.appearance.uiSound);
   useEffect(() => {
@@ -505,6 +564,8 @@ export default function App() {
 
   const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => {
     const occurredAt = workspace ? effectiveWorkspaceNow(workspace).toISOString() : new Date().toISOString();
+    const targetId = item.habit ? item.id : item.occurrence?.seriesId && workspace?.items[item.occurrence.seriesId]?.habit ? item.occurrence.seriesId : item.id;
+    const beforeTarget = workspace?.items[targetId] ? clean(workspace.items[targetId]!) : undefined;
     if (state === 'done' && workspace?.calendarPreferences.appearance.tickSound) playTickSound();
     if (state === 'done') {
       setRecentlyDone(item.id, Date.now() + 10_000);
@@ -512,7 +573,7 @@ export default function App() {
       window.setTimeout(() => setCelebratingIds((current) => { const next = new Set(current); next.delete(item.id); return next; }), 900);
     }
     else setRecentlyDone(item.id);
-    commit('Change item state', (draft) => {
+    const changed = commit('Change item state', (draft) => {
       let target = draft.items[item.id]; if (!target) return;
       if (item.habit || (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]?.habit)) {
         if (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]) target = draft.items[item.occurrence.seriesId]!;
@@ -535,6 +596,11 @@ export default function App() {
       const event = { id: createId(), type: 'status.changed' as const, at: target.updatedAt, itemId: target.id, before: clean(item), after: clean(target as unknown as UniversalItem), causationId: createId(), depth: 0 };
       const result = runAutomationEvents(draft, [event]);
       if (result.notifications.length) setNotices((current) => [...current, ...result.notifications.map((notice) => ({ ...notice, id: createId(), at: occurredAt }))]);
+    });
+    if (changed && state === 'done' && beforeTarget) queueUndo('Item completed', () => {
+      commit('Undo item completion', (draft) => { draft.items[targetId] = clean(beforeTarget); });
+      setRecentlyDone(item.id);
+      setCelebratingIds((current) => { const next = new Set(current); next.delete(item.id); return next; });
     });
     if (state !== 'open') setNotices((current) => current.filter((notice) => notice.itemId !== item.id));
   };
@@ -578,10 +644,14 @@ export default function App() {
   const clearTrash = () => commit('Clear trash', (draft) => {
     Object.values(draft.items).forEach((item) => { if (item.deletedAt) { delete draft.items[item.id]; delete draft.tombstones[item.id]; } });
   });
-  const permanentlyDeleteItem = (item: UniversalItem) => commit('Permanently delete item', (draft) => {
+  const permanentlyDeleteItem = (item: UniversalItem) => {
+    const snapshot = clean(item);
+    const deleted = commit('Permanently delete item', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
     delete draft.items[item.id]; delete draft.tombstones[item.id];
-  });
+    });
+    if (deleted) queueUndo('Item permanently deleted', () => commit('Undo permanent item deletion', (draft) => { draft.items[item.id] = clean(snapshot); if (snapshot.deletedAt) draft.tombstones[item.id] = snapshot.deletedAt; }));
+  };
   const captureQuickItem = () => {
     if (!quick.trim()) return;
     // Quick capture should only preserve what the user actually entered.
@@ -592,10 +662,7 @@ export default function App() {
     setQuick('');
     setEditorIsNew(true); setEditor(item);
   };
-  const downloadDiagnostics = () => {
-    const blob = new Blob([JSON.stringify(readDiagnostics(), null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'utm-diagnostics.json'; anchor.click(); URL.revokeObjectURL(url);
-  };
+  const downloadDiagnostics = downloadDiagnosticsFile;
 
   const activeDateLabel = formatHeaderDate(systemNow, workspace.calendarPreferences.language);
   return <><AppShell page={page} onPage={setPage} activeDateLabel={activeDateLabel} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace}>
@@ -603,16 +670,17 @@ export default function App() {
       {page === 'calendar' && <CalendarPage workspace={workspace} now={systemNow} commit={commit} createUiItem={createUiItem} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
+      {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} /></section>}
       {page === 'settings' && <section className="page-section settings-page-shell">
         <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} />
         <section className="settings-card diagnostics-card"><p className="eyebrow">DIAGNOSTICS</p><h2>Actions, results and error log</h2><p>Local diagnostics record operation names, results, durations and crashes without task content. Nothing is uploaded automatically.</p><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.diagnosticsEnabled !== false} onChange={(event) => { setDiagnosticsEnabled(event.target.checked); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = event.target.checked; }); }} />Record local diagnostics</label><div className="diagnostics-actions"><span>{diagnosticCount} recorded entries</span><button className="secondary" onClick={downloadDiagnostics} disabled={!diagnosticCount}>Download log</button><button className="secondary" onClick={clearDiagnostics}>Clear log</button></div></section>
         <section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="number" min="0" step="1" value={workspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} onChange={(event) => commit('Change backup reminder', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), reminderDays: Math.max(0, Number(event.target.value) || 0) }; })} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section>
       </section>}
     </AppShell>
-    {page !== 'settings' && <div className="capture-dock"><form className="quick-capture" onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Add new item" aria-label="Add new item"/></form></div>}
-    {editor && <ItemEditor initial={editor} workspace={workspace} now={systemNow} isNew={editorIsNew} onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata)} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', systemNow); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={(item) => { const isNew = !workspace.items[item.id]; let recurrenceError = ''; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (item.area) ensureAreaDefinition(draft, item.area); if (item.project) ensureProjectDefinition(draft, item.project, item.area ? { area: item.area } : {}); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: systemNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, systemNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } }); if (saved) { setEditorIsNew(false); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = systemNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { setEditorIsNew(false); setEditor(null); } }} />}
+    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Add new item" aria-label="Add new item"/></form></div>}
+    {editor && <ItemEditor initial={editor} workspace={workspace} now={systemNow} isNew={editorIsNew} onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata)} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', systemNow); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={(item, options) => { const isNew = !workspace.items[item.id]; let recurrenceError = ''; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); item.areas.forEach((area) => ensureAreaDefinition(draft, area)); item.projects.forEach((project) => { const existing = draft.projectDefinitions[project]; const converted = options?.convertedProject === project; ensureProjectDefinition(draft, project, !existing || converted ? { areas: [...new Set([...(existing?.areas ?? []), ...item.areas])] } : {}); }); item.tags.forEach((tag) => ensureTagDefinition(draft, tag)); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: systemNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, systemNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } }); if (saved) { recordDiagnostic({ kind: 'result', message: options?.convertedProject ? 'Item converted to Project and saved' : 'Item organization saved', operation: 'Save item organization', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, areas: item.areas.length, projects: item.projects.length, tags: item.tags.length, converted: Boolean(options?.convertedProject) }) }); setEditorIsNew(false); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const snapshot = clean(workspace.items[item.id] ?? item); const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = systemNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', (draft) => { draft.items[item.id] = clean(snapshot); delete draft.tombstones[item.id]; })); setEditorIsNew(false); setEditor(null); } }} />}
     {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { adoptSession(next); setToast(message); }} onReplaced={(next, message) => { adoptSession(next, true); setToast(message); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
-    <ShellNotices backupReminder={backupReminder && !transfer} toast={toast} onBackup={() => setTransfer(true)} onDismissBackup={() => setBackupReminder(false)} />
+    <ShellNotices backupReminder={backupReminder && !transfer} toast={toast} undoNotices={undoActions.map((action) => ({ id: action.id, label: action.label, secondsLeft: Math.max(1, Math.ceil((action.expiresAt - undoClock) / 1_000)) }))} onUndo={runUndo} onBackup={() => setTransfer(true)} onDismissBackup={() => setBackupReminder(false)} />
   </>;
 }

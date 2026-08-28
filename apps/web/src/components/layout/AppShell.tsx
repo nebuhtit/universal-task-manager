@@ -3,7 +3,7 @@ import { CloseIcon, LineIcon, type LineIconName } from '../ui/icons';
 import { Button, IconButton } from '../ui/primitives';
 import './app-shell.css';
 
-export type AppPage = 'home' | 'calendar' | 'all' | 'automations' | 'settings';
+export type AppPage = 'home' | 'calendar' | 'all' | 'automations' | 'organization' | 'settings';
 export type AppNotice = { id: string; title: string; body: string; at: string; itemId?: string; reminderIds?: string[] };
 type NavItem = [AppPage, LineIconName, string, boolean?];
 
@@ -15,7 +15,7 @@ type Props = {
   onTransfer: () => void; onLock: () => void;
 };
 
-const nav: NavItem[] = [['home', 'home', 'Home'], ['all', 'items', 'All items', true], ['settings', 'settings', 'Settings']];
+const nav: NavItem[] = [['home', 'home', 'Home'], ['all', 'items', 'All items', true], ['organization', 'views', 'PARA'], ['settings', 'settings', 'Settings']];
 
 function NoticeCard({ notice, actionLabel, onOpen, onAction, dismissPopup = false }: {
   notice: AppNotice; actionLabel: string; onOpen: () => void; onAction: () => void; dismissPopup?: boolean;

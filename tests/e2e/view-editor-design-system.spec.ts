@@ -39,7 +39,7 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
 
   await openSection(page, 'Sorting');
   await page.getByRole('combobox', { name: 'Sort field 1' }).selectOption('priority');
-  await expect(page.getByLabel('SQL-like sorting')).toHaveValue('priority desc nulls last');
+  await expect(page.getByLabel('SQL-like sorting')).toHaveValue('priority desc nulls last\nupdatedAt desc nulls last');
 
   await openSection(page, 'Defaults for new items');
   await page.getByRole('button', { name: '+ Pin property' }).click();
@@ -51,7 +51,10 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
   await expect(view.getByRole('heading', { name: 'Design system view' })).toBeVisible();
 
   await view.getByRole('button', { name: /^Edit / }).click();
-  await openSection(page, 'Visual setup');
+  await expect(page.locator('.view-editor details.view-editor-section[open]')).toHaveCount(0);
+  await openSection(page, 'Show in results');
+  const reopenedCore = page.locator('.field-groups details').filter({ has: page.getByText('Core', { exact: true }) });
+  await reopenedCore.locator(':scope > summary').click();
   await expect(page.locator('.field-groups').getByRole('checkbox', { name: /^Title/ })).toBeChecked();
   await openSection(page, 'Defaults for new items');
   await expect(page.locator('.creation-default-row').getByRole('spinbutton')).toHaveValue('4');
@@ -59,6 +62,30 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   if ((page.viewportSize()?.width ?? 0) > 620) await expect(view.getByRole('button', { name: /^Edit / })).toBeFocused();
+});
+
+test('view ordering uses drag handles and a keyboard alternative', async ({ page }) => {
+  await createWorkspace(page);
+  await page.getByRole('button', { name: 'New view' }).click();
+  await openSection(page, 'Show in results');
+  const rows = page.locator('.selected-fields > div');
+  const labels = async () => await rows.locator('code').allTextContents();
+  const initial = await labels();
+  expect(initial.length).toBeGreaterThan(1);
+
+  await page.getByRole('button', { name: `Reorder ${initial[0]}` }).press('ArrowDown');
+  await expect.poll(labels).toEqual([initial[1], initial[0], ...initial.slice(2)]);
+
+  const source = page.getByRole('button', { name: `Reorder ${initial[0]}` });
+  const target = rows.first();
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  expect(sourceBox).not.toBeNull(); expect(targetBox).not.toBeNull();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + 2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(labels).toEqual(initial);
 });
 
 test('view editor is readable as a dark mobile sheet', async ({ page }) => {

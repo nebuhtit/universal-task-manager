@@ -12,6 +12,7 @@ export interface ResponsiveDialogProps {
   initialFocus?: boolean | RefObject<HTMLElement | null>;
   finalFocus?: ComponentProps<typeof Dialog.Popup>['finalFocus'];
   closeLabel?: string;
+  ariaLabel?: string;
 }
 
 /**
@@ -30,6 +31,7 @@ export function ResponsiveDialog({
   initialFocus,
   finalFocus,
   closeLabel = 'Close dialog',
+  ariaLabel,
 }: ResponsiveDialogProps) {
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
@@ -37,12 +39,13 @@ export function ResponsiveDialog({
       <Dialog.Viewport className="ui-dialog-viewport">
         <Dialog.Popup
           className={['ui-dialog-popup', className].filter(Boolean).join(' ')}
+          aria-label={ariaLabel}
           initialFocus={initialFocus}
           finalFocus={finalFocus}
         >
           <header className="ui-dialog-header">
             <div>
-              <Dialog.Title className="ui-dialog-title">{title}</Dialog.Title>
+              <Dialog.Title className="ui-dialog-title" aria-label={ariaLabel}>{title}</Dialog.Title>
               {description && <Dialog.Description className="ui-dialog-description">{description}</Dialog.Description>}
             </div>
             <Dialog.Close className="ui-dialog-close" aria-label={closeLabel}>×</Dialog.Close>

@@ -4,6 +4,7 @@ import { FieldIcon, ItemCard, displayViewValue, readItemField, stateNames } from
 import { formatViewDate } from '../../utils/dates';
 import { viewFieldLabel } from './fieldCatalog';
 import { boardSettingsFor, moveManualItem, selectViewItems } from './viewSelectors';
+import { recordDiagnostic } from '../../services/diagnostics';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 export const VIEW_LIVE_TICK_MS = 1_000;
@@ -29,6 +30,27 @@ export function ViewResults({ view, workspace, onEdit, onState, onReorder, celeb
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const itemIds = items.map((item) => item.id);
+  const itemSignature = itemIds.join('|');
+  const previousItemIds = useRef<string[] | null>(null);
+  useEffect(() => {
+    const previous = previousItemIds.current;
+    if (previous === null) {
+      recordDiagnostic({
+        kind: 'result', message: 'View results rendered', operation: 'View result visibility', outcome: 'succeeded',
+        details: JSON.stringify({ viewId: renderView.id, renderer: renderView.renderer, count: itemIds.length, itemIds: itemIds.slice(0, 100), truncated: itemIds.length > 100 }),
+      });
+    } else {
+      const previousSet = new Set(previous);
+      const currentSet = new Set(itemIds);
+      const appeared = itemIds.filter((id) => !previousSet.has(id));
+      const disappeared = previous.filter((id) => !currentSet.has(id));
+      if (appeared.length || disappeared.length) recordDiagnostic({
+        kind: 'result', message: itemIds.length === 0 && previous.length > 0 ? 'View results became empty' : 'View result membership changed', operation: 'View result visibility', outcome: 'succeeded',
+        details: JSON.stringify({ viewId: renderView.id, renderer: renderView.renderer, previousCount: previous.length, count: itemIds.length, appeared: appeared.slice(0, 100), disappeared: disappeared.slice(0, 100), truncated: appeared.length > 100 || disappeared.length > 100 }),
+      });
+    }
+    previousItemIds.current = itemIds;
+  }, [itemSignature, renderView.id, renderView.renderer]);
   const visibleFields = renderView.fields ?? [];
   const today = liveNow.toISOString().slice(0, 10);
   const stateButtonLabel = (item: UniversalItem) => item.habit

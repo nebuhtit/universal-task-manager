@@ -192,6 +192,13 @@ textarea { resize: vertical; line-height: 1.5; }
 .tag-collection button.active { border-color: #555; background: #eee; color: #222; }
 .organization-fields .ui-field { min-width: 0; }
 .organization-fields .ui-field-control { display: grid; gap: var(--space-2); }
+.organization-token-field { display: grid; gap: var(--space-2); }
+.organization-token-values, .organization-token-suggestions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.organization-token-values .ui-button, .organization-token-suggestions .ui-button { max-width: 100%; gap: var(--space-1); }
+.organization-token-values .ui-button svg { width: 14px; height: 14px; }
+.organization-token-suggestions small { color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.organization-token-suggestions .active { border-color: var(--color-border-strong); }
+.organization-convert { display: flex; justify-content: flex-start; }
 .item-section .item-section { margin-inline: 0; }
 .item-section .item-section > summary { min-height: var(--control-height-touch); }
 .weekday-picker { display: grid; grid-template-columns: repeat(7, 32px); gap: 6px; margin: -2px 0 14px; }
@@ -242,6 +249,26 @@ details[open] summary::after { content: '−'; }
 .editor-scroll > details > summary { min-height: 44px; align-items: center; font-weight: 550; }
 .editor-scroll > details[open] > summary { color: #222; }
 .schedule-explainer { margin: 0 0 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+html[data-explanations='off'] .ui-field-hint,
+html[data-explanations='off'] .field-hint,
+html[data-explanations='off'] .schedule-explainer,
+html[data-explanations='off'] .section-guide,
+html[data-explanations='off'] .date-guide,
+html[data-explanations='off'] .notification-help,
+html[data-explanations='off'] .ui-dialog-description,
+html[data-explanations='off'] .builder-status,
+html[data-explanations='off'] .section-help,
+html[data-explanations='off'] .display-fields-help,
+html[data-explanations='off'] .all-items-settings-note,
+html[data-explanations='off'] .json-editor > .hint,
+html[data-explanations='off'] .organization-explanation,
+html[data-explanations='off'] .settings-card > p:not(.eyebrow):not(.error):not(.empty),
+html[data-explanations='off'] .settings-card .hint,
+html[data-explanations='off'] .page-title > div > p:not(.eyebrow),
+html[data-explanations='off'] .backup-notice > span {
+  display: none;
+}
 label.check { display: flex; grid-template-columns: auto 1fr; flex-direction: row; align-items: center; font-weight: 500; }
 label.check input { width: 18px; height: 18px; }
 .inline-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -265,7 +292,7 @@ label.check input { width: 18px; height: 18px; }
 .item-card.is-celebrating, .calendar-item.is-celebrating, .board-item.is-celebrating { position: relative; isolation: isolate; overflow: hidden; animation: completion-celebrate .82s cubic-bezier(.2,.8,.2,1) both; }
 .item-card.is-celebrating::after, .calendar-item.is-celebrating::after, .board-item.is-celebrating::after { content: ''; position: absolute; z-index: 0; pointer-events: none; width: 135%; height: 260%; left: -18%; top: -80%; border-radius: 50%; background: conic-gradient(from 205deg, rgba(255,104,150,.68), rgba(255,204,95,.62), rgba(77,212,255,.64), rgba(167,139,250,.6), rgba(255,104,150,.68)); filter: blur(18px); animation: completion-bloom .82s ease-out both; }
 .item-card.is-celebrating > *, .calendar-item.is-celebrating > *, .board-item.is-celebrating > * { position: relative; z-index: 1; }
-.renderer-table-wrap tbody tr.is-celebrating > td { animation: completion-table-wash .82s ease-out both; background-image: linear-gradient(105deg, rgba(255,104,150,0), rgba(255,204,95,.32), rgba(77,212,255,.32), rgba(167,139,250,.28), rgba(255,104,150,0)); background-size: 240% 100%; }
+.renderer-table-wrap tbody tr.is-celebrating { border-radius: var(--radius-md); background-image: linear-gradient(105deg, rgba(255,104,150,0), rgba(255,204,95,.32), rgba(77,212,255,.32), rgba(167,139,250,.28), rgba(255,104,150,0)); background-size: 240% 100%; clip-path: inset(0 round var(--radius-md)); animation: completion-table-wash .82s ease-out both; }
 @keyframes completion-celebrate { 0% { transform: scale(1); box-shadow: 0 0 0 rgba(77,212,255,0); } 34% { transform: scale(1.008); box-shadow: 0 10px 32px rgba(167,139,250,.18), 0 0 24px rgba(77,212,255,.16); } 100% { transform: scale(1); box-shadow: 0 0 0 rgba(77,212,255,0); } }
 @keyframes completion-bloom { 0% { opacity: 0; transform: scale(.42) rotate(-18deg); } 30% { opacity: .48; } 100% { opacity: 0; transform: scale(1.38) rotate(24deg); } }
 @keyframes completion-table-wash { 0% { background-position: 115% 0; } 40% { background-position: 45% 0; } 100% { background-position: -115% 0; } }
@@ -402,12 +429,12 @@ label.check input { width: 18px; height: 18px; }
 .views-page .views-stack > div:first-child .view-section { border-top: 0; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
 .view-section { border: 0; border-radius: 0; padding: 0; background: transparent; }
-.view-section > .view-section-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 18px; width: 100%; min-width: 0; overflow: hidden; padding: 14px 0 8px; }
-.view-section-summary > div:first-child { min-width: 0; overflow: hidden; }
+.view-section > .view-section-summary { position: relative; display: block; width: 100%; min-width: 0; overflow: hidden; padding: 14px 0 8px; }
+.view-section-summary > div:first-child { width: 100%; min-width: 0; overflow: hidden; padding-inline: 74px; text-align: center; }
 .view-section-summary h2 { max-width: 100%; margin: 5px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section.is-collapsed .view-section-summary h2 { color: var(--muted); font-weight: 400; opacity: .62; }
-.view-section-actions { display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
+.view-section-actions { position: absolute; inset-inline-end: 0; top: 14px; display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
 .view-section-actions .secondary { white-space: nowrap; }
 .view-settings-button { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); }
 .view-collapse-button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; padding: 0; background: transparent; color: var(--muted); font-size: 16px; font-weight: 400; cursor: pointer; }
@@ -454,8 +481,6 @@ label.check input { width: 18px; height: 18px; }
 .renderer-table-wrap tbody td.reorder-column { width: 28px; min-width: 28px; padding-left: 0; padding-right: 0; }
 .view-results-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 /* Keep the view title and its completion column on the same visual rail. */
-.view-section-summary > div:first-child { padding-left: 46px; }
-.view-section.is-reorderable .view-section-summary > div:first-child { padding-left: 74px; }
 .renderer-fields { display: grid !important; gap: 4px; min-width: 0; }
 .renderer-fields > strong { display: block; color: var(--ink); font-size: 13px; font-weight: 500; }
 .renderer-fields > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #444; font-size: 10px; font-weight: 400; white-space: nowrap; }
@@ -601,11 +626,10 @@ tbody tr:hover { background: var(--soft); }
   .quick-capture { width: 100%; margin-top: 0; }
   .views-page { padding-top: 0; padding-inline: var(--space-1); }
   .view-section { padding-inline: var(--space-1); }
-  .view-section > .view-section-summary { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 0 5px; }
-  .view-section-summary > div:first-child { padding-left: 46px; }
-  .view-section.is-reorderable .view-section-summary > div:first-child { padding-left: 74px; }
+  .view-section > .view-section-summary { padding: 8px 0 5px; }
+  .view-section-summary > div:first-child { padding-inline: 66px; }
   .view-section-summary h2 { margin: 3px 0 2px; font-size: 17px; }
-  .view-section-actions { gap: 3px; }
+  .view-section-actions { top: 8px; gap: 3px; }
   .view-section-actions .secondary { padding: 7px 9px; font-size: 11px; }
   .view-section-body { padding: 5px 0 9px; }
   .backup-controls { margin: 0; }
@@ -617,6 +641,10 @@ tbody tr:hover { background: var(--soft); }
   .settings-card hr { margin: 18px 0; }
   .settings-card .background-push { align-items: flex-start; flex-wrap: wrap; }
   .settings-card .background-push > button { width: 100%; }
+  /* Keep the View JSON disclosure aligned with the dialog content on narrow
+     screens; the desktop full-bleed summary margin otherwise escapes left. */
+  .view-json-editor > summary { margin: 0; padding: var(--space-3) 0; }
+  .view-json-editor[open] > summary { margin-bottom: 0; }
   .duration-control { grid-template-columns: minmax(0, 1.25fr) 46px minmax(0, .95fr); gap: 4px; }
   .duration-control select, .duration-control input { font-size: 11px; }
   .sort-rule { grid-template-columns: 1fr 1fr; }
