@@ -2,6 +2,7 @@ import * as Automerge from '@automerge/automerge';
 import { describe, expect, it } from 'vitest';
 import { createId, createItem, createWorkspace } from '@utm/core';
 import { createAutomergeDocument, exportContainer, merge, toJSON, unlock, validateContainer } from './container.js';
+import { decryptWorkspaceFile } from './storage.js';
 
 const password = 'correct horse battery staple';
 
@@ -13,6 +14,17 @@ describe('encrypted .utmb container', () => {
     expect(source).not.toContain('Secret task');
     expect((await validateContainer(source, password)).itemCount).toBe(1);
     expect(await toJSON(source, password)).toContain('Secret task');
+  });
+
+  it('decrypts an arbitrary portable backup to documented readable JSON without importing it', async () => {
+    const workspace = createWorkspace('Readable recovery');
+    const item = createItem('Human-readable task'); workspace.items[item.id] = item;
+    const source = await exportContainer(createAutomergeDocument(workspace), password);
+    const readable = await decryptWorkspaceFile(source, password);
+    expect(readable.format).toBe('utm-readable-workspace');
+    expect(readable.source.magic).toBe('UTM-ENCRYPTED');
+    expect(readable.readme.importantFields.extensions).toContain('Lossless');
+    expect(readable.workspace.items[item.id]?.title).toBe('Human-readable task');
   });
 
   it('keeps computed fields and saved-view defaults through encrypted transfer', async () => {

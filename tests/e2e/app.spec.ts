@@ -98,8 +98,20 @@ test('lock screen uses a muted animated spectrum', async ({ page }) => {
   await expect(lockScreen).toHaveCSS('animation-name', 'none');
 });
 
+test('keeps recovery, decryption, installation and diagnostics inside one collapsed Help row', async ({ page }) => {
+  const help = page.locator('details.install-guide');
+  await expect(help).toHaveCount(1);
+  await expect(help).not.toHaveAttribute('open', '');
+  await expect(help.locator('summary')).toHaveText('Help');
+  await help.locator('summary').click();
+  await expect(page.getByRole('heading', { name: 'Decrypt any UTM backup' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Install on your phone' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Troubleshooting log/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose encrypted file' })).toBeVisible();
+});
+
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.19\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.20\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -108,7 +120,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.19.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.20.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -252,7 +264,7 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await goToSettings(page);
 
   const cards = page.locator('.settings-page-shell .settings-card');
-  await expect(cards).toHaveCount(5);
+  await expect(cards).toHaveCount(6);
   const boxes = await cards.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { left: box.left, right: box.right };

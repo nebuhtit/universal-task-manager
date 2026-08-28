@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Component, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import * as XLSX from 'xlsx';
 import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
@@ -30,18 +30,18 @@ import {
 } from './features/views';
 import { formatHeaderDate, formatRussianDateTime, formatSystemDateTime } from './utils/dates';
 import {
-  APP_NAME, APP_RELEASED_AT, APP_VERSION, applyPortableImport, buildPortableImportPreview,
+  APP_NAME, APP_RELEASED_AT, APP_VERSION, SCHEMA_VERSION, applyPortableImport, buildPortableImportPreview,
   collectItemDependencies, createId, createItem, createPortablePackage,
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences,
   runAutomationEvents, serializePortablePackage,
-  createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, packageToTabular, parseCsv, tabularToPackage, testClockDisplay, testDayDurationSeconds, toCsv, toICS,
+  createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, migrateWorkspace, packageToTabular, parseCsv, tabularToPackage, testClockDisplay, testDayDurationSeconds, toCsv, toICS,
   type AutomationAction, type AutomationRule, type CustomFieldDefinition,
   type ItemPreset, type PortableImportPreview, type PortableSelection, type SavedView, type TestClockUnit, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
-  createLocalWorkspace, createUnencryptedLocalWorkspace, exportContainer, importAsLocalWorkspace,
-  mergeIntoLocalWorkspace, restoreLocalWorkspace, unlockLocalWorkspace, validateContainer,
-  type UnlockedWorkspace,
+  createLocalWorkspace, createUnencryptedLocalWorkspace, decryptWorkspaceFile, exportContainer, exportEncryptedLocalBackup, exportLocalWorkspaceSnapshot, importAsLocalWorkspace,
+  listLocalWorkspaceSnapshots, mergeIntoLocalWorkspace, restoreLocalWorkspace, restoreLocalWorkspaceSnapshot, unlockLocalWorkspace, validateContainer,
+  type LocalWorkspaceSnapshotInfo, type UnlockedWorkspace,
 } from '@utm/sdk';
 
 const BUILD_COMMIT = (import.meta.env.VITE_COMMIT_SHA || 'local').slice(0, 7);
@@ -103,6 +103,11 @@ const downloadText = (content: string, filename: string, type = 'application/jso
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
 const downloadDiagnosticsFile = () => downloadText(JSON.stringify(readDiagnostics(), null, 2), 'utm-diagnostics.json');
+const downloadLockedRecoveryCopy = async (source?: string, filenamePrefix = 'universal-locked-recovery') => {
+  const recovery = JSON.parse(source ?? await exportEncryptedLocalBackup()) as Record<string, unknown>;
+  recovery.diagnostics = readDiagnostics();
+  downloadText(JSON.stringify(recovery), `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.utmlocal`, 'application/octet-stream');
+};
 const downloadBlob = (content: BlobPart, filename: string, type: string) => {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
@@ -176,6 +181,10 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [selectedBackup, setSelectedBackup] = useState<File | null>(null);
   const [unencryptedTestWorkspace, setUnencryptedTestWorkspace] = useState(false);
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
+  const [decryptFile, setDecryptFile] = useState<File | null>(null);
+  const [decryptPassword, setDecryptPassword] = useState('');
+  const [decryptError, setDecryptError] = useState('');
+  const [decryptBusy, setDecryptBusy] = useState(false);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
     if (saved && interfaceLanguages.some((option) => option.value === saved)) return saved;
@@ -183,6 +192,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     return interfaceLanguages.some((option) => option.value === browserLanguage) ? browserLanguage : 'en';
   });
   const fileRef = useRef<HTMLInputElement>(null);
+  const decryptFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     window.localStorage.setItem('utm-interface-language', language);
@@ -239,6 +249,30 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
+  const downloadLockedBackup = async () => {
+    setError('');
+    try {
+      await downloadLockedRecoveryCopy();
+      recordDiagnostic({ kind: 'result', message: 'Encrypted recovery copy downloaded before unlock', operation: 'Export locked recovery copy', outcome: 'succeeded' });
+    } catch (reason) {
+      recordDiagnostic({ kind: 'error', message: 'Encrypted recovery copy export failed', operation: 'Export locked recovery copy', outcome: 'failed', details: diagnosticFailureCode(reason) });
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const decryptSelectedFile = async () => {
+    if (!decryptFile) return;
+    setDecryptBusy(true); setDecryptError('');
+    try {
+      const readable = await decryptWorkspaceFile(await readEncryptedBackup(decryptFile), decryptPassword);
+      downloadText(JSON.stringify(readable, null, 2), `${safeFilename(decryptFile.name.replace(/\.[^.]+$/, ''))}-readable.json`, 'application/json;charset=utf-8');
+      recordDiagnostic({ kind: 'result', message: 'External encrypted workspace decrypted to readable JSON', operation: 'Decrypt workspace file', outcome: 'succeeded' });
+    } catch (reason) {
+      recordDiagnostic({ kind: 'error', message: 'External workspace decryption failed', operation: 'Decrypt workspace file', outcome: 'failed', details: diagnosticFailureCode(reason) });
+      setDecryptError(reason instanceof Error ? reason.message : String(reason));
+    } finally { setDecryptBusy(false); }
+  };
+
   return <main className="lock-shell">
     <section className="lock-card">
       <div className="brand-mark">U</div>
@@ -260,21 +294,29 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       {!exists && <div className="import-lock">
         <span>Already have an encrypted workspace?</span>
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
-        <input ref={fileRef} hidden type="file" accept=".utmb,.utm,application/octet-stream,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setUnencryptedTestWorkspace(false); setName(file.name); setConfirm(''); setError(''); }} />
+        <input ref={fileRef} hidden type="file" accept=".utmb,.utm,.utmlocal,application/octet-stream,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setUnencryptedTestWorkspace(false); setName(file.name); setConfirm(''); setError(''); }} />
         <small>Choose the file first, enter its password, then tap Import selected backup.</small>
       </div>}
       <details className="install-guide">
-        <summary>Install on your phone</summary>
+        <summary>Help</summary>
         <div>
+          <h3>Install on your phone</h3>
           <p><strong>iPhone or iPad:</strong> open this page in Safari, tap Share, then choose <em>Add to Home Screen</em>.</p>
           <p><strong>Android:</strong> open it in Chrome, tap the menu, then choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
           <p>Each device has its own encrypted workspace. Use an encrypted <code>.utmb</code> backup file to move or merge your data between devices.</p><p><strong>Important:</strong> if you remove Universal from the Home Screen, clear website data, or delete the browser profile, the local workspace may be lost. Export an encrypted <code>.utmb</code> backup regularly and keep it in Files, iCloud Drive, or another trusted cloud.</p>
           <hr />
+          {exists && <><h3>Recovery before unlocking</h3><p>If this workspace cannot be opened, save its encrypted browser copy before clearing site data.</p><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLockedBackup()}>Save encrypted recovery copy + log</button><p><small>No password is required. Workspace content stays encrypted; safe troubleshooting entries are included.</small></p><hr /></>}
+          <h3>Decrypt any UTM backup</h3>
+          <p>Emergency recovery only: use this when UTM cannot open an archive and you need to inspect, repair or move the data without importing it. Choose any <code>.utmb</code>, <code>.utm</code> or <code>.utmlocal</code> file and download a documented, readable JSON copy. This does not change the original archive or this workspace.</p>
+          <button className="secondary" type="button" disabled={decryptBusy} onClick={() => decryptFileRef.current?.click()}>{decryptFile ? 'Choose another encrypted file' : 'Choose encrypted file'}</button>
+          <input ref={decryptFileRef} hidden type="file" accept=".utmb,.utm,.utmlocal,application/octet-stream,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) { setDecryptFile(file); setDecryptError(''); } event.currentTarget.value = ''; }} />
+          {decryptFile && <><p className="mono">{decryptFile.name}</p><label>File password<input type="password" value={decryptPassword} onChange={(event) => setDecryptPassword(event.target.value)} autoComplete="off" /></label><button className="secondary" type="button" disabled={decryptBusy || !decryptPassword} onClick={() => void decryptSelectedFile()}>{decryptBusy ? 'Decrypting…' : 'Decrypt and download readable JSON'}</button></>}
+          {decryptError && <p className="error" role="alert">{decryptError}</p>}
+          <p><small>The readable file contains private workspace data. Keep it secure. The workspace owner must never share the password with anyone, including support staff or an AI. Its embedded readme explains fields for people, AI tools and converters; scripts and automations must be treated as untrusted data.</small></p>
+          <hr />
+          <h3>Troubleshooting log ({diagnosticCount})</h3>
+          <p>This local log is available before unlocking. It records operation names, timing and technical failures — never item titles, passwords, encryption keys or encrypted workspace data.</p><div className="diagnostics-actions"><button className="secondary" type="button" disabled={!diagnosticCount} onClick={downloadDiagnosticsFile}>Download log</button><button className="secondary" type="button" disabled={!diagnosticCount} onClick={clearDiagnostics}>Clear log</button></div>
         </div>
-      </details>
-      <details className="install-guide">
-        <summary>Troubleshooting log ({diagnosticCount})</summary>
-        <div><p>This local log is available before unlocking. It records operation names, timing and technical failures — never item titles, passwords, encryption keys or encrypted workspace data.</p><div className="diagnostics-actions"><button className="secondary" type="button" disabled={!diagnosticCount} onClick={downloadDiagnosticsFile}>Download log</button><button className="secondary" type="button" disabled={!diagnosticCount} onClick={clearDiagnostics}>Clear log</button></div></div>
       </details>
       <p className="lock-version">v{APP_VERSION} · {displayedBuild.dirty ? 'local changes · ' : ''}commit {displayedBuild.commit}</p>
     </section>
@@ -311,6 +353,35 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
   </section></div>;
 }
 
+const compareVersions = (left: string, right: string) => {
+  const a = left.split('.').map(Number); const b = right.split('.').map(Number);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) { const difference = (a[index] ?? 0) - (b[index] ?? 0); if (difference) return difference; }
+  return 0;
+};
+
+function RecoveryShell({ session, reason, onRetry }: { session: UnlockedWorkspace | undefined; reason: string; onRetry?: () => void }) {
+  const raw = session?.document as unknown as Partial<WorkspaceDocument> | undefined;
+  const items = raw?.items && typeof raw.items === 'object' ? Object.values(raw.items).filter((item): item is UniversalItem => Boolean(item && typeof item === 'object')) : [];
+  return <main className="lock-shell"><section className="lock-card recovery-shell"><p className="eyebrow">SAFE RECOVERY MODE</p><h1>Your workspace data is still available</h1><p className="error" role="alert">{reason}</p><p>Recurrence, scripts, automations, reminders, push and saved filters are disabled in this mode.</p><div className="settings-actions"><button className="primary" onClick={() => void downloadLockedRecoveryCopy()}>Download encrypted workspace + log</button>{onRetry && <button className="secondary" onClick={onRetry}>Retry normal startup</button>}</div>{items.length > 0 && <section><h2>Readable items ({items.length})</h2><div className="rule-list">{items.slice(0, 200).map((item) => <article className="rule-card" key={String(item.id)}><strong>{typeof item.title === 'string' ? item.title : 'Untitled item'}</strong><small>{typeof item.state === 'string' ? item.state : 'unknown'}{item.schedule?.startAt ? ` · ${formatRussianDateTime(item.schedule.startAt)}` : item.schedule?.dueAt ? ` · ${formatRussianDateTime(item.schedule.dueAt)}` : ''}</small>{typeof item.bodyMarkdown === 'string' && item.bodyMarkdown && <p>{item.bodyMarkdown.slice(0, 240)}</p>}</article>)}</div></section>}</section></main>;
+}
+
+function MigrationGate({ session, language, onUpdate, onRecovery }: { session: UnlockedWorkspace; language: WorkspaceLanguage; onUpdate: (session: UnlockedWorkspace, language: WorkspaceLanguage) => void; onRecovery: (reason: string) => void }) {
+  const sourceVersion = String((session.document as WorkspaceDocument).schemaVersion ?? '1.0.0');
+  const newer = compareVersions(sourceVersion, SCHEMA_VERSION) > 0;
+  let preview: ReturnType<typeof migrateWorkspace> | undefined; let error = '';
+  if (!newer) { try { preview = migrateWorkspace(clean(session.document as WorkspaceDocument)); } catch (reason) { error = reason instanceof Error ? reason.message : String(reason); } }
+  const issues = preview?.value.migrationIssues.filter((issue) => issue.status === 'needs_repair') ?? [];
+  const total = Object.keys((session.document as WorkspaceDocument).items ?? {}).length + Object.keys((session.document as WorkspaceDocument).views ?? {}).length;
+  return <main className="lock-shell"><section className="lock-card"><p className="eyebrow">WORKSPACE UPDATE</p><h1>{newer ? 'This workspace was created by a newer app' : `Update workspace ${sourceVersion} → ${SCHEMA_VERSION}`}</h1><p>{newer ? 'Universal will not downgrade or overwrite it. Download a copy or open recovery mode, then update the app.' : 'The original encrypted workspace will be saved as a rollback version before any migrated data is written.'}</p>{preview && <dl><div><dt>Compatible entities</dt><dd>{Math.max(0, total - issues.length)}</dd></div><div><dt>Needs repair</dt><dd>{issues.length}</dd></div><div><dt>Target schema</dt><dd>{SCHEMA_VERSION}</dd></div></dl>}{error && <p className="error" role="alert">Preflight failed: {error}</p>}<div className="settings-actions"><button className="secondary" onClick={() => void downloadLockedRecoveryCopy()}>Download old encrypted copy</button>{!newer && preview && <button className="primary" onClick={() => onUpdate(session, language)}>Save old version and update</button>}<button className="secondary" onClick={() => onRecovery(newer ? `Workspace schema ${sourceVersion} is newer than supported ${SCHEMA_VERSION}.` : error || 'Opened without running incompatible features.')}>Open recovery mode</button></div></section></main>;
+}
+
+export class AppErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+  state: { error: string | null } = { error: null };
+  static getDerivedStateFromError(reason: unknown) { return { error: reason instanceof Error ? reason.message : String(reason) }; }
+  componentDidCatch(reason: unknown) { recordDiagnostic({ kind: 'error', message: 'Root render failed', operation: 'Render application', outcome: 'failed', details: diagnosticFailureCode(reason) }); }
+  render() { return this.state.error ? <RecoveryShell session={undefined} reason={`Application startup failed: ${this.state.error}`} onRetry={() => this.setState({ error: null })} /> : this.props.children; }
+}
+
 
 function AutomationsPage({ workspace, commit }: { workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void }) {
   const [editing, setEditing] = useState<AutomationRule | null>(null);
@@ -323,14 +394,18 @@ function AutomationsPage({ workspace, commit }: { workspace: WorkspaceDocument; 
   </section>;
 }
 
-function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile, onEnableBackground, onDisableBackground, onBackgroundContent }: {
+function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile, onEnableBackground, onDisableBackground, onBackgroundContent, onRestoredSnapshot }: {
   workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
   onNotify: () => void; onTransfer: () => void; onImportFile: (file: File) => void;
   onEnableBackground: () => void; onDisableBackground: () => void;
   onBackgroundContent: (contentMode: WorkspaceDocument['pushPreferences']['contentMode']) => void;
+  onRestoredSnapshot: (session: UnlockedWorkspace) => void;
 }) {
   const [field, setField] = useState<CustomFieldDefinition | null>(null);
   const jsonInput = useRef<HTMLInputElement>(null);
+  const [snapshots, setSnapshots] = useState<LocalWorkspaceSnapshotInfo[]>([]);
+  const [snapshotError, setSnapshotError] = useState('');
+  useEffect(() => { void listLocalWorkspaceSnapshots().then(setSnapshots).catch((reason) => setSnapshotError(reason instanceof Error ? reason.message : String(reason))); }, [workspace.schemaVersion]);
   const exportAll = (format: PortableFormat, metadata = false) => {
     const items = Object.values(workspace.items).filter((item) => !item.deletedAt);
     exportPortable(workspace, createPortablePackage(workspace, { kind: 'items', items, views: format === 'xlsx' ? Object.values(workspace.views) : [], selection: { type: 'all_items' } }), `${safeFilename(workspace.name)}-all-items`, format, metadata);
@@ -356,10 +431,25 @@ function SettingsPage({ workspace, commit, onNotify, onTransfer, onImportFile, o
       startedAt: realNow.toISOString(), virtualAt: enabled && current.enabled ? virtualNow.toISOString() : realNow.toISOString(),
     };
   });
+  const repairRecurrenceIssue = (issueId: string, itemId: string) => {
+    const value = window.prompt('Enter recurrence start as an ISO date/time', new Date().toISOString());
+    if (!value || Number.isNaN(Date.parse(value))) { setSnapshotError('Enter a valid ISO date/time.'); return; }
+    commit('Repair migrated recurrence', (draft) => {
+      const item = draft.items[itemId]; const issue = draft.migrationIssues.find((entry) => entry.id === issueId); if (!item || !issue) return;
+      const quarantine = item.extensions?.quarantine as Record<string, unknown> | undefined;
+      if (!quarantine?.recurrence || typeof quarantine.recurrence !== 'object') return;
+      item.recurrence = clean(quarantine.recurrence) as NonNullable<UniversalItem['recurrence']>;
+      item.role = 'series_template'; item.schedule = { ...(item.schedule ?? { timezone: item.recurrence.timezone || 'UTC' }), timezone: item.schedule?.timezone || item.recurrence.timezone || 'UTC', startAt: new Date(value).toISOString() };
+      delete quarantine.recurrence; issue.status = 'resolved'; item.updatedAt = new Date().toISOString(); item.revision += 1;
+    });
+  };
+  const discardQuarantinedRecurrence = (issueId: string, itemId: string) => commit('Remove incompatible recurrence', (draft) => { const item = draft.items[itemId]; const issue = draft.migrationIssues.find((entry) => entry.id === issueId); const quarantine = item?.extensions?.quarantine as Record<string, unknown> | undefined; if (quarantine) delete quarantine.recurrence; if (issue) issue.status = 'resolved'; });
   return <div className="settings-page"><div className="page-title"><div><h1>Settings</h1></div></div>
     <section className="settings-card"><p className="eyebrow">APPEARANCE</p><h2>Theme</h2><p>Choose a light, dark or system theme. Scheduled mode switches automatically using the times below.</p><label>Theme<select value={workspace.calendarPreferences.appearance.mode} onChange={(event) => commit('Change theme mode', (draft) => { draft.calendarPreferences.appearance.mode = event.target.value as WorkspaceDocument['calendarPreferences']['appearance']['mode']; })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option><option value="scheduled">Scheduled</option></select></label>{workspace.calendarPreferences.appearance.mode === 'scheduled' && <div className="form-grid two"><label>Light theme starts<input type="time" value={workspace.calendarPreferences.appearance.lightAt} onChange={(event) => commit('Change light theme schedule', (draft) => { draft.calendarPreferences.appearance.lightAt = event.target.value; })} /></label><label>Dark theme starts<input type="time" value={workspace.calendarPreferences.appearance.darkAt} onChange={(event) => commit('Change dark theme schedule', (draft) => { draft.calendarPreferences.appearance.darkAt = event.target.value; })} /></label></div>}<hr/><p className="eyebrow">GUIDANCE</p><h2>Detailed explanations</h2><label className="check explanations-setting"><input type="checkbox" checked={workspace.calendarPreferences.showExplanations} onChange={(event) => commit('Toggle detailed explanations', (draft) => { draft.calendarPreferences.showExplanations = event.target.checked; })} />Show explanatory text and guides throughout the interface</label><hr/><p className="eyebrow">SOUND</p><h2>Interface sounds</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.uiSound} onChange={(event) => commit('Toggle interface sounds', (draft) => { draft.calendarPreferences.appearance.uiSound = event.target.checked; })} />Play calm sounds for buttons and controls</label><h2>Completion sound</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.tickSound} onChange={(event) => commit('Toggle completion sound', (draft) => { draft.calendarPreferences.appearance.tickSound = event.target.checked; })} />Play a short sound when an item is completed</label></section>
     <div className="settings-columns"><section className="settings-card"><header><div><p className="eyebrow">DATA MODEL</p><h2>Custom fields</h2></div><button className="secondary" onClick={() => setField({ id: createId(), key: '', label: '', kind: 'text', required: false })}>+ Add</button></header>{Object.values(workspace.customFields).map((entry) => <button className="setting-row" key={entry.id} onClick={() => setField(clean(entry))}><span><strong>{entry.label}</strong><small>custom.{entry.key}</small></span><span>{entry.kind}</span></button>)}{!Object.keys(workspace.customFields).length && <p className="empty">No custom fields yet.</p>}<hr/><p className="eyebrow">TESTING</p><h2>Accelerated day</h2><p>Choose how much real time equals one simulated day. The visible clock, Views, scripts, active ranges, recurrence, Calendar and local reminders follow it.</p><label className="check"><input type="checkbox" checked={testClockDraft.enabled} onChange={(event) => setTestClockDraft((current) => ({ ...current, enabled: event.target.checked }))} /> Enable accelerated test clock</label><div className="form-grid two"><label>One simulated day<input type="number" min="0.01" step="any" inputMode="decimal" value={testClockDraft.value} onChange={(event) => setTestClockDraft((current) => ({ ...current, value: event.target.value }))} /></label><label>Unit<select value={testClockDraft.unit} onChange={(event) => setTestClockDraft((current) => ({ ...current, unit: event.target.value as TestClockUnit }))}><option value="seconds">Seconds</option><option value="minutes">Minutes</option><option value="hours">Hours</option></select></label></div><button className="secondary" disabled={!validTestClockDraft || !testClockDraftChanged} onClick={applyTestClock}>Apply</button><p className="hint">Changes start only after Apply. Example: 30 seconds = one simulated day. Backup schedules, diagnostics and background push remain on real time to avoid false alerts or external deliveries during a test.</p></section>
     <section className="settings-card"><p className="eyebrow">INTERFACE</p><h2>Interface language</h2><p>Choose the language used by the app on this device. Item titles and your data are never translated.</p><label>Language<select value={workspace.calendarPreferences.language} onChange={(event) => commit('Change interface language', (draft) => { draft.calendarPreferences.language = event.target.value as WorkspaceDocument['calendarPreferences']['language']; })}>{interfaceLanguages.map((language) => <option value={language.value} key={language.value}>{language.label}</option>)}</select></label><hr/><p className="eyebrow">PORTABILITY</p><h2>Move your data</h2><p>Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.</p><div className="settings-actions"><button className="secondary" onClick={onTransfer}><LineIcon name="transfer"/> Encrypted Transfer</button><details className="inline-menu"><summary>Export all…</summary><div><button onClick={() => exportAll('json')}>JSON</button><button onClick={() => exportAll('csv')}>CSV</button><button onClick={() => exportAll('xlsx')}>Excel</button><button onClick={() => exportAll('ics')}>iCalendar</button><button onClick={() => exportAll('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary" onClick={() => jsonInput.current?.click()}>Import data…</button><input ref={jsonInput} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportFile(file); event.currentTarget.value = ''; }} /></div><hr/><p className="eyebrow">DEVICE</p><h2>Notifications</h2><p>Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.</p><button className="secondary" onClick={onNotify}>Allow local notifications</button><div className="background-push"><div><strong>Background notifications</strong><small>{workspace.pushPreferences.enabled ? 'Enabled for this encrypted workspace copy.' : 'Off — reminders stay only on this device while the app is open.'}</small></div>{workspace.pushPreferences.enabled ? <button className="secondary" onClick={onDisableBackground}>Disable</button> : <button className="secondary" onClick={onEnableBackground}>Enable background delivery</button>}</div>{workspace.pushPreferences.enabled && <label className="push-privacy">Lock-screen content<select value={workspace.pushPreferences.contentMode} onChange={(event) => onBackgroundContent(event.target.value as WorkspaceDocument['pushPreferences']['contentMode'])}><option value="generic">Generic — no task title leaves this device</option><option value="detailed">Show task title and urgency</option></select></label>}<p className="hint">For iPhone, install Universal to the Home Screen, then enable this from the installed app. The Worker never receives your password or encrypted database.</p><details className="notification-help"><summary>iPhone background notification instructions</summary><div><p>First add Universal to the Home Screen and open it from there. Tap <em>Allow local notifications</em> if iOS has not granted permission yet. Then tap <em>Enable background delivery</em> and enter the notification access code supplied by the workspace owner. This is optional; without it, reminders remain local to the device.</p><p>Background delivery is checked about every 15 minutes on the free service, so it is not an exact alarm. GitHub only hosts the app files; it does not receive your workspace or notification list. When detailed lock-screen content is selected, the push service temporarily receives the task title, Start, Deadline and reminder urgency needed to send the notification.</p></div></details><hr/><p className="eyebrow">LOCAL WORKSPACE</p><h2>Workspace storage</h2><p>Your workspace is encrypted and stored in this browser's private app storage (IndexedDB). iPhone does not expose a normal folder path for site data.</p><dl><div><dt>Storage</dt><dd>Encrypted local browser storage</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div><div><dt>Portable backup</dt><dd>Encrypted <code>.utmb</code> file</dd></div></dl><p className="hint">Use Encrypted Transfer above to save a <code>.utmb</code> backup in Files, iCloud Drive or another cloud. Legacy <code>.utm</code> files are still accepted. The app validates the encrypted contents instead of trusting the filename.</p><div className="backup-notice"><strong>Backups are manual in this web app</strong><span>Browsers and iOS do not allow a PWA to silently write encrypted backups into a user-selected folder. Choose a folder in Files when exporting, then replace the previous backup there.</span></div><p className="hint">This release supports one local workspace owner. Separate user accounts and permissions are not enabled yet; adding names here would not create real security boundaries.</p><hr/><p className="eyebrow">APPLICATION</p><h2>{APP_NAME}</h2><dl><div><dt>Version</dt><dd>v{APP_VERSION}</dd></div><div><dt>Released</dt><dd><time dateTime={APP_RELEASED_AT}>{formatRussianDateTime(APP_RELEASED_AT)}</time></dd></div></dl><hr/><p className="eyebrow">WORKSPACE</p><h2>{workspace.name}</h2><dl><div><dt>Schema</dt><dd>{workspace.schemaVersion}</dd></div><div><dt>Items</dt><dd>{Object.keys(workspace.items).length}</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div></dl></section></div>
+    <section className="settings-card"><p className="eyebrow">RECOVERY</p><h2>Workspace versions</h2><p>Universal keeps the two encrypted versions from before schema updates.</p>{snapshotError && <p className="error">{snapshotError}</p>}{snapshots.map((snapshot) => <div className="setting-row" key={snapshot.id}><span><strong>Schema {snapshot.schemaVersion}</strong><small>{formatRussianDateTime(snapshot.createdAt)} · {snapshot.reason}</small></span><span className="settings-actions"><button className="secondary" onClick={() => void exportLocalWorkspaceSnapshot(snapshot.id).then((source) => downloadLockedRecoveryCopy(source, `universal-schema-${snapshot.schemaVersion}`)).catch((reason) => setSnapshotError(reason instanceof Error ? reason.message : String(reason)))}>Download</button><button className="secondary" onClick={() => { const password = window.prompt('Enter the password for this workspace version'); if (!password) return; void restoreLocalWorkspaceSnapshot(snapshot.id, password).then(onRestoredSnapshot).catch((reason) => setSnapshotError(reason instanceof Error ? reason.message : String(reason))); }}>Restore</button></span></div>)}{!snapshots.length && <p className="empty">No previous workspace versions yet.</p>}</section>
+    {workspace.migrationIssues.length > 0 && <section className="settings-card"><p className="eyebrow">COMPATIBILITY</p><h2>Items needing repair</h2>{workspace.migrationIssues.map((issue) => <div className="setting-row" key={issue.id}><span><strong>{issue.code}</strong><small>{issue.entityType} · {issue.entityId} · disabled {issue.disabledCapability}</small></span>{issue.status === 'needs_repair' && issue.code === 'recurrence_missing_anchor' ? <span className="settings-actions"><button className="secondary" onClick={() => repairRecurrenceIssue(issue.id, issue.entityId)}>Choose start</button><button className="secondary" onClick={() => discardQuarantinedRecurrence(issue.id, issue.entityId)}>Remove recurrence</button></span> : <span>{issue.status}</span>}</div>)}</section>}
     {field && <div className="modal-backdrop"><section className="dialog"><header><h2>Custom field</h2><button className="icon-button" onClick={() => setField(null)}>×</button></header><label>Label<input value={field.label} onChange={(event) => setField({ ...field, label: event.target.value, key: field.key || event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_') })} /></label><label>Key<input value={field.key} pattern="[a-z][a-z0-9_]*" onChange={(event) => setField({ ...field, key: event.target.value })} /></label><label>Type<select value={field.kind} onChange={(event) => setField({ ...field, kind: event.target.value as CustomFieldDefinition['kind'] })}>{['text', 'number', 'boolean', 'date', 'datetime', 'duration', 'enum', 'multi_enum', 'url', 'item_ref', 'formula'].map((kind) => <option key={kind}>{kind}</option>)}</select></label>{field.kind === 'formula' && <label>Formula DSL<input value={field.formula ?? ''} onChange={(event) => setField({ ...field, formula: event.target.value })} placeholder="custom.rate * custom.hours" /></label>}<footer><button className="danger" onClick={() => { commit('Delete custom field', (draft) => { delete draft.customFields[field.id]; }); setField(null); }}>Delete</button><span/><button className="primary" disabled={!field.label || !/^[a-z][a-z0-9_]*$/.test(field.key)} onClick={() => { if (field.formula) parseExpression(field.formula); commit('Save custom field', (draft) => { draft.customFields[field.id] = clean(field); }); setField(null); }}>Save field</button></footer></section></div>}
   </div>;
 }
@@ -443,7 +533,14 @@ export default function App() {
   const pushError = useRef('');
   const captureInputRef = useRef<HTMLInputElement>(null);
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
+  const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
+  const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
   const { boot, session, workspace, activate, commit, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  const enterWorkspace = async (unlocked: UnlockedWorkspace, language: WorkspaceLanguage) => {
+    const sourceVersion = String((unlocked.document as WorkspaceDocument).schemaVersion ?? '1.0.0');
+    if (sourceVersion !== SCHEMA_VERSION) { setPendingUpgrade({ session: unlocked, language }); return; }
+    await activate(unlocked, language);
+  };
   const queueUndo = (label: string, undo: () => void) => setUndoActions((current) => [...current, { id: createId(), label, expiresAt: Date.now() + UNDO_WINDOW_MS, undo }]);
   const runUndo = (id: string) => {
     const action = undoActions.find((candidate) => candidate.id === id);
@@ -629,8 +726,10 @@ export default function App() {
     if (item) setEditor(itemEditorSource(workspace, item));
   };
 
+  if (recovery) return <RecoveryShell session={recovery.session} reason={recovery.reason} onRetry={() => { setRecovery(null); setPendingUpgrade(null); }} />;
+  if (pendingUpgrade) return <MigrationGate session={pendingUpgrade.session} language={pendingUpgrade.language} onUpdate={(next, language) => { setPendingUpgrade(null); void activate(next, language).catch((reason) => setRecovery({ session: next, reason: reason instanceof Error ? reason.message : String(reason) })); }} onRecovery={(reason) => setRecovery({ session: pendingUpgrade.session, reason })} />;
   if (boot === 'checking') return <main className="splash"><div className="brand-mark">U</div><p>Opening encrypted workspace…</p></main>;
-  if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={activate} />;
+  if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={enterWorkspace} />;
   if (!workspace || !session) return null;
   const allItemsView = allItemsViewFor(workspace);
 
@@ -672,7 +771,7 @@ export default function App() {
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} /></section>}
       {page === 'settings' && <section className="page-section settings-page-shell">
-        <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} />
+        <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} onRestoredSnapshot={(next) => { adoptSession(next, true); setToast('Previous workspace version restored.'); }} />
         <section className="settings-card diagnostics-card"><p className="eyebrow">DIAGNOSTICS</p><h2>Actions, results and error log</h2><p>Local diagnostics record operation names, results, durations and crashes without task content. Nothing is uploaded automatically.</p><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.diagnosticsEnabled !== false} onChange={(event) => { setDiagnosticsEnabled(event.target.checked); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = event.target.checked; }); }} />Record local diagnostics</label><div className="diagnostics-actions"><span>{diagnosticCount} recorded entries</span><button className="secondary" onClick={downloadDiagnostics} disabled={!diagnosticCount}>Download log</button><button className="secondary" onClick={clearDiagnostics}>Clear log</button></div></section>
         <section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="number" min="0" step="1" value={workspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} onChange={(event) => commit('Change backup reminder', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), reminderDays: Math.max(0, Number(event.target.value) || 0) }; })} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section>
       </section>}

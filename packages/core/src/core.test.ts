@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, SCHEMA_VERSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, fromCanonicalJSON, fromICS, makeSeries,
-  materializeProjectedOccurrence, migrateItem, migrateView, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
+  materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
   packageToTabular, parseCsv, serializePortablePackage, serializeSortRules, tabularToPackage, toCsv, toICS, validateViewCreationDefaults, validateWorkspace,
 } from './index.js';
@@ -511,6 +511,22 @@ describe('automation engine', () => {
 });
 
 describe('interoperability', () => {
+  it('quarantines legacy recurrence without an anchor instead of blocking the workspace', () => {
+    const old = createWorkspace('Legacy recurrence');
+    old.schemaVersion = '1.17.0';
+    const item = createItem('Broken series');
+    item.role = 'series_template';
+    item.recurrence = { rrule: 'FREQ=DAILY', rdates: [], exdates: [], timezone: 'UTC', activationOffset: 'P0D', closeAt: 'next_activation', anchor: 'schedule', autoRenew: true };
+    delete item.schedule;
+    old.items[item.id] = item;
+    const migrated = migrateWorkspace(old).value;
+    expect(migrated.items[item.id]).toMatchObject({ role: 'standalone', title: 'Broken series' });
+    expect(migrated.items[item.id]?.recurrence).toBeUndefined();
+    expect(migrated.items[item.id]?.extensions?.quarantine).toMatchObject({ recurrence: { rrule: 'FREQ=DAILY' } });
+    expect(migrated.migrationIssues).toContainEqual(expect.objectContaining({ entityId: item.id, code: 'recurrence_missing_anchor', disabledCapability: 'recurrence', status: 'needs_repair' }));
+    expect(() => reconcileRecurrences(migrated)).not.toThrow();
+  });
+
   it('migrates 1.0 JSON and keeps unknown item fields in a namespaced extension', () => {
     const old = createWorkspace();
     old.schemaVersion = '1.0.0';

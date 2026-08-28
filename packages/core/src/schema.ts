@@ -10,7 +10,7 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.17.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.18.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -139,7 +139,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.17.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.18.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -193,7 +193,7 @@ const organizationPriorityEntrySchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.17.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.18.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -228,9 +228,9 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.17.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.18.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'tombstones', 'calendarPreferences', 'pushPreferences'],
+  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'migrationIssues', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
@@ -250,7 +250,9 @@ export const workspaceJsonSchema = {
     },
     customFields: { type: 'object', additionalProperties: customFieldSchema },
     views: { type: 'object', additionalProperties: viewJsonSchema }, dashboards: { type: 'object' }, automations: { type: 'object' },
-    automationLog: { type: 'array' }, tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
+    automationLog: { type: 'array' },
+    migrationIssues: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'entityType', 'entityId', 'sourceVersion', 'code', 'disabledCapability', 'status', 'detectedAt'], properties: { id: { type: 'string', minLength: 1 }, entityType: { enum: ['workspace', 'item', 'view', 'automation'] }, entityId: { type: 'string', minLength: 1 }, sourceVersion: { type: 'string', minLength: 1 }, code: { type: 'string', minLength: 1 }, disabledCapability: { enum: ['recurrence', 'script', 'filter', 'automation', 'reminder', 'entity'] }, status: { enum: ['needs_repair', 'resolved'] }, detectedAt: { type: 'string', format: 'date-time' } } } },
+    tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
     calendarPreferences: {
       type: 'object', additionalProperties: false,
       required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'includeStates', 'diagnosticsEnabled', 'showExplanations'],
@@ -397,6 +399,14 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
     else delete habit.timerSessions;
     if (typeof habit.activeTimerStartedAt !== 'string' || !Number.isFinite(Date.parse(habit.activeTimerStartedAt))) delete habit.activeTimerStartedAt;
   }
+  if (item.role === 'series_template' && item.recurrence && (!item.schedule || typeof item.schedule !== 'object' || Array.isArray(item.schedule) || !(item.schedule as Record<string, unknown>).startAt && !(item.schedule as Record<string, unknown>).dueAt)) {
+    const target = (item.extensions && typeof item.extensions === 'object' && !Array.isArray(item.extensions) ? item.extensions : {}) as Record<string, unknown>;
+    target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), recurrence: structuredClone(item.recurrence) };
+    item.extensions = target;
+    delete item.recurrence;
+    item.role = 'standalone';
+    warnings.push('Disabled legacy recurrence without start or deadline');
+  }
   const validation = validateItem(item);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   return { value: item as unknown as UniversalItem, warnings };
@@ -430,11 +440,46 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   if (!source.items || typeof source.items !== 'object' || Array.isArray(source.items)) throw new Error('items must be an object');
   if (!source.views || typeof source.views !== 'object' || Array.isArray(source.views)) throw new Error('views must be an object');
   const warnings: string[] = [];
+  const now = new Date().toISOString();
+  const migrationIssues = Array.isArray(source.migrationIssues) ? source.migrationIssues.filter((issue) => issue && typeof issue === 'object' && !Array.isArray(issue)) as Array<Record<string, unknown>> : [];
   source.items = Object.fromEntries(Object.entries(source.items as Record<string, unknown>).map(([key, item]) => {
-    const migrated = migrateItem(item, `schema:${previous}`); warnings.push(...migrated.warnings); return [key, migrated.value];
+    const raw = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : undefined;
+    const missingRecurrenceAnchor = raw?.role === 'series_template' && Boolean(raw.recurrence) && (!raw.schedule || typeof raw.schedule !== 'object' || Array.isArray(raw.schedule) || !(raw.schedule as Record<string, unknown>).startAt && !(raw.schedule as Record<string, unknown>).dueAt);
+    try {
+      const migrated = migrateItem(item, `schema:${previous}`); warnings.push(...migrated.warnings);
+      if (missingRecurrenceAnchor && !migrationIssues.some((issue) => issue.entityId === key && issue.code === 'recurrence_missing_anchor' && issue.status !== 'resolved')) migrationIssues.push({ id: `migration:${previous}:${key}:recurrence_missing_anchor`, entityType: 'item', entityId: key, sourceVersion: previous, code: 'recurrence_missing_anchor', disabledCapability: 'recurrence', status: 'needs_repair', detectedAt: now });
+      return [key, migrated.value];
+    } catch (reason) {
+      if (raw) {
+        const salvage = structuredClone(raw);
+        const disabled: Array<{ key: 'scripts' | 'reminders' | 'recurrence'; capability: 'script' | 'reminder' | 'recurrence' }> = [];
+        for (const candidate of [{ key: 'scripts', capability: 'script' }, { key: 'reminders', capability: 'reminder' }, { key: 'recurrence', capability: 'recurrence' }] as const) if (Object.prototype.hasOwnProperty.call(salvage, candidate.key)) { disabled.push(candidate); delete salvage[candidate.key]; }
+        if (disabled.some((entry) => entry.key === 'recurrence') && salvage.role === 'series_template') salvage.role = 'standalone';
+        const target = (salvage.extensions && typeof salvage.extensions === 'object' && !Array.isArray(salvage.extensions) ? salvage.extensions : {}) as Record<string, unknown>;
+        target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), ...Object.fromEntries(disabled.map((entry) => [entry.key, structuredClone(raw[entry.key])])) };
+        salvage.extensions = target;
+        try {
+          const migrated = migrateItem(salvage, `schema:${previous}`); warnings.push(...migrated.warnings);
+          disabled.forEach((entry) => migrationIssues.push({ id: `migration:${previous}:${key}:invalid_${entry.key}`, entityType: 'item', entityId: key, sourceVersion: previous, code: `invalid_${entry.key}`, disabledCapability: entry.capability, status: 'needs_repair', detectedAt: now }));
+          warnings.push(`Disabled incompatible capabilities on item ${key}`);
+          return [key, migrated.value];
+        } catch { /* Fall back to a minimal readable item below. */ }
+      }
+      const timestamp = typeof raw?.createdAt === 'string' && Number.isFinite(Date.parse(raw.createdAt)) ? raw.createdAt : now;
+      const safe: UniversalItem = { id: typeof raw?.id === 'string' && raw.id ? raw.id : key, schemaVersion: SCHEMA_VERSION, createdWithAppId: APP_ID, createdWithAppName: APP_NAME, createdWithVersion: APP_VERSION, revision: Math.max(1, Math.floor(Number(raw?.revision) || 1)), role: 'standalone', preset: ['task', 'event', 'habit', 'blank'].includes(String(raw?.preset)) ? raw!.preset as UniversalItem['preset'] : 'task', title: typeof raw?.title === 'string' ? raw.title : 'Recovered item', bodyMarkdown: typeof raw?.bodyMarkdown === 'string' ? raw.bodyMarkdown : '', state: ['open', 'done', 'cancelled', 'auto_closed', 'archived'].includes(String(raw?.state)) ? raw!.state as UniversalItem['state'] : 'open', createdAt: timestamp, updatedAt: typeof raw?.updatedAt === 'string' && Number.isFinite(Date.parse(raw.updatedAt)) ? raw.updatedAt : timestamp, contexts: [], tags: [], areas: [], projects: [], reminders: [], relations: [], attachments: [], custom: {}, extensions: { quarantine: { raw: structuredClone(item), migrationError: reason instanceof Error ? reason.message : String(reason) } } };
+      migrationIssues.push({ id: `migration:${previous}:${key}:invalid_item`, entityType: 'item', entityId: key, sourceVersion: previous, code: 'invalid_item', disabledCapability: 'entity', status: 'needs_repair', detectedAt: now });
+      warnings.push(`Quarantined invalid item ${key}`);
+      return [key, safe];
+    }
   }));
   source.views = Object.fromEntries(Object.entries(source.views as Record<string, unknown>).map(([key, view]) => {
-    const migrated = migrateView(view, `schema:${previous}`); warnings.push(...migrated.warnings); return [key, migrated.value];
+    try { const migrated = migrateView(view, `schema:${previous}`); warnings.push(...migrated.warnings); return [key, migrated.value]; }
+    catch (reason) {
+      const raw = view && typeof view === 'object' && !Array.isArray(view) ? view as Record<string, unknown> : {};
+      migrationIssues.push({ id: `migration:${previous}:${key}:invalid_view`, entityType: 'view', entityId: key, sourceVersion: previous, code: 'invalid_view', disabledCapability: 'filter', status: 'needs_repair', detectedAt: now });
+      warnings.push(`Quarantined invalid view ${key}`);
+      return [key, { id: typeof raw.id === 'string' && raw.id ? raw.id : key, name: typeof raw.name === 'string' && raw.name ? raw.name : 'Recovered view', query: { source: 'false' }, renderer: 'list', sort: [], fields: ['title'], extensions: { quarantine: { raw: structuredClone(view), migrationError: reason instanceof Error ? reason.message : String(reason) } } } satisfies SavedView];
+    }
   }));
   source.schemaVersion = SCHEMA_VERSION;
   const migratedItems = source.items as Record<string, UniversalItem>;
@@ -448,7 +493,6 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const rawProjectDefinitions = source.projectDefinitions && typeof source.projectDefinitions === 'object' && !Array.isArray(source.projectDefinitions)
     ? source.projectDefinitions as Record<string, unknown>
     : {};
-  const now = new Date().toISOString();
   const legacyKind = (name: string | undefined) => {
     const raw = name && rawListDefinitions[name];
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? String((raw as Record<string, unknown>).kind ?? '') : '';
@@ -576,7 +620,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     (source.organizationPreferences as { priorityOrder: typeof priorityOrder }).priorityOrder,
     source as unknown as WorkspaceDocument,
   );
-  source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.tombstones ??= {};
+  source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.migrationIssues = migrationIssues; source.tombstones ??= {};
   source.pushPreferences ??= { enabled: false, contentMode: 'generic' };
   const pushPreferences = source.pushPreferences as Record<string, unknown>;
   pushPreferences.enabled = pushPreferences.enabled === true;

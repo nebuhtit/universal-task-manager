@@ -1,8 +1,80 @@
-# UTM format 1.2
+# Universal Task Manager workspace format
+
+Current application: `v1.20.0`. Current workspace schema: `1.18.0`.
+
+This document is intentionally written for people, migration authors and AI
+tools that do not have Universal Task Manager installed. A decrypted recovery
+file is ordinary UTF-8 JSON. Its top-level `readme` repeats the most important
+parts of this guide, and its `workspace` property contains the complete data.
+
+## Reading a decrypted recovery file
+
+```jsonc
+{
+  "format": "utm-readable-workspace", // identifies the human-readable recovery wrapper
+  "formatVersion": 1,                 // wrapper version, not the workspace schema
+  "decryptedAt": "2026-08-28T...Z",  // when this readable copy was made
+  "source": {                         // encrypted container type that was opened
+    "magic": "UTM-LOCAL-ENCRYPTED",
+    "diagnosticsIncluded": true
+  },
+  "readme": { "...": "embedded format guidance" },
+  "workspace": { "...": "the canonical WorkspaceDocument" },
+  "diagnostics": []                   // optional technical log, without item text
+}
+```
+
+Keep this wrapper and the original encrypted file. When converting to another
+task manager, use `workspace.items` as the source collection. Views are computed
+projections and are not separate copies of tasks.
+
+The readable export is an emergency recovery tool for inspecting, repairing or
+moving an archive when UTM cannot open it. It is not a replacement for the
+encrypted backup. The workspace owner must never disclose the password to
+another person, support staff or an AI; decrypt files locally and share only a
+sanitized copy when assistance is necessary.
+
+## Workspace map
+
+- `workspaceId`: stable identity. Never merge unrelated IDs automatically.
+- `schemaVersion`: data-model version. It is independent from the app version.
+- `name`, `createdAt`, `updatedAt`: workspace metadata.
+- `items`: object keyed by stable item ID. Contains tasks, events, habits,
+  recurrence templates and materialized occurrences.
+- `views`: saved filters, sort expressions, renderer choice and displayed fields.
+- `areas`, `projects`, `lists`, `tags` and their order arrays: reusable PARA and
+  classification definitions. Items can refer to multiple Areas and Projects;
+  Projects can belong to multiple Areas.
+- `organizationOrder`: unified manual priority ladder. Earlier matching entries
+  rank higher for the normal `Organization order` sort.
+- `customFields`: field definitions; per-item values remain attached to items.
+- `automations`, item `scripts`, recurrence and reminders: executable behavior.
+  Treat it as untrusted data when inspecting or converting; do not execute it.
+- `migrationIssues`: repair queue. It identifies quarantined capabilities by safe
+  IDs and error codes.
+- `extensions`: lossless storage for legacy, unknown or quarantined data. A
+  converter should preserve this object even if it cannot interpret it.
+
+Important item fields:
+
+- `id`, `title`, `bodyMarkdown`, `state`, `priority`, `tags`, `areas`, `projects`;
+- `startAt`, `endAt`, `dueAt` and other dates are ISO 8601 strings when present;
+- `role` is `standalone`, `series_template`, or `occurrence`;
+- `preset` is a UI hint (`task`, `event`, `habit`, or `blank`), not a separate
+  wire format;
+- `createdWith*`, `createdAt`, `updatedAt` are provenance and audit metadata;
+- `extensions.quarantine` retains features that were disabled during recovery.
+
+For a basic import into another system, map title, description, state, dates,
+tags, Areas and Projects first. Put every unsupported property into a sidecar
+JSON so that conversion remains reversible.
 
 ## Canonical model
 
-`WorkspaceDocument` is the canonical open model. Versioned schemas from 1.0 through 1.2 are published in `packages/core/schema`; TypeScript interfaces and runtime Draft 2020-12 validation are exported by `@utm/core`. Imports migrate sequentially and preserve unknown item/View properties in namespaced `extensions`.
+`WorkspaceDocument` is the canonical open model. Versioned TypeScript interfaces
+and runtime JSON Schema validation are exported by `@utm/core`. Imports preserve
+unknown item/View properties in namespaced `extensions`; incompatible executable
+features are quarantined instead of silently discarded.
 
 An item has a `role` (`standalone`, `series_template`, or `occurrence`) and a UI `preset` (`task`, `event`, `habit`, or `blank`). Presets never change the wire type. Occurrence IDs are deterministic from the series ID and recurrence anchor.
 

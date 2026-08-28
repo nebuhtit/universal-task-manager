@@ -5,7 +5,7 @@ import {
   migrateWorkspace, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
-import { localWorkspaceMode, lock, saveLocalWorkspace, unlockUnencryptedLocalWorkspace, type UnlockedWorkspace } from '@utm/sdk';
+import { localWorkspaceMode, lock, saveLocalWorkspace, saveMigratedLocalWorkspace, unlockUnencryptedLocalWorkspace, type UnlockedWorkspace } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
 import { reminderTime } from '../push';
 import { diagnosticFailureCode, recordDiagnostic } from '../services/diagnostics';
@@ -84,6 +84,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     try {
       deliveredReminderIds.current.clear();
     let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
+    const sourceVersion = String((unlocked.document as WorkspaceDocument).schemaVersion ?? '1.0.0');
     const now = effectiveWorkspaceNow(unlocked.document as WorkspaceDocument); const migration = migrateWorkspace(clean(unlocked.document as WorkspaceDocument));
     const migratedDocument = Automerge.change(unlocked.document, 'Migrate workspace metadata and reminders', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
@@ -107,7 +108,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const groups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>(); const rank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) { if (item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } }
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
-    await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode);
+    if (sourceVersion !== migration.value.schemaVersion) await saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`);
+    else await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode);
     finishActivationStage('persistence');
     setSession({ ...unlocked, document: updated }); setBoot('ready');
     const activationDurationMs = Math.round(performance.now() - activationStartedAt);

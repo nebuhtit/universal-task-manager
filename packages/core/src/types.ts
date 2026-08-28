@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.17.0';
+export const SCHEMA_VERSION = '1.18.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.19.0';
-export const APP_RELEASED_AT = '2026-08-28T12:30:00.000Z';
+export const APP_VERSION = '1.20.0';
+export const APP_RELEASED_AT = '2026-08-28T19:00:00.000Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -377,6 +377,17 @@ export interface AutomationLogEntry {
   idempotencyKey: string;
 }
 
+export interface MigrationIssue {
+  id: string;
+  entityType: 'workspace' | 'item' | 'view' | 'automation';
+  entityId: string;
+  sourceVersion: string;
+  code: string;
+  disabledCapability: 'recurrence' | 'script' | 'filter' | 'automation' | 'reminder' | 'entity';
+  status: 'needs_repair' | 'resolved';
+  detectedAt: ISODateTime;
+}
+
 export interface WorkspaceDocument {
   schemaVersion: string;
   workspaceId: string;
@@ -396,6 +407,7 @@ export interface WorkspaceDocument {
   dashboards: Record<string, Dashboard>;
   automations: Record<string, AutomationRule>;
   automationLog: AutomationLogEntry[];
+  migrationIssues: MigrationIssue[];
   tombstones: Record<string, ISODateTime>;
   calendarPreferences: CalendarPreferences;
   /** Encrypted credentials and preferences for optional background Web Push. */
@@ -574,6 +586,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     },
     automations: {},
     automationLog: [],
+    migrationIssues: [],
     tombstones: {},
     calendarPreferences: {
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
