@@ -2,7 +2,7 @@ import * as Automerge from '@automerge/automerge';
 import { createWorkspace, WORKSPACE_FORMAT_GUIDE } from '@utm/core';
 import type { WorkspaceDocument, WorkspaceLanguage } from '@utm/core';
 import {
-  decryptWithKey, encryptWithKey, fromBase64, randomKey, ready, toBase64, unwrapKey, wrapKey,
+  decryptBytes, decryptWithKey, encryptWithKey, fromBase64, randomKey, ready, toBase64, unwrapKey, wrapKey,
   type EncryptedEnvelope,
 } from './crypto.js';
 import { createAutomergeDocument, merge, unlock } from './container.js';
@@ -34,6 +34,17 @@ const BLOCK_AAD = 'utm:local:workspace:v1';
 // being introduced. Keep read compatibility so a copied .utmlocal never
 // becomes undecryptable merely because the app was updated.
 const LEGACY_BLOCK_AAD = ['utm:local:block:v1', 'utm:workspace:v1'] as const;
+const LEGACY_KEY_AAD = ['utm:workspace-key', 'utm:local:key:v1'] as const;
+
+async function unwrapLocalKey(envelope: EncryptedEnvelope, password: string): Promise<Uint8Array> {
+  try { return await unwrapKey(envelope, password); }
+  catch (primary) {
+    for (const aad of LEGACY_KEY_AAD) {
+      try { return await decryptBytes(envelope, password, aad); } catch { /* try next compatibility label */ }
+    }
+    throw primary;
+  }
+}
 
 async function decryptLocalBlock(block: EncryptedLocalBlock, dataKey: Uint8Array): Promise<Uint8Array> {
   try { return await decryptWithKey(block, dataKey, BLOCK_AAD); }
@@ -136,7 +147,7 @@ export async function unlockLocalWorkspace(password: string): Promise<UnlockedWo
   const block = await getRecord<LocalBlock>(BLOCK_KEY);
   if (!metadata || !block) throw new Error('No local workspace exists');
   if (metadata.mode === 'plaintext' || isPlaintextBlock(block)) throw new Error('This local workspace is configured without encryption');
-  const dataKey = await unwrapKey(metadata.wrappedKey, password);
+  const dataKey = await unwrapLocalKey(metadata.wrappedKey, password);
   const binary = await decryptWithKey(block, dataKey, BLOCK_AAD);
   try { return { document: Automerge.load<WorkspaceDocument>(binary), dataKey, storageMode: 'encrypted' }; }
   catch { throw new Error('Decrypted local workspace is damaged'); }
@@ -214,7 +225,7 @@ export async function importAsLocalWorkspace(source: string, password: string): 
     const metadata = localBackup.metadata;
     const block = localBackup.workspace;
     if (localBackup.version !== 1 || !metadata?.wrappedKey || !block?.nonce || !block.ciphertext) throw new Error('Encrypted recovery copy is incomplete');
-    const dataKey = await unwrapKey(metadata.wrappedKey, password);
+    const dataKey = await unwrapLocalKey(metadata.wrappedKey, password);
     const binary = await decryptWithKey(block, dataKey, BLOCK_AAD);
     let document: Automerge.Doc<WorkspaceDocument>;
     try { document = Automerge.load<WorkspaceDocument>(binary); }
@@ -239,7 +250,7 @@ export async function decryptWorkspaceFile(source: string, password: string): Pr
     const metadata = parsed.metadata as EncryptedLocalMetadata | undefined;
     const block = parsed.workspace as EncryptedLocalBlock | undefined;
     if (parsed.version !== 1 || !metadata?.wrappedKey || !block?.nonce || !block.ciphertext) throw new Error('Encrypted recovery copy is incomplete');
-    const dataKey = await unwrapKey(metadata.wrappedKey, password);
+    const dataKey = await unwrapLocalKey(metadata.wrappedKey, password);
     try {
       const binary = await decryptLocalBlock(block, dataKey);
       let document: Automerge.Doc<WorkspaceDocument>;
