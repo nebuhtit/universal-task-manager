@@ -37,4 +37,20 @@ describe('ViewResults manual ordering controls', () => {
     expect(renderToStaticMarkup(<ViewResults {...props} view={view} />)).toContain('📌 Call mom 👩‍👦');
     expect(renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer: 'table' }} />)).toContain('📌 Call mom 👩‍👦');
   });
+
+  it('uses the initiating View color for every celebrating duplicate', () => {
+    const workspace = createWorkspace('Celebration');
+    const item = createItem('Shared item'); workspace.items[item.id] = item;
+    const celebrationColors = new Map([[item.id, '#c27a00']]);
+    const props = { workspace, onEdit: vi.fn(), onState: vi.fn(), celebrationColors };
+    const first: SavedView = { id: 'first', name: 'First', accent: '#c27a00', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] };
+    const duplicate: SavedView = { ...first, id: 'duplicate', name: 'Duplicate', accent: '#2864c7' };
+
+    const firstMarkup = renderToStaticMarkup(<ViewResults {...props} view={first} />);
+    const duplicateMarkup = renderToStaticMarkup(<ViewResults {...props} view={duplicate} />);
+    expect(firstMarkup).toContain('is-celebrating');
+    expect(firstMarkup).toContain('--completion-accent:#c27a00');
+    expect(duplicateMarkup).toContain('--completion-accent:#c27a00');
+    expect(duplicateMarkup).not.toContain('--completion-accent:#2864c7');
+  });
 });

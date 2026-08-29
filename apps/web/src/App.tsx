@@ -586,7 +586,7 @@ export default function App() {
   const [backupReminder, setBackupReminder] = useState(false);
   const [faceId, setFaceId] = useState<'available' | 'unsupported' | 'configured'>('unsupported');
   const [quick, setQuick] = useState('');
-  const [celebratingIds, setCelebratingIds] = useState<Set<string>>(new Set());
+  const [celebrationColors, setCelebrationColors] = useState<Map<string, string>>(new Map());
   const [undoActions, setUndoActions] = useState<PendingUndoAction[]>([]);
   const [undoClock, setUndoClock] = useState(() => Date.now());
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
@@ -741,15 +741,15 @@ export default function App() {
     commit('Change background notification privacy', (draft) => { draft.pushPreferences.contentMode = contentMode; });
   };
 
-  const changeItemState = (item: UniversalItem, state: UniversalItem['state']) => {
+  const changeItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = '#2f7d32') => {
     const occurredAt = workspace ? effectiveWorkspaceNow(workspace).toISOString() : new Date().toISOString();
     const targetId = item.habit ? item.id : item.occurrence?.seriesId && workspace?.items[item.occurrence.seriesId]?.habit ? item.occurrence.seriesId : item.id;
     const beforeTarget = workspace?.items[targetId] ? clean(workspace.items[targetId]!) : undefined;
     if (state === 'done' && workspace?.calendarPreferences.appearance.tickSound) playTickSound();
     if (state === 'done') {
       setRecentlyDone(item.id, Date.now() + 10_000);
-      setCelebratingIds((current) => new Set(current).add(item.id));
-      window.setTimeout(() => setCelebratingIds((current) => { const next = new Set(current); next.delete(item.id); return next; }), 900);
+      setCelebrationColors((current) => new Map(current).set(item.id, celebrationColor));
+      window.setTimeout(() => setCelebrationColors((current) => { const next = new Map(current); next.delete(item.id); return next; }), 900);
     }
     else setRecentlyDone(item.id);
     const changed = commit('Change item state', (draft) => {
@@ -779,7 +779,7 @@ export default function App() {
     if (changed && state === 'done' && beforeTarget) queueUndo('Item completed', () => {
       commit('Undo item completion', (draft) => { draft.items[targetId] = clean(beforeTarget); });
       setRecentlyDone(item.id);
-      setCelebratingIds((current) => { const next = new Set(current); next.delete(item.id); return next; });
+      setCelebrationColors((current) => { const next = new Map(current); next.delete(item.id); return next; });
     });
     if (state !== 'open') setNotices((current) => current.filter((notice) => notice.itemId !== item.id));
   };
@@ -847,7 +847,7 @@ export default function App() {
 
   const activeDateLabel = formatHeaderDate(systemNow, workspace.calendarPreferences.language);
   return <><AppShell page={page} onPage={setPage} activeDateLabel={activeDateLabel} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
-      {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} celebratingIds={celebratingIds} createRequest={newViewRequest} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', systemNow), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportSavedView(workspace, view, mode, format, metadata)} /></>}
+      {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', systemNow), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportSavedView(workspace, view, mode, format, metadata)} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} now={systemNow} commit={commit} createUiItem={createUiItem} onEditItem={(item) => setEditor(itemEditorSource(workspace, item))} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={(item) => setEditor(itemEditorSource(workspace, item))} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}

@@ -92,8 +92,13 @@
 .item-list { display: grid; gap: 5px; }
 .reorderable-view-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; min-width: 0; border-radius: var(--radius-sm); transition: background var(--motion-fast) var(--motion-easing-standard), opacity var(--motion-fast) var(--motion-easing-standard); }
 .reorderable-view-item > .item-card { min-width: 0; }
-.reorderable-view-item.is-celebrating { overflow: hidden; border-radius: var(--radius-md); animation: completion-row-highlight 720ms var(--motion-easing-standard); }
-@keyframes completion-row-highlight { 0% { background: transparent; box-shadow: none; } 28% { background: color-mix(in srgb, var(--view-accent, var(--moss)) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--view-accent, var(--moss)) 22%, transparent); } 100% { background: transparent; box-shadow: none; } }
+.reorderable-view-item.is-celebrating,
+.calendar-item.is-celebrating,
+.board-item.is-celebrating,
+.renderer-table-wrap tbody tr.is-celebrating { overflow: hidden; border-radius: var(--radius-md); animation: completion-row-highlight 720ms var(--motion-easing-standard); }
+.reorderable-view-item.is-celebrating > .item-card { background: transparent; }
+.view-section .is-celebrating .state-toggle { background: var(--completion-accent); border-color: transparent; color: #fff; }
+@keyframes completion-row-highlight { 0%, 100% { background-color: transparent; } 28% { background-color: color-mix(in srgb, var(--completion-accent) 22%, transparent); } }
 .reorderable-view-item.is-dragging, .renderer-table-wrap tr.is-dragging { opacity: .5; }
 .reorderable-view-item.is-drop-target, .renderer-table-wrap tr.is-drop-target { box-shadow: inset 0 2px 0 var(--view-accent, var(--color-accent)); }
 .view-drag-handle { width: 28px; min-width: 28px; height: var(--control-height-compact); display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); padding: 0; background: transparent; color: var(--color-text-secondary); font-size: 18px; line-height: 1; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -292,14 +297,6 @@ label.check input { width: 18px; height: 18px; }
 .item-script-head .icon-button { align-self: end; }
 .item-script-row .formula-output small { display: block; margin-bottom: 4px; color: var(--muted); font-family: inherit; }
 .item-script-row .formula-output.error { border: 1px solid currentColor; }
-.item-card.is-celebrating, .calendar-item.is-celebrating, .board-item.is-celebrating { position: relative; isolation: isolate; overflow: hidden; animation: completion-celebrate .82s cubic-bezier(.2,.8,.2,1) both; }
-.item-card.is-celebrating::after, .calendar-item.is-celebrating::after, .board-item.is-celebrating::after { content: ''; position: absolute; z-index: 0; pointer-events: none; width: 135%; height: 260%; left: -18%; top: -80%; border-radius: 50%; background: conic-gradient(from 205deg, rgba(255,104,150,.68), rgba(255,204,95,.62), rgba(77,212,255,.64), rgba(167,139,250,.6), rgba(255,104,150,.68)); filter: blur(18px); animation: completion-bloom .82s ease-out both; }
-.item-card.is-celebrating > *, .calendar-item.is-celebrating > *, .board-item.is-celebrating > * { position: relative; z-index: 1; }
-.renderer-table-wrap tbody tr.is-celebrating { border-radius: var(--radius-md); background-image: linear-gradient(105deg, rgba(255,104,150,0), rgba(255,204,95,.32), rgba(77,212,255,.32), rgba(167,139,250,.28), rgba(255,104,150,0)); background-size: 240% 100%; clip-path: inset(0 round var(--radius-md)); animation: completion-table-wash .82s ease-out both; }
-@keyframes completion-celebrate { 0% { transform: scale(1); box-shadow: 0 0 0 rgba(77,212,255,0); } 34% { transform: scale(1.008); box-shadow: 0 10px 32px rgba(167,139,250,.18), 0 0 24px rgba(77,212,255,.16); } 100% { transform: scale(1); box-shadow: 0 0 0 rgba(77,212,255,0); } }
-@keyframes completion-bloom { 0% { opacity: 0; transform: scale(.42) rotate(-18deg); } 30% { opacity: .48; } 100% { opacity: 0; transform: scale(1.38) rotate(24deg); } }
-@keyframes completion-table-wash { 0% { background-position: 115% 0; } 40% { background-position: 45% 0; } 100% { background-position: -115% 0; } }
-
 @media (max-width: 620px) {
   .item-script-head { grid-template-columns: 1fr 1fr; }
   .item-script-head .icon-button { justify-self: end; }
