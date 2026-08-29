@@ -93,7 +93,7 @@
 .reorderable-view-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; min-width: 0; border-radius: var(--radius-sm); transition: background var(--motion-fast) var(--motion-easing-standard), opacity var(--motion-fast) var(--motion-easing-standard); }
 .reorderable-view-item > .item-card { min-width: 0; }
 .reorderable-view-item.is-celebrating { overflow: hidden; border-radius: var(--radius-md); animation: completion-row-highlight 720ms var(--motion-easing-standard); }
-@keyframes completion-row-highlight { 0% { background: transparent; box-shadow: none; } 28% { background: color-mix(in srgb, var(--view-accent, var(--color-accent)) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--view-accent, var(--color-accent)) 22%, transparent); } 100% { background: transparent; box-shadow: none; } }
+@keyframes completion-row-highlight { 0% { background: transparent; box-shadow: none; } 28% { background: color-mix(in srgb, var(--view-accent, var(--moss)) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--view-accent, var(--moss)) 22%, transparent); } 100% { background: transparent; box-shadow: none; } }
 .reorderable-view-item.is-dragging, .renderer-table-wrap tr.is-dragging { opacity: .5; }
 .reorderable-view-item.is-drop-target, .renderer-table-wrap tr.is-drop-target { box-shadow: inset 0 2px 0 var(--view-accent, var(--color-accent)); }
 .view-drag-handle { width: 28px; min-width: 28px; height: var(--control-height-compact); display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); padding: 0; background: transparent; color: var(--color-text-secondary); font-size: 18px; line-height: 1; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -444,7 +444,7 @@ label.check input { width: 18px; height: 18px; }
 .view-section-summary h2 { max-width: 100%; margin: 5px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section.is-collapsed .view-section-summary h2 { color: var(--view-accent, var(--muted)); font-weight: 400; opacity: .52; }
-.view-section .state-toggle { border-color: var(--view-accent, var(--color-border-strong)); color: var(--view-accent, currentColor); }
+.view-section .state-toggle { border-color: var(--view-accent, var(--moss)); color: var(--view-accent, var(--moss)); }
 .view-section-actions { position: absolute; inset-inline-end: 0; top: 14px; display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
 .view-section-reorder { position: absolute; inset-inline-start: 0; top: 14px; z-index: 1; }
 .view-section-reorder .ui-reorder-handle { min-height: 30px; }
