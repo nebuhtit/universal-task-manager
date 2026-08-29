@@ -8,7 +8,7 @@ export type LineIconName = 'home' | 'calendar' | 'items' | 'views' | 'rules' | '
 
 export function LineIcon({ name }: { name: LineIconName }) {
   const paths: Record<LineIconName, ReactNode> = {
-    home: <path d="m4.5 11.5 7.5-6 7.5 6V19h-15v-7.5Z"/>,
+    home: <path d="M10.92 4.84a1.25 1.25 0 0 1 2.16 0l7.17 12.46A1.8 1.8 0 0 1 18.69 20H5.31a1.8 1.8 0 0 1-1.56-2.7l7.17-12.46Z"/>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></>,
     items: <><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12h3M3 18h3"/></>,
     views: <><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="8" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/></>,

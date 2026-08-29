@@ -341,7 +341,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   });
 
   return <section className="page-section views-page">
-    <div className="views-stack"><div className="expanded-views-stack">{expandedViews.map(renderView)}</div>{collapsedViews.length > 0 && <div className="collapsed-views-stack" ref={collapsedViewReorder.container}>{collapsedViews.map((view, index) => <div key={view.id} {...collapsedViewReorder.rowProps(index)}>{renderView(view, collapsedViewReorder.handle(index, `view ${view.name}`))}</div>)}</div>}</div>
+    <div className="views-stack"><div className="expanded-views-stack">{expandedViews.map((view) => renderView(view))}</div>{collapsedViews.length > 0 && <div className="collapsed-views-stack" ref={collapsedViewReorder.container}>{collapsedViews.map((view, index) => <div key={view.id} {...collapsedViewReorder.rowProps(index)}>{renderView(view, collapsedViewReorder.handle(index, `view ${view.name}`))}</div>)}</div>}</div>
     {editing && <ResponsiveDialog
       open
       onOpenChange={(open) => { if (!open) { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'dialog-dismiss' }) }); setEditing(null); } }}

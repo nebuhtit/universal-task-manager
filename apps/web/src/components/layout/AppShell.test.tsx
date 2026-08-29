@@ -32,6 +32,7 @@ describe('AppShell', () => {
     ><p>Content</p></AppShell>);
     expect(markup).toContain('Backup needs attention');
     expect(markup).toContain('aria-label="Dismiss backup reminder"');
+    expect(markup).not.toContain('>0</b>');
   });
 
   it('renders ordinary toasts separately', () => {

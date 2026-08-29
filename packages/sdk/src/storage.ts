@@ -30,7 +30,9 @@ const META_KEY = 'metadata';
 const BLOCK_KEY = 'workspace';
 const SNAPSHOT_KEYS = ['workspace-snapshot-1', 'workspace-snapshot-2'] as const;
 const MIRROR_KEYS = ['workspace-verified-mirror-1', 'workspace-verified-mirror-2'] as const;
+const FACE_ID_KEY = 'face-id-unlock-v1';
 const BLOCK_AAD = 'utm:local:workspace:v1';
+const FACE_ID_AAD = 'utm:face-id:data-key:v1';
 // Previous encrypted container revisions used these authenticated labels.
 // They remain decoder variants inside the single public .utmb format.
 const LEGACY_BLOCK_AAD = ['utm:local:block:v1', 'utm:workspace:v1'] as const;
@@ -66,6 +68,7 @@ async function verifyEncryptedDocument(block: EncryptedLocalBlock, dataKey: Uint
 export interface LocalWorkspaceSnapshotInfo { id: string; createdAt: string; schemaVersion: string; reason: string }
 interface LocalWorkspaceSnapshot extends LocalWorkspaceSnapshotInfo { metadata: LocalMetadata; workspace: LocalBlock }
 interface VerifiedWorkspaceMirror { savedAt: string; metadata: EncryptedLocalMetadata; workspace: EncryptedLocalBlock }
+interface FaceIdUnlockRecord { version: 1; credentialId: string; salt: string; wrappedDataKey: { nonce: string; ciphertext: string }; createdAt: string }
 export interface LocalProtectionStatus { verifiedMirrors: number; latestVerifiedAt?: string }
 
 const isPlaintextBlock = (block: LocalBlock): block is PlaintextLocalBlock => block.mode === 'plaintext';
@@ -135,6 +138,71 @@ export async function getLocalProtectionStatus(): Promise<LocalProtectionStatus>
   const mirrors = await Promise.all(MIRROR_KEYS.map((key) => getRecord<VerifiedWorkspaceMirror>(key)));
   const available = mirrors.filter((mirror): mirror is VerifiedWorkspaceMirror => Boolean(mirror));
   return { verifiedMirrors: available.length, ...(available[0]?.savedAt ? { latestVerifiedAt: available[0].savedAt } : {}) };
+}
+
+type FaceIdCredential = { rawId: ArrayBuffer; getClientExtensionResults?: () => AuthenticationExtensionsClientOutputs };
+type FaceIdPrfOutputs = AuthenticationExtensionsClientOutputs & { prf?: { results?: { first?: ArrayBuffer } } };
+const webAuthnAvailable = () => typeof window !== 'undefined' && Boolean(window.PublicKeyCredential && navigator.credentials);
+const randomBytes = (size: number) => crypto.getRandomValues(new Uint8Array(size));
+const arrayBuffer = (value: Uint8Array) => value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
+
+async function faceIdKey(credentialId: ArrayBuffer, salt: Uint8Array): Promise<Uint8Array> {
+  if (!webAuthnAvailable()) throw new Error('Face ID is not available in this browser. Use your password instead.');
+  const credential = await navigator.credentials.get({ publicKey: {
+    challenge: randomBytes(32), allowCredentials: [{ type: 'public-key', id: credentialId }], userVerification: 'required', timeout: 60_000,
+    extensions: { prf: { eval: { first: arrayBuffer(salt) } } } as AuthenticationExtensionsClientInputs,
+  } }) as FaceIdCredential | null;
+  const output = credential?.getClientExtensionResults?.() as FaceIdPrfOutputs | undefined;
+  const secret = output?.prf?.results?.first;
+  if (!secret) throw new Error('Face ID cannot provide a protected unlock key on this device. Use your password instead.');
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', secret));
+}
+
+export async function faceIdStatus(): Promise<'available' | 'unsupported' | 'configured'> {
+  if (!webAuthnAvailable()) return 'unsupported';
+  if (await getRecord<FaceIdUnlockRecord>(FACE_ID_KEY)) return 'configured';
+  try { return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable() ? 'available' : 'unsupported'; }
+  catch { return 'unsupported'; }
+}
+
+/** Enables Face ID/Touch ID only as a local convenience unlock. Password recovery always remains available. */
+export async function enableFaceIdUnlock(dataKey: Uint8Array): Promise<void> {
+  if (!webAuthnAvailable()) throw new Error('Face ID is not available in this browser. Use your password instead.');
+  if (!await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(() => false)) throw new Error('This device has no available Face ID, Touch ID, or secure screen lock. Use your password instead.');
+  const salt = randomBytes(32);
+  const credential = await navigator.credentials.create({ publicKey: {
+    challenge: randomBytes(32), rp: { name: 'Universal Task Manager' },
+    user: { id: arrayBuffer(randomBytes(32)), name: 'universal-local-unlock', displayName: 'Universal local unlock' },
+    pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+    authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'required', userVerification: 'required' }, timeout: 60_000,
+    extensions: { prf: { eval: { first: arrayBuffer(salt) } } } as AuthenticationExtensionsClientInputs,
+  } }) as FaceIdCredential | null;
+  if (!credential) throw new Error('Face ID setup was cancelled. Your password still works.');
+  const key = await faceIdKey(credential.rawId, salt);
+  try {
+    const wrappedDataKey = await encryptWithKey(dataKey, key, FACE_ID_AAD);
+    await putRecords([[FACE_ID_KEY, { version: 1, credentialId: toBase64(new Uint8Array(credential.rawId)), salt: toBase64(salt), wrappedDataKey, createdAt: new Date().toISOString() } satisfies FaceIdUnlockRecord]]);
+  } finally { key.fill(0); }
+}
+
+export async function disableFaceIdUnlock(): Promise<void> { await transactRecords([], [FACE_ID_KEY]); }
+
+export async function unlockLocalWorkspaceWithFaceId(): Promise<UnlockedWorkspace> {
+  const record = await getRecord<FaceIdUnlockRecord>(FACE_ID_KEY);
+  const metadata = await getRecord<LocalMetadata>(META_KEY);
+  const block = await getRecord<LocalBlock>(BLOCK_KEY);
+  if (!record || !metadata || !block || metadata.mode === 'plaintext' || isPlaintextBlock(block)) throw new Error('Face ID is not configured. Use your password instead.');
+  let biometricKey: Uint8Array | undefined;
+  let dataKey: Uint8Array | undefined;
+  try {
+    biometricKey = await faceIdKey(arrayBuffer(fromBase64(record.credentialId)), fromBase64(record.salt));
+    dataKey = await decryptWithKey(record.wrappedDataKey, biometricKey, FACE_ID_AAD);
+    const document = Automerge.load<WorkspaceDocument>(await decryptLocalBlock(block, dataKey));
+    return { document, dataKey, storageMode: 'encrypted' };
+  } catch (reason) {
+    dataKey?.fill(0);
+    throw reason instanceof Error ? reason : new Error('Face ID unlock failed. Use your password instead.');
+  } finally { biometricKey?.fill(0); }
 }
 
 export async function hasLocalWorkspace(): Promise<boolean> { return Boolean(await getRecord<LocalMetadata>(META_KEY) ?? await latestVerifiedMirror()); }
@@ -277,7 +345,7 @@ export async function importAsLocalWorkspace(source: string, password: string): 
     let document: Automerge.Doc<WorkspaceDocument>;
     try { document = Automerge.load<WorkspaceDocument>(binary); }
     catch { throw new Error('Decrypted recovery copy is damaged'); }
-    await putRecords([[META_KEY, metadata], [BLOCK_KEY, block]]);
+    await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block]], [FACE_ID_KEY]);
     await saveVerifiedMirror(metadata, block);
     return { document, dataKey, storageMode: 'encrypted' };
   }
@@ -287,7 +355,7 @@ export async function importAsLocalWorkspace(source: string, password: string): 
   const encrypted = await encryptWithKey(Automerge.save(incoming.document), dataKey, BLOCK_AAD);
   await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
-  await putRecords([[META_KEY, metadata], [BLOCK_KEY, block]]);
+  await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block]], [FACE_ID_KEY]);
   await saveVerifiedMirror(metadata, block);
   return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
@@ -342,7 +410,7 @@ export async function restoreLocalWorkspace(source: string, password: string): P
   const encrypted = await encryptWithKey(Automerge.save(incoming.document), dataKey, BLOCK_AAD);
   await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
-  await putRecords([[META_KEY, metadata], [BLOCK_KEY, block]]);
+  await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block]], [FACE_ID_KEY]);
   await saveVerifiedMirror(metadata, block);
   return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }

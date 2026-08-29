@@ -3,11 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { createId, createItem, createWorkspace } from '@utm/core';
 import { createAutomergeDocument, exportContainer, merge, toJSON, unlock, validateContainer } from './container.js';
 import { encryptBytes, encryptWithKey, randomKey } from './crypto.js';
-import { decryptWorkspaceFile } from './storage.js';
+import { decryptWorkspaceFile, faceIdStatus } from './storage.js';
 
 const password = 'correct horse battery staple';
 
 describe('encrypted .utmb container', () => {
+  it('does not offer Face ID when the platform authenticator API is unavailable', async () => {
+    expect(await faceIdStatus()).toBe('unsupported');
+  });
+
   it('round-trips without exposing plaintext', async () => {
     const workspace = createWorkspace('Private');
     const item = createItem('Secret task'); workspace.items[item.id] = item;

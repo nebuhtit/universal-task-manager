@@ -561,6 +561,9 @@ describe('interoperability', () => {
     const old = createWorkspace('Legacy View order');
     const expected = Object.keys(old.views);
     delete (old as Partial<typeof old>).viewOrder;
+    // Older workspaces used the same schema version, so they must remain
+    // exportable while the app adds this convenience field on its next save.
+    expect(validateWorkspace(old).valid).toBe(true);
     const migrated = migrateWorkspace(old).value;
     expect(migrated.viewOrder).toEqual(expected);
     expect(validateWorkspace(migrated).valid).toBe(true);

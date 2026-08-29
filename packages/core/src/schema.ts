@@ -230,7 +230,10 @@ export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://universal-task-manager.dev/schema/workspace-1.18.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'viewOrder', 'dashboards', 'automations', 'automationLog', 'migrationIssues', 'tombstones', 'calendarPreferences', 'pushPreferences'],
+  // `viewOrder` was added after the schema version had already shipped. Keep it
+  // optional at the validation boundary so an otherwise valid older workspace
+  // can still open and be exported; migration supplies the stable order on save.
+  required: ['schemaVersion', 'workspaceId', 'name', 'createdAt', 'updatedAt', 'items', 'listDefinitions', 'areaDefinitions', 'projectDefinitions', 'organizationPreferences', 'customFields', 'views', 'dashboards', 'automations', 'automationLog', 'migrationIssues', 'tombstones', 'calendarPreferences', 'pushPreferences'],
   properties: {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },

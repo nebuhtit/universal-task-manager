@@ -104,6 +104,6 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void) {
       window.addEventListener('mousemove', move);
       window.addEventListener('mouseup', finish);
     }}
-  >⠿</button>;
+  ><svg viewBox="0 0 16 24" width="16" height="24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="5" r="1.35"/><circle cx="11" cy="5" r="1.35"/><circle cx="5" cy="12" r="1.35"/><circle cx="11" cy="12" r="1.35"/><circle cx="5" cy="19" r="1.35"/><circle cx="11" cy="19" r="1.35"/></svg></button>;
   return { container, rowProps, handle };
 }

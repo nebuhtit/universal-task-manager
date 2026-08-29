@@ -430,7 +430,7 @@ label.check input { width: 18px; height: 18px; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
 .view-section { border: 0; border-radius: 0; padding: 0; background: transparent; }
 .view-section > .view-section-summary { position: relative; display: block; width: 100%; min-width: 0; overflow: hidden; padding: 14px 0 8px; }
-.view-section-summary > .view-section-title { width: 100%; min-width: 0; overflow: hidden; padding-inline: 74px; text-align: center; }
+.view-section-summary > .view-section-title { width: 100%; min-width: 0; overflow: hidden; padding: 0 74px; border: 0; background: transparent; color: inherit; text-align: center; cursor: pointer; }
 .view-section-summary h2 { max-width: 100%; margin: 5px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section.is-collapsed .view-section-summary h2 { color: var(--muted); font-weight: 400; opacity: .62; }
@@ -532,7 +532,7 @@ dd { margin: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 .automation-empty-icon { display: block; width: 27px; height: 27px; margin: 0 auto 14px; color: #707070; }
 .empty-panel h3 { margin: 0 0 6px; color: #444; font-size: 16px; font-weight: 500; }
 .empty-panel p { margin: 0; font-size: 13px; }
-.all-sections { border: 1px solid var(--line); border-radius: 18px; background: var(--card); padding: 0 20px; }
+.all-sections { border: 0; border-radius: 0; background: transparent; padding: 0; }
 .all-sections details summary { display: grid; grid-template-columns: minmax(0, 1fr) 42px 20px; column-gap: 10px; min-height: 46px; align-items: center; color: var(--muted); text-transform: capitalize; font-size: 13px; font-weight: 500; letter-spacing: .015em; }
 .all-sections details[open] summary { color: #444; }
 .all-sections details summary b { grid-column: 2; justify-self: center; min-width: 24px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 500; background: #f1f1f1; padding: 3px 7px; border-radius: 99px; }
@@ -540,6 +540,7 @@ dd { margin: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 .all-sections .item-list { padding: 0 0 7px; }
 .all-sections .section-help { margin: -2px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .all-sections .recurring-items summary span { color: #333; }
+.all-item-collections { border: 0; border-radius: 0; background: transparent; }
 .trash-section { margin-top: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 0 20px; }
 .trash-section summary { min-height: 46px; align-items: center; color: #555; font-size: 13px; font-weight: 500; }
 .trash-section summary b { min-width: 24px; margin-left: 8px; border-radius: 99px; background: #f1f1f1; padding: 3px 7px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 500; }

@@ -39,8 +39,8 @@ import {
   type ItemPreset, type PortableImportPreview, type PortableSelection, type SavedView, type TestClockUnit, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
-  createLocalWorkspace, createUnencryptedLocalWorkspace, decryptWorkspaceFile, exportContainer, exportEncryptedLocalBackup, exportLocalWorkspaceSnapshot, importAsLocalWorkspace,
-  listLocalWorkspaceSnapshots, mergeIntoLocalWorkspace, restoreLocalWorkspace, restoreLocalWorkspaceSnapshot, unlockLocalWorkspace, validateContainer,
+  createLocalWorkspace, createUnencryptedLocalWorkspace, decryptWorkspaceFile, disableFaceIdUnlock, enableFaceIdUnlock, exportContainer, exportEncryptedLocalBackup, exportLocalWorkspaceSnapshot, faceIdStatus, importAsLocalWorkspace,
+  listLocalWorkspaceSnapshots, mergeIntoLocalWorkspace, restoreLocalWorkspace, restoreLocalWorkspaceSnapshot, unlockLocalWorkspace, unlockLocalWorkspaceWithFaceId, validateContainer,
   type LocalWorkspaceSnapshotInfo, type UnlockedWorkspace,
 } from '@utm/sdk';
 
@@ -201,6 +201,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   const [decryptPassword, setDecryptPassword] = useState('');
   const [decryptError, setDecryptError] = useState('');
   const [decryptBusy, setDecryptBusy] = useState(false);
+  const [faceId, setFaceId] = useState<'available' | 'unsupported' | 'configured'>('unsupported');
   const [online, setOnline] = useState(() => navigator.onLine);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
@@ -220,6 +221,10 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     window.addEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
   }, []);
+  useEffect(() => {
+    if (!exists) return;
+    void faceIdStatus().then(setFaceId).catch(() => setFaceId('unsupported'));
+  }, [exists]);
   useEffect(() => {
     const onOnline = () => setOnline(true); const onOffline = () => setOnline(false);
     window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline);
@@ -277,6 +282,18 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
+  const unlockWithFaceId = async () => {
+    const startedAt = performance.now();
+    setBusy(true); setError('');
+    try {
+      await onReady(await unlockLocalWorkspaceWithFaceId(), language);
+      recordDiagnostic({ kind: 'result', message: 'Face ID workspace entry succeeded', operation: 'Unlock local workspace with Face ID', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
+    } catch (reason) {
+      recordDiagnostic({ kind: 'error', message: 'Face ID workspace entry failed', operation: 'Unlock local workspace with Face ID', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
+      setError('Face ID was unavailable, cancelled, or could not unlock this workspace. Enter your password below instead.');
+    } finally { setBusy(false); }
+  };
+
   const downloadLockedBackup = async () => {
     setError('');
     try {
@@ -320,6 +337,8 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
         {!selectedBackup && <button className="primary wide" disabled={busy}>{busy ? 'Working…' : exists ? 'Unlock' : unencryptedTestWorkspace ? 'Create unencrypted test workspace' : 'Create encrypted workspace'}</button>}
         {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Importing…' : 'Import selected backup'}</button>}
       </form>
+      {exists && faceId === 'configured' && <button className="secondary wide" type="button" disabled={busy} onClick={() => void unlockWithFaceId()}>Unlock with Face ID</button>}
+      {exists && <p className="hint">Password unlock is always available, including if Face ID is unavailable, cancelled, or changes on this device.</p>}
       {!exists && <div className="import-lock">
         <span>Already have an encrypted workspace?</span>
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
@@ -559,6 +578,7 @@ export default function App() {
   const [newViewRequest, setNewViewRequest] = useState(0);
   const [toast, setToast] = useToast();
   const [backupReminder, setBackupReminder] = useState(false);
+  const [faceId, setFaceId] = useState<'available' | 'unsupported' | 'configured'>('unsupported');
   const [quick, setQuick] = useState('');
   const [celebratingIds, setCelebratingIds] = useState<Set<string>>(new Set());
   const [undoActions, setUndoActions] = useState<PendingUndoAction[]>([]);
@@ -573,6 +593,10 @@ export default function App() {
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
   const { boot, session, workspace, activate, commit, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  useEffect(() => {
+    if (!workspace || session?.storageMode === 'plaintext') { setFaceId('unsupported'); return; }
+    void faceIdStatus().then(setFaceId).catch(() => setFaceId('unsupported'));
+  }, [workspace?.workspaceId, session?.storageMode]);
   const enterWorkspace = async (unlocked: UnlockedWorkspace, language: WorkspaceLanguage) => {
     const sourceVersion = String((unlocked.document as WorkspaceDocument).schemaVersion ?? '1.0.0');
     if (sourceVersion !== SCHEMA_VERSION) { setPendingUpgrade({ session: unlocked, language }); return; }
@@ -585,6 +609,21 @@ export default function App() {
     setUndoActions((current) => current.filter((candidate) => candidate.id !== id));
   };
   const systemNow = workspace ? effectiveWorkspaceNow(workspace, new Date(clockTick)) : new Date(clockTick);
+  const backupReminderDays = workspace?.calendarPreferences.backupPreferences?.reminderDays ?? 7;
+  const [backupReminderDraft, setBackupReminderDraft] = useState(() => String(backupReminderDays));
+  useEffect(() => { setBackupReminderDraft(String(backupReminderDays)); }, [backupReminderDays]);
+  const applyBackupReminderDays = () => {
+    const reminderDays = Math.max(0, Number(backupReminderDraft || 0));
+    const normalized = Number.isFinite(reminderDays) ? Math.floor(reminderDays) : 0;
+    setBackupReminderDraft(String(normalized));
+    if (normalized === backupReminderDays) return;
+    commit('Change backup reminder', (draft) => {
+      draft.calendarPreferences.backupPreferences = {
+        ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }),
+        reminderDays: normalized,
+      };
+    });
+  };
   useEffect(() => {
     const capture = (kind: DiagnosticEntry['kind'], message: string, details?: string) => { recordDiagnostic({ kind, message, page, ...(details ? { details } : {}) }); setDiagnosticCount(readDiagnostics().length); };
     const onError = (event: ErrorEvent) => capture('error', event.message || 'Unknown error', event.error?.stack);
@@ -810,7 +849,8 @@ export default function App() {
       {page === 'settings' && <section className="page-section settings-page-shell">
         <SettingsPage workspace={workspace} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} onRestoredSnapshot={(next) => { adoptSession(next, true); setToast('Previous workspace version restored.'); }} />
         <section className="settings-card diagnostics-card"><p className="eyebrow">DIAGNOSTICS</p><h2>Actions, results and error log</h2><p>Local diagnostics record operation names, results, durations and crashes without task content. Nothing is uploaded automatically.</p><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.diagnosticsEnabled !== false} onChange={(event) => { setDiagnosticsEnabled(event.target.checked); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = event.target.checked; }); }} />Record local diagnostics</label><div className="diagnostics-actions"><span>{diagnosticCount} recorded entries</span><button className="secondary" onClick={downloadDiagnostics} disabled={!diagnosticCount}>Download log</button><button className="secondary" onClick={clearDiagnostics}>Clear log</button></div></section>
-        <section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="number" min="0" step="1" value={workspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} onChange={(event) => commit('Change backup reminder', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), reminderDays: Math.max(0, Number(event.target.value) || 0) }; })} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button><button className="secondary" onClick={() => void downloadOfflineRecoveryKit().then(() => setToast('Offline recovery kit downloaded.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section>
+        <section className="settings-card"><p className="eyebrow">DEVICE UNLOCK</p><h2>Face ID / Touch ID</h2>{faceId === 'unsupported' ? <p>Unavailable on this browser or device. Password unlock remains available.</p> : <><p>Optional quick unlock for this device only. Face ID never replaces your password, and exports still require the password.</p>{faceId === 'configured' ? <button className="secondary" onClick={() => void disableFaceIdUnlock().then(() => { setFaceId('available'); setToast('Face ID unlock disabled. Password unlock remains unchanged.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Disable Face ID</button> : <button className="secondary" onClick={() => void enableFaceIdUnlock(session.dataKey).then(() => { setFaceId('configured'); setToast('Face ID unlock is ready on this device.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Enable Face ID</button>}<p className="hint">If Face ID fails, is cancelled, or the device changes, use the password field on the lock screen. Removing this option never removes your workspace.</p></>}</section>
+    <section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="text" inputMode="numeric" pattern="[0-9]*" value={backupReminderDraft} onChange={(event) => { const next = event.target.value; if (/^\d*$/.test(next)) setBackupReminderDraft(next); }} onBlur={applyBackupReminderDays} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button><button className="secondary" onClick={() => void downloadOfflineRecoveryKit().then(() => setToast('Offline recovery kit downloaded.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section>
       </section>}
     </AppShell>
     {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Add new item" aria-label="Add new item"/></form></div>}
