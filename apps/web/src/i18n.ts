@@ -36,6 +36,7 @@ const en = {
   'No password is required to save it. Workspace data remains encrypted; safe troubleshooting entries are included in the same file.': 'Для сохранения пароль не нужен. Данные пространства остаются зашифрованными, а безопасная диагностика входа включается в тот же файл.',
   'Save old version and update': 'Сохранить старую версию и обновить', 'Download old encrypted copy': 'Скачать старую зашифрованную копию', 'Open recovery mode': 'Открыть режим восстановления',
   'Workspace versions': 'Версии пространства', 'Items needing repair': 'Элементы, требующие ремонта', 'Choose start': 'Выбрать начало', 'Remove recurrence': 'Удалить повторение',
+  'Appearance and sounds': 'Оформление и звуки', 'Custom fields and testing': 'Пользовательские поля и тестирование', 'Data, notifications and application': 'Данные, уведомления и приложение', 'Compatibility repairs': 'Исправление совместимости', 'Backup and recovery': 'Резервные копии и восстановление', Diagnostics: 'Диагностика', 'Device unlock': 'Разблокировка устройства',
   'Download encrypted workspace + log': 'Скачать зашифрованное пространство и лог', 'Retry normal startup': 'Повторить обычный запуск',
   Help: 'Помощь', 'Recovery before unlocking': 'Восстановление до входа',
   'Decrypt any UTM backup': 'Расшифровать любую резервную копию UTM',
