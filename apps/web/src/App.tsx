@@ -40,7 +40,7 @@ import {
 } from '@utm/core';
 import {
   createLocalWorkspace, createUnencryptedLocalWorkspace, decryptWorkspaceFile, disableFaceIdUnlock, enableFaceIdUnlock, exportContainer, exportEncryptedLocalBackup, exportLocalWorkspaceSnapshot, faceIdStatus, importAsLocalWorkspace,
-  listLocalWorkspaceSnapshots, mergeIntoLocalWorkspace, restoreLocalWorkspace, restoreLocalWorkspaceSnapshot, unlockLocalWorkspace, unlockLocalWorkspaceWithFaceId, validateContainer,
+  listLocalWorkspaceSnapshots, mergeIntoLocalWorkspace, restoreLocalWorkspace, restoreLocalWorkspaceSnapshot, saveLocalWorkspace, unlockLocalWorkspace, unlockLocalWorkspaceWithFaceId, validateContainer,
   type LocalWorkspaceSnapshotInfo, type UnlockedWorkspace,
 } from '@utm/sdk';
 
@@ -358,7 +358,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <h3>Install on your phone</h3>
           <p><strong>iPhone or iPad:</strong> open this page in Safari, tap Share, then choose <em>Add to Home Screen</em>.</p>
           <p><strong>Android:</strong> open it in Chrome, tap the menu, then choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
-          <p>Each device has its own encrypted workspace. Use an encrypted <code>.utmb</code> backup file to move or merge your data between devices.</p><p><strong>Important:</strong> if you remove Universal from the Home Screen, clear website data, or delete the browser profile, the local workspace may be lost. Export an encrypted <code>.utmb</code> backup regularly and keep it in Files, iCloud Drive, or another trusted cloud.</p>
+          <p>На каждом устройстве хранится отдельный зашифрованный воркспейс. Для переноса или объединения данных используйте зашифрованную резервную копию <code>.utmb</code>.</p><p><strong>Важно:</strong> если удалить Universal с экрана «Домой», очистить данные сайта или удалить профиль браузера, локальный воркспейс может быть потерян. Регулярно экспортируйте зашифрованную копию <code>.utmb</code> и храните её в приложении «Файлы», iCloud Drive или другом надёжном облаке.</p>
           <button className="secondary" type="button" onClick={() => void downloadOfflineRecoveryKit().catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button><p><small>Save this standalone HTML beside your encrypted <code>.utmb</code>. It can decrypt the backup without Universal or GitHub.</small></p>
           <details className="notification-help"><summary>If the hosting site is unavailable</summary><div>
             <p>Your data is stored locally in the browser, not on GitHub or another host. To make a portable copy, open <em>Settings → Encrypted Transfer → Export encrypted .utmb</em>; in the Files/Save dialog choose a folder and confirm. The locked sign-in screen also has <em>Save encrypted recovery copy + log</em>, which creates a <code>.utmb</code> copy without unlocking.</p>
@@ -526,9 +526,8 @@ function TransferDialog({ session, onMerged, onReplaced, onBackupExported, onClo
   const download = async () => {
     setBusy(true); setError('');
     try {
-      const content = await exportContainer(session.document, password);
-      const verification = await validateContainer(content, password);
-      if (verification.workspaceId !== session.document.workspaceId) throw new Error('Backup verification returned a different workspace');
+      await saveLocalWorkspace(session.document, session.dataKey, session.storageMode);
+      const content = await exportEncryptedLocalBackup();
       const filename = `${session.document.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}.utmb`;
       const file = new File([content], filename, { type: 'application/octet-stream', lastModified: Date.now() });
       const shareNavigator = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
@@ -570,7 +569,7 @@ function TransferDialog({ session, onMerged, onReplaced, onBackupExported, onClo
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
-  return <div className="modal-backdrop"><section className="dialog"><header><h2>Encrypted backup & transfer</h2><button className="icon-button" onClick={onClose}>×</button></header><p>Every exported file is encrypted. Universal uses one <code>.utmb</code> format for transfer, recovery and restore.</p><label>Workspace password<input type="password" minLength={10} value={password} onChange={(event) => { setPassword(event.target.value); setRestoreSource(null); }} /></label>{error && <p className="error">{error}</p>}<div className="transfer-actions"><button className="primary" disabled={password.length < 10 || busy} onClick={() => void download()}>Export encrypted .utmb</button><button className="secondary" disabled={password.length < 10 || busy} onClick={() => input.current?.click()}>{restoreSource ? 'Choose another backup' : 'Merge from backup'}</button><input ref={input} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} /></div>{restoreSource && <div className="restore-warning"><strong>Replace this device?</strong><p>This removes the current local workspace from this browser and restores the selected encrypted backup. The backup itself is not changed.</p><button className="danger" disabled={busy} onClick={() => void replaceFromBackup()}>Replace local workspace from backup</button></div>}<p className="hint">On iPhone, choose a <code>.utmb</code> backup in Files. Wrong passwords, unrelated files and modified containers are rejected before your local workspace changes.</p></section></div>;
+  return <div className="modal-backdrop"><section className="dialog"><header><h2>Encrypted backup & transfer</h2><button className="icon-button" onClick={onClose}>×</button></header><p>The unlocked workspace can be exported immediately: Universal reuses its existing encryption and verifies the saved encrypted block. A password is needed only to open an imported backup.</p><label>Backup password (only for import)<input type="password" minLength={10} value={password} onChange={(event) => { setPassword(event.target.value); setRestoreSource(null); }} /></label>{error && <p className="error">{error}</p>}<div className="transfer-actions"><button className="primary" disabled={busy} onClick={() => void download()}>Export encrypted .utmb</button><button className="secondary" disabled={password.length < 10 || busy} onClick={() => input.current?.click()}>{restoreSource ? 'Choose another backup' : 'Merge from backup'}</button><input ref={input} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} /></div>{restoreSource && <div className="restore-warning"><strong>Replace this device?</strong><p>This removes the current local workspace from this browser and restores the selected encrypted backup. The backup itself is not changed.</p><button className="danger" disabled={busy} onClick={() => void replaceFromBackup()}>Replace local workspace from backup</button></div>}<p className="hint">On iPhone, choose a <code>.utmb</code> backup in Files. Wrong passwords, unrelated files and modified containers are rejected before your local workspace changes.</p></section></div>;
 }
 
 export default function App() {

@@ -29,6 +29,7 @@ type Options = { onToast: (message: string) => void; setNotices: Dispatch<SetSta
 export function useWorkspaceController({ onToast, setNotices }: Options) {
   const [boot, setBoot] = useState<'checking' | 'empty' | 'locked' | 'ready'>('checking');
   const [session, setSession] = useState<UnlockedWorkspace | null>(null);
+  const sessionRef = useRef<UnlockedWorkspace | null>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const deliveredReminderIds = useRef(new Set<string>());
   const workspace = session?.document as WorkspaceDocument | undefined;
@@ -49,23 +50,28 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   }, []);
 
   const commit = (message: string, mutation: (draft: WorkspaceDocument) => void): boolean => {
-    if (!session) return false;
+    const currentSession = sessionRef.current;
+    if (!currentSession) return false;
     const startedAt = performance.now();
     recordDiagnostic({ kind: 'action', message: 'Workspace operation started', operation: message, outcome: 'started' });
-    const previous = session;
+    const previous = currentSession;
     let document: Automerge.Doc<WorkspaceDocument>;
-    try { document = commitWorkspaceDocument(session.document as Automerge.Doc<WorkspaceDocument>, message, mutation); }
+    try { document = commitWorkspaceDocument(currentSession.document as Automerge.Doc<WorkspaceDocument>, message, mutation); }
     catch (reason) {
       const details = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
       recordDiagnostic({ kind: 'error', message: 'Workspace operation failed before persistence', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details });
       onToast(`Save failed; nothing was changed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
     }
-    const next = { ...session, document }; setSession(next);
+    const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);
     saveQueue.current = saveQueue.current.then(async () => {
-      await saveLocalWorkspace(document, session.dataKey, session.storageMode);
+      await saveLocalWorkspace(document, currentSession.dataKey, currentSession.storageMode);
       recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
     }).catch((reason) => {
-      setSession((current) => current?.document === document ? previous : current);
+      setSession((current) => {
+        if (current?.document !== document) return current;
+        sessionRef.current = previous;
+        return previous;
+      });
       recordDiagnostic({ kind: 'error', message: 'Workspace persistence failed and was reverted', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
       onToast(`Save failed; the change was reverted: ${String(reason)}`);
     });
@@ -113,7 +119,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     if (sourceVersion !== migration.value.schemaVersion) await saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`);
     else await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode);
     finishActivationStage('persistence');
-    setSession({ ...unlocked, document: updated }); setBoot('ready');
+    const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated); setBoot('ready');
     const activationDurationMs = Math.round(performance.now() - activationStartedAt);
     if (warning || activationDurationMs >= 1_500) recordDiagnostic({ kind: 'result', message: warning ? 'Workspace activation completed with a recurrence warning' : 'Workspace activation was slow', operation: 'Activate workspace', outcome: 'succeeded', durationMs: activationDurationMs, details: JSON.stringify({ stages: activationStages, recurrenceWarning: Boolean(warning), created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
     if (warning && !/timed out/i.test(warning)) onToast(`Workspace opened. Recurrence sync will retry in the background (${warning}).`);
@@ -165,8 +171,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
 
   const lockWorkspace = () => {
     if (session?.storageMode === 'plaintext') { onToast('An unencrypted test workspace cannot be locked. Create an encrypted workspace to use password lock.'); return; }
-    if (session) lock(session); deliveredReminderIds.current.clear(); setSession(null); setBoot('locked');
+    if (session) lock(session); deliveredReminderIds.current.clear(); sessionRef.current = null; setSession(null); setBoot('locked');
   };
-  const adoptSession = (next: UnlockedWorkspace, lockCurrent = false) => { if (lockCurrent && session) lock(session); deliveredReminderIds.current.clear(); setSession(next); setBoot('ready'); };
+  const adoptSession = (next: UnlockedWorkspace, lockCurrent = false) => { if (lockCurrent && session) lock(session); deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); };
   return { boot, session, workspace, activate, commit, lockWorkspace, adoptSession };
 }
