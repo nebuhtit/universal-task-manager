@@ -211,6 +211,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   });
   const fileRef = useRef<HTMLInputElement>(null);
   const decryptFileRef = useRef<HTMLInputElement>(null);
+  const faceIdAttempted = useRef(false);
 
   useEffect(() => {
     window.localStorage.setItem('utm-interface-language', language);
@@ -293,6 +294,12 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       setError('Face ID was unavailable, cancelled, or could not unlock this workspace. Enter your password below instead.');
     } finally { setBusy(false); }
   };
+
+  useEffect(() => {
+    if (!exists || faceId !== 'configured' || faceIdAttempted.current || selectedBackup || decryptFile) return;
+    faceIdAttempted.current = true;
+    void unlockWithFaceId();
+  }, [decryptFile, exists, faceId, selectedBackup]);
 
   const downloadLockedBackup = async () => {
     setError('');
