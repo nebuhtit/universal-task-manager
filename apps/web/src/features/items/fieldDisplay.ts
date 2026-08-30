@@ -22,6 +22,8 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
   { path: 'isHabit', label: 'Habit', group: 'Core' }, { path: 'activeRange', label: 'Inside active range now', group: 'Core' },
   { path: 'activeDuration', label: 'Has active range dates', group: 'Core' },
+  { path: 'eventToday', label: 'Event overlaps today', group: 'Schedule' },
+  { path: 'eventThisWeek', label: 'Event overlaps this week', group: 'Schedule' },
   { path: 'dueTodayOrOverdue', label: 'Due today or overdue', group: 'Schedule' },
   { path: 'dueThisWeekOrOverdue', label: 'Due this week or overdue', group: 'Schedule' },
   { path: 'role', label: 'Role', group: 'Core' }, { path: 'priority', label: 'Priority', group: 'Core' },
@@ -139,7 +141,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
   if (field === 'description') field = 'bodyMarkdown';
   if (field === 'area' || field === 'areas') return [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])])];
   if (field === 'project' || field === 'projects') return [...new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])])];
-  if (field === 'dueTodayOrOverdue' || field === 'dueThisWeekOrOverdue') return dueDateBuckets(item, now, { timeZone: workspace?.calendarPreferences.timezone, weekStartsOn: workspace?.calendarPreferences.weekStartsOn })[field];
+  if (field === 'eventToday' || field === 'eventThisWeek' || field === 'dueTodayOrOverdue' || field === 'dueThisWeekOrOverdue') return dueDateBuckets(item, now, { timeZone: workspace?.calendarPreferences.timezone, weekStartsOn: workspace?.calendarPreferences.weekStartsOn })[field];
   if (field === 'schedule.estimatedDuration') {
     if (item.schedule?.estimatedDuration) return item.schedule.estimatedDuration;
     if (item.schedule?.startAt && item.schedule?.endAt) {

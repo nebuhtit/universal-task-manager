@@ -4,7 +4,8 @@ import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_FIELDS, viewFrom
 
 describe('view templates', () => {
   it('provides the requested reusable built-in templates with compact fields', () => {
-    expect(BUILT_IN_VIEW_TEMPLATES.map((view) => view.name)).toEqual(['Inbox', 'All', 'Today and overdue', 'This week and overdue', 'Some Area', 'Some Project']);
+    expect(VIEW_TEMPLATE_FIELDS).toEqual(['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project']);
+    expect(BUILT_IN_VIEW_TEMPLATES.map((view) => view.name)).toEqual(['Inbox', 'All', 'Today', 'This week', 'Some Area', 'Some Project']);
     expect(BUILT_IN_VIEW_TEMPLATES.every(isViewTemplate)).toBe(true);
     expect(BUILT_IN_VIEW_TEMPLATES.every((view) => JSON.stringify(view.fields) === JSON.stringify(VIEW_TEMPLATE_FIELDS))).toBe(true);
     BUILT_IN_VIEW_TEMPLATES.forEach((view) => expect(() => compileQuery(view.query.source)).not.toThrow());

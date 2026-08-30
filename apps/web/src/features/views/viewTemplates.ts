@@ -1,7 +1,7 @@
 import type { SavedView } from '@utm/core';
 
 export const VIEW_TEMPLATE_EXTENSION = 'utm:view-template';
-export const VIEW_TEMPLATE_FIELDS = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'project', 'area'];
+export const VIEW_TEMPLATE_FIELDS = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
 
 const active = 'state == "open" && role != "series_template" && isTemplate != true';
 const defaultSort = 'schedule.dueAt asc nulls last\nschedule.startAt asc nulls last\norganizationOrder asc nulls last';
@@ -25,8 +25,8 @@ const template = (id: string, name: string, source: string, accent: string): Sav
 export const BUILT_IN_VIEW_TEMPLATES: SavedView[] = [
   template('inbox', 'Inbox', `${active} && length(areas) == 0 && length(projects) == 0`, '#d9485f'),
   template('all', 'All', active, '#4254a6'),
-  template('today-overdue', 'Today and overdue', `${active} && dueTodayOrOverdue == true`, '#c27a00'),
-  template('week-overdue', 'This week and overdue', `${active} && dueThisWeekOrOverdue == true`, '#087f73'),
+  template('today-overdue', 'Today', `${active} && (eventToday == true || dueTodayOrOverdue == true)`, '#c27a00'),
+  template('week-overdue', 'This week', `${active} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`, '#087f73'),
   template('some-area', 'Some Area', active, '#7048b8'),
   template('some-project', 'Some Project', active, '#b83280'),
 ];

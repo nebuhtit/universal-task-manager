@@ -17,4 +17,10 @@ describe('View creation defaults', () => {
     const { area: _area, list: _list, creationDefaults: _defaults, ...projectView } = view();
     expect(applyViewCreationDefaults(createItem(''), projectView, workspace)).toMatchObject({ projects: ['Vehicle repair'], areas: ['Work'] });
   });
+
+  it('applies modern creation-default organization without legacy View scope fields', () => {
+    const workspace = createWorkspace('Modern defaults'); ensureProjectDefinition(workspace, 'Vehicle repair', { area: 'Work' });
+    const modern: SavedView = { id: 'modern', name: 'Modern', query: { source: 'project == "Vehicle repair"' }, renderer: 'list', sort: [], fields: [], creationDefaults: { project: 'Vehicle repair', list: 'Next' } };
+    expect(applyViewCreationDefaults(createItem(''), modern, workspace)).toMatchObject({ projects: ['Vehicle repair'], areas: ['Work'], list: 'Next' });
+  });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  compileSort, createId, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, listDefinitionFor, migrateView, orderedListNames, orderedOrganizationNames, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateViewCreationDefaults,
+  compileSort, createId, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateViewCreationDefaults,
   type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../components/ui/CodeEditor';
@@ -13,6 +13,7 @@ import { useReorderList } from '../../components/ui/useReorderList';
 import { dateInput, fromDateInput } from '../../utils/dates';
 import { diagnosticFailureCode, recordDiagnostic } from '../../services/diagnostics';
 import { stateNames } from '../items';
+import { FieldIcon } from '../items/FieldIcon';
 import { SavedViewSection } from './SavedViewSection';
 import { boardSettingsFor, defaultBoardStates, MANUAL_ORDER_EXTENSION, manualOrderFor, mergeManualOrder, type BoardSettings } from './viewSelectors';
 import { exampleViewFieldValue, viewFieldGroups, viewFieldLabel, viewFieldOptions } from './fieldCatalog';
@@ -22,7 +23,8 @@ import { DisplayedFieldsEditor } from './DisplayedFieldsEditor';
 import { ViewSortingEditor } from './ViewSortingEditor';
 import { ViewPortabilityEditor } from './ViewPortabilityEditor';
 import { ViewEditorSection } from './ViewEditorSection';
-import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_EXTENSION, viewFromTemplate } from './viewTemplates';
+import { modernizeLegacyViewScope } from './legacyViewScope';
+import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_EXTENSION, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
 import './views-editor.css';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
@@ -57,7 +59,6 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const [defaultField, setDefaultField] = useState('priority');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [viewJson, setViewJson] = useState('');
-  const [listPriority, setListPriority] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [selectedTemplateId, setSelectedTemplateId] = useState('builtin:inbox');
   const [templateName, setTemplateName] = useState('');
   const [templateArea, setTemplateArea] = useState(() => orderedOrganizationNames(workspace, 'area')[0] ?? '');
@@ -131,7 +132,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setEditing({ ...editing, query: { source: serializeVisualRows(rows) } });
   };
   const beginEditing = (view: SavedView, templateId = 'builtin:inbox') => {
-    const copy = clean(view);
+    const copy = modernizeLegacyViewScope(clean(view));
     copy.fields ??= [];
     copy.sort ??= [];
     const source = copy.sortSource ?? serializeSortRules(copy.sort.map((sort) => ({ expression: sort.field, direction: sort.direction, nulls: sort.nulls ?? 'last' })));
@@ -150,34 +151,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setViewJson(JSON.stringify(copy, null, 2));
     setSelectedTemplateId(templateId);
     setTemplateName(`${copy.name} template`);
-    const definition = listDefinitionFor(workspace, copy.list);
-    setListPriority(definition?.priority ?? 0);
     setError('');
-  };
-  const selectList = (rawList: string) => {
-    if (!editing) return;
-    const list = rawList.trim();
-    if (!list) {
-      const { list: _list, ...withoutList } = editing;
-      setEditing(withoutList);
-      setListPriority(0);
-      return;
-    }
-    setEditing({ ...editing, list });
-    const definition = listDefinitionFor(workspace, list);
-    setListPriority(definition?.priority ?? 0);
-  };
-  const selectOrganization = (kind: 'area' | 'project', rawName: string) => {
-    if (!editing) return;
-    const name = rawName.trim();
-    if (!name) {
-      const next = { ...editing }; delete next[kind]; setEditing(next);
-      return;
-    }
-    const definition = organizationDefinitionFor(workspace, kind, name);
-    const next = { ...editing, [kind]: name };
-    if (kind === 'project' && definition && 'areas' in definition && definition.areas[0]) next.area = definition.areas[0];
-    setEditing(next);
   };
   const addVisualRow = (join: 'and' | 'or') => syncRowsToDsl([...visualRows, { id: createId(), join, field: 'state', operator: '==', value: 'open' }]);
   const startVisualRows = () => syncRowsToDsl([{ id: createId(), join: 'and', field: 'state', operator: '==', value: 'open' }]);
@@ -215,11 +189,25 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   };
   const replaceCreationDefaultPath = (oldPath: string, path: string) => {
     if (!editing || oldPath === path) return;
-    const next = { ...editing.creationDefaults }; const value = next[oldPath]; delete next[oldPath];
-    if (!(path in next)) next[path] = value ?? defaultValueForPath(workspace, path);
+    const next = { ...editing.creationDefaults }; delete next[oldPath];
+    if (!(path in next)) next[path] = defaultValueForPath(workspace, path);
     updateCreationDefaults(next);
   };
   const setCreationDefaultValue = (path: string, value: unknown) => updateCreationDefaults({ ...(editing?.creationDefaults ?? {}), [path]: value });
+  const existingOrNewDefault = (path: 'area' | 'project' | 'list', value: unknown, options: string[], noun: string) => {
+    const current = String(value ?? '');
+    const known = options.includes(current);
+    const kind = path === 'area' ? 'area' : path === 'project' ? 'project' : undefined;
+    const typed = known ? '' : current;
+    const useNewValue = () => {
+      const next = typed.trim();
+      if (next) setCreationDefaultValue(path, next);
+    };
+    return <div className="creation-default-choice">
+      {kind ? <details className="creation-default-organization-choice"><summary aria-label={`Choose existing ${noun}`} style={known ? { color: organizationAccentFor(workspace, kind, current) } : undefined}>{known ? <><FieldIcon path={path} label={noun} />{current}</> : `Choose existing ${noun}…`}</summary><div role="listbox" aria-label={`${noun} options`}>{options.map((option) => <Button size="compact" variant="ghost" role="option" aria-selected={option === current} style={{ color: organizationAccentFor(workspace, kind, option) }} key={option} onClick={(event) => { setCreationDefaultValue(path, option); event.currentTarget.closest('details')?.removeAttribute('open'); }}><FieldIcon path={path} label={noun} />{option}</Button>)}</div></details> : <Select aria-label={`Choose existing ${noun}`} value={known ? current : ''} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="">Choose existing {noun}…</option>{options.map((option) => <option value={option} key={option}>{option}</option>)}</Select>}
+      <form className="creation-default-new-value" onSubmit={(event) => { event.preventDefault(); useNewValue(); }}><Input aria-label={`Type new ${noun}`} value={typed} placeholder={`Or type a new ${noun}`} onChange={(event) => setCreationDefaultValue(path, event.target.value)} /><Button type="submit" size="compact" disabled={!typed.trim()}>Use new {noun}</Button></form>
+    </div>;
+  };
   const creationDefaultControl = (path: string, value: unknown): ReactNode => {
     const custom = path.startsWith('custom.') ? workspace.customFields[path.slice(7)] : undefined;
     const json = ['reminders', 'attachments', 'recurrence.rdates', 'recurrence.exdates'].includes(path);
@@ -230,7 +218,20 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     if (path === 'recurrence.closeAt') return <Select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="next_activation">Next activation</option><option value="due">Due</option><option value="never">Never</option></Select>;
     if (path === 'recurrence.anchor') return <Select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="schedule">Scheduled time</option><option value="completion">Completion time</option></Select>;
     if (['schedule.allDay', 'recurrence.autoRenew'].includes(path) || custom?.kind === 'boolean') return <Select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value === 'true')}><option value="true">True</option><option value="false">False</option></Select>;
-    if (path === 'tags' || path === 'contexts' || custom?.kind === 'multi_enum') return <Input value={Array.isArray(value) ? value.join(', ') : ''} placeholder="Comma-separated values" onChange={(event) => setCreationDefaultValue(path, commaList(event.target.value))} />;
+    if (path === 'area') return existingOrNewDefault('area', value, orderedOrganizationNames(workspace, 'area'), 'Area');
+    if (path === 'project') {
+      const area = typeof editing?.creationDefaults?.area === 'string' ? editing.creationDefaults.area : undefined;
+      const related = area ? orderedOrganizationNames(workspace, 'project', area) : [];
+      const all = orderedOrganizationNames(workspace, 'project');
+      return existingOrNewDefault('project', value, [...related, ...all.filter((project) => !related.includes(project))], 'Project');
+    }
+    if (path === 'list') return existingOrNewDefault('list', value, orderedListNames(workspace), 'list');
+    if (path === 'tags') {
+      const values = Array.isArray(value) ? value.map(String) : [];
+      const available = orderedTagEntries(workspace).filter((tag): tag is string => tag !== null && !values.includes(tag));
+      return <div className="creation-default-choice"><Select aria-label="Add existing tag" value="" onChange={(event) => { if (event.target.value) setCreationDefaultValue(path, [...values, event.target.value]); }}><option value="">Add existing Tag…</option>{available.map((tag) => <option value={tag} key={tag}>#{tag}</option>)}</Select><Input value={values.join(', ')} placeholder="Choose above or type comma-separated Tags" onChange={(event) => setCreationDefaultValue(path, commaList(event.target.value).map((tag) => tag.replace(/^#+/, '')))} /></div>;
+    }
+    if (path === 'contexts' || custom?.kind === 'multi_enum') return <Input value={Array.isArray(value) ? value.join(', ') : ''} placeholder="Comma-separated values" onChange={(event) => setCreationDefaultValue(path, commaList(event.target.value))} />;
     if (['priority', 'progress.current', 'progress.target', 'habit.target'].includes(path) || custom?.kind === 'number') return <Input type="number" value={Number(value)} onChange={(event) => setCreationDefaultValue(path, Number(event.target.value))} />;
     if (path.startsWith('schedule.') && (path.endsWith('At') || path === 'schedule.availableFrom')) return <Input type="datetime-local" value={dateInput(String(value))} onChange={(event) => setCreationDefaultValue(path, fromDateInput(event.target.value))} />;
     return <Input value={String(value ?? '')} onChange={(event) => setCreationDefaultValue(path, event.target.value)} />;
@@ -252,12 +253,16 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       const saved = { ...result, sortSource: serializeSortRules(parsedSort), sort: parsedSort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) };
       commit('Save view', (draft) => {
         draft.views[result.id] = clean(saved);
-        if (result.list) ensureListDefinition(draft, result.list, { kind: 'list', priority: listPriority });
-        if (result.area) ensureAreaDefinition(draft, result.area);
-        if (result.project) {
-          const current = draft.projectDefinitions[result.project];
-          ensureProjectDefinition(draft, result.project, result.area ? { areas: [...new Set([...(current?.areas ?? []), result.area])] } : {});
+        const defaultArea = typeof result.creationDefaults?.area === 'string' ? result.creationDefaults.area.trim() : '';
+        const defaultProject = typeof result.creationDefaults?.project === 'string' ? result.creationDefaults.project.trim() : '';
+        const defaultList = typeof result.creationDefaults?.list === 'string' ? result.creationDefaults.list.trim() : '';
+        if (defaultList) ensureListDefinition(draft, defaultList, { kind: 'list' });
+        if (defaultArea) ensureAreaDefinition(draft, defaultArea);
+        if (defaultProject) {
+          const current = draft.projectDefinitions[defaultProject];
+          ensureProjectDefinition(draft, defaultProject, defaultArea ? { areas: [...new Set([...(current?.areas ?? []), defaultArea])] } : {});
         }
+        if (Array.isArray(result.creationDefaults?.tags)) result.creationDefaults.tags.forEach((tag) => ensureTagDefinition(draft, String(tag)));
       });
       recordDiagnostic({
         kind: 'result', message: 'View editor save accepted', operation: 'Save view editor', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt),
@@ -273,7 +278,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
-  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && role != "series_template" && isTemplate != true' }, renderer: 'table', sort: [{ field: 'organizationOrder', direction: 'desc', nulls: 'last' }, { field: 'updatedAt', direction: 'desc', nulls: 'last' }], sortSource: 'organizationOrder desc nulls last\nupdatedAt desc nulls last', fields: ['title', 'state'] });
+  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && role != "series_template" && isTemplate != true' }, renderer: 'table', sort: [{ field: 'organizationOrder', direction: 'desc', nulls: 'last' }, { field: 'updatedAt', direction: 'desc', nulls: 'last' }], sortSource: 'organizationOrder desc nulls last\nupdatedAt desc nulls last', fields: [...VIEW_TEMPLATE_FIELDS] });
   useEffect(() => {
     if (createRequest === handledCreateRequest.current) return;
     handledCreateRequest.current = createRequest;
@@ -384,7 +389,6 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         <div className="builder-actions"><Select aria-label="Property to pin for new items" value={defaultField} onChange={(event) => setDefaultField(event.target.value)}>{[...new Set(creationDefaultFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup key={group} label={group}>{creationDefaultFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option key={field.path} value={field.path} disabled={Object.hasOwn(editing.creationDefaults ?? {}, field.path)}>{field.label}</option>)}</optgroup>)}</Select><Button size="compact" disabled={Object.hasOwn(editing.creationDefaults ?? {}, defaultField)} onClick={addCreationDefault}>+ Pin property</Button></div>
         <small className="field-hint">Relations, subtasks, item IDs, timestamps, completion history and occurrence identity cannot be copied into new items.</small>
       </fieldset></ViewEditorSection>
-      <ViewEditorSection sectionKey="organization" title="Area, Project & list"><p className="builder-status">These are independent constraints. New items created by this View receive the pinned Area, Project and list automatically. Area and Project priority comes only from their drag order in Settings.</p><div className="form-grid three"><Field label="Area" hint="Ongoing responsibility."><Input value={editing.area ?? ''} list="view-area-values" placeholder="Choose or type an Area" onChange={(event) => selectOrganization('area', event.target.value)} /></Field><Field label="Project" hint="Finite outcome inside an Area."><Input value={editing.project ?? ''} list="view-project-values" placeholder="Choose or type a Project" onChange={(event) => selectOrganization('project', event.target.value)} /></Field><Field label="Task list" hint="Optional plain list, independent from PARA."><Input value={editing.list ?? ''} list="view-list-values" placeholder="Choose or type a list" onChange={(event) => selectList(event.target.value)} /></Field></div><datalist id="view-area-values">{orderedOrganizationNames(workspace, 'area').map((name) => <option value={name} key={name} />)}</datalist><datalist id="view-project-values">{orderedOrganizationNames(workspace, 'project', editing.area).map((name) => <option value={name} key={name} />)}</datalist><datalist id="view-list-values">{orderedListNames(workspace).map((name) => <option value={name} key={name} />)}</datalist>{editing.list && <Field label="List priority"><Select value={listPriority} onChange={(event) => setListPriority(Number(event.target.value) as 0 | 1 | 2 | 3 | 4)}>{[0, 1, 2, 3, 4].map((priority) => <option value={priority} key={priority}>{priority}</option>)}</Select></Field>}</ViewEditorSection>
       {editing.renderer === 'board' && <ViewEditorSection sectionKey="board-columns" title="Board columns"><fieldset className="query-builder board-builder"><p className="builder-status">Group items by status or by tag. Empty columns are hidden by default.</p><Field label="Group columns by"><Select value={boardSettingsFor(editing).groupBy} onChange={(event) => updateBoardSettings({ groupBy: event.target.value as BoardSettings['groupBy'] })}><option value="status">Status</option><option value="tag">Tags</option></Select></Field><Checkbox checked={boardSettingsFor(editing).showEmpty} onChange={(event) => updateBoardSettings({ showEmpty: event.target.checked })} label="Show empty columns" />{boardSettingsFor(editing).groupBy === 'status' ? <><div className="board-column-settings" ref={boardReorder.container}>{boardStates.map((state, index) => <div key={state} {...boardReorder.rowProps(index)}>{boardReorder.handle(index, stateNames[state])}<Checkbox checked onChange={() => updateBoardSettings({ states: boardStates.filter((entry) => entry !== state) })} label={stateNames[state]} /></div>)}</div><div className="builder-actions">{defaultBoardStates.filter((state) => !boardStates.includes(state)).map((state) => <Button size="compact" key={state} onClick={() => updateBoardSettings({ states: [...boardStates, state] })}>+ {stateNames[state]}</Button>)}</div></> : <p className="builder-status">Each existing tag becomes a column automatically. Items without tags appear in “No tags”. Add or remove tags on items to change the columns.</p>}</fieldset></ViewEditorSection>}
       <ViewSortingEditor workspace={workspace} rules={sortRules} source={sortSource} onRules={updateSortRules} onSource={(source, parsed) => { setSortSource(source); if (parsed) setSortRules(parsed); }} />
       <ViewPortabilityEditor view={editing} rules={sortRules} sortSource={sortSource} json={viewJson} onJson={setViewJson} onApplyJson={() => applyViewJson()} onImport={(file) => void importViewTemplate(file)} onExport={onExportView} />

@@ -1,7 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { applyPortableImport, buildPortableImportPreview, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, serializePortablePackage } from './index.js';
+import { applyPortableImport, buildPortableImportPreview, calculateProjectMetrics, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationAccentFor, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, serializePortablePackage } from './index.js';
 
 describe('PARA organization', () => {
+  it('uses the same default colors before a custom accent is stored', () => {
+    const workspace = createWorkspace('Default colors');
+    ensureAreaDefinition(workspace, 'Work'); ensureProjectDefinition(workspace, 'Launch');
+    expect(organizationAccentFor(workspace, 'area', 'Work')).toBe('#2864c7');
+    expect(organizationAccentFor(workspace, 'project', 'Launch')).toBe('#147a55');
+  });
+  it('derives project progress, duration and the nearest unfinished deadline safely', () => {
+    const workspace = createWorkspace('Metrics');
+    ensureProjectDefinition(workspace, 'Launch'); ensureProjectDefinition(workspace, 'Empty');
+    const done = createItem('Done'); done.projects = ['Launch']; done.state = 'done'; done.schedule = { timezone: 'UTC', estimatedDuration: 'PT30M', dueAt: '2026-08-20T10:00:00.000Z' };
+    const open = createItem('Open'); open.projects = ['Launch']; open.schedule = { timezone: 'UTC', startAt: '2026-08-28T10:00:00.000Z', endAt: '2026-08-28T11:15:00.000Z', dueAt: '2026-08-29T09:00:00.000Z' };
+    const malformed = createItem('Malformed'); malformed.projects = ['Launch']; malformed.schedule = { timezone: 'UTC', estimatedDuration: 'not-a-duration', dueAt: '2026-08-30T09:00:00.000Z' };
+    const cancelled = createItem('Cancelled'); cancelled.projects = ['Launch']; cancelled.state = 'cancelled'; cancelled.schedule = { timezone: 'UTC', estimatedDuration: 'PT9H' };
+    const template = createItem('Template'); template.projects = ['Launch']; template.role = 'series_template'; template.schedule = { timezone: 'UTC', estimatedDuration: 'PT9H' };
+    workspace.items = Object.fromEntries([done, open, malformed, cancelled, template].map((item) => [item.id, item]));
+
+    expect(calculateProjectMetrics(workspace, new Date('2026-08-29T10:00:00.000Z'))).toMatchObject({
+      Launch: { totalItems: 3, completedItems: 1, completionPercent: 33, totalDurationMs: 105 * 60_000, completedDurationMs: 30 * 60_000, nearestDeadline: '2026-08-29T09:00:00.000Z', deadlineOverdue: true },
+      Empty: { totalItems: 0, completedItems: 0, completionPercent: 0, totalDurationMs: 0, completedDurationMs: 0, deadlineOverdue: false },
+    });
+  });
+
+  it('counts one shared item once inside each linked project', () => {
+    const workspace = createWorkspace('Shared metrics');
+    const item = createItem('Shared'); item.projects = ['Alpha', 'Beta', 'Alpha']; item.state = 'auto_closed'; item.schedule = { timezone: 'UTC', estimatedDuration: 'PT10M' }; workspace.items[item.id] = item;
+    const metrics = calculateProjectMetrics(workspace);
+    expect(metrics.Alpha).toMatchObject({ totalItems: 1, completedItems: 1, completionPercent: 100, totalDurationMs: 600_000, completedDurationMs: 600_000 });
+    expect(metrics.Beta).toMatchObject({ totalItems: 1, completedItems: 1, completionPercent: 100 });
+  });
+
   it('keeps Area and Project independent on one universal item', () => {
     const workspace = createWorkspace('PARA');
     const item = createItem('Repair the vehicle'); item.areas = ['Work']; item.projects = ['Vehicle repair']; workspace.items[item.id] = item;
@@ -33,16 +63,16 @@ describe('PARA organization', () => {
     const workspace = createWorkspace('Portable PARA');
     ensureAreaDefinition(workspace, 'Work');
     ensureAreaDefinition(workspace, 'Personal');
-    ensureProjectDefinition(workspace, 'Launch', { areas: ['Work', 'Personal'] });
+    ensureProjectDefinition(workspace, 'Launch', { areas: ['Work', 'Personal'], accent: '#2864c7' });
     reorderOrganization(workspace, 'area', ['Work', 'Personal', null]);
     const parsed = parsePortablePackage(serializePortablePackage(createPortablePackage(workspace, { kind: 'items' }))).package;
     expect(parsed.areaDefinitions?.Work?.name).toBe('Work');
-    expect(parsed.projectDefinitions?.Launch).toMatchObject({ areas: ['Work', 'Personal'] });
+    expect(parsed.projectDefinitions?.Launch).toMatchObject({ areas: ['Work', 'Personal'], accent: '#2864c7' });
     expect(parsed.organizationPreferences?.areaOrder).toEqual(['Work', 'Personal', null]);
     const target = createWorkspace('Imported PARA');
     applyPortableImport(target, buildPortableImportPreview(parsed, target));
     expect(target.areaDefinitions.Work?.name).toBe('Work');
-    expect(target.projectDefinitions.Launch).toMatchObject({ areas: ['Work', 'Personal'] });
+    expect(target.projectDefinitions.Launch).toMatchObject({ areas: ['Work', 'Personal'], accent: '#2864c7' });
     expect(target.organizationPreferences.areaOrder).toEqual(['Work', 'Personal', null]);
   });
 
@@ -225,7 +255,7 @@ describe('PARA organization', () => {
 
   it('renames an Area atomically across items, Projects, Views and priority', () => {
     const workspace = createWorkspace('Area rename');
-    ensureAreaDefinition(workspace, 'Work');
+    ensureAreaDefinition(workspace, 'Work', { accent: '#2864c7' });
     ensureProjectDefinition(workspace, 'Launch', { areas: ['Work'] });
     const item = createItem('Ship'); item.areas = ['Work']; item.area = 'Work'; workspace.items[item.id] = item;
     workspace.views.rename = { id: 'rename', name: 'Work', query: { source: 'area == "Work"' }, renderer: 'list', sort: [], sortSource: 'area == "Work" asc', fields: ['title'], area: 'Work', creationDefaults: { area: 'Work', areas: ['Work'] } };
@@ -233,6 +263,7 @@ describe('PARA organization', () => {
     expect(renameAreaDefinition(workspace, 'Work', 'Career', new Date('2026-08-28T08:00:00.000Z'))).toBe(true);
     expect(workspace.areaDefinitions.Work).toBeUndefined();
     expect(workspace.areaDefinitions.Career?.name).toBe('Career');
+    expect(workspace.areaDefinitions.Career?.accent).toBe('#2864c7');
     expect(workspace.projectDefinitions.Launch?.areas).toEqual(['Career']);
     expect(item).toMatchObject({ area: 'Career', areas: ['Career'] });
     expect(workspace.views.rename).toMatchObject({ area: 'Career', creationDefaults: { area: 'Career', areas: ['Career'] } });

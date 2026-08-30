@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.18.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.52.1';
-export const APP_RELEASED_AT = '2026-08-29T11:46:58.020Z';
+export const APP_VERSION = '1.60.0';
+export const APP_RELEASED_AT = '2026-08-30T20:20:00.000Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -258,6 +258,8 @@ export interface ListDefinition {
 
 export interface AreaDefinition {
   name: string;
+  /** Optional accent used when presenting this Area throughout the interface. */
+  accent?: string;
   /** Accepted only while normalizing older portable packages. */
   priority?: 0 | 1 | 2 | 3 | 4;
   /** Accepted only while normalizing older portable packages. */
@@ -269,6 +271,8 @@ export interface AreaDefinition {
 export interface ProjectDefinition extends AreaDefinition {
   /** Parent Areas. An empty array means the Project is unassigned. */
   areas: string[];
+  /** Optional Project accent used by its name and derived progress presentation. */
+  accent?: string;
   /** Legacy scalar accepted only while migrating older workspaces. */
   area?: string;
 }
@@ -532,8 +536,9 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
   const weekId = createId();
   const dashboardId = createId();
   const activeQuery = 'state == "open" && role != "series_template" && isTemplate != true';
-  const defaultFields = ['title', 'schedule.dueAt', 'bodyMarkdown', 'list', 'tags'];
+  const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
   const defaultSort = [{ field: 'schedule.dueAt', direction: 'asc' as const, nulls: 'last' as const }];
+  const eventSort = [{ field: 'schedule.startAt', direction: 'asc' as const, nulls: 'last' as const }, { field: 'schedule.endAt', direction: 'asc' as const, nulls: 'last' as const }];
   return {
     schemaVersion: SCHEMA_VERSION,
     workspaceId: createId(),
@@ -560,29 +565,29 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       },
       [todayId]: {
         id: todayId,
-        name: 'Today + overdue',
-        query: { source: `${activeQuery} && dueTodayOrOverdue == true` },
+        name: 'Today',
+        query: { source: `${activeQuery} && (eventToday == true || dueTodayOrOverdue == true)` },
         renderer: 'list',
-        sort: defaultSort.map((rule) => ({ ...rule })),
+        sort: eventSort.map((rule) => ({ ...rule })),
         fields: [...defaultFields],
       },
       [weekId]: {
         id: weekId,
-        name: 'This week + overdue',
-        query: { source: `${activeQuery} && dueThisWeekOrOverdue == true` },
+        name: 'This week',
+        query: { source: `${activeQuery} && (eventThisWeek == true || dueThisWeekOrOverdue == true)` },
         renderer: 'list',
-        sort: defaultSort.map((rule) => ({ ...rule })),
+        sort: eventSort.map((rule) => ({ ...rule })),
         fields: [...defaultFields],
       },
     },
-    viewOrder: ['__all_items__', todayId, weekId],
+    viewOrder: [todayId, weekId, '__all_items__'],
     dashboards: {
       [dashboardId]: {
         id: dashboardId,
         name: 'Home',
         widgets: [
-          { id: createId(), type: 'smart_list', title: 'Today + overdue', viewId: todayId, width: 2, order: 0 },
-          { id: createId(), type: 'smart_list', title: 'This week + overdue', viewId: weekId, width: 2, order: 1 },
+          { id: createId(), type: 'smart_list', title: 'Today', viewId: todayId, width: 2, order: 0 },
+          { id: createId(), type: 'smart_list', title: 'This week', viewId: weekId, width: 2, order: 1 },
           { id: createId(), type: 'habit_summary', title: 'Habits', width: 1, order: 2 },
         ],
       },

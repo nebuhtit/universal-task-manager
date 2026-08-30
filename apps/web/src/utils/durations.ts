@@ -1,3 +1,5 @@
+import type { Schedule } from '@utm/core';
+
 export type FriendlyDurationUnit = 'minutes' | 'hours' | 'days' | 'weeks';
 export type ReminderDurationUnit = 'seconds' | 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'years';
 
@@ -19,6 +21,11 @@ export const parseEstimateDuration = (value?: string): { amount: number; unit: F
   }
   return parseFriendlyDuration(value);
 };
+export const parseOptionalEstimateDuration = (value?: string): { amount: number; unit: FriendlyDurationUnit } | undefined => {
+  if (!/^(?:P\d+[DW]|PT(?=\d)(?:(?:\d+)H)?(?:(?:\d+)M)?)$/.test(value ?? '')) return undefined;
+  const parsed = parseEstimateDuration(value);
+  return Number.isFinite(parsed.amount) && parsed.amount > 0 ? parsed : undefined;
+};
 export const calendarDuration = (startAt?: string, endAt?: string): { amount: number; unit: FriendlyDurationUnit } => {
   const start = startAt ? Date.parse(startAt) : Number.NaN;
   const end = endAt ? Date.parse(endAt) : Number.NaN;
@@ -34,4 +41,56 @@ export const calendarDuration = (startAt?: string, endAt?: string): { amount: nu
 export const calendarDurationMs = (amount: number, unit: FriendlyDurationUnit) => {
   const minutes = unit === 'weeks' ? amount * 7 * 24 * 60 : unit === 'days' ? amount * 24 * 60 : unit === 'hours' ? amount * 60 : amount;
   return minutes * 60_000;
+};
+
+export const effectiveScheduleDuration = (schedule?: Pick<Schedule, 'estimatedDuration' | 'startAt' | 'endAt'>): { amount: number; unit: FriendlyDurationUnit } | undefined => {
+  const estimate = parseOptionalEstimateDuration(schedule?.estimatedDuration);
+  if (estimate) return estimate;
+  const start = schedule?.startAt ? Date.parse(schedule.startAt) : Number.NaN;
+  const end = schedule?.endAt ? Date.parse(schedule.endAt) : Number.NaN;
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? calendarDuration(schedule!.startAt, schedule!.endAt) : undefined;
+};
+
+export const scheduleWithDuration = (schedule: Schedule, duration?: { amount: number; unit: FriendlyDurationUnit }): Schedule => {
+  const next = { ...schedule };
+  if (!duration || !Number.isFinite(duration.amount) || duration.amount <= 0) {
+    delete next.estimatedDuration;
+    delete next.endAt;
+    return next;
+  }
+  next.estimatedDuration = toIsoDuration(duration.amount, duration.unit);
+  const start = next.startAt ? Date.parse(next.startAt) : Number.NaN;
+  if (Number.isFinite(start)) next.endAt = new Date(start + calendarDurationMs(duration.amount, duration.unit)).toISOString();
+  return next;
+};
+
+export const scheduleWithStart = (schedule: Schedule, startAt?: string): Schedule => {
+  const duration = effectiveScheduleDuration(schedule);
+  const next = { ...schedule };
+  if (!startAt) {
+    delete next.startAt;
+    delete next.endAt;
+    return next;
+  }
+  next.startAt = startAt;
+  const start = Date.parse(startAt);
+  if (Number.isFinite(start)) {
+    const resolvedDuration = duration ?? { amount: 10, unit: 'minutes' as const };
+    next.estimatedDuration = toIsoDuration(resolvedDuration.amount, resolvedDuration.unit);
+    next.endAt = new Date(start + calendarDurationMs(resolvedDuration.amount, resolvedDuration.unit)).toISOString();
+  } else delete next.endAt;
+  return next;
+};
+
+export const scheduleWithEnd = (schedule: Schedule, endAt?: string): Schedule => {
+  const next = { ...schedule };
+  if (!endAt) { delete next.endAt; return next; }
+  next.endAt = endAt;
+  const start = next.startAt ? Date.parse(next.startAt) : Number.NaN;
+  const end = Date.parse(endAt);
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+    const duration = calendarDuration(next.startAt, endAt);
+    next.estimatedDuration = toIsoDuration(duration.amount, duration.unit);
+  }
+  return next;
 };

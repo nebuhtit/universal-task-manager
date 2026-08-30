@@ -134,6 +134,8 @@ export interface EvaluationContext {
 export interface DueDateBuckets {
   dueTodayOrOverdue: boolean;
   dueThisWeekOrOverdue: boolean;
+  eventToday: boolean;
+  eventThisWeek: boolean;
 }
 
 export interface QueryTemporalOptions { timeZone?: string | undefined; weekStartsOn?: 0 | 1 | undefined }
@@ -151,18 +153,28 @@ function calendarDateKey(value: Date, timeZone?: string): string {
 /** Calendar buckets used by saved Views, evaluated in the workspace timezone. */
 export function dueDateBuckets(item: UniversalItem, now = new Date(), options: QueryTemporalOptions = {}): DueDateBuckets {
   const due = item.schedule?.dueAt ? new Date(item.schedule.dueAt) : undefined;
-  if (!due || !Number.isFinite(due.getTime())) return { dueTodayOrOverdue: false, dueThisWeekOrOverdue: false };
   const todayKey = calendarDateKey(now, options.timeZone);
-  const dueKey = calendarDateKey(due, options.timeZone);
   const [year, month, day] = todayKey.split('-').map(Number);
   const todayOrdinal = new Date(Date.UTC(year!, month! - 1, day!));
   const weekStartsOn = options.weekStartsOn ?? 1;
   const daysSinceWeekStart = (todayOrdinal.getUTCDay() - weekStartsOn + 7) % 7;
+  const weekStartOrdinal = new Date(todayOrdinal);
+  weekStartOrdinal.setUTCDate(weekStartOrdinal.getUTCDate() - daysSinceWeekStart);
   todayOrdinal.setUTCDate(todayOrdinal.getUTCDate() + 6 - daysSinceWeekStart);
+  const weekStartKey = weekStartOrdinal.toISOString().slice(0, 10);
   const weekEndKey = todayOrdinal.toISOString().slice(0, 10);
+  const start = item.schedule?.startAt ? new Date(item.schedule.startAt) : undefined;
+  const end = item.schedule?.endAt ? new Date(item.schedule.endAt) : start;
+  const validEvent = Boolean(start && end && Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && end.getTime() >= start.getTime());
+  const startKey = validEvent ? calendarDateKey(start!, options.timeZone) : '';
+  const endKey = validEvent ? calendarDateKey(end!, options.timeZone) : '';
+  const validDue = Boolean(due && Number.isFinite(due.getTime()));
+  const dueKey = validDue ? calendarDateKey(due!, options.timeZone) : '';
   return {
-    dueTodayOrOverdue: dueKey <= todayKey,
-    dueThisWeekOrOverdue: dueKey <= weekEndKey,
+    dueTodayOrOverdue: validDue && dueKey <= todayKey,
+    dueThisWeekOrOverdue: validDue && dueKey <= weekEndKey,
+    eventToday: validEvent && startKey <= todayKey && endKey >= todayKey,
+    eventThisWeek: validEvent && startKey <= weekEndKey && endKey >= weekStartKey,
   };
 }
 
@@ -300,7 +312,11 @@ export interface QueryRelationContext { isSubtask?: boolean; isParent?: boolean;
 export function compileQuery(source: string, relationContext?: (item: UniversalItem) => QueryRelationContext, temporalOptions: QueryTemporalOptions = {}): (item: UniversalItem, now?: Date) => boolean {
   // Compatibility for early Views: before habits became a universal capability,
   // the visual builder expressed them as `preset == "habit"`.
-  const normalizedSource = source
+  const activeQuery = 'state == "open" && role != "series_template" && isTemplate != true';
+  const legacyToday = `${activeQuery} && dueTodayOrOverdue == true`;
+  const legacyWeek = `${activeQuery} && dueThisWeekOrOverdue == true`;
+  const compatibleSource = source === legacyToday ? `${activeQuery} && (eventToday == true || dueTodayOrOverdue == true)` : source === legacyWeek ? `${activeQuery} && (eventThisWeek == true || dueThisWeekOrOverdue == true)` : source;
+  const normalizedSource = compatibleSource
     .replace(/\bpreset\s*==\s*(["'])habit\1/g, 'isHabit == true')
     .replace(/\bpreset\s*!=\s*(["'])habit\1/g, 'isHabit != true')
     // Keep the storage model backwards compatible while making the UI wording clearer.

@@ -41,6 +41,7 @@ describe('item field display helpers', () => {
     expect([...paths]).toEqual(expect.arrayContaining([
       'schedule.startAt', 'recurrence.rrule', 'recurrence.anchor', 'progress.mode', 'progress.current', 'habit.completedDates',
       'closure.automationId', 'occurrence.templateRevision', 'recurrenceOverride.kind', 'scripts', 'script.remaining',
+      'eventToday', 'eventThisWeek',
     ]));
     expect(readItemField(item, 'scripts', workspace, new Date('2026-08-26T12:00:00.000Z'))).toBe('Time remaining: 10');
   });

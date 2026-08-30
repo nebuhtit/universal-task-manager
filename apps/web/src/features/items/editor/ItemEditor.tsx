@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
-  createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationDefinitionFor, parsePortablePackage,
+  createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage,
   type Schedule, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../../components/ui/CodeEditor';
@@ -10,9 +10,9 @@ import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/p
 import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
-import { calendarDuration, calendarDurationMs, parseFriendlyDuration, toIsoDuration, type FriendlyDurationUnit } from '../../../utils/durations';
+import { effectiveScheduleDuration, parseFriendlyDuration, scheduleWithDuration, scheduleWithEnd, scheduleWithStart, type FriendlyDurationUnit } from '../../../utils/durations';
 import { inferredPreset, priorityNames, stateNames } from '../fieldDisplay';
-import { FieldIconLabel } from '../FieldIcon';
+import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
 import { ItemSection } from './ItemSection';
 import { DateTimeField } from './fields/DateTimeField';
@@ -31,8 +31,9 @@ const stopwatchDuration = (seconds: number) => {
 };
 
 type TokenSuggestion = { value: string; meta?: string };
-function TokenField({ label, values, draft, suggestions, placeholder, onDraft, onAdd, onRemove }: {
+function TokenField({ label, values, draft, suggestions, placeholder, colorForValue, onDraft, onAdd, onRemove }: {
   label: string; values: string[]; draft: string; suggestions: TokenSuggestion[]; placeholder: string;
+  colorForValue?: (value: string) => string | undefined;
   onDraft: (value: string) => void; onAdd: (value: string) => void; onRemove: (value: string) => void;
 }) {
   const commitDraft = () => { const value = label === 'Tags' ? draft.trim().replace(/^#+/, '') : draft.trim(); if (value) onAdd(value); onDraft(''); };
@@ -40,10 +41,11 @@ function TokenField({ label, values, draft, suggestions, placeholder, onDraft, o
     if (event.key === 'Enter' || event.key === ',') { event.preventDefault(); event.stopPropagation(); commitDraft(); }
     else if (event.key === 'Backspace' && !draft && values.length) { event.preventDefault(); onRemove(values[values.length - 1]!); }
   };
-  return <Field label={label} optional><div className="organization-token-field">
-    {values.length > 0 && <div className="organization-token-values">{values.map((value) => <Button size="compact" variant="ghost" key={value} aria-label={`Remove ${label.slice(0, -1)} ${value}`} onClick={() => onRemove(value)}><span>{label === 'Tags' ? '#' : ''}{value}</span><CloseIcon /></Button>)}</div>}
+  const iconPath = label === 'Areas' ? 'areas' : label === 'Projects' ? 'projects' : 'tags';
+  return <Field label={<FieldIconLabel path={iconPath} label={label} />} optional><div className="organization-token-field">
+    {values.length > 0 && <div className="organization-token-values">{values.map((value) => <Button size="compact" variant="ghost" key={value} aria-label={`Remove ${label.slice(0, -1)} ${value}`} onClick={() => onRemove(value)}><span style={colorForValue?.(value) ? { color: colorForValue(value) } : undefined}>{label !== 'Tags' && <FieldIcon path={iconPath} label={label} />}{label === 'Tags' ? '#' : ''}{value}</span><CloseIcon /></Button>)}</div>}
     <Input aria-label={`Add ${label.slice(0, -1)}`} value={draft} onChange={(event) => onDraft(event.target.value)} onKeyDown={keyDown} placeholder={placeholder} />
-    {suggestions.length > 0 && <div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{suggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span>{label === 'Tags' ? '#' : ''}{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div>}
+    {suggestions.length > 0 && (label === 'Areas' || label === 'Projects') ? <details className="organization-token-picker"><summary><FieldIcon path={iconPath} label={label} />Choose existing {label.toLowerCase()}…</summary><div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{suggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span style={colorForValue?.(suggestion.value) ? { color: colorForValue(suggestion.value) } : undefined}>{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div></details> : suggestions.length > 0 && <div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{suggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span>{label === 'Tags' ? '#' : ''}{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div>}
   </div></Field>;
 }
 
@@ -124,12 +126,11 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   }, [item.id, item.recurrence?.rrule]);
   const activation = parseFriendlyDuration(item.recurrence?.activationOffset);
   const activeRange = recurring && Boolean(item.recurrence?.autoRenew) && item.recurrence?.closeAt === 'due' && activation.amount === 0;
-  const scheduledDuration = calendarDuration(item.schedule?.startAt, item.schedule?.endAt);
-  const patchScheduledDuration = (amount: number, unit: FriendlyDurationUnit) => {
-    const start = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
-    if (!Number.isFinite(start)) return;
-    patchSchedule({ endAt: new Date(start + calendarDurationMs(Math.max(1, amount), unit)).toISOString() });
-  };
+  const scheduledDuration = effectiveScheduleDuration(item.schedule);
+  const transformSchedule = (transform: (schedule: Schedule) => Schedule) => setItem((current) => ({ ...current, schedule: transform({ timezone: current.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...current.schedule }) }));
+  const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => scheduleWithDuration(schedule, amount === undefined ? undefined : { amount: Math.max(1, amount), unit }));
+  const patchScheduledStart = (value?: string) => transformSchedule((schedule) => scheduleWithStart(schedule, value));
+  const patchScheduledEnd = (value?: string) => transformSchedule((schedule) => scheduleWithEnd(schedule, value));
   const applyDurationPreset = (preset: string) => {
     if (preset === '1h') patchScheduledDuration(1, 'hours');
     else if (preset === '2h' || preset === '3h' || preset === '5h') patchScheduledDuration(Number(preset.slice(0, -1)), 'hours');
@@ -141,11 +142,11 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
         const end = new Date(start);
         end.setHours(hours || 22, minutes || 0, 0, 0);
         if (end.getTime() <= start.getTime()) end.setDate(end.getDate() + 1);
-        patchSchedule({ endAt: end.toISOString(), allDay: false });
+        transformSchedule((schedule) => scheduleWithEnd({ ...schedule, allDay: false }, end.toISOString()));
       }
     } else if (preset === 'all-day') {
       const start = item.schedule?.startAt ? new Date(item.schedule.startAt) : null;
-      if (start) patchSchedule({ allDay: true, endAt: new Date(start.getTime() + 24 * 60 * 60 * 1000).toISOString() });
+      if (start) transformSchedule((schedule) => scheduleWithDuration({ ...schedule, allDay: true }, { amount: 1, unit: 'days' }));
     }
     else if (preset) patchScheduledDuration(Number(preset), 'minutes');
   };
@@ -293,7 +294,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     }}>
         <label className="item-title-field"><FieldIconLabel path="title" label="Title" /><input ref={titleInputRef} autoFocus={focusTitleOnOpen} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
         {isNew && templates.length > 0 && <details className="template-picker"><summary><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></summary><div className="details-body"><p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>{templates.map((template) => <button type="button" className="template-option" key={template.id} onClick={() => applyTemplate(template)}>{template.title || 'Untitled template'}</button>)}</div></details>}
-        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} patchSchedule={patchSchedule} scheduledDuration={scheduledDuration} patchScheduledDuration={patchScheduledDuration} applyDurationPreset={applyDurationPreset}>
+        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} patchSchedule={patchSchedule} {...(scheduledDuration ? { scheduledDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           <details><summary><FieldIconLabel path="habit.completedDates" label="Progress & habit" /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">
@@ -308,8 +309,8 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
 
         <ItemSection sectionKey="organization" title="Organization" iconPath="list" filledMark={sectionMark(Boolean(selectedAreas.length || selectedProjects.length || item.list || item.priority || selectedTags.length))}>
           <div className="form-grid two organization-fields">
-            <TokenField label="Areas" values={selectedAreas} draft={areaDraft} suggestions={areaSuggestions} placeholder="Choose or create an Area" onDraft={setAreaDraft} onAdd={addArea} onRemove={removeArea} />
-            <TokenField label="Projects" values={selectedProjects} draft={projectDraft} suggestions={projectSuggestions} placeholder="Choose or create a Project" onDraft={setProjectDraft} onAdd={addProject} onRemove={removeProject} />
+            <TokenField label="Areas" values={selectedAreas} draft={areaDraft} suggestions={areaSuggestions} placeholder="Choose or create an Area" colorForValue={(value) => organizationAccentFor(workspace, 'area', value)} onDraft={setAreaDraft} onAdd={addArea} onRemove={removeArea} />
+            <TokenField label="Projects" values={selectedProjects} draft={projectDraft} suggestions={projectSuggestions} placeholder="Choose or create a Project" colorForValue={(value) => organizationAccentFor(workspace, 'project', value)} onDraft={setProjectDraft} onAdd={addProject} onRemove={removeProject} />
             <Field label="Task list" optional><Select aria-label="Choose existing Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value || undefined })}><option value="">No list</option>{orderedListNames(workspace).map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value.trim() || undefined })} placeholder="Or create a new list" /></Field>
             <Field label="Priority"><Select aria-label="Priority" value={item.priority ?? 0} onChange={(event) => patchItem({ priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{([0, 1, 2, 3, 4] as NonNullable<UniversalItem['priority']>[]).map((priority) => <option key={priority} value={priority}>{priority ? `${priority} — ${priorityNames[priority]}` : 'None'}</option>)}</Select></Field>
           </div>

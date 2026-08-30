@@ -12,6 +12,11 @@
 :root[data-theme="dark"] .view-section-body,
 :root[data-theme="dark"] .all-sections,
 :root[data-theme="dark"] .trash-section { background: #000; }
+:root[data-theme="dark"] .all-sections details summary b,
+:root[data-theme="dark"] .trash-section summary b {
+  background: var(--color-surface-elevated);
+  color: var(--color-text-secondary);
+}
 :root[data-theme="dark"] input,
 :root[data-theme="dark"] textarea,
 :root[data-theme="dark"] select,
@@ -116,6 +121,10 @@
 .view-item-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px; color: #444; font-size: 11px; margin-top: 4px; }
 .view-item-fields > span { flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .view-item-fields > [data-field="bodyMarkdown"] { max-width: 32ch; }
+.organization-colored-name { color: var(--organization-accent); }
+@supports (color: color-mix(in srgb, red 50%, black)) {
+  .organization-colored-name { color: color-mix(in srgb, var(--organization-accent) 62%, var(--color-text-secondary)); }
+}
 .renderer-table-wrap [data-field="bodyMarkdown"] { max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .view-item-fields small, .renderer-fields small { color: var(--muted); font-size: 9px; font-weight: 400; margin-right: 4px; }
 .preset { display: inline-block; border-radius: 99px; padding: 2px 7px; font-size: 9px; font-weight: 500; text-transform: uppercase; background: #eeeeee; }
@@ -203,10 +212,14 @@ textarea { resize: vertical; line-height: 1.5; }
 .organization-token-field { display: grid; gap: var(--space-2); }
 .organization-token-values, .organization-token-suggestions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .organization-token-values .ui-button, .organization-token-suggestions .ui-button { max-width: 100%; gap: var(--space-1); }
+.organization-token-values .ui-button > span { display: inline-flex; align-items: center; gap: var(--space-1); }
 .organization-token-values .ui-button svg { width: 14px; height: 14px; }
 .organization-token-suggestions small { color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .organization-token-suggestions .active { border-color: var(--color-border-strong); }
-.organization-convert { display: flex; justify-content: flex-start; }
+.organization-token-picker { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.organization-token-picker > summary { display: flex; align-items: center; gap: var(--space-1); min-height: var(--control-height-compact); padding: 0 var(--space-2); cursor: pointer; color: var(--color-text-secondary); font-size: var(--font-size-secondary); }
+.organization-token-picker > .organization-token-suggestions { padding: 0 var(--space-2) var(--space-2); }
+.organization-convert { display: flex; justify-content: flex-start; margin-top: var(--space-3); }
 .item-section .item-section { margin-inline: 0; }
 .item-section .item-section > summary { min-height: var(--control-height-touch); }
 .weekday-picker { display: grid; grid-template-columns: repeat(7, 32px); gap: 6px; margin: -2px 0 14px; }

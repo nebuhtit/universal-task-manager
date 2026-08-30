@@ -175,7 +175,7 @@ const listDefinitionSchema = {
 const areaDefinitionSchema = {
   type: 'object', additionalProperties: false, required: ['name', 'createdAt', 'updatedAt'],
   properties: {
-    name: { type: 'string', minLength: 1 }, priority: { type: 'integer', minimum: 0, maximum: 4 },
+    name: { type: 'string', minLength: 1 }, accent: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, priority: { type: 'integer', minimum: 0, maximum: 4 },
     order: { type: 'number', minimum: 0 }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
   },
 } as const;
@@ -183,7 +183,7 @@ const areaDefinitionSchema = {
 const projectDefinitionSchema = {
   ...areaDefinitionSchema,
   required: [...areaDefinitionSchema.required, 'areas'],
-  properties: { ...areaDefinitionSchema.properties, areas: stringArray, area: { type: 'string', minLength: 1 } },
+  properties: { ...areaDefinitionSchema.properties, areas: stringArray, accent: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, area: { type: 'string', minLength: 1 } },
 } as const;
 
 const organizationPriorityEntrySchema = {
@@ -475,8 +475,32 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       return [key, safe];
     }
   }));
+  const activeStarterQuery = 'state == "open" && role != "series_template" && isTemplate != true';
+  const legacyTodayQuery = `${activeStarterQuery} && dueTodayOrOverdue == true`;
+  const legacyWeekQuery = `${activeStarterQuery} && dueThisWeekOrOverdue == true`;
+  const todayQuery = `${activeStarterQuery} && (eventToday == true || dueTodayOrOverdue == true)`;
+  const weekQuery = `${activeStarterQuery} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`;
+  const starterFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
+  const legacyStarterFields = [
+    ['title', 'schedule.dueAt', 'bodyMarkdown', 'list', 'tags'],
+    ['title', 'schedule.startAt', 'schedule.endAt', 'bodyMarkdown', 'list', 'tags'],
+  ];
+  const hasLegacyStarterFields = (fields: string[]) => legacyStarterFields.some((legacy) => JSON.stringify(fields) === JSON.stringify(legacy));
   source.views = Object.fromEntries(Object.entries(source.views as Record<string, unknown>).map(([key, view]) => {
-    try { const migrated = migrateView(view, `schema:${previous}`); warnings.push(...migrated.warnings); return [key, migrated.value]; }
+    try {
+      const migrated = migrateView(view, `schema:${previous}`); warnings.push(...migrated.warnings);
+      if (migrated.value.name === 'Today + overdue' && migrated.value.query.source === legacyTodayQuery) {
+        migrated.value.name = 'Today'; migrated.value.query.source = todayQuery;
+        migrated.value.fields = [...starterFields];
+        migrated.value.sort = [{ field: 'schedule.startAt', direction: 'asc', nulls: 'last' }, { field: 'schedule.endAt', direction: 'asc', nulls: 'last' }];
+      }
+      if (migrated.value.name === 'This week + overdue' && migrated.value.query.source === legacyWeekQuery) {
+        migrated.value.name = 'This week'; migrated.value.query.source = weekQuery;
+        migrated.value.fields = [...starterFields];
+        migrated.value.sort = [{ field: 'schedule.startAt', direction: 'asc', nulls: 'last' }, { field: 'schedule.endAt', direction: 'asc', nulls: 'last' }];
+      }
+      return [key, migrated.value];
+    }
     catch (reason) {
       const raw = view && typeof view === 'object' && !Array.isArray(view) ? view as Record<string, unknown> : {};
       migrationIssues.push({ id: `migration:${previous}:${key}:invalid_view`, entityType: 'view', entityId: key, sourceVersion: previous, code: 'invalid_view', disabledCapability: 'filter', status: 'needs_repair', detectedAt: now });
@@ -487,8 +511,15 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.schemaVersion = SCHEMA_VERSION;
   const migratedItems = source.items as Record<string, UniversalItem>;
   const migratedViews = source.views as Record<string, SavedView>;
+  if (migratedViews.__all_items__ && hasLegacyStarterFields(migratedViews.__all_items__.fields)) migratedViews.__all_items__.fields = [...starterFields];
+  Object.values(migratedViews).forEach((view) => {
+    if ((view.query.source === todayQuery || view.query.source === weekQuery) && hasLegacyStarterFields(view.fields)) view.fields = [...starterFields];
+  });
   const requestedViewOrder = Array.isArray(source.viewOrder) ? source.viewOrder.filter((id): id is string => typeof id === 'string' && Boolean(migratedViews[id])) : [];
-  source.viewOrder = [...new Set([...requestedViewOrder, ...Object.keys(migratedViews)])];
+  const todayStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'Today' && view.query.source === todayQuery)?.[0];
+  const weekStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'This week' && view.query.source === weekQuery)?.[0];
+  const starterIds = [todayStarterId, weekStarterId, migratedViews.__all_items__ ? '__all_items__' : undefined].filter((id): id is string => Boolean(id));
+  source.viewOrder = [...new Set([...starterIds, ...requestedViewOrder.filter((id) => !starterIds.includes(id)), ...Object.keys(migratedViews)])];
   const rawListDefinitions = source.listDefinitions && typeof source.listDefinitions === 'object' && !Array.isArray(source.listDefinitions)
     ? source.listDefinitions as Record<string, unknown>
     : {};
@@ -557,7 +588,8 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     const direct = rawAreaDefinitions[name]; const legacy = rawListDefinitions[name];
     const raw = direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : {};
     const dates = Object.values(migratedItems).filter((item) => item.areas.includes(name)).map((item) => item.createdAt).filter((date) => Number.isFinite(Date.parse(date))).sort();
-    return [name, organizationDefinition(name, raw, dates)];
+    const definition = organizationDefinition(name, raw, dates);
+    return [name, { ...definition, ...(typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent) ? { accent: raw.accent } : {}) }];
   }));
   source.projectDefinitions = Object.fromEntries([...projectNames].map((name, index) => {
     const direct = rawProjectDefinitions[name]; const legacy = rawListDefinitions[name];
@@ -568,7 +600,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       ...(Array.isArray(raw.areas) ? raw.areas.filter((area): area is string => typeof area === 'string') : []),
       ...(typeof raw.area === 'string' ? [raw.area] : []),
     ].map((area) => area.trim()).filter(Boolean))];
-    return [name, { ...definition, areas }];
+    return [name, { ...definition, areas, ...(typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent) ? { accent: raw.accent } : {}) }];
   }));
   const rawOrganizationPreferences = source.organizationPreferences && typeof source.organizationPreferences === 'object' && !Array.isArray(source.organizationPreferences)
     ? source.organizationPreferences as Record<string, unknown>
@@ -626,6 +658,17 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     source as unknown as WorkspaceDocument,
   );
   source.customFields ??= {}; source.dashboards ??= {}; source.automations ??= {}; source.automationLog ??= []; source.migrationIssues = migrationIssues; source.tombstones ??= {};
+  Object.values(source.dashboards as Record<string, unknown>).forEach((dashboard) => {
+    if (!dashboard || typeof dashboard !== 'object' || Array.isArray(dashboard)) return;
+    const widgets = (dashboard as Record<string, unknown>).widgets;
+    if (!Array.isArray(widgets)) return;
+    widgets.forEach((widget) => {
+      if (!widget || typeof widget !== 'object' || Array.isArray(widget)) return;
+      const candidate = widget as Record<string, unknown>;
+      if (candidate.viewId === todayStarterId && candidate.title === 'Today + overdue') candidate.title = 'Today';
+      if (candidate.viewId === weekStarterId && candidate.title === 'This week + overdue') candidate.title = 'This week';
+    });
+  });
   source.pushPreferences ??= { enabled: false, contentMode: 'generic' };
   const pushPreferences = source.pushPreferences as Record<string, unknown>;
   pushPreferences.enabled = pushPreferences.enabled === true;

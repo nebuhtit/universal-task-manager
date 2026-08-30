@@ -1,7 +1,20 @@
 import type { AreaDefinition, OrganizationPreferences, OrganizationPriorityEntry, ProjectDefinition, UniversalItem, WorkspaceDocument } from './types.js';
+import { durationToMs } from './dsl.js';
 
 export type OrganizationKind = 'area' | 'project';
 export type OrganizationDefinition = AreaDefinition | ProjectDefinition;
+export const DEFAULT_AREA_ACCENT = '#2864c7';
+export const DEFAULT_PROJECT_ACCENT = '#147a55';
+
+export interface ProjectMetrics {
+  totalItems: number;
+  completedItems: number;
+  completionPercent: number;
+  totalDurationMs: number;
+  completedDurationMs: number;
+  nearestDeadline?: string;
+  deadlineOverdue: boolean;
+}
 
 const validDate = (value: string | undefined, fallback: string) => value && Number.isFinite(Date.parse(value)) ? value : fallback;
 const uniqueNames = (values: Array<string | undefined>) => [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
@@ -9,6 +22,45 @@ const itemAreas = (item: Pick<UniversalItem, 'areas' | 'area'>) => uniqueNames([
 const itemProjects = (item: Pick<UniversalItem, 'projects' | 'project'>) => uniqueNames([...(item.projects ?? []), item.project]);
 const namesFromItems = (workspace: WorkspaceDocument, kind: OrganizationKind) => Object.values(workspace.items)
   .flatMap((item) => kind === 'area' ? itemAreas(item) : itemProjects(item));
+
+const effectiveItemDurationMs = (item: UniversalItem): number => {
+  if (item.schedule?.estimatedDuration) {
+    try {
+      const duration = durationToMs(item.schedule.estimatedDuration);
+      if (Number.isFinite(duration) && duration > 0) return duration;
+    } catch { /* Invalid imported durations contribute no project time. */ }
+  }
+  const start = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
+  const end = item.schedule?.endAt ? Date.parse(item.schedule.endAt) : Number.NaN;
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? end - start : 0;
+};
+
+/** Derived Project progress and time. No calculated value is persisted in the workspace. */
+export function calculateProjectMetrics(workspace: WorkspaceDocument, now = new Date()): Record<string, ProjectMetrics> {
+  const projects = new Set([...Object.keys(workspace.projectDefinitions ?? {}), ...namesFromItems(workspace, 'project')]);
+  const metrics: Record<string, ProjectMetrics> = Object.fromEntries([...projects].map((project) => [project, {
+    totalItems: 0, completedItems: 0, completionPercent: 0,
+    totalDurationMs: 0, completedDurationMs: 0, deadlineOverdue: false,
+  } satisfies ProjectMetrics]));
+  for (const item of Object.values(workspace.items)) {
+    if (item.deletedAt || item.role === 'series_template' || item.state === 'cancelled' || item.state === 'archived') continue;
+    const completed = item.state === 'done' || item.state === 'auto_closed';
+    const duration = effectiveItemDurationMs(item);
+    const deadline = !completed && item.schedule?.dueAt && Number.isFinite(Date.parse(item.schedule.dueAt)) ? item.schedule.dueAt : undefined;
+    for (const project of itemProjects(item)) {
+      const target = metrics[project] ??= { totalItems: 0, completedItems: 0, completionPercent: 0, totalDurationMs: 0, completedDurationMs: 0, deadlineOverdue: false };
+      target.totalItems += 1;
+      target.totalDurationMs += duration;
+      if (completed) { target.completedItems += 1; target.completedDurationMs += duration; }
+      if (deadline && (!target.nearestDeadline || Date.parse(deadline) < Date.parse(target.nearestDeadline))) target.nearestDeadline = deadline;
+    }
+  }
+  Object.values(metrics).forEach((target) => {
+    target.completionPercent = target.totalItems ? Math.round(target.completedItems / target.totalItems * 100) : 0;
+    target.deadlineOverdue = Boolean(target.nearestDeadline && Date.parse(target.nearestDeadline) < now.getTime());
+  });
+  return metrics;
+}
 
 export const defaultOrganizationPreferences = (): OrganizationPreferences => ({
   areaOrder: [null], projectOrder: [null], tagOrder: [null],
@@ -60,10 +112,18 @@ export function organizationDefinitionFor(
   return { name, createdAt, updatedAt: createdAt };
 }
 
+/** One presentation color contract for every Area and Project surface. */
+export function organizationAccentFor(workspace: WorkspaceDocument, kind: OrganizationKind, rawName: string | undefined): string | undefined {
+  const name = rawName?.trim();
+  if (!name) return undefined;
+  const definition = kind === 'area' ? workspace.areaDefinitions[name] : workspace.projectDefinitions[name];
+  return definition?.accent ?? (kind === 'area' ? DEFAULT_AREA_ACCENT : DEFAULT_PROJECT_ACCENT);
+}
+
 export function ensureAreaDefinition(
   workspace: WorkspaceDocument,
   rawName: string,
-  _patch: Partial<Pick<AreaDefinition, 'priority' | 'order'>> = {},
+  patch: Partial<Pick<AreaDefinition, 'accent' | 'priority' | 'order'>> = {},
   now = new Date(),
 ): AreaDefinition | undefined {
   const name = rawName.trim();
@@ -71,10 +131,12 @@ export function ensureAreaDefinition(
   workspace.areaDefinitions ??= {};
   const timestamp = now.toISOString();
   const current = workspace.areaDefinitions[name];
+  const accent = patch.accent ?? current?.accent;
   const definition: AreaDefinition = {
     name,
     createdAt: validDate(current?.createdAt, timestamp),
     updatedAt: timestamp,
+    ...(accent ? { accent } : {}),
   };
   workspace.areaDefinitions[name] = definition;
   const preferences = workspace.organizationPreferences ??= defaultOrganizationPreferences();
@@ -86,7 +148,7 @@ export function ensureAreaDefinition(
 export function ensureProjectDefinition(
   workspace: WorkspaceDocument,
   rawName: string,
-  patch: Partial<Pick<ProjectDefinition, 'areas' | 'area' | 'priority' | 'order'>> = {},
+  patch: Partial<Pick<ProjectDefinition, 'areas' | 'area' | 'accent' | 'priority' | 'order'>> = {},
   now = new Date(),
 ): ProjectDefinition | undefined {
   const name = rawName.trim();
@@ -95,11 +157,13 @@ export function ensureProjectDefinition(
   const timestamp = now.toISOString();
   const current = workspace.projectDefinitions[name];
   const areas = uniqueNames(patch.areas ?? (patch.area !== undefined ? [patch.area] : current?.areas ?? (current?.area ? [current.area] : [])));
+  const accent = patch.accent ?? current?.accent;
   const definition: ProjectDefinition = {
     name,
     createdAt: validDate(current?.createdAt, timestamp),
     updatedAt: timestamp,
     areas,
+    ...(accent ? { accent } : {}),
   };
   workspace.projectDefinitions[name] = definition;
   const preferences = workspace.organizationPreferences ??= defaultOrganizationPreferences();
@@ -138,7 +202,7 @@ export function renameAreaDefinition(workspace: WorkspaceDocument, rawFrom: stri
   const current = workspace.areaDefinitions[from]!;
   const createdAt = String(current.createdAt);
   delete workspace.areaDefinitions[from];
-  workspace.areaDefinitions[to] = { name: to, createdAt, updatedAt: timestamp };
+  workspace.areaDefinitions[to] = { name: to, createdAt, updatedAt: timestamp, ...(current.accent ? { accent: current.accent } : {}) };
   Object.values(workspace.projectDefinitions).forEach((project) => {
     project.areas = replaceName(project.areas ?? (project.area ? [project.area] : []), from, to);
     if (project.area === from) project.area = to;
@@ -175,7 +239,7 @@ export function renameProjectDefinition(workspace: WorkspaceDocument, rawFrom: s
   const createdAt = String(current.createdAt);
   const areas = [...(current.areas ?? (current.area ? [current.area] : []))].map(String);
   delete workspace.projectDefinitions[from];
-  workspace.projectDefinitions[to] = { name: to, areas, createdAt, updatedAt: timestamp };
+  workspace.projectDefinitions[to] = { name: to, areas, createdAt, updatedAt: timestamp, ...(current.accent ? { accent: current.accent } : {}) };
   Object.values(workspace.items).forEach((item) => {
     item.projects = replaceName(item.projects, from, to);
     if (item.project === from) item.project = to;

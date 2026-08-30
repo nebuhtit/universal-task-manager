@@ -48,9 +48,11 @@ describe('safe expression language', () => {
   it('creates active, today and week starter views with compact fields', () => {
     const workspace = createWorkspace('Starter views', new Date(2026, 7, 26, 12));
     const views = Object.values(workspace.views);
-    expect(views.map((view) => view.name)).toEqual(['All items', 'Today + overdue', 'This week + overdue']);
+    expect(views.map((view) => view.name)).toEqual(['All items', 'Today', 'This week']);
+    expect(workspace.viewOrder.map((id) => workspace.views[id]?.name)).toEqual(['Today', 'This week', 'All items']);
     expect(views.every((view) => view.renderer === 'list')).toBe(true);
-    expect(views.every((view) => JSON.stringify(view.fields) === JSON.stringify(['title', 'schedule.dueAt', 'bodyMarkdown', 'list', 'tags']))).toBe(true);
+    const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
+    expect(views.every((view) => JSON.stringify(view.fields) === JSON.stringify(defaultFields))).toBe(true);
     expect(views[0]?.query.source).toContain('state == "open"');
   });
 
@@ -65,6 +67,39 @@ describe('safe expression language', () => {
     expect(week(itemDueAt(new Date(2026, 7, 30, 20)), now)).toBe(true);
     expect(week(itemDueAt(new Date(2026, 7, 31, 9)), now)).toBe(false);
     expect(today(createItem('No due date'), now)).toBe(false);
+  });
+
+  it('matches Today and This week when an event interval overlaps the period while retaining overdue items', () => {
+    const now = new Date('2026-08-26T12:00:00.000Z');
+    const event = (startAt: string, endAt: string) => { const item = createItem('Event'); item.schedule = { startAt, endAt, timezone: 'UTC' }; return item; };
+    const active = 'state == "open" && role != "series_template" && isTemplate != true';
+    const today = compileQuery(`${active} && (eventToday == true || dueTodayOrOverdue == true)`, undefined, { timeZone: 'UTC', weekStartsOn: 1 });
+    const week = compileQuery(`${active} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`, undefined, { timeZone: 'UTC', weekStartsOn: 1 });
+    expect(today(event('2026-08-25T20:00:00.000Z', '2026-08-26T15:00:00.000Z'), now)).toBe(true);
+    expect(today(event('2026-08-27T09:00:00.000Z', '2026-08-27T10:00:00.000Z'), now)).toBe(false);
+    expect(week(event('2026-08-23T20:00:00.000Z', '2026-08-24T01:00:00.000Z'), now)).toBe(true);
+    expect(week(event('2026-08-31T09:00:00.000Z', '2026-08-31T10:00:00.000Z'), now)).toBe(false);
+    const overdue = createItem('Overdue'); overdue.schedule = { dueAt: '2026-08-20T09:00:00.000Z', timezone: 'UTC' };
+    expect(today(overdue, now)).toBe(true);
+    expect(week(overdue, now)).toBe(true);
+  });
+
+  it('modernizes legacy starter view labels, filters and order without touching custom views', () => {
+    const workspace = createWorkspace('Legacy starter views');
+    const today = Object.values(workspace.views).find((view) => view.name === 'Today')!;
+    const week = Object.values(workspace.views).find((view) => view.name === 'This week')!;
+    today.name = 'Today + overdue'; today.query.source = 'state == "open" && role != "series_template" && isTemplate != true && dueTodayOrOverdue == true';
+    week.name = 'This week + overdue'; week.query.source = 'state == "open" && role != "series_template" && isTemplate != true && dueThisWeekOrOverdue == true';
+    workspace.viewOrder = ['__all_items__', today.id, week.id];
+    workspace.views.custom = { id: 'custom', name: 'Custom overdue', query: { source: 'dueTodayOrOverdue == true' }, renderer: 'list', sort: [], fields: ['title'] };
+    workspace.viewOrder.push('custom');
+    const migrated = migrateWorkspace(workspace).value;
+    expect(migrated.viewOrder.slice(0, 4)).toEqual([today.id, week.id, '__all_items__', 'custom']);
+    expect(migrated.views[today.id]?.name).toBe('Today');
+    expect(migrated.views[today.id]?.query.source).toContain('eventToday == true || dueTodayOrOverdue == true');
+    expect(migrated.views[today.id]?.fields).toEqual(['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project']);
+    expect(migrated.views[week.id]?.name).toBe('This week');
+    expect(migrated.views.custom?.query.source).toBe('dueTodayOrOverdue == true');
   });
 
   it('detects formula cycles', () => {
@@ -559,13 +594,12 @@ describe('interoperability', () => {
 
   it('adds a stable View order to workspaces created before View drag-and-drop', () => {
     const old = createWorkspace('Legacy View order');
-    const expected = Object.keys(old.views);
     delete (old as Partial<typeof old>).viewOrder;
     // Older workspaces used the same schema version, so they must remain
     // exportable while the app adds this convenience field on its next save.
     expect(validateWorkspace(old).valid).toBe(true);
     const migrated = migrateWorkspace(old).value;
-    expect(migrated.viewOrder).toEqual(expected);
+    expect(migrated.viewOrder.map((id) => migrated.views[id]?.name)).toEqual(['Today', 'This week', 'All items']);
     expect(validateWorkspace(migrated).valid).toBe(true);
   });
 

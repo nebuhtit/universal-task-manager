@@ -4,7 +4,7 @@ import './field-icon.css';
 type FieldIconName =
   | 'title' | 'description' | 'state' | 'type' | 'habit' | 'range' | 'role' | 'priority'
   | 'tag' | 'context' | 'list' | 'calendar' | 'start' | 'end' | 'due' | 'duration'
-  | 'globe' | 'repeat' | 'progress' | 'bell' | 'link' | 'branch' | 'attachment'
+  | 'globe' | 'repeat' | 'progress' | 'bell' | 'link' | 'branch' | 'attachment' | 'area' | 'project'
   | 'history' | 'user' | 'id' | 'template' | 'script' | 'custom' | 'system';
 
 export const fieldIconName = (path: string): FieldIconName => {
@@ -20,8 +20,8 @@ export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'priority') return 'priority';
   if (path === 'tags') return 'tag';
   if (path === 'contexts') return 'context';
-  if (path === 'area') return 'globe';
-  if (path === 'project') return 'branch';
+  if (path === 'area' || path === 'areas') return 'area';
+  if (path === 'project' || path === 'projects') return 'project';
   if (path === 'list') return 'list';
   if (path === 'schedule.startAt') return 'start';
   if (path === 'schedule.endAt') return 'end';
@@ -66,6 +66,8 @@ const paths: Record<FieldIconName, ReactNode> = {
   bell: <><path d="M18 9a6 6 0 0 0-12 0c0 6-3 6-3 8h18c0-2-3-2-3-8"/><path d="M10 21h4"/></>,
   link: <><path d="m10 14 4-4"/><path d="M8 17H6a4 4 0 0 1 0-8h4M14 7h4a4 4 0 0 1 0 8h-4"/></>,
   branch: <><path d="M7 4v12a4 4 0 0 0 4 4h6"/><path d="m14 17 3 3-3 3M7 9h7l3-3M14 3l3 3-3 3"/></>,
+  area: <><path d="m12.83 2.18 8.4 4.2a1 1 0 0 1 0 1.79l-8.4 4.2a2 2 0 0 1-1.66 0l-8.4-4.2a1 1 0 0 1 0-1.79l8.4-4.2a2 2 0 0 1 1.66 0Z"/><path d="m22 12-9.17 4.59a2 2 0 0 1-1.66 0L2 12M22 17l-9.17 4.59a2 2 0 0 1-1.66 0L2 17"/></>,
+  project: <><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></>,
   attachment: <path d="m9 12 5-5a3 3 0 0 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/>,
   history: <><path d="M4 12a8 8 0 1 0 2-5.5L3 9"/><path d="M3 4v5h5M12 7v5l3 2"/></>,
   user: <><circle cx="12" cy="8" r="3"/><path d="M5 20c1-4 3-6 7-6s6 2 7 6"/></>,
