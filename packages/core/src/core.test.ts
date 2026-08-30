@@ -84,6 +84,23 @@ describe('safe expression language', () => {
     expect(week(overdue, now)).toBe(true);
   });
 
+  it('matches reusable schedule periods, custom ranges and optional overdue items', () => {
+    const now = new Date('2026-08-30T21:30:00.000Z'); // 31 August in Europe/Moscow
+    const query = (source: string) => compileQuery(source, undefined, { timeZone: 'Europe/Moscow', weekStartsOn: 1 });
+    const item = createItem('Tomorrow event');
+    item.schedule = { startAt: '2026-08-31T22:00:00.000Z', endAt: '2026-08-31T23:00:00.000Z', dueAt: '2026-09-01T12:00:00.000Z' };
+    expect(query('scheduleInPeriod("tomorrow", "event_open", false, 7, "", "")')(item, now)).toBe(true);
+    expect(query('scheduleInPeriod("today", "event_open", false, 7, "", "")')(item, now)).toBe(false);
+    expect(query('scheduleInPeriod("custom", "active", false, 7, "2026-09-01", "2026-09-03")')(item, now)).toBe(true);
+    expect(query('scheduleInPeriod("next_days", "due", false, 3, "", "")')(item, now)).toBe(true);
+
+    const overdue = createItem('Overdue');
+    overdue.schedule = { dueAt: '2026-08-30T20:00:00.000Z' };
+    expect(query('scheduleInPeriod("tomorrow", "due", true, 7, "", "")')(overdue, now)).toBe(true);
+    overdue.state = 'done';
+    expect(query('scheduleInPeriod("tomorrow", "due", true, 7, "", "")')(overdue, now)).toBe(false);
+  });
+
   it('modernizes legacy starter view labels, filters and order without touching custom views', () => {
     const workspace = createWorkspace('Legacy starter views');
     const today = Object.values(workspace.views).find((view) => view.name === 'Today')!;

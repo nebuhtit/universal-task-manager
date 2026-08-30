@@ -2,9 +2,11 @@ import type { AreaDefinition, OrganizationPreferences, OrganizationPriorityEntry
 import { durationToMs } from './dsl.js';
 
 export type OrganizationKind = 'area' | 'project';
+export type OrganizationAccentKind = OrganizationKind | 'tag';
 export type OrganizationDefinition = AreaDefinition | ProjectDefinition;
 export const DEFAULT_AREA_ACCENT = '#2864c7';
 export const DEFAULT_PROJECT_ACCENT = '#147a55';
+export const DEFAULT_TAG_ACCENT = '#6b7280';
 
 export interface ProjectMetrics {
   totalItems: number;
@@ -16,6 +18,13 @@ export interface ProjectMetrics {
   deadlineOverdue: boolean;
 }
 
+export interface ItemSetMetrics {
+  totalItems: number;
+  completedItems: number;
+  completionPercent: number;
+  remainingDurationMs: number;
+}
+
 const validDate = (value: string | undefined, fallback: string) => value && Number.isFinite(Date.parse(value)) ? value : fallback;
 const uniqueNames = (values: Array<string | undefined>) => [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 const itemAreas = (item: Pick<UniversalItem, 'areas' | 'area'>) => uniqueNames([...(item.areas ?? []), item.area]);
@@ -23,7 +32,7 @@ const itemProjects = (item: Pick<UniversalItem, 'projects' | 'project'>) => uniq
 const namesFromItems = (workspace: WorkspaceDocument, kind: OrganizationKind) => Object.values(workspace.items)
   .flatMap((item) => kind === 'area' ? itemAreas(item) : itemProjects(item));
 
-const effectiveItemDurationMs = (item: UniversalItem): number => {
+export const effectiveItemDurationMs = (item: UniversalItem): number => {
   if (item.schedule?.estimatedDuration) {
     try {
       const duration = durationToMs(item.schedule.estimatedDuration);
@@ -34,6 +43,34 @@ const effectiveItemDurationMs = (item: UniversalItem): number => {
   const end = item.schedule?.endAt ? Date.parse(item.schedule.endAt) : Number.NaN;
   return Number.isFinite(start) && Number.isFinite(end) && end > start ? end - start : 0;
 };
+
+/** Derived completion and remaining planned time for an already-selected set of items. */
+export function calculateItemSetMetrics(items: Iterable<UniversalItem>): ItemSetMetrics {
+  let totalItems = 0;
+  let completedItems = 0;
+  let totalDurationMs = 0;
+  let completedDurationMs = 0;
+  let remainingDurationMs = 0;
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    if (item.deletedAt || item.role === 'series_template' || item.state === 'cancelled' || item.state === 'archived') continue;
+    totalItems += 1;
+    const duration = effectiveItemDurationMs(item);
+    totalDurationMs += duration;
+    if (item.state === 'done' || item.state === 'auto_closed') {
+      completedItems += 1;
+      completedDurationMs += duration;
+    } else if (item.state === 'open') remainingDurationMs += duration;
+  }
+  return {
+    totalItems,
+    completedItems,
+    completionPercent: totalDurationMs ? Math.round(completedDurationMs / totalDurationMs * 100) : 0,
+    remainingDurationMs,
+  };
+}
 
 /** Derived Project progress and time. No calculated value is persisted in the workspace. */
 export function calculateProjectMetrics(workspace: WorkspaceDocument, now = new Date()): Record<string, ProjectMetrics> {
@@ -64,6 +101,7 @@ export function calculateProjectMetrics(workspace: WorkspaceDocument, now = new 
 
 export const defaultOrganizationPreferences = (): OrganizationPreferences => ({
   areaOrder: [null], projectOrder: [null], tagOrder: [null],
+  tagAccents: {},
   priorityOrder: [{ kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null }],
 });
 
@@ -112,12 +150,13 @@ export function organizationDefinitionFor(
   return { name, createdAt, updatedAt: createdAt };
 }
 
-/** One presentation color contract for every Area and Project surface. */
-export function organizationAccentFor(workspace: WorkspaceDocument, kind: OrganizationKind, rawName: string | undefined): string | undefined {
+/** One presentation color contract for every Area, Project and Tag surface. */
+export function organizationAccentFor(workspace: WorkspaceDocument, kind: OrganizationAccentKind, rawName: string | undefined): string | undefined {
   const name = rawName?.trim();
   if (!name) return undefined;
+  if (kind === 'tag') return workspace.organizationPreferences?.tagAccents?.[name];
   const definition = kind === 'area' ? workspace.areaDefinitions[name] : workspace.projectDefinitions[name];
-  return definition?.accent ?? (kind === 'area' ? DEFAULT_AREA_ACCENT : DEFAULT_PROJECT_ACCENT);
+  return definition?.accent;
 }
 
 export function ensureAreaDefinition(
@@ -173,10 +212,12 @@ export function ensureProjectDefinition(
   return definition;
 }
 
-export function ensureTagDefinition(workspace: WorkspaceDocument, rawTag: string): string | undefined {
+export function ensureTagDefinition(workspace: WorkspaceDocument, rawTag: string, patch: { accent?: string } = {}): string | undefined {
   const tag = rawTag.trim().replace(/^#+/, '');
   if (!tag) return undefined;
   const preferences = workspace.organizationPreferences ??= defaultOrganizationPreferences();
+  preferences.tagAccents ??= {};
+  if (patch.accent) preferences.tagAccents[tag] = patch.accent;
   preferences.tagOrder = normalizedOrder(preferences.tagOrder, [...preferences.tagOrder.filter((entry): entry is string => entry !== null), tag]);
   preferences.priorityOrder = normalizedOrganizationPriorityOrder(preferences.priorityOrder, workspace);
   return tag;
@@ -271,6 +312,9 @@ export function renameTagDefinition(workspace: WorkspaceDocument, rawFrom: strin
     if (view.sortSource !== undefined) view.sortSource = replaceQuotedName(view.sortSource, from, to) ?? '';
   });
   preferences.tagOrder.forEach((tag, index) => { if (tag === from) preferences.tagOrder[index] = to; });
+  preferences.tagAccents ??= {};
+  if (preferences.tagAccents[from]) preferences.tagAccents[to] = preferences.tagAccents[from]!;
+  delete preferences.tagAccents[from];
   preferences.priorityOrder.forEach((entry) => { if (entry.kind === 'tag' && entry.name === from) entry.name = to; });
   workspace.updatedAt = now.toISOString();
   return true;

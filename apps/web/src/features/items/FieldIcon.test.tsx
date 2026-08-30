@@ -8,6 +8,7 @@ describe('field icons', () => {
     expect(fieldIconName('schedule.startAt')).toBe('start');
     expect(fieldIconName('schedule.dueAt')).toBe('due');
     expect(fieldIconName('tags')).toBe('tag');
+    expect(fieldIconName('tag')).toBe('tag');
     expect(fieldIconName('recurrence.rrule')).toBe('repeat');
     expect(fieldIconName('recurrence.anchor')).toBe('start');
     expect(fieldIconName('recurrence.closeAt')).toBe('end');

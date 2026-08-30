@@ -102,8 +102,8 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
   const help = page.locator('details.install-guide');
   await expect(help).toHaveCount(1);
   await expect(help).not.toHaveAttribute('open', '');
-  await expect(help.locator('summary')).toHaveText('Help');
-  await help.locator('summary').click();
+  await expect(help.locator(':scope > summary')).toHaveText('Help');
+  await help.locator(':scope > summary').click();
   await expect(page.getByRole('heading', { name: 'Decrypt any UTM backup' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Install on your phone' })).toBeVisible();
   await expect(page.getByRole('heading', { name: /Troubleshooting log/ })).toBeVisible();
@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.20\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.80\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -120,19 +120,19 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.60.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.80.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 });
 
-test('archives Calendar and Automations while marking All items as beta', async ({ page }) => {
+test('keeps Calendar and Automations archived without beta navigation labels', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Beta labels');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  await expect(page.locator('.sidebar .nav-beta')).toHaveText(['Beta']);
+  await expect(page.locator('.sidebar .nav-beta')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Calendar', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Automations', exact: true })).toHaveCount(0);
 });
@@ -145,14 +145,137 @@ test('creates and manually orders reusable tags from PARA', async ({ page }) => 
   await goToPara(page);
   await page.getByRole('textbox', { name: 'New tag', exact: true }).fill('#urgent');
   await page.getByRole('button', { name: 'Add Tag' }).click();
-  await expect(page.locator('.organization-tag-catalog .organization-tag-entry').filter({ hasText: '#urgent' })).toBeVisible();
+  await expect(page.locator('.organization-tag-catalog .organization-tag-entry').filter({ hasText: 'urgent' })).toBeVisible();
   await page.getByRole('textbox', { name: 'New tag', exact: true }).fill('#someday');
   await page.getByRole('button', { name: 'Add Tag' }).click();
-  await expect(page.locator('.organization-tag-catalog .organization-tag-entry').filter({ hasText: '#someday' })).toBeVisible();
+  await expect(page.locator('.organization-tag-catalog .organization-tag-entry').filter({ hasText: 'someday' })).toBeVisible();
   const tagCatalog = page.locator('.organization-tag-catalog');
   await expect(tagCatalog.getByRole('button', { name: 'Reorder No Tags' })).toBeVisible();
   await expect(tagCatalog.getByRole('button', { name: 'Reorder Tag urgent' })).toBeVisible();
   await expect(page.getByText('Priority 0', { exact: true })).toHaveCount(0);
+
+  await tagCatalog.getByRole('button', { name: 'urgent', exact: true }).click();
+  await expect(page.locator('.organization-detail-header').getByRole('heading', { name: 'urgent', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Rename Tag urgent')).toBeVisible();
+  const color = page.getByLabel('Color for Tag urgent');
+  await expect(color).toBeVisible();
+  await color.fill('#8b5cf6');
+  await page.getByRole('button', { name: 'Pin #urgent to Home' }).click();
+  await page.getByLabel('Rename Tag urgent').click();
+  const renamedTag = page.getByLabel('New name for Tag urgent');
+  await renamedTag.fill('#focus');
+  await page.locator('.organization-detail-header').getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('.organization-detail-header').getByRole('heading', { name: 'focus', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Color for Tag focus')).toHaveValue('#8b5cf6');
+  await expect(page.getByRole('button', { name: 'Unpin #focus from Home' })).toHaveAttribute('aria-pressed', 'true');
+
+  const quickAdd = page.getByLabel('Quick add item to #focus');
+  await quickAdd.fill('Tagged task');
+  await quickAdd.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+  await expect(page.getByLabel('Title', { exact: true })).toBeFocused();
+  await page.getByLabel('Title', { exact: true }).press('Enter');
+  await expect(page.locator('.organization-detail-page .item-title').filter({ hasText: 'Tagged task' })).toBeVisible();
+
+  await goHome(page);
+  await expect(page.locator('.views-stack').getByRole('heading', { name: '#focus', exact: true })).toBeVisible();
+});
+
+test('quick-captures from PARA and toggles the Project view on Home', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('PARA detail pages');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await goToPara(page);
+  await page.getByLabel('New Area').fill('Work');
+  await page.getByRole('button', { name: 'Add Area' }).click();
+  const workGroup = page.locator('.organization-area-group').filter({ hasText: 'Work' });
+  await workGroup.evaluate((element: HTMLDetailsElement) => { element.open = true; });
+  await workGroup.getByLabel('New Project in Work').fill('Launch');
+  await workGroup.getByRole('button', { name: 'Add Project' }).click();
+
+  await page.locator('.organization-area-groups').getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(page.locator('.organization-detail-header').getByRole('heading', { name: 'Work' })).toBeVisible();
+  await expect(page.getByLabel('Rename Area Work')).toBeVisible();
+  await expect(page.getByLabel('Color for Area Work')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No Project' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^\+ Add item/ })).toHaveCount(0);
+  await expect(page.locator('.organization-page-export').getByRole('button', { name: 'Export PARA' })).toBeVisible();
+  await expect(page.locator('.page-title').getByRole('button', { name: 'Export PARA' })).toHaveCount(0);
+
+  await page.locator('.organization-scoped-project-controls').getByRole('button', { name: 'Launch', exact: true }).click();
+  await expect(page.locator('.organization-detail-header').getByRole('heading', { name: 'Launch' })).toBeVisible();
+  await expect(page.getByLabel('Rename Project Launch')).toBeVisible();
+  await expect(page.getByLabel('Color for Project Launch')).toBeVisible();
+  await expect(page.getByText('Export…', { exact: true })).toHaveCount(0);
+  const quickAdd = page.getByLabel('Quick add item to launch');
+  await quickAdd.fill('Launch checklist');
+  await quickAdd.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+  const title = page.getByLabel('Title', { exact: true });
+  await expect(title).toHaveValue('Launch checklist');
+  await expect(title).toBeFocused();
+  await title.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
+  await expect(page.locator('.organization-detail-page .item-title').filter({ hasText: 'Launch checklist' })).toBeVisible();
+
+  await quickAdd.fill('Keep editing');
+  await quickAdd.press('Enter');
+  await page.locator('.editor-scroll > details > summary').filter({ hasText: 'Description' }).click();
+  const description = page.locator('.description-section textarea');
+  await description.fill('Line one');
+  await description.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+  await expect(description).toHaveValue('Line one\n');
+  await page.getByRole('button', { name: 'Save item' }).click();
+
+  const pin = page.getByRole('button', { name: 'Pin Launch to Home' });
+  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+  await pin.click();
+  await expect(page.getByRole('button', { name: 'Unpin Launch from Home' })).toHaveAttribute('aria-pressed', 'true');
+
+  await goHome(page);
+  await expect(page.locator('.views-stack').getByRole('heading', { name: 'Launch', exact: true })).toBeVisible();
+
+  await goToPara(page);
+  await page.locator('.organization-area-groups').getByRole('button', { name: 'Work', exact: true }).click();
+  await page.locator('.organization-scoped-project-controls').getByRole('button', { name: 'Launch', exact: true }).click();
+  await page.getByRole('button', { name: 'Unpin Launch from Home' }).click();
+  await goHome(page);
+  await expect(page.locator('.views-stack').getByRole('heading', { name: 'Launch', exact: true })).toHaveCount(0);
+});
+
+test('shows compact completion and remaining duration summaries on saved views and All items', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('View metrics');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+
+  for (const title of ['Open work', 'Finished work']) {
+    const capture = page.getByPlaceholder('Add new item');
+    await capture.fill(title);
+    await capture.press('Enter');
+    const editorTitle = page.getByLabel('Title', { exact: true });
+    await expect(editorTitle).toBeFocused();
+    await openEditorSection(page, 'Dates & time');
+    await page.getByLabel('Duration preset').selectOption(title === 'Open work' ? '1h' : '10');
+    await page.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
+  }
+
+  const allView = page.locator('.view-section').filter({ has: page.getByRole('heading', { name: 'All items', exact: true }) });
+  await allView.locator('.item-card').filter({ hasText: 'Finished work' }).getByRole('button', { name: 'Complete item' }).click();
+  const savedSummary = allView.locator('.view-metrics-summary');
+  await expect(savedSummary).toHaveText('14% · 1h');
+  await expect(allView.getByRole('button', { name: /^Collapse All items/ })).toHaveAttribute('aria-label', /14 percent completed.*1 hour remaining/);
+  await allView.getByRole('button', { name: /^Collapse All items/ }).click();
+  await expect(savedSummary).toBeVisible();
+  await expect(allView.locator('.item-card')).toBeHidden();
+
+  await goToAllItems(page);
+  await expect(page.locator('.all-items-toolbar .view-metrics-summary')).toHaveText('14% · 1h');
+  await expect(page.locator('.all-items-toolbar .view-metrics-summary')).toHaveAttribute('aria-label', /14 percent completed.*1 hour remaining/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 test('create, lock, unlock and edit a universal item', async ({ page }) => {
@@ -181,9 +304,8 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(scheduleSection).toHaveCSS('font-weight', '550');
   await openEditorSection(page, 'Dates & time');
   await expect(page.getByLabel('Event opens', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Event ends', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('');
-  await expect(page.getByLabel('Event ends', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Event ends', { exact: true })).toHaveCount(0);
   await expect(page.locator('input[aria-label="Due / Active range ends"]')).toBeVisible();
   await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue('');
   await expect(page.getByLabel('Available to work from', { exact: true })).toHaveCount(0);
@@ -264,7 +386,7 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await goToSettings(page);
 
   const cards = page.locator('.settings-page-shell .settings-card');
-  await expect(cards).toHaveCount(6);
+  await expect(cards).toHaveCount(7);
   const boxes = await cards.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { left: box.left, right: box.right };

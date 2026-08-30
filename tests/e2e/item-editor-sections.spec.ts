@@ -24,7 +24,7 @@ async function goTo(page: Page, name: 'Home' | 'Settings' | 'PARA') {
 }
 
 async function openArea(page: Page, name: string) {
-  const group = page.locator('.organization-area-group').filter({ has: page.getByRole('heading', { name, exact: true }) });
+  const group = page.locator('.organization-area-group').filter({ has: page.getByRole('button', { name, exact: true }) });
   if (!await group.evaluate((element) => (element as HTMLDetailsElement).open)) await group.locator(':scope > summary').click();
   return group;
 }
@@ -82,6 +82,28 @@ test('template toggle uses the shared checkbox without changing template semanti
   await expect(picker.getByRole('button', { name: 'Reusable template' })).toBeVisible();
 });
 
+test('assigns ten minutes when Event opens or Due is added to an empty schedule', async ({ page }) => {
+  await createWorkspace(page);
+  await page.getByPlaceholder('Add new item').fill('Short event');
+  await page.getByPlaceholder('Add new item').press('Enter');
+  const dates = await openSection(page, 'Dates & time');
+  await expect(dates.getByLabel('Calendar duration amount')).toHaveValue('');
+  await dates.getByLabel('Event opens', { exact: true }).fill('2026-09-01T10:00');
+  await expect(dates.getByLabel('Calendar duration amount')).toHaveValue('10');
+  await expect(dates.getByLabel('Calendar duration unit')).toHaveValue('minutes');
+  await expect(dates.getByLabel('Event ends', { exact: true })).toHaveValue('2026-09-01T10:10');
+
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByPlaceholder('Add new item').fill('Short deadline');
+  await page.getByPlaceholder('Add new item').press('Enter');
+  const dueDates = await openSection(page, 'Dates & time');
+  await expect(dueDates.getByLabel('Calendar duration amount')).toHaveValue('');
+  await dueDates.getByLabel('Due / Active range ends', { exact: true }).fill('2026-09-02T12:00');
+  await expect(dueDates.getByLabel('Calendar duration amount')).toHaveValue('10');
+  await expect(dueDates.getByLabel('Calendar duration unit')).toHaveValue('minutes');
+  await expect(dueDates.getByLabel('Event ends', { exact: true })).toHaveCount(0);
+});
+
 test('related PARA suggestions support many-to-many selection and item conversion', async ({ page }) => {
   await createWorkspace(page);
   await goTo(page, 'PARA');
@@ -99,6 +121,8 @@ test('related PARA suggestions support many-to-many selection and item conversio
   await page.getByPlaceholder('Add new item').fill('Connected item');
   await page.getByPlaceholder('Add new item').press('Enter');
   const organization = await openSection(page, 'Organization');
+  const projectPicker = organization.locator('details.organization-token-picker').filter({ hasText: 'Choose existing projects' });
+  await projectPicker.locator(':scope > summary').click();
   const launchSuggestion = organization.locator('[aria-label="Projects suggestions"] button').filter({ hasText: 'Launch' });
   await expect(launchSuggestion).toContainText('In: Work');
   await launchSuggestion.click();
@@ -107,13 +131,16 @@ test('related PARA suggestions support many-to-many selection and item conversio
 
   await organization.getByRole('button', { name: 'Remove Area Work' }).click();
   await expect(organization.getByRole('button', { name: 'Remove Project Launch' })).toBeVisible();
+  const areaPicker = organization.locator('details.organization-token-picker').filter({ hasText: 'Choose existing areas' });
+  await areaPicker.locator(':scope > summary').click();
   await organization.locator('[aria-label="Areas suggestions"] button').filter({ hasText: 'Work' }).click();
   await organization.getByRole('button', { name: 'Convert item to Project' }).click();
   await page.getByRole('button', { name: 'Save item' }).click();
 
   await goTo(page, 'PARA');
   const reopenedWork = await openArea(page, 'Work');
-  await expect(reopenedWork.getByText('Connected item', { exact: true })).toBeVisible();
+  await reopenedWork.getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(page.locator('.organization-detail-page .item-title').filter({ hasText: 'Connected item' }).first()).toBeVisible();
 });
 
 test('Projects can be reordered directly inside their Area', async ({ page }) => {
@@ -124,7 +151,7 @@ test('Projects can be reordered directly inside their Area', async ({ page }) =>
   await page.getByLabel('New Area', { exact: true }).fill('Personal');
   await page.getByLabel('New Area', { exact: true }).press('Enter');
 
-  const areaHeadings = page.locator('.organization-area-group > summary h3');
+  const areaHeadings = page.locator('.organization-area-group > summary .organization-area-name');
   await expect(areaHeadings).toHaveText(['No Area', 'Work', 'Personal']);
   await page.getByRole('button', { name: 'Reorder Area Personal' }).press('ArrowUp');
   await expect(areaHeadings).toHaveText(['No Area', 'Personal', 'Work']);
@@ -136,7 +163,7 @@ test('Projects can be reordered directly inside their Area', async ({ page }) =>
   await projectInput.fill('Beta');
   await projectInput.press('Enter');
 
-  const projectNames = workGroup.locator('.organization-project-row > strong');
+  const projectNames = workGroup.locator('.organization-project-row > .organization-project-name');
   await expect(projectNames).toHaveText(['Alpha', 'Beta']);
   await workGroup.getByRole('button', { name: 'Reorder Project Alpha' }).press('ArrowDown');
   await expect(projectNames).toHaveText(['Beta', 'Alpha']);
@@ -160,9 +187,10 @@ test('Unified priority mirrors Project links to several Areas and keeps occurren
   const workGroup = await openArea(page, 'Work');
   await workGroup.getByLabel('New Project in Work').fill('Shared');
   await workGroup.getByLabel('New Project in Work').press('Enter');
-  const workProject = workGroup.locator('.organization-project-row').filter({ has: page.getByText('Shared', { exact: true }) });
-  await workProject.getByLabel('Add Area to Shared').selectOption('Personal');
-  await workProject.getByRole('button', { name: 'Add', exact: true }).click();
+  await workGroup.getByRole('button', { name: 'Shared', exact: true }).click();
+  await page.getByLabel('Add Area to Shared').selectOption('Personal');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('button', { name: '‹ PARA' }).click();
 
   const personalGroup = await openArea(page, 'Personal');
   await expect(personalGroup.getByText('Shared', { exact: true })).toBeVisible();
@@ -170,10 +198,13 @@ test('Unified priority mirrors Project links to several Areas and keeps occurren
   const personalOccurrence = page.getByRole('button', { name: 'Reorder Project Shared in Personal' });
   await expect(personalOccurrence).toBeVisible();
   await personalOccurrence.press('Home');
-  await expect(page.locator('.organization-priority-list > .organization-priority-row').first().getByRole('button')).toHaveAttribute('aria-label', 'Reorder Project Shared in Personal');
+  await expect(page.locator('.organization-priority-list > .organization-priority-row').first().getByRole('button', { name: 'Reorder Project Shared in Personal' })).toBeVisible();
 
-  await personalGroup.getByRole('button', { name: 'Remove Shared from Personal' }).click();
-  await expect(personalGroup.getByText('Shared', { exact: true })).toHaveCount(0);
+  await personalGroup.getByRole('button', { name: 'Shared', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove Shared from Personal' }).click();
+  await page.getByRole('button', { name: '‹ PARA' }).click();
+  const reopenedPersonal = await openArea(page, 'Personal');
+  await expect(reopenedPersonal.getByText('Shared', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reorder Project Shared in Personal' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reorder Project Shared in Work' })).toHaveCount(1);
 });

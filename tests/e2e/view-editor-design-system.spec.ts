@@ -64,6 +64,34 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
   if ((page.viewportSize()?.width ?? 0) > 620) await expect(view.getByRole('button', { name: /^Edit / })).toBeFocused();
 });
 
+test('builds reusable schedule periods with tomorrow, custom dates and overdue', async ({ page }) => {
+  await createWorkspace(page);
+  await page.getByRole('button', { name: 'New view' }).click();
+  const visual = await openSection(page, 'Visual setup');
+  await visual.getByRole('button', { name: '+ Add time period' }).click();
+  const row = visual.locator('.visual-condition-row').last();
+  await expect(row.getByRole('combobox', { name: 'Property' })).toHaveValue('schedulePeriod');
+  await row.getByRole('combobox', { name: 'Schedule period' }).selectOption('tomorrow');
+  await row.getByRole('checkbox', { name: 'Include overdue' }).check();
+  await row.getByRole('checkbox', { name: 'Event opens → Event ends overlaps period' }).check();
+  await openSection(page, 'Advanced filter code');
+  await expect(page.getByLabel('Advanced filter code')).toHaveValue(/scheduleInPeriod\("tomorrow", "event_open,active,due,event", true, 7, "", ""\)/);
+
+  await openSection(page, 'Visual setup');
+  await row.getByRole('combobox', { name: 'Schedule period' }).selectOption('custom');
+  await row.getByLabel('Custom period starts').fill('2026-09-10');
+  await row.getByLabel('Custom period ends').fill('2026-09-14');
+  await openSection(page, 'Advanced filter code');
+  await expect(page.getByLabel('Advanced filter code')).toHaveValue(/scheduleInPeriod\("custom", "event_open,active,due,event", true, 7, "2026-09-10", "2026-09-14"\)/);
+
+  await page.getByRole('button', { name: 'Save view' }).click();
+  const view = page.locator('.view-section').filter({ hasText: 'New view' });
+  await view.getByRole('button', { name: /^Edit / }).click();
+  await openSection(page, 'Visual setup');
+  await expect(page.getByRole('combobox', { name: 'Schedule period' })).toHaveValue('custom');
+  await expect(page.getByRole('checkbox', { name: 'Include overdue' })).toBeChecked();
+});
+
 test('view ordering uses drag handles and a keyboard alternative', async ({ page }) => {
   await createWorkspace(page);
   await page.getByRole('button', { name: 'New view' }).click();

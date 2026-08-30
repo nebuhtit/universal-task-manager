@@ -10,7 +10,7 @@ import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/p
 import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
-import { effectiveScheduleDuration, parseFriendlyDuration, scheduleWithDuration, scheduleWithEnd, scheduleWithStart, type FriendlyDurationUnit } from '../../../utils/durations';
+import { effectiveScheduleDuration, parseFriendlyDuration, scheduleWithDue, scheduleWithDuration, scheduleWithEnd, scheduleWithStart, type FriendlyDurationUnit } from '../../../utils/durations';
 import { inferredPreset, priorityNames, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
@@ -45,7 +45,7 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   return <Field label={<FieldIconLabel path={iconPath} label={label} />} optional><div className="organization-token-field">
     {values.length > 0 && <div className="organization-token-values">{values.map((value) => <Button size="compact" variant="ghost" key={value} aria-label={`Remove ${label.slice(0, -1)} ${value}`} onClick={() => onRemove(value)}><span style={colorForValue?.(value) ? { color: colorForValue(value) } : undefined}>{label !== 'Tags' && <FieldIcon path={iconPath} label={label} />}{label === 'Tags' ? '#' : ''}{value}</span><CloseIcon /></Button>)}</div>}
     <Input aria-label={`Add ${label.slice(0, -1)}`} value={draft} onChange={(event) => onDraft(event.target.value)} onKeyDown={keyDown} placeholder={placeholder} />
-    {suggestions.length > 0 && (label === 'Areas' || label === 'Projects') ? <details className="organization-token-picker"><summary><FieldIcon path={iconPath} label={label} />Choose existing {label.toLowerCase()}…</summary><div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{suggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span style={colorForValue?.(suggestion.value) ? { color: colorForValue(suggestion.value) } : undefined}>{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div></details> : suggestions.length > 0 && <div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{suggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span>{label === 'Tags' ? '#' : ''}{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div>}
+    {suggestions.length > 0 && (label === 'Areas' || label === 'Projects') ? <details className="organization-token-picker"><summary><FieldIcon path={iconPath} label={label} />Choose existing {label.toLowerCase()}…</summary><div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{suggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span style={colorForValue?.(suggestion.value) ? { color: colorForValue(suggestion.value) } : undefined}>{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div></details> : suggestions.length > 0 && <div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{suggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span style={colorForValue?.(suggestion.value) ? { color: colorForValue(suggestion.value) } : undefined}>{label === 'Tags' ? '#' : ''}{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div>}
   </div></Field>;
 }
 
@@ -69,11 +69,12 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const suppressFocusRestore = useRef(false);
-  // The global quick-capture field deliberately offers one fast second Enter.
+  // Quick-capture fields deliberately offer one fast second Enter.
   // As soon as the person explores another editor control, saving becomes an
   // explicit action so Enter can safely be used for tags and other fields.
   const quickTitleSaveAllowed = useRef(isNew);
-  const retainedQuickCaptureFocus = useRef(typeof document !== 'undefined' && Boolean(document.activeElement?.closest('.quick-capture'))).current;
+  const quickTitleWasFocused = useRef(false);
+  const retainedQuickCaptureFocus = useRef(typeof document !== 'undefined' && Boolean(document.activeElement?.closest('[data-quick-capture]'))).current;
   const templates = Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.extensions?.['utm:template'] === true && candidate.id !== item.id);
   const focusTitleOnOpen = typeof window !== 'undefined' && window.matchMedia('(min-width: 621px)').matches;
   // Parent links are stored on the parent item (parent -> child). Derive the
@@ -94,14 +95,9 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     Object.entries(patch).forEach(([key, value]) => { if (value === undefined) delete next[key]; else next[key] = value; });
     return next as unknown as UniversalItem;
   });
-  const patchSchedule = (patch: { [Key in keyof Schedule]?: Schedule[Key] | undefined }) => setItem((current) => {
-    const schedule = { timezone: current.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...current.schedule } as Record<string, unknown>;
-    Object.entries(patch).forEach(([key, value]) => { if (value === undefined) delete schedule[key]; else schedule[key] = value; });
-    return { ...current, schedule: schedule as unknown as Schedule };
-  });
   const patchRecurrence = (patch: Partial<NonNullable<UniversalItem['recurrence']>>) => setItem((current) => ({ ...current, recurrence: {
     rrule: current.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1', rdates: current.recurrence?.rdates ?? [], exdates: current.recurrence?.exdates ?? [],
-    timezone: current.recurrence?.timezone ?? current.schedule?.timezone ?? 'UTC', activationOffset: current.recurrence?.activationOffset ?? 'P7D',
+    timezone: current.recurrence?.timezone ?? current.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, activationOffset: current.recurrence?.activationOffset ?? 'P7D',
     closeAt: current.recurrence?.closeAt ?? 'next_activation', anchor: current.recurrence?.anchor ?? 'schedule', autoRenew: current.recurrence?.autoRenew ?? true, ...patch,
   } }));
   const rruleMap = () => new Map((item.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1').split(';').filter(Boolean).map((part) => { const [key, ...rest] = part.split('='); return [key!.trim().toUpperCase(), rest.join('=').trim()]; }));
@@ -131,6 +127,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => scheduleWithDuration(schedule, amount === undefined ? undefined : { amount: Math.max(1, amount), unit }));
   const patchScheduledStart = (value?: string) => transformSchedule((schedule) => scheduleWithStart(schedule, value));
   const patchScheduledEnd = (value?: string) => transformSchedule((schedule) => scheduleWithEnd(schedule, value));
+  const patchScheduledDue = (value?: string) => transformSchedule((schedule) => scheduleWithDue(schedule, value));
   const applyDurationPreset = (preset: string) => {
     if (preset === '1h') patchScheduledDuration(1, 'hours');
     else if (preset === '2h' || preset === '3h' || preset === '5h') patchScheduledDuration(Number(preset.slice(0, -1)), 'hours');
@@ -247,7 +244,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     const saveFromRetainedMobileKeyboard = (event: KeyboardEvent) => {
       if (event.key !== 'Enter' || event.isComposing) return;
       const target = event.target;
-      if (!quickTitleSaveAllowed.current || !item.title.trim() || !(target instanceof HTMLInputElement) || !target.closest('.quick-capture')) return;
+      if (!quickTitleSaveAllowed.current || !item.title.trim() || !(target instanceof HTMLInputElement) || !target.closest('[data-quick-capture]')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       quickTitleSaveAllowed.current = false;
@@ -284,7 +281,8 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
 
   return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <button className="danger" onClick={() => onDelete(item)}>Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
     <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
-      if (event.target !== titleInputRef.current) quickTitleSaveAllowed.current = false;
+      if (event.target === titleInputRef.current) quickTitleWasFocused.current = true;
+      else if (quickTitleWasFocused.current) quickTitleSaveAllowed.current = false;
     }} onKeyDown={(event) => {
       if (event.key !== 'Enter' || event.defaultPrevented || event.nativeEvent.isComposing) return;
       if (!quickTitleSaveAllowed.current || event.target !== titleInputRef.current || !item.title.trim()) return;
@@ -294,7 +292,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     }}>
         <label className="item-title-field"><FieldIconLabel path="title" label="Title" /><input ref={titleInputRef} autoFocus={focusTitleOnOpen} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
         {isNew && templates.length > 0 && <details className="template-picker"><summary><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></summary><div className="details-body"><p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>{templates.map((template) => <button type="button" className="template-option" key={template.id} onClick={() => applyTemplate(template)}>{template.title || 'Untitled template'}</button>)}</div></details>}
-        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} patchSchedule={patchSchedule} {...(scheduledDuration ? { scheduledDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} applyDurationPreset={applyDurationPreset}>
+        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           <details><summary><FieldIconLabel path="habit.completedDates" label="Progress & habit" /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">
@@ -314,7 +312,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
             <Field label="Task list" optional><Select aria-label="Choose existing Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value || undefined })}><option value="">No list</option>{orderedListNames(workspace).map((name) => <option value={name} key={name}>{name}</option>)}</Select><Input aria-label="Create Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value.trim() || undefined })} placeholder="Or create a new list" /></Field>
             <Field label="Priority"><Select aria-label="Priority" value={item.priority ?? 0} onChange={(event) => patchItem({ priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{([0, 1, 2, 3, 4] as NonNullable<UniversalItem['priority']>[]).map((priority) => <option key={priority} value={priority}>{priority ? `${priority} — ${priorityNames[priority]}` : 'None'}</option>)}</Select></Field>
           </div>
-          <TokenField label="Tags" values={selectedTags} draft={tagDraft} suggestions={collectedTags.map((value) => ({ value }))} placeholder="Add a tag and press Enter" onDraft={setTagDraft} onAdd={(tag) => { if (!selectedTags.includes(tag)) setTags([...selectedTags, tag].join(', ')); }} onRemove={(tag) => { if (selectedTags.includes(tag)) toggleTag(tag); }} />
+          <TokenField label="Tags" values={selectedTags} draft={tagDraft} suggestions={collectedTags.map((value) => ({ value }))} placeholder="Add a tag and press Enter" colorForValue={(value) => organizationAccentFor(workspace, 'tag', value)} onDraft={setTagDraft} onAdd={(tag) => { if (!selectedTags.includes(tag)) setTags([...selectedTags, tag].join(', ')); }} onRemove={(tag) => { if (selectedTags.includes(tag)) toggleTag(tag); }} />
           <div className="organization-convert"><Button size="compact" onClick={convertItemToProject} disabled={!item.title.trim() || convertedProject === item.title.trim()}>{convertedProject === item.title.trim() ? 'Item will be kept in this Project' : 'Convert item to Project'}</Button></div>
         </ItemSection>
 

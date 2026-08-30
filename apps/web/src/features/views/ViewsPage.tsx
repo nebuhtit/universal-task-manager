@@ -18,7 +18,7 @@ import { SavedViewSection } from './SavedViewSection';
 import { boardSettingsFor, defaultBoardStates, MANUAL_ORDER_EXTENSION, manualOrderFor, mergeManualOrder, type BoardSettings } from './viewSelectors';
 import { exampleViewFieldValue, viewFieldGroups, viewFieldLabel, viewFieldOptions } from './fieldCatalog';
 import { creationDefaultFieldOptions, defaultValueForPath } from './creationDefaults';
-import { parseVisualRows, serializeVisualRows, toSqlExpression, visualFieldKinds, visualOperators, visualOptions, type VisualConditionRow } from './visualFilterModel';
+import { defaultSchedulePeriodValue, parseSchedulePeriodValue, parseVisualRows, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKinds, visualOperators, visualOptions, type SchedulePeriodValue, type VisualConditionRow } from './visualFilterModel';
 import { DisplayedFieldsEditor } from './DisplayedFieldsEditor';
 import { ViewSortingEditor } from './ViewSortingEditor';
 import { ViewPortabilityEditor } from './ViewPortabilityEditor';
@@ -44,6 +44,32 @@ const viewAccentOptions = [
   { value: '#147a55', label: 'Mint' }, { value: '#007c91', label: 'Cyan' }, { value: '#4254a6', label: 'Indigo' },
   { value: '#8d3f78', label: 'Plum' }, { value: '#5d6470', label: 'Slate' },
 ] as const;
+
+const scheduleSourceOptions: Array<{ value: SchedulePeriodValue['sources'][number]; label: string }> = [
+  { value: 'event_open', label: 'Event opens in period' },
+  { value: 'event', label: 'Event opens → Event ends overlaps period' },
+  { value: 'active', label: 'Event opens → Due overlaps period' },
+  { value: 'due', label: 'Due in period' },
+];
+
+function SchedulePeriodEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const current = parseSchedulePeriodValue(value);
+  const update = (patch: Partial<SchedulePeriodValue>) => onChange(JSON.stringify({ ...current, ...patch }));
+  const toggleSource = (source: SchedulePeriodValue['sources'][number], checked: boolean) => {
+    const sources = checked ? [...new Set([...current.sources, source])] : current.sources.filter((candidate) => candidate !== source);
+    if (sources.length) update({ sources });
+  };
+  return <div className="schedule-period-editor">
+    <Select aria-label="Schedule period" value={current.period} onChange={(event) => update({ period: event.target.value as SchedulePeriodValue['period'] })}>
+      <option value="today">Today</option><option value="tomorrow">Tomorrow</option><option value="this_week">This week</option><option value="next_week">Next week</option><option value="next_days">Next N days</option><option value="custom">Custom period</option>
+    </Select>
+    {current.period === 'next_days' && <Input aria-label="Number of days" type="number" min={1} value={current.nextDays} onChange={(event) => update({ nextDays: Math.max(1, Number(event.target.value) || 1) })} />}
+    {current.period === 'custom' && <div className="schedule-custom-period"><Input aria-label="Custom period starts" type="date" value={current.customStart} onChange={(event) => update({ customStart: event.target.value })} /><Input aria-label="Custom period ends" type="date" value={current.customEnd} onChange={(event) => update({ customEnd: event.target.value })} /></div>}
+    <div className="schedule-period-sources" aria-label="Schedule dates to match">{scheduleSourceOptions.map((option) => <Checkbox key={option.value} checked={current.sources.includes(option.value)} onChange={(event) => toggleSource(option.value, event.target.checked)} label={option.label} />)}</div>
+    <Checkbox checked={current.includeOverdue} onChange={(event) => update({ includeOverdue: event.target.checked })} label="Include overdue" />
+    <small className="field-hint">Matches any selected schedule condition. Overdue means an unfinished item whose Due is earlier than now.</small>
+  </div>;
+}
 
 export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onAddItem, onExportView, celebrationColors, createRequest = 0 }: {
   workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
@@ -154,6 +180,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setError('');
   };
   const addVisualRow = (join: 'and' | 'or') => syncRowsToDsl([...visualRows, { id: createId(), join, field: 'state', operator: '==', value: 'open' }]);
+  const addSchedulePeriodRow = () => syncRowsToDsl([...(visualDirty ? [] : visualRows), { id: createId(), join: 'and', field: schedulePeriodField, operator: 'matches', value: JSON.stringify(defaultSchedulePeriodValue()) }]);
   const startVisualRows = () => syncRowsToDsl([{ id: createId(), join: 'and', field: 'state', operator: '==', value: 'open' }]);
   const updateVisualRow = (id: string, patch: Partial<VisualConditionRow>) => {
     const rows = visualRows.map((row) => {
@@ -162,7 +189,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       if (patch.field) {
         const options = visualOperators(patch.field);
         next.operator = options.includes(next.operator) ? next.operator : options[0]!;
-        next.value = visualOptions[patch.field]?.[0] ?? '';
+        next.value = patch.field === schedulePeriodField ? JSON.stringify(defaultSchedulePeriodValue()) : visualOptions[patch.field]?.[0] ?? '';
       }
       return next;
     });
@@ -367,15 +394,15 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         <p className="builder-status">Build the filter with ordinary fields, operators and values. The result and advanced code update immediately. Active range uses Event opens through Due.</p>
         {visualRows.map((row, index) => <div className="visual-condition-row" key={row.id}>
           <Field className="condition-join" label={index === 0 ? 'Where' : 'Join'}>{index === 0 ? <span className="field-hint">First rule</span> : <Select value={row.join} onChange={(event) => updateVisualRow(row.id, { join: event.target.value as 'and' | 'or' })}><option value="and">AND</option><option value="or">OR</option></Select>}</Field>
-          <Field label="Property"><Select value={row.field} onChange={(event) => updateVisualRow(row.id, { field: event.target.value })}>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}</Select></Field>
-          <Field label="Operator"><Select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</Select></Field>
-          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptions[row.field] ? <Select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptions[row.field]!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</Select> : <Input type={row.field.startsWith('schedule.') ? 'datetime-local' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'tags' || row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'tags' || row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</Field>
+          <Field label="Property"><Select value={row.field} onChange={(event) => updateVisualRow(row.id, { field: event.target.value })}><optgroup label="Time periods"><option value={schedulePeriodField}>Schedule in period</option></optgroup>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}</Select></Field>
+          {row.field === schedulePeriodField ? <Field className="schedule-period-condition" label="Match any"><SchedulePeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</Select></Field>
+          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptions[row.field] ? <Select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptions[row.field]!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</Select> : <Input type={row.field.startsWith('schedule.') ? 'datetime-local' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'tags' || row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'tags' || row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</Field></>}
           <IconButton size="compact" variant="ghost" className="visual-condition-remove" aria-label={`Remove filter rule ${index + 1}`} onClick={() => syncRowsToDsl(visualRows.filter((entry) => entry.id !== row.id))}><CloseIcon /></IconButton>
         </div>)}
         <datalist id="view-title-values">{[...new Set(Object.values(workspace.items).map((entry) => entry.title))].map((title) => <option value={title} key={title} />)}</datalist>
         <datalist id="view-tag-values">{[...new Set(Object.values(workspace.items).flatMap((entry) => [...entry.tags, ...entry.contexts]))].sort().map((tag) => <option value={tag} key={tag} />)}</datalist>
         {visualDirty ? <p className="builder-status">This filter uses advanced code that cannot be shown as ordinary rows. Adding a visual rule replaces that code.</p> : <p className="builder-status">The visual rows and advanced filter code are synchronized.</p>}
-        <div className="builder-actions"><Button size="compact" onClick={() => visualDirty ? startVisualRows() : addVisualRow('and')}>+ Add AND rule</Button><Button size="compact" onClick={() => visualDirty ? startVisualRows() : addVisualRow('or')}>+ Add OR rule</Button></div>
+        <div className="builder-actions"><Button size="compact" onClick={addSchedulePeriodRow}>+ Add time period</Button><Button size="compact" onClick={() => visualDirty ? startVisualRows() : addVisualRow('and')}>+ Add AND rule</Button><Button size="compact" onClick={() => visualDirty ? startVisualRows() : addVisualRow('or')}>+ Add OR rule</Button></div>
       </fieldset></ViewEditorSection>
       <ViewEditorSection sectionKey="show-in-results" title="Show in results"><DisplayedFieldsEditor workspace={workspace} view={editing} onChange={setEditing} /></ViewEditorSection>
       <ViewEditorSection sectionKey="advanced-filter" title="Advanced filter code"><Field className="dsl-field" label="Advanced filter code" hint={<>Optional text form of the visual rows. SQL preview: {toSqlExpression(editing.query.source)}</>}><CodeEditor language="dsl" ariaLabel="Advanced filter code" rows={5} value={editing.query.source} onChange={(value) => { const rows = parseVisualRows(value); setEditing({ ...editing, query: { source: value } }); if (rows !== null) setVisualRows(rows); setVisualDirty(rows === null); }} /></Field></ViewEditorSection>

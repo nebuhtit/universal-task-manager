@@ -18,7 +18,7 @@ export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'activeRange' || path === 'activeDuration') return 'range';
   if (path === 'role') return 'role';
   if (path === 'priority') return 'priority';
-  if (path === 'tags') return 'tag';
+  if (path === 'tag' || path === 'tags') return 'tag';
   if (path === 'contexts') return 'context';
   if (path === 'area' || path === 'areas') return 'area';
   if (path === 'project' || path === 'projects') return 'project';
@@ -52,7 +52,7 @@ const paths: Record<FieldIconName, ReactNode> = {
   range: <><path d="M5 7V4h3M16 4h3v3M19 17v3h-3M8 20H5v-3"/><path d="M8 12h8"/></>,
   role: <><circle cx="12" cy="8" r="3"/><path d="M6 20c.5-4 2.5-6 6-6s5.5 2 6 6"/></>,
   priority: <><path d="M6 21V4"/><path d="M6 5h11l-2 4 2 4H6"/></>,
-  tag: <><path d="m4 5 7-1 9 9-7 7-9-9z"/><circle cx="9" cy="9" r="1"/></>,
+  tag: <><path d="M9 3 7 21M17 3l-2 18M4 9h16M3 15h16"/></>,
   context: <><circle cx="12" cy="10" r="3"/><path d="M12 22s7-7 7-12a7 7 0 1 0-14 0c0 5 7 12 7 12Z"/></>,
   list: <><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></>,
   calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/></>,

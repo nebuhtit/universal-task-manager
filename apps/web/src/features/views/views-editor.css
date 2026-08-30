@@ -50,6 +50,25 @@
   gap: var(--space-2);
 }
 
+.view-editor .schedule-period-condition {
+  grid-column: span 2;
+}
+
+.schedule-period-editor,
+.schedule-period-sources,
+.schedule-custom-period {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.schedule-period-sources {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.schedule-custom-period {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .view-editor .creation-default-choice {
   display: grid;
   gap: var(--space-2);
@@ -283,6 +302,15 @@
 
   .view-editor .visual-condition-row,
   .view-editor .creation-default-row {
+    grid-template-columns: 1fr;
+  }
+
+  .view-editor .schedule-period-condition {
+    grid-column: auto;
+  }
+
+  .schedule-period-sources,
+  .schedule-custom-period {
     grid-template-columns: 1fr;
   }
 

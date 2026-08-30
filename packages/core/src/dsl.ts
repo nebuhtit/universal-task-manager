@@ -129,6 +129,7 @@ export interface EvaluationContext {
   now?: Date;
   variables?: Record<string, EvalValue>;
   resolveItem?: (id: string) => UniversalItem | undefined;
+  temporalOptions?: QueryTemporalOptions;
 }
 
 export interface DueDateBuckets {
@@ -140,6 +141,8 @@ export interface DueDateBuckets {
 
 export interface QueryTemporalOptions { timeZone?: string | undefined; weekStartsOn?: 0 | 1 | undefined }
 
+type SchedulePeriod = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'next_days' | 'custom';
+
 function calendarDateKey(value: Date, timeZone?: string): string {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(value);
@@ -148,6 +151,56 @@ function calendarDateKey(value: Date, timeZone?: string): string {
   } catch {
     return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
   }
+}
+
+function shiftCalendarDateKey(key: string, days: number): string {
+  const [year, month, day] = key.split('-').map(Number);
+  const value = new Date(Date.UTC(year!, month! - 1, day!));
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function schedulePeriodBounds(period: SchedulePeriod, now: Date, options: QueryTemporalOptions, nextDays: number, customStart: string, customEnd: string): { start: string; end: string } | null {
+  const today = calendarDateKey(now, options.timeZone);
+  if (period === 'today') return { start: today, end: today };
+  if (period === 'tomorrow') { const tomorrow = shiftCalendarDateKey(today, 1); return { start: tomorrow, end: tomorrow }; }
+  if (period === 'next_days') return { start: today, end: shiftCalendarDateKey(today, Math.max(1, Math.floor(nextDays)) - 1) };
+  if (period === 'custom') return /^\d{4}-\d{2}-\d{2}$/.test(customStart) && /^\d{4}-\d{2}-\d{2}$/.test(customEnd) && customStart <= customEnd ? { start: customStart, end: customEnd } : null;
+  const [year, month, day] = today.split('-').map(Number);
+  const ordinal = new Date(Date.UTC(year!, month! - 1, day!));
+  const daysSinceWeekStart = (ordinal.getUTCDay() - (options.weekStartsOn ?? 1) + 7) % 7;
+  const thisWeekStart = shiftCalendarDateKey(today, -daysSinceWeekStart);
+  if (period === 'this_week') return { start: thisWeekStart, end: shiftCalendarDateKey(thisWeekStart, 6) };
+  if (period !== 'next_week') return null;
+  const nextWeekStart = shiftCalendarDateKey(thisWeekStart, 7);
+  return { start: nextWeekStart, end: shiftCalendarDateKey(nextWeekStart, 6) };
+}
+
+function scheduleMatchesPeriod(item: UniversalItem, now: Date, options: QueryTemporalOptions, period: SchedulePeriod, sources: string, includeOverdue: boolean, nextDays: number, customStart: string, customEnd: string): boolean {
+  const bounds = schedulePeriodBounds(period, now, options, nextDays, customStart, customEnd);
+  if (!bounds) return false;
+  const selected = new Set(sources.split(',').map((source) => source.trim()).filter(Boolean));
+  const dateKey = (value: string | undefined) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? calendarDateKey(date, options.timeZone) : null;
+  };
+  const inPeriod = (key: string | null) => Boolean(key && key >= bounds.start && key <= bounds.end);
+  const overlaps = (start: string | null, end: string | null) => Boolean(start && end && start <= end && start <= bounds.end && end >= bounds.start);
+  const startKey = dateKey(item.schedule?.startAt);
+  const endKey = dateKey(item.schedule?.endAt);
+  const dueKey = dateKey(item.schedule?.dueAt);
+  const startTime = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
+  const endTime = item.schedule?.endAt ? Date.parse(item.schedule.endAt) : Number.NaN;
+  const dueTime = item.schedule?.dueAt ? Date.parse(item.schedule.dueAt) : Number.NaN;
+  const matches = (selected.has('event_open') && inPeriod(startKey))
+    || (selected.has('event') && Number.isFinite(startTime) && Number.isFinite(endTime) && endTime >= startTime && overlaps(startKey, endKey))
+    || (selected.has('active') && Number.isFinite(startTime) && Number.isFinite(dueTime) && dueTime >= startTime && overlaps(startKey, dueKey))
+    || (selected.has('due') && inPeriod(dueKey));
+  if (matches) return true;
+  if (!includeOverdue || item.state !== 'open' || !item.schedule?.dueAt) return false;
+  const due = new Date(item.schedule.dueAt).getTime();
+  return Number.isFinite(due) && due < now.getTime();
 }
 
 /** Calendar buckets used by saved Views, evaluated in the workspace timezone. */
@@ -292,6 +345,17 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
         case 'formatDuration': return readableTimeDistance(number(args[0]));
         case 'timeUntil': return readableTimeDistance(dateDistance(args[0], now));
         case 'addDuration': return new Date(new Date(String(args[0])).getTime() + durationToMs(String(args[1] ?? ''))).toISOString();
+        case 'scheduleInPeriod': return scheduleMatchesPeriod(
+          context.item,
+          now,
+          context.temporalOptions ?? {},
+          String(args[0] ?? 'today') as SchedulePeriod,
+          String(args[1] ?? ''),
+          Boolean(args[2]),
+          Number(args[3] ?? 7),
+          String(args[4] ?? ''),
+          String(args[5] ?? ''),
+        );
         case 'item': {
           const target = context.resolveItem?.(String(args[0] ?? ''));
           return target ? getPath(target, String(args[1] ?? '')) : undefined;
@@ -333,7 +397,7 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     try {
       const relations = relationContext?.(item) ?? {};
       const dueBuckets = dueDateBuckets(item, current, temporalOptions);
-      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current }));
+      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

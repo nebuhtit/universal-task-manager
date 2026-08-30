@@ -94,3 +94,13 @@ export const scheduleWithEnd = (schedule: Schedule, endAt?: string): Schedule =>
   }
   return next;
 };
+
+export const scheduleWithDue = (schedule: Schedule, dueAt?: string): Schedule => {
+  const next = { ...schedule };
+  if (!dueAt) {
+    delete next.dueAt;
+    return next;
+  }
+  next.dueAt = dueAt;
+  return effectiveScheduleDuration(schedule) ? next : scheduleWithDuration(next, { amount: 10, unit: 'minutes' });
+};

@@ -55,7 +55,7 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
     if (activeRange || repeatFrequency !== 'WEEKLY' || !repeatDays.length) parts.delete('BYDAY'); else parts.set('BYDAY', repeatDays.join(','));
     const normalizedRecurrence: NonNullable<UniversalItem['recurrence']> = { rrule: [...parts].map(([key, value]) => `${key}=${value}`).join(';'), rdates: Array.isArray(recurrence?.rdates) ? [...recurrence.rdates] : [], exdates: Array.isArray(recurrence?.exdates) ? [...recurrence.exdates] : [], timezone: recurrence?.timezone ?? result.schedule?.timezone ?? 'UTC', activationOffset: recurrence?.activationOffset ?? 'P7D', closeAt: recurrence?.closeAt ?? 'next_activation', anchor: recurrence?.anchor ?? 'schedule', autoRenew: recurrence?.autoRenew !== false };
     result.recurrence = normalizedRecurrence;
-    result = { ...result, schedule: { ...result.schedule!, startAt: anchor } }; buildRecurrenceRule(result);
+    buildRecurrenceRule(result);
     result = makeSeries(result, normalizedRecurrence.rrule, { ...normalizedRecurrence, activationOffset: normalizedRecurrence.activationOffset ?? 'P7D' });
   } else { result.role = 'standalone'; delete result.recurrence; }
   if (result.state === 'done' || result.state === 'cancelled') result.closure = { at: result.closure?.at ?? now.toISOString(), actor: result.closure?.actor ?? 'user', reason: result.state === 'cancelled' ? 'cancelled' : 'manual' };

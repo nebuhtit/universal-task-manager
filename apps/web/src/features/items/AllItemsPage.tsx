@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { effectiveWorkspaceNow, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { calculateItemSetMetrics, effectiveWorkspaceNow, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { Button, Checkbox, Disclosure, Surface } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { formatSystemDateTime } from '../../utils/dates';
+import { ViewMetricsSummary } from '../views/ViewMetricsSummary';
 import { ItemCard } from './ItemCard';
 import { FieldIcon } from './FieldIcon';
 import { isHabitOccurrence, isItemTemplate, stateNames, viewFieldOptions } from './fieldDisplay';
@@ -95,8 +96,9 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
   const deletedItems = Object.values(workspace.items).filter((item) => Boolean(item.deletedAt));
   const fields = view.fields ?? ['title', 'state'];
   const visibleItems = Object.values(workspace.items).filter((item) => !item.deletedAt && !isItemTemplate(item) && !isHabitOccurrence(workspace, item));
+  const metrics = calculateItemSetMetrics(visibleItems);
   return <section className="page-section">
-    <header className="all-items-toolbar"><div><p className="eyebrow">EVERYTHING</p><h1>All items</h1></div><Button onClick={() => setSettingsOpen(true)}>Customize</Button></header>
+    <header className="all-items-toolbar"><div><p className="eyebrow">EVERYTHING</p><h1>All items</h1><ViewMetricsSummary metrics={metrics} language={workspace.calendarPreferences.language} /></div><Button onClick={() => setSettingsOpen(true)}>Customize</Button></header>
     <div className="all-sections">
       {(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = Object.values(workspace.items).filter((item) => item.state === state && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); const uiKey = `all:${state}`; return <details key={state} open={readUiBoolean(uiKey, state === 'open' || state === 'auto_closed')} onToggle={(event) => persistUiBoolean(uiKey, event.currentTarget.open)}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className="item-list">{items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</div></details>; })}
       <details open={readUiBoolean('all:templates', templateItems.length > 0)} onToggle={(event) => persistUiBoolean('all:templates', event.currentTarget.open)} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className="item-list">{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></details>

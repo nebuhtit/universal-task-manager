@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { applyPortableImport, buildPortableImportPreview, calculateProjectMetrics, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationAccentFor, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, serializePortablePackage } from './index.js';
+import { applyPortableImport, buildPortableImportPreview, calculateItemSetMetrics, calculateProjectMetrics, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationAccentFor, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, serializePortablePackage } from './index.js';
 
 describe('PARA organization', () => {
-  it('uses the same default colors before a custom accent is stored', () => {
+  it('uses the theme text color until a custom accent is stored', () => {
     const workspace = createWorkspace('Default colors');
-    ensureAreaDefinition(workspace, 'Work'); ensureProjectDefinition(workspace, 'Launch');
+    ensureAreaDefinition(workspace, 'Work'); ensureProjectDefinition(workspace, 'Launch'); ensureTagDefinition(workspace, 'urgent');
+    expect(organizationAccentFor(workspace, 'area', 'Work')).toBeUndefined();
+    expect(organizationAccentFor(workspace, 'project', 'Launch')).toBeUndefined();
+    expect(organizationAccentFor(workspace, 'tag', 'urgent')).toBeUndefined();
+    ensureAreaDefinition(workspace, 'Work', { accent: '#2864c7' });
+    ensureProjectDefinition(workspace, 'Launch', { accent: '#147a55' });
+    ensureTagDefinition(workspace, 'urgent', { accent: '#8b5cf6' });
     expect(organizationAccentFor(workspace, 'area', 'Work')).toBe('#2864c7');
     expect(organizationAccentFor(workspace, 'project', 'Launch')).toBe('#147a55');
+    expect(organizationAccentFor(workspace, 'tag', 'urgent')).toBe('#8b5cf6');
   });
   it('derives project progress, duration and the nearest unfinished deadline safely', () => {
     const workspace = createWorkspace('Metrics');
@@ -22,6 +29,30 @@ describe('PARA organization', () => {
       Launch: { totalItems: 3, completedItems: 1, completionPercent: 33, totalDurationMs: 105 * 60_000, completedDurationMs: 30 * 60_000, nearestDeadline: '2026-08-29T09:00:00.000Z', deadlineOverdue: true },
       Empty: { totalItems: 0, completedItems: 0, completionPercent: 0, totalDurationMs: 0, completedDurationMs: 0, deadlineOverdue: false },
     });
+  });
+
+  it('derives completion and remaining duration for an arbitrary selected item set', () => {
+    const open = createItem('Open'); open.schedule = { timezone: 'UTC', estimatedDuration: 'PT40M' };
+    const legacy = createItem('Legacy duration'); legacy.schedule = { timezone: 'UTC', startAt: '2026-08-30T10:00:00.000Z', endAt: '2026-08-30T10:25:00.000Z' };
+    const done = createItem('Done'); done.state = 'done'; done.schedule = { timezone: 'UTC', estimatedDuration: 'PT2H' };
+    const autoClosed = createItem('Auto closed'); autoClosed.state = 'auto_closed';
+    const cancelled = createItem('Cancelled'); cancelled.state = 'cancelled'; cancelled.schedule = { timezone: 'UTC', estimatedDuration: 'PT9H' };
+    const archived = createItem('Archived'); archived.state = 'archived';
+    const deleted = createItem('Deleted'); deleted.deletedAt = '2026-08-30T12:00:00.000Z';
+    const series = createItem('Series'); series.role = 'series_template';
+
+    expect(calculateItemSetMetrics([open, legacy, done, autoClosed, cancelled, archived, deleted, series, open])).toEqual({
+      totalItems: 4,
+      completedItems: 2,
+      completionPercent: 65,
+      remainingDurationMs: 65 * 60_000,
+    });
+  });
+
+  it('weights a View completion percentage by planned duration instead of item count', () => {
+    const short = createItem('Short'); short.state = 'done'; short.schedule = { timezone: 'UTC', estimatedDuration: 'PT10M' };
+    const long = createItem('Long'); long.schedule = { timezone: 'UTC', estimatedDuration: 'PT1H' };
+    expect(calculateItemSetMetrics([short, long])).toMatchObject({ totalItems: 2, completedItems: 1, completionPercent: 14, remainingDurationMs: 60 * 60_000 });
   });
 
   it('counts one shared item once inside each linked project', () => {
@@ -64,16 +95,19 @@ describe('PARA organization', () => {
     ensureAreaDefinition(workspace, 'Work');
     ensureAreaDefinition(workspace, 'Personal');
     ensureProjectDefinition(workspace, 'Launch', { areas: ['Work', 'Personal'], accent: '#2864c7' });
+    ensureTagDefinition(workspace, 'urgent', { accent: '#8b5cf6' });
     reorderOrganization(workspace, 'area', ['Work', 'Personal', null]);
     const parsed = parsePortablePackage(serializePortablePackage(createPortablePackage(workspace, { kind: 'items' }))).package;
     expect(parsed.areaDefinitions?.Work?.name).toBe('Work');
     expect(parsed.projectDefinitions?.Launch).toMatchObject({ areas: ['Work', 'Personal'], accent: '#2864c7' });
     expect(parsed.organizationPreferences?.areaOrder).toEqual(['Work', 'Personal', null]);
+    expect(parsed.organizationPreferences?.tagAccents?.urgent).toBe('#8b5cf6');
     const target = createWorkspace('Imported PARA');
     applyPortableImport(target, buildPortableImportPreview(parsed, target));
     expect(target.areaDefinitions.Work?.name).toBe('Work');
     expect(target.projectDefinitions.Launch).toMatchObject({ areas: ['Work', 'Personal'], accent: '#2864c7' });
     expect(target.organizationPreferences.areaOrder).toEqual(['Work', 'Personal', null]);
+    expect(target.organizationPreferences.tagAccents?.urgent).toBe('#8b5cf6');
   });
 
   it('migrates legacy priorities into one effective manual order', () => {
@@ -288,6 +322,7 @@ describe('PARA organization', () => {
   it('renames a Tag across items, View defaults and Unified priority', () => {
     const workspace = createWorkspace('Tag rename');
     ensureTagDefinition(workspace, 'urgent');
+    ensureTagDefinition(workspace, 'urgent', { accent: '#8b5cf6' });
     const item = createItem('Ship'); item.tags = ['urgent']; workspace.items[item.id] = item;
     workspace.views.rename = { id: 'rename', name: 'Urgent', query: { source: 'tags contains "urgent"' }, renderer: 'list', sort: [], fields: ['title'], creationDefaults: { tags: ['urgent'] } };
     expect(renameTagDefinition(workspace, 'urgent', 'now')).toBe(true);
@@ -295,5 +330,7 @@ describe('PARA organization', () => {
     expect(workspace.views.rename).toMatchObject({ creationDefaults: { tags: ['now'] } });
     expect(workspace.views.rename?.query.source).toBe('tags contains "now"');
     expect(orderedOrganizationPriorityEntries(workspace)).toContainEqual({ kind: 'tag', name: 'now' });
+    expect(organizationAccentFor(workspace, 'tag', 'now')).toBe('#8b5cf6');
+    expect(organizationAccentFor(workspace, 'tag', 'urgent')).toBeUndefined();
   });
 });

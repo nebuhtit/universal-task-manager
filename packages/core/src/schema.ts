@@ -213,6 +213,7 @@ export const portablePackageJsonSchema = {
         areaOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         projectOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         tagOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        tagAccents: { type: 'object', additionalProperties: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' } },
         priorityOrder: { type: 'array', items: organizationPriorityEntrySchema },
       },
     },
@@ -248,6 +249,7 @@ export const workspaceJsonSchema = {
         areaOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         projectOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         tagOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        tagAccents: { type: 'object', additionalProperties: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' } },
         priorityOrder: { type: 'array', items: organizationPriorityEntrySchema },
       },
     },
@@ -637,6 +639,11 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const areaOrder = normalizeOrder(rawOrganizationPreferences.areaOrder, [...areaNames], orderedLegacy([...areaNames], legacyDefinitions([...areaNames], rawAreaDefinitions), rawOrganizationPreferences.unassignedAreaPriority));
   const projectOrder = normalizeOrder(rawOrganizationPreferences.projectOrder, [...projectNames], orderedLegacy([...projectNames], legacyDefinitions([...projectNames], rawProjectDefinitions), rawOrganizationPreferences.unassignedProjectPriority));
   const tagOrder = normalizeOrder(rawOrganizationPreferences.tagOrder, tags, legacyTags);
+  const rawTagAccents = rawOrganizationPreferences.tagAccents && typeof rawOrganizationPreferences.tagAccents === 'object' && !Array.isArray(rawOrganizationPreferences.tagAccents)
+    ? rawOrganizationPreferences.tagAccents as Record<string, unknown>
+    : {};
+  const tagAccents = Object.fromEntries(Object.entries(rawTagAccents)
+    .filter(([tag, accent]) => tag.trim() && typeof accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(accent)));
   const priorityOrder: Array<{ kind: 'area' | 'project' | 'tag'; name: string | null; area?: string | null }> = [];
   for (const entry of Array.isArray(rawOrganizationPreferences.priorityOrder) ? rawOrganizationPreferences.priorityOrder : []) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
@@ -648,7 +655,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       ...(raw.kind === 'project' && raw.name !== null && Object.prototype.hasOwnProperty.call(raw, 'area') ? { area: typeof raw.area === 'string' ? raw.area.trim() || null : null } : {}),
     });
   }
-  source.organizationPreferences = { areaOrder, projectOrder, tagOrder, priorityOrder: priorityOrder.length ? priorityOrder : [
+  source.organizationPreferences = { areaOrder, projectOrder, tagOrder, tagAccents, priorityOrder: priorityOrder.length ? priorityOrder : [
     ...areaOrder.map((name) => ({ kind: 'area' as const, name })),
     ...projectOrder.map((name) => ({ kind: 'project' as const, name })),
     ...tagOrder.map((name) => ({ kind: 'tag' as const, name })),

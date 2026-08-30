@@ -65,6 +65,7 @@ export function parsePortablePackage(source: string): ParsedPortablePackage {
     areaOrder: Array.isArray(rawPreferences.areaOrder) ? rawPreferences.areaOrder : defaults.areaOrder,
     projectOrder: Array.isArray(rawPreferences.projectOrder) ? rawPreferences.projectOrder : defaults.projectOrder,
     tagOrder: Array.isArray(rawPreferences.tagOrder) ? rawPreferences.tagOrder : defaults.tagOrder,
+    tagAccents: rawPreferences.tagAccents && typeof rawPreferences.tagAccents === 'object' ? clone(rawPreferences.tagAccents) : defaults.tagAccents ?? {},
     priorityOrder: Array.isArray(rawPreferences.priorityOrder) ? rawPreferences.priorityOrder : [
       ...(Array.isArray(rawPreferences.areaOrder) ? rawPreferences.areaOrder : defaults.areaOrder).map((name) => ({ kind: 'area' as const, name })),
       ...(Array.isArray(rawPreferences.projectOrder) ? rawPreferences.projectOrder : defaults.projectOrder).map((name) => ({ kind: 'project' as const, name })),
@@ -168,6 +169,7 @@ export function applyPortableImport(workspace: WorkspaceDocument, preview: Porta
     areaOrder: [...workspace.organizationPreferences.areaOrder],
     projectOrder: [...workspace.organizationPreferences.projectOrder],
     tagOrder: [...workspace.organizationPreferences.tagOrder],
+    tagAccents: { ...(workspace.organizationPreferences.tagAccents ?? {}) },
   };
   for (const [name, definition] of Object.entries(preview.package.areaDefinitions ?? {})) workspace.areaDefinitions[name] ??= clone(definition);
   for (const [name, definition] of Object.entries(preview.package.projectDefinitions ?? {})) {
@@ -182,6 +184,7 @@ export function applyPortableImport(workspace: WorkspaceDocument, preview: Porta
   workspace.organizationPreferences.areaOrder = mergeOrder(localOrganization.areaOrder, importedOrganization.areaOrder, Object.keys(workspace.areaDefinitions));
   workspace.organizationPreferences.projectOrder = mergeOrder(localOrganization.projectOrder, importedOrganization.projectOrder, Object.keys(workspace.projectDefinitions));
   workspace.organizationPreferences.tagOrder = mergeOrder(localOrganization.tagOrder, importedOrganization.tagOrder, [...new Set([...localOrganization.tagOrder, ...importedOrganization.tagOrder].filter((tag): tag is string => tag !== null))]);
+  workspace.organizationPreferences.tagAccents = { ...(importedOrganization.tagAccents ?? {}), ...localOrganization.tagAccents };
   const priorityKey = (entry: OrganizationPreferences['priorityOrder'][number]) => JSON.stringify([entry.kind, entry.name, entry.kind === 'project' && entry.name !== null ? entry.area ?? null : undefined]);
   workspace.organizationPreferences.priorityOrder = [...workspace.organizationPreferences.priorityOrder, ...importedOrganization.priorityOrder]
     .filter((entry, index, entries) => entries.findIndex((candidate) => priorityKey(candidate) === priorityKey(entry)) === index);
