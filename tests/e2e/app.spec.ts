@@ -120,7 +120,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.80.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.82.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -193,6 +193,7 @@ test('quick-captures from PARA and toggles the Project view on Home', async ({ p
   await workGroup.evaluate((element: HTMLDetailsElement) => { element.open = true; });
   await workGroup.getByLabel('New Project in Work').fill('Launch');
   await workGroup.getByRole('button', { name: 'Add Project' }).click();
+  await expect(page.locator('.organization-page-export').getByRole('button', { name: 'Export PARA' })).toBeVisible();
 
   await page.locator('.organization-area-groups').getByRole('button', { name: 'Work', exact: true }).click();
   await expect(page.locator('.organization-detail-header').getByRole('heading', { name: 'Work' })).toBeVisible();
@@ -200,7 +201,7 @@ test('quick-captures from PARA and toggles the Project view on Home', async ({ p
   await expect(page.getByLabel('Color for Area Work')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No Project' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^\+ Add item/ })).toHaveCount(0);
-  await expect(page.locator('.organization-page-export').getByRole('button', { name: 'Export PARA' })).toBeVisible();
+  await expect(page.locator('.organization-page-export').getByRole('button', { name: 'Export PARA' })).toHaveCount(0);
   await expect(page.locator('.page-title').getByRole('button', { name: 'Export PARA' })).toHaveCount(0);
 
   await page.locator('.organization-scoped-project-controls').getByRole('button', { name: 'Launch', exact: true }).click();
@@ -359,6 +360,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(page.locator('.expanded-views-stack').locator('.view-section').filter({ hasText: 'All items' })).toBeVisible();
 
   await goToSettings(page);
+  await page.getByText('Data, notifications and application', { exact: true }).click();
   await expect(page.getByText(/^v\d+\.\d+\.\d+$/, { exact: true })).toBeVisible();
   await expect(page.getByText('Released', { exact: true })).toBeVisible();
 });
@@ -372,6 +374,7 @@ test('mobile shell stays usable at phone width', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible();
   await page.getByRole('button', { name: 'Open navigation' }).click();
   await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Settings' }).click();
+  await page.getByText('Data, notifications and application', { exact: true }).click();
   await expect(page.getByRole('button', { name: /Encrypted Transfer/ })).toBeVisible();
   await goToAllItems(page);
   await openNewItem(page);
@@ -385,6 +388,10 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await goToSettings(page);
 
+  const sections = page.locator('.settings-page-shell details.settings-disclosure');
+  await expect(sections).toHaveCount(7);
+  expect(await sections.evaluateAll((elements) => elements.every((element) => !(element as HTMLDetailsElement).open))).toBe(true);
+  await sections.evaluateAll((elements) => elements.forEach((element) => { (element as HTMLDetailsElement).open = true; }));
   const cards = page.locator('.settings-page-shell .settings-card');
   await expect(cards).toHaveCount(7);
   const boxes = await cards.evaluateAll((elements) => elements.map((element) => {
@@ -802,6 +809,9 @@ test('completion keeps an open-only view stable through the Undo window', async 
   expect(immediate.wrapper).not.toBe('rgba(0, 0, 0, 0)');
   expect(immediate.card).toBe('rgba(0, 0, 0, 0)');
   expect(immediate.toggle).not.toBe('rgba(0, 0, 0, 0)');
+  const undo = page.locator('.undo-toast');
+  await expect(undo).toBeVisible();
+  await expect(undo.locator('strong')).toHaveText('4');
   await expect(complete).toHaveAttribute('aria-label', 'Reopen item');
   await expect(complete).toHaveCSS('background-color', immediate.toggle);
   await complete.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
@@ -811,47 +821,43 @@ test('completion keeps an open-only view stable through the Undo window', async 
   expect(before).not.toBeNull(); expect(held).not.toBeNull();
   expect(Math.abs(held!.height - before!.height)).toBeLessThanOrEqual(2);
   await expect(page.getByText('Item completed', { exact: true })).toBeVisible();
-  const undoBackground = await page.locator('.undo-toast').evaluate((element) => getComputedStyle(element).backgroundColor);
+  const undoBackground = await undo.evaluate((element) => getComputedStyle(element).backgroundColor);
   expect(undoBackground).toMatch(/rgba\(|\/\s*0\./);
   expect(undoBackground).not.toBe('rgb(0, 0, 0)');
-
-  const reopen = row.locator('.state-toggle');
-  const immediateReopen = await reopen.evaluate((button) => {
-    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', button: 0 }));
-    const shell = button.closest<HTMLElement>('[data-view-item-id]');
-    const wrapper = shell?.querySelector<HTMLElement>('.reorderable-view-item');
-    const title = shell?.querySelector<HTMLElement>('.item-title');
-    return {
-      mark: button.textContent ?? '',
-      titleDecoration: title ? getComputedStyle(title).textDecorationLine : '',
-      wrapper: wrapper ? getComputedStyle(wrapper).backgroundColor : '',
-      toggle: getComputedStyle(button).backgroundColor,
-    };
-  });
-  expect(immediateReopen.mark).toBe('');
-  expect(immediateReopen.titleDecoration).toBe('none');
-  expect(immediateReopen.wrapper).toBe('rgba(0, 0, 0, 0)');
-  expect(immediateReopen.toggle).toBe('rgba(0, 0, 0, 0)');
-  await expect(reopen).toHaveAttribute('aria-label', 'Complete item');
-  await reopen.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
-  await reopen.evaluate((button: HTMLButtonElement) => button.click());
-
-  const repeat = row.locator('.state-toggle');
-  const immediateRepeat = await repeat.evaluate((button) => {
-    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', button: 0 }));
-    const title = button.closest<HTMLElement>('.item-card')?.querySelector<HTMLElement>('.item-title');
-    return { mark: button.textContent ?? '', titleDecoration: title ? getComputedStyle(title).textDecorationLine : '', toggle: getComputedStyle(button).backgroundColor };
-  });
-  expect(immediateRepeat.mark).toBe('✓');
-  expect(immediateRepeat.titleDecoration).toBe('line-through');
-  expect(immediateRepeat.toggle).toBe(immediate.toggle);
-  await expect(repeat).toHaveAttribute('aria-label', 'Reopen item');
-  await repeat.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
-  await repeat.evaluate((button: HTMLButtonElement) => button.click());
+  const undoBox = await undo.boundingBox();
+  const captureBox = await page.locator('.capture-dock').boundingBox();
+  expect(undoBox).not.toBeNull(); expect(captureBox).not.toBeNull();
+  expect(undoBox!.width).toBeLessThanOrEqual(322);
+  expect(undoBox!.y + undoBox!.height).toBeLessThan(captureBox!.y);
 
   await page.waitForTimeout(4_300);
   await expect(view.getByText('Stable row', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Item completed', { exact: true })).toHaveCount(0);
+});
+
+test('rapid touch reopen and repeat completion update in the first frame', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Rapid completion');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await page.getByPlaceholder('Add new item').fill('Rapid row');
+  await page.getByPlaceholder('Add new item').press('Enter');
+  await page.getByRole('button', { name: 'Close item editor' }).click();
+  const row = page.locator('.view-section').filter({ has: page.getByRole('heading', { name: 'All items', exact: true }) }).locator('[data-view-item-id]').filter({ hasText: 'Rapid row' });
+  const toggle = row.locator('.state-toggle');
+  const touch = async (expectedMark: string, expectedDecoration: string) => {
+    await toggle.dispatchEvent('pointerdown', { pointerType: 'touch', button: 0 });
+    await expect(toggle).toHaveText(expectedMark, { timeout: 250 });
+    await expect(row.locator('.item-title')).toHaveCSS('text-decoration-line', expectedDecoration, { timeout: 250 });
+    await toggle.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
+    await toggle.evaluate((button: HTMLButtonElement) => button.click());
+  };
+  await touch('✓', 'line-through');
+  await expect(toggle).toHaveAttribute('aria-label', 'Reopen item');
+  await touch('', 'none');
+  await expect(toggle).toHaveAttribute('aria-label', 'Complete item');
+  await touch('✓', 'line-through');
+  await expect(toggle).toHaveAttribute('aria-label', 'Reopen item');
 });
 
 test('notifications auto-hide, close individually, and remain in the bell center', async ({ page }) => {

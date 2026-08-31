@@ -1,10 +1,12 @@
 import { organizationAccentFor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { formatViewDate } from '../../utils/dates';
 import { previewCompletionSound } from '../../hooks/useUiSounds';
 import { displayViewValue, inferredPreset, priorityNames, readItemField, viewFieldLabel } from './fieldDisplay';
 import { FieldIcon } from './FieldIcon';
+
+const touchStateCommits = new Map<string, number>();
 
 export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; now?: Date; celebrating?: boolean }) {
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
@@ -14,7 +16,6 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebr
   const visiblyClosed = isHabit ? habitCompletedToday : item.state !== 'open';
   const [optimisticClosed, setOptimisticClosed] = useState<boolean | null>(null);
   const optimisticReset = useRef<number | undefined>(undefined);
-  const committedOnPointerDown = useRef(false);
   const shownClosed = optimisticClosed ?? visiblyClosed;
   const primeStateToggle = (event?: ReactPointerEvent<HTMLButtonElement>) => {
     if (event && event.pointerType === 'mouse' && event.button !== 0) return;
@@ -24,23 +25,23 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebr
     optimisticReset.current = window.setTimeout(() => setOptimisticClosed(null), 1_200);
   };
   const beginStateToggle = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (committedOnPointerDown.current) return;
     primeStateToggle(event);
     if (event.pointerType === 'mouse') return;
-    committedOnPointerDown.current = true;
+    touchStateCommits.set(item.id, performance.now() + 1_000);
     const nextState = visiblyClosed ? 'open' : 'done';
-    window.requestAnimationFrame(() => window.setTimeout(() => onState(nextState), 0));
+    onState(nextState);
   };
   const finishStateToggle = () => {
-    if (committedOnPointerDown.current) {
-      committedOnPointerDown.current = false;
+    const touchCommitUntil = touchStateCommits.get(item.id) ?? 0;
+    touchStateCommits.delete(item.id);
+    if (touchCommitUntil >= performance.now()) {
       return;
     }
     if (optimisticClosed === null) primeStateToggle();
     const nextState = visiblyClosed ? 'open' : 'done';
-    window.requestAnimationFrame(() => window.setTimeout(() => onState(nextState), 0));
+    onState(nextState);
   };
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (optimisticClosed === visiblyClosed) {
       if (optimisticReset.current) window.clearTimeout(optimisticReset.current);
       optimisticReset.current = undefined;

@@ -68,6 +68,11 @@ test('template toggle uses the shared checkbox without changing template semanti
   await page.getByPlaceholder('Add new item').fill('Reusable template');
   await page.getByPlaceholder('Add new item').press('Enter');
   const more = await openSection(page, 'More');
+  const locationSummary = more.locator('details > summary').filter({ hasText: 'Location' }).first();
+  const location = locationSummary.locator('..');
+  await expect(location).not.toHaveAttribute('open', '');
+  await locationSummary.click();
+  await expect(location.getByLabel('Location')).toBeVisible();
   const templateSummary = more.locator('details > summary').filter({ hasText: 'Template' }).first();
   const template = templateSummary.locator('..');
   if (!await template.evaluate((element) => (element as HTMLDetailsElement).open)) await templateSummary.click();

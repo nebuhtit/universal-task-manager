@@ -27,7 +27,7 @@ export const itemJsonSchema = {
     revision: { type: 'integer', minimum: 1 },
     role: { enum: ['standalone', 'series_template', 'occurrence'] },
     preset: { enum: ['task', 'event', 'habit', 'blank'] },
-    title: { type: 'string' }, bodyMarkdown: { type: 'string' },
+    title: { type: 'string' }, bodyMarkdown: { type: 'string' }, location: { type: 'string' },
     state: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
     deletedAt: { type: 'string', format: 'date-time' },
@@ -373,6 +373,7 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   item.schemaVersion = SCHEMA_VERSION;
   item.createdWithAppId ??= APP_ID; item.createdWithAppName ??= APP_NAME; item.createdWithVersion ??= APP_VERSION;
   item.revision ??= 1; item.bodyMarkdown ??= ''; item.contexts ??= []; item.tags ??= []; item.reminders ??= []; item.relations ??= []; item.attachments ??= []; item.custom ??= {};
+  if (item.location !== undefined && typeof item.location !== 'string') delete item.location;
   const stringValues = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean) : [];
   item.areas = [...new Set([...stringValues(item.areas), ...(typeof item.area === 'string' && item.area.trim() ? [item.area.trim()] : [])])];
   item.projects = [...new Set([...stringValues(item.projects), ...(typeof item.project === 'string' && item.project.trim() ? [item.project.trim()] : [])])];

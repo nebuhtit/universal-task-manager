@@ -150,7 +150,7 @@
   font-size: var(--font-size-secondary);
 }
 
-.undo-toast-stack { position: fixed; z-index: calc(var(--z-overlay) + 101); left: 50%; bottom: var(--space-5); width: min(420px, calc(100vw - var(--space-5))); display: grid; gap: var(--space-2); transform: translateX(-50%); }
+.undo-toast-stack { position: fixed; z-index: calc(var(--z-overlay) + 101); left: 50%; bottom: calc(var(--layout-capture-reserve) + var(--space-3) + env(safe-area-inset-bottom)); width: min(320px, calc(100vw - var(--space-8))); display: grid; gap: var(--space-2); transform: translateX(-50%); }
 .undo-toast {
   position: static;
   width: 100%;

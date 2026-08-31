@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.18.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.81.0';
-export const APP_RELEASED_AT = '2026-08-31T11:27:01.000Z';
+export const APP_VERSION = '1.82.0';
+export const APP_RELEASED_AT = '2026-08-31T12:16:43.454Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -149,6 +149,8 @@ export interface UniversalItem {
   preset: ItemPreset;
   title: string;
   bodyMarkdown: string;
+  /** Optional event/location hint for future calendar integrations. */
+  location?: string;
   state: ItemState;
   closure?: Closure;
   createdAt: ISODateTime;

@@ -18,7 +18,7 @@ export const stateNames: Record<UniversalItem['state'], string> = { open: 'Activ
 export type ViewFieldOption = { path: string; label: string; group: string };
 
 const builtInViewFields: ViewFieldOption[] = [
-  { path: 'title', label: 'Title', group: 'Core' }, { path: 'bodyMarkdown', label: 'Description', group: 'Core' },
+  { path: 'title', label: 'Title', group: 'Core' }, { path: 'bodyMarkdown', label: 'Description', group: 'Core' }, { path: 'location', label: 'Location', group: 'Core' },
   { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
   { path: 'isHabit', label: 'Habit', group: 'Core' }, { path: 'activeRange', label: 'Inside active range now', group: 'Core' },
   { path: 'activeDuration', label: 'Has active range dates', group: 'Core' },
