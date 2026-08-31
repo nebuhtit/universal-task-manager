@@ -30,6 +30,7 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
 
   await openSection(page, 'Show in results');
   await page.getByRole('button', { name: 'Hide all' }).click();
+  await page.getByLabel('Search displayed fields').fill('title');
   const core = page.locator('.field-groups details').filter({ has: page.getByText('Core', { exact: true }) });
   if (!await core.evaluate((element) => (element as HTMLDetailsElement).open)) await core.locator(':scope > summary').click();
   await core.getByRole('checkbox', { name: /^Title/ }).check();
@@ -46,6 +47,12 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
   const defaults = page.locator('.creation-default-row').first();
   await defaults.getByRole('spinbutton').fill('4');
 
+  const statistics = await openSection(page, 'Statistics');
+  await expect(statistics.getByRole('checkbox', { name: 'Show time statistics' })).toBeChecked();
+  await statistics.getByText('Reserved items', { exact: true }).click();
+  await expect(statistics.getByLabel('Search reserved items')).toBeVisible();
+  await statistics.getByRole('checkbox', { name: 'Show time statistics' }).uncheck();
+
   await page.getByRole('button', { name: 'Save view' }).click();
   const view = page.locator('.view-section').filter({ hasText: 'Design system view' });
   await expect(view.getByRole('heading', { name: 'Design system view' })).toBeVisible();
@@ -58,6 +65,8 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
   await expect(page.locator('.field-groups').getByRole('checkbox', { name: /^Title/ })).toBeChecked();
   await openSection(page, 'Defaults for new items');
   await expect(page.locator('.creation-default-row').getByRole('spinbutton')).toHaveValue('4');
+  const reopenedStatistics = await openSection(page, 'Statistics');
+  await expect(reopenedStatistics.getByRole('checkbox', { name: 'Show time statistics' })).not.toBeChecked();
 
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
@@ -81,6 +90,8 @@ test('builds reusable schedule periods with tomorrow, custom dates and overdue',
   await row.getByRole('combobox', { name: 'Schedule period' }).selectOption('custom');
   await row.getByLabel('Custom period starts').fill('2026-09-10');
   await row.getByLabel('Custom period ends').fill('2026-09-14');
+  const statistics = await openSection(page, 'Statistics');
+  await expect(statistics).toContainText('2026-09-10 – 2026-09-14');
   await openSection(page, 'Advanced filter code');
   await expect(page.getByLabel('Advanced filter code')).toHaveValue(/scheduleInPeriod\("custom", "event_open,active,due,event", true, 7, "2026-09-10", "2026-09-14"\)/);
 
@@ -90,6 +101,18 @@ test('builds reusable schedule periods with tomorrow, custom dates and overdue',
   await openSection(page, 'Visual setup');
   await expect(page.getByRole('combobox', { name: 'Schedule period' })).toHaveValue('custom');
   await expect(page.getByRole('checkbox', { name: 'Include overdue' })).toBeChecked();
+});
+
+test('shows the existing Today preset as editable visual conditions', async ({ page }) => {
+  await createWorkspace(page);
+  const todayView = page.locator('.view-section').filter({ has: page.getByRole('heading', { name: 'Today', exact: true }) });
+  await todayView.getByRole('button', { name: /^Edit / }).click();
+  const visual = await openSection(page, 'Visual setup');
+  await expect(visual.locator('.visual-condition-row')).toHaveCount(4);
+  const period = visual.locator('.visual-condition-row').last();
+  await expect(period.getByRole('combobox', { name: 'Property' })).toHaveValue('schedulePeriod');
+  await expect(period.getByRole('combobox', { name: 'Schedule period' })).toHaveValue('today');
+  await expect(period.getByRole('checkbox', { name: 'Include overdue' })).toBeChecked();
 });
 
 test('view ordering uses drag handles and a keyboard alternative', async ({ page }) => {

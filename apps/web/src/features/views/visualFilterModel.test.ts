@@ -25,4 +25,15 @@ describe('visual filter model', () => {
     expect(parseSchedulePeriodValue(parsed?.[1]?.value ?? '')).toMatchObject(value);
     expect(serializeVisualRows(parsed!)).toBe(`(state == "open" && ${source})`);
   });
+
+  it('restores legacy Today and This week presets as editable visual rows', () => {
+    const active = 'state == "open" && role != "series_template" && isTemplate != true';
+    const today = parseVisualRows(`${active} && (eventToday == true || dueTodayOrOverdue == true)`);
+    const week = parseVisualRows(`${active} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`);
+    expect(today).not.toBeNull();
+    expect(week).not.toBeNull();
+    expect(today?.map((row) => row.field)).toEqual(['state', 'role', 'isTemplate', schedulePeriodField]);
+    expect(parseSchedulePeriodValue(today?.at(-1)?.value ?? '')).toMatchObject({ period: 'today', sources: ['event', 'due'], includeOverdue: true });
+    expect(parseSchedulePeriodValue(week?.at(-1)?.value ?? '')).toMatchObject({ period: 'this_week', sources: ['event', 'due'], includeOverdue: true });
+  });
 });

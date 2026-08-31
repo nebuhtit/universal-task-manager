@@ -141,7 +141,7 @@ export interface DueDateBuckets {
 
 export interface QueryTemporalOptions { timeZone?: string | undefined; weekStartsOn?: 0 | 1 | undefined }
 
-type SchedulePeriod = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'next_days' | 'custom';
+export type SchedulePeriod = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'next_days' | 'custom';
 
 function calendarDateKey(value: Date, timeZone?: string): string {
   try {
@@ -160,7 +160,7 @@ function shiftCalendarDateKey(key: string, days: number): string {
   return value.toISOString().slice(0, 10);
 }
 
-function schedulePeriodBounds(period: SchedulePeriod, now: Date, options: QueryTemporalOptions, nextDays: number, customStart: string, customEnd: string): { start: string; end: string } | null {
+export function schedulePeriodBounds(period: SchedulePeriod, now: Date, options: QueryTemporalOptions, nextDays: number, customStart: string, customEnd: string): { start: string; end: string } | null {
   const today = calendarDateKey(now, options.timeZone);
   if (period === 'today') return { start: today, end: today };
   if (period === 'tomorrow') { const tomorrow = shiftCalendarDateKey(today, 1); return { start: tomorrow, end: tomorrow }; }

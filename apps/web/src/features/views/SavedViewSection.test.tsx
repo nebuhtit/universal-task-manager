@@ -22,5 +22,9 @@ describe('SavedViewSection metrics', () => {
     const openMarkup = renderToStaticMarkup(<SavedViewSection {...props} view={{ ...view, query: { source: 'state == "open"' } }} />);
     expect(openMarkup).toContain('>40мин</span>');
     expect(openMarkup).not.toContain('0%');
+
+    const hiddenMarkup = renderToStaticMarkup(<SavedViewSection {...props} view={{ ...view, statistics: { showTime: false, reservedItemIds: [] } }} />);
+    expect(hiddenMarkup).not.toContain('view-metrics-summary');
+    expect(hiddenMarkup).not.toContain('Выполнено 33 процентов');
   });
 });

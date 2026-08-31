@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
+import { createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
 import { boardSettingsFor, completionPhase, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold } from './viewSelectors';
 
@@ -16,6 +16,21 @@ describe('view selectors', () => {
     workspace.items[high.id] = high;
     const savedView = { ...view('priority >= 2'), sortSource: 'priority desc' };
     expect(selectViewItems(workspace, savedView).map((item) => item.title)).toEqual(['High']);
+  });
+
+  it('shows the active occurrence of a recurring series in ordinary Saved Views', () => {
+    const now = new Date('2026-08-31T15:09:53.717Z');
+    const workspace = createWorkspace('Recurring view', now);
+    const item = createItem('Oooo', 'event', now);
+    item.schedule = { timezone: 'Europe/Moscow', startAt: '2026-08-31T20:00:00.000Z', endAt: '2026-08-31T21:00:00.000Z', estimatedDuration: 'PT1H' };
+    const series = makeSeries(item, 'FREQ=DAILY;INTERVAL=1', { activationOffset: 'P7D', autoRenew: true });
+    workspace.items[series.id] = series;
+    reconcileRecurrences(workspace, now);
+    const occurrence = Object.values(workspace.items).find((candidate) => candidate.occurrence?.seriesId === series.id);
+    expect(occurrence).toMatchObject({ role: 'occurrence', state: 'open', schedule: { startAt: '2026-08-31T20:00:00.000Z' } });
+    const today = view('state == "open" && role != "series_template" && isTemplate != true && scheduleInPeriod("today", "event_open", true, 7, "", "")');
+    expect(selectViewItems(workspace, today, now).map((candidate) => candidate.title)).toEqual(['Oooo']);
+    expect(selectViewItems(workspace, view('state == "open" && role != "series_template" && isTemplate != true'), now).map((candidate) => candidate.title)).toEqual(['Oooo']);
   });
 
   it('holds a completed item in its original views and sort position only until Undo exits', () => {

@@ -38,10 +38,53 @@
 
 .view-editor .query-builder,
 .view-editor .sort-rule,
-.view-editor .creation-default-row {
+.view-editor .creation-default-row,
+.view-editor .view-statistics-settings {
   border-color: var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface-muted);
+}
+
+.view-editor .view-statistics-settings {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: 0;
+  padding: var(--space-3);
+}
+
+.view-statistics-reserved {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.view-statistics-reserved > .ui-disclosure-summary {
+  min-height: var(--control-height-default);
+  padding-inline: var(--space-3);
+}
+
+.view-statistics-reserved-summary {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.view-statistics-reserved-summary small {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
+}
+
+.view-statistics-reserved .ui-disclosure-content { padding-inline: var(--space-3); }
+
+.view-statistics-period,
+.view-statistics-empty {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
 }
 
 .view-editor .visual-condition-row,
@@ -84,7 +127,7 @@
   flex: 1;
 }
 
-.view-editor .creation-default-organization-choice > summary {
+.view-editor .creation-default-organization-choice > .ui-disclosure-summary {
   box-sizing: border-box;
   min-height: var(--control-height-default);
   display: flex;
@@ -97,11 +140,8 @@
   font-weight: var(--font-weight-medium);
 }
 
-.view-editor .creation-default-organization-choice > div {
+.view-editor .creation-default-organization-choice > .ui-disclosure-content {
   display: grid;
-  gap: var(--space-1);
-  max-height: 16rem;
-  overflow: auto;
   margin-top: var(--space-1);
   padding: var(--space-2);
   border: 1px solid var(--color-border);
@@ -109,7 +149,7 @@
   background: var(--color-surface-elevated);
 }
 
-.view-editor .creation-default-organization-choice > div .ui-button {
+.view-editor .creation-default-organization-choice .ui-searchable-disclosure-list .ui-button {
   justify-content: flex-start;
 }
 

@@ -19,7 +19,10 @@ const nextTypes = types
 if (types === nextTypes) throw new Error('APP_VERSION markers were not found or already match exactly');
 
 const e2e = await readFile(e2ePath, 'utf8');
-const nextE2e = e2e.replace(/getByText\('v[^']+', \{ exact: true \}\)/, `getByText('v${version}', { exact: true })`);
+const escapedVersion = version.replaceAll('.', '\\.');
+const nextE2e = e2e
+  .replace(/getByText\('v[^']+', \{ exact: true \}\)/, `getByText('v${version}', { exact: true })`)
+  .replace(/const releaseLabel = \/\^v[^;]+;/, `const releaseLabel = /^v${escapedVersion} · (?:local changes · )?commit [0-9a-f]{7}$/;`);
 if (e2e === nextE2e) throw new Error('Login version assertion was not found or already matches exactly');
 
 await Promise.all([writeFile(typesPath, nextTypes), writeFile(e2ePath, nextE2e)]);

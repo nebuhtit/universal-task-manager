@@ -1,4 +1,4 @@
-import type { ItemSetMetrics, WorkspaceLanguage } from '@utm/core';
+import type { ItemSetMetrics, ViewTimeMetrics, WorkspaceLanguage } from '@utm/core';
 import './view-metrics-summary.css';
 
 type DurationUnit = 'year' | 'month' | 'day' | 'hour' | 'minute';
@@ -26,13 +26,20 @@ const locales: Record<WorkspaceLanguage, string> = {
 const summaryPhrases: Record<WorkspaceLanguage, {
   completion: (percent: number) => string;
   remaining: (duration: string) => string;
+  free: (duration: string) => string;
+  over: (duration: string) => string;
 }> = {
-  en: { completion: (percent) => `${percent} percent completed`, remaining: (duration) => `${duration} remaining` },
-  ru: { completion: (percent) => `Выполнено ${percent} процентов`, remaining: (duration) => `Осталось ${duration}` },
-  es: { completion: (percent) => `${percent} por ciento completado`, remaining: (duration) => `Quedan ${duration}` },
-  de: { completion: (percent) => `${percent} Prozent abgeschlossen`, remaining: (duration) => `${duration} verbleibend` },
-  fr: { completion: (percent) => `${percent} pour cent terminé`, remaining: (duration) => `Il reste ${duration}` },
-  ko: { completion: (percent) => `${percent}퍼센트 완료`, remaining: (duration) => `${duration} 남음` },
+  en: { completion: (percent) => `${percent} percent completed`, remaining: (duration) => `${duration} remaining`, free: (duration) => `${duration} free`, over: (duration) => `${duration} over capacity` },
+  ru: { completion: (percent) => `Выполнено ${percent} процентов`, remaining: (duration) => `Осталось ${duration}`, free: (duration) => `Свободно ${duration}`, over: (duration) => `Перегрузка ${duration}` },
+  es: { completion: (percent) => `${percent} por ciento completado`, remaining: (duration) => `Quedan ${duration}`, free: (duration) => `${duration} libres`, over: (duration) => `${duration} por encima de la capacidad` },
+  de: { completion: (percent) => `${percent} Prozent abgeschlossen`, remaining: (duration) => `${duration} verbleibend`, free: (duration) => `${duration} frei`, over: (duration) => `${duration} über Kapazität` },
+  fr: { completion: (percent) => `${percent} pour cent terminé`, remaining: (duration) => `Il reste ${duration}`, free: (duration) => `${duration} libres`, over: (duration) => `${duration} au-delà de la capacité` },
+  ko: { completion: (percent) => `${percent}퍼센트 완료`, remaining: (duration) => `${duration} 남음`, free: (duration) => `${duration} 여유`, over: (duration) => `${duration} 용량 초과` },
+};
+
+const compactCapacityLabels: Record<WorkspaceLanguage, { free: string; over: string }> = {
+  en: { free: 'free', over: 'over' }, ru: { free: 'своб.', over: 'перегр.' }, es: { free: 'libre', over: 'exceso' },
+  de: { free: 'frei', over: 'über' }, fr: { free: 'libre', over: 'excès' }, ko: { free: '여유', over: '초과' },
 };
 
 function durationParts(milliseconds: number): DurationPart[] {
@@ -81,7 +88,7 @@ function formatAccessibleDuration(milliseconds: number, language: WorkspaceLangu
   }).format(value)).join(', ');
 }
 
-export function formatViewMetricsSummary(metrics: ItemSetMetrics, language: WorkspaceLanguage): { text: string; ariaLabel: string } | null {
+export function formatViewMetricsSummary(metrics: ItemSetMetrics | ViewTimeMetrics, language: WorkspaceLanguage): { text: string; ariaLabel: string } | null {
   const visible: string[] = [];
   const accessible: string[] = [];
   if (metrics.completionPercent > 0) {
@@ -92,10 +99,18 @@ export function formatViewMetricsSummary(metrics: ItemSetMetrics, language: Work
     visible.push(formatCompactRemainingDuration(metrics.remainingDurationMs, language));
     accessible.push(summaryPhrases[language].remaining(formatAccessibleDuration(metrics.remainingDurationMs, language)));
   }
+  if ('freeDurationMs' in metrics && metrics.freeDurationMs !== undefined) {
+    const overloaded = metrics.freeDurationMs < 0;
+    const absolute = Math.abs(metrics.freeDurationMs);
+    const compact = absolute > 0 ? formatCompactRemainingDuration(absolute, language) : `0${compactUnits[language].minute}`;
+    const accessibleDuration = absolute > 0 ? formatAccessibleDuration(absolute, language) : new Intl.NumberFormat(locales[language], { style: 'unit', unit: 'minute', unitDisplay: 'long' }).format(0);
+    visible.push(`${compactCapacityLabels[language][overloaded ? 'over' : 'free']} ${compact}`);
+    accessible.push(summaryPhrases[language][overloaded ? 'over' : 'free'](accessibleDuration));
+  }
   return visible.length ? { text: visible.join(' · '), ariaLabel: accessible.join('. ') } : null;
 }
 
-export function ViewMetricsSummary({ metrics, language, className = '' }: { metrics: ItemSetMetrics; language: WorkspaceLanguage; className?: string }) {
+export function ViewMetricsSummary({ metrics, language, className = '' }: { metrics: ItemSetMetrics | ViewTimeMetrics; language: WorkspaceLanguage; className?: string }) {
   const summary = formatViewMetricsSummary(metrics, language);
   if (!summary) return null;
   return <span className={`view-metrics-summary${className ? ` ${className}` : ''}`} aria-label={summary.ariaLabel}><span aria-hidden="true">{summary.text}</span></span>;

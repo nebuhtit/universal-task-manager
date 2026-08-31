@@ -10,4 +10,5 @@ export * from './calendar.js';
 export * from './clock.js';
 export * from './lists.js';
 export * from './organization.js';
+export * from './view-statistics.js';
 export * from './format-guide.js';

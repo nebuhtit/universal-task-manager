@@ -10,7 +10,7 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.18.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.19.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -139,7 +139,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.18.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.19.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -149,7 +149,12 @@ export const viewJsonSchema = {
     sort: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['field', 'direction'], properties: { field: { type: 'string' }, direction: { enum: ['asc', 'desc'] }, nulls: { enum: ['first', 'last'] } } } },
     sortSource: { type: 'string' }, groupBy: { type: 'string' }, fields: stringArray,
     list: { type: 'string', minLength: 1 }, area: { type: 'string', minLength: 1 }, project: { type: 'string', minLength: 1 },
-    creationDefaults: { type: 'object', additionalProperties: true }, extensions,
+    creationDefaults: { type: 'object', additionalProperties: true },
+    statistics: {
+      type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
+      properties: { showTime: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
+    },
+    extensions,
   },
 } as const;
 
@@ -193,7 +198,7 @@ const organizationPriorityEntrySchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.18.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.19.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -229,7 +234,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.18.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.19.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   // `viewOrder` was added after the schema version had already shipped. Keep it
   // optional at the validation boundary so an otherwise valid older workspace
@@ -309,7 +314,7 @@ export const validateView = (value: unknown): ValidationResult => validationResu
 
 /** Paths that can safely be copied into a brand-new item from a saved view. */
 export const creationDefaultPaths = new Set([
-  'title', 'bodyMarkdown', 'state', 'priority', 'tags', 'contexts', 'list', 'area', 'project',
+  'title', 'bodyMarkdown', 'location', 'state', 'priority', 'tags', 'contexts', 'list', 'area', 'project',
   'schedule.availableFrom', 'schedule.startAt', 'schedule.endAt', 'schedule.dueAt', 'schedule.estimatedDuration', 'schedule.timezone', 'schedule.allDay',
   'recurrence.rrule', 'recurrence.rdates', 'recurrence.exdates', 'recurrence.timezone', 'recurrence.activationOffset', 'recurrence.dueOffset', 'recurrence.closeAt', 'recurrence.anchor', 'recurrence.autoRenew',
   'progress.mode', 'progress.current', 'progress.target', 'progress.unit',
@@ -423,6 +428,30 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
   const view = structuredClone(value) as Record<string, unknown>;
   const warnings = preserveUnknown(view, viewKeys, namespace).map((key) => `Moved unknown view field ${key} to extensions.${namespace}`);
   view.query ??= { source: '' }; view.sort ??= []; view.fields ??= [];
+  if (view.statistics !== undefined) {
+    const raw = view.statistics;
+    const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
+    if (!record || typeof record.showTime !== 'boolean' || !Array.isArray(record.reservedItemIds)) {
+      const target = (view.extensions && typeof view.extensions === 'object' && !Array.isArray(view.extensions) ? view.extensions : {}) as Record<string, unknown>;
+      target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), statistics: structuredClone(raw) };
+      view.extensions = target;
+      delete view.statistics;
+      warnings.push('Disabled invalid view statistics settings');
+    } else {
+      const reservedItemIds = [...new Set(record.reservedItemIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+      const lossy = reservedItemIds.length !== record.reservedItemIds.length || Object.keys(record).some((key) => key !== 'showTime' && key !== 'reservedItemIds');
+      if (lossy) {
+        const target = (view.extensions && typeof view.extensions === 'object' && !Array.isArray(view.extensions) ? view.extensions : {}) as Record<string, unknown>;
+        target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), statisticsRaw: structuredClone(raw) };
+        view.extensions = target;
+        warnings.push('Normalized view statistics settings and retained their raw value');
+      }
+      view.statistics = {
+        showTime: record.showTime,
+        reservedItemIds,
+      };
+    }
+  }
   if (!view.list && view.extensions && typeof view.extensions === 'object' && !Array.isArray(view.extensions)) {
     for (const legacy of Object.values(view.extensions as Record<string, unknown>)) {
       if (legacy && typeof legacy === 'object' && !Array.isArray(legacy) && typeof (legacy as Record<string, unknown>).list === 'string') {

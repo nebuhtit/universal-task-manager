@@ -1,0 +1,27 @@
+import { useState, type ReactNode } from 'react';
+import { Disclosure, Input } from './primitives';
+
+export function SearchableDisclosureList<T>({ uiKey, summary, items, getSearchText, renderItem, searchLabel, searchPlaceholder = 'Search items', emptyText = 'No items yet.', noMatchesText = 'No matching items.', className, description }: {
+  uiKey: string;
+  summary: ReactNode;
+  items: T[];
+  getSearchText: (item: T) => string;
+  renderItem: (item: T) => ReactNode;
+  searchLabel: string;
+  searchPlaceholder?: string;
+  emptyText?: ReactNode;
+  noMatchesText?: ReactNode;
+  className?: string;
+  description?: ReactNode;
+}) {
+  const [query, setQuery] = useState('');
+  const normalized = query.trim().toLocaleLowerCase();
+  const visible = normalized ? items.filter((item) => getSearchText(item).toLocaleLowerCase().includes(normalized)) : items;
+  return <Disclosure uiKey={uiKey} persist={false} className={['ui-searchable-disclosure', className].filter(Boolean).join(' ')} summary={summary}>
+    <div className="ui-searchable-disclosure-body">
+      {description}
+      <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} aria-label={searchLabel} />
+      <div className="ui-searchable-disclosure-list">{visible.length ? visible.map(renderItem) : <small className="ui-searchable-disclosure-empty">{items.length ? noMatchesText : emptyText}</small>}</div>
+    </div>
+  </Disclosure>;
+}

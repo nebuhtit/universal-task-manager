@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as Automerge from '@automerge/automerge';
-import { createItem, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, renameProjectDefinition, reorderTagSubset, type WorkspaceDocument } from '@utm/core';
+import { createItem, createOccurrence, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileRecurrences, renameProjectDefinition, reorderTagSubset, type WorkspaceDocument } from '@utm/core';
 import { applyReconciliationResult, commitWorkspaceDocument } from './workspaceLifecycle';
 
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
@@ -21,6 +21,26 @@ describe('workspace lifecycle integration', () => {
     const next = applyReconciliationResult(seeded, { created: [created], updated: [changed], autoClosed: [closed], removedIds: [removed.id], untouched: 0 }, now);
     expect(next.items[created.id]?.title).toBe('Created'); expect(next.items[updated.id]?.title).toBe('After'); expect(next.items[closed.id]?.state).toBe('auto_closed');
     expect(next.items[removed.id]).toBeUndefined(); expect(next.tombstones[removed.id]).toBe(now.toISOString());
+  });
+
+  it('repairs premature legacy auto-close inside an Automerge transaction', () => {
+    const now = new Date('2026-08-31T15:25:40.007Z');
+    const workspace = createWorkspace('Recurrence repair', now);
+    const source = createItem('Sleep', 'event', now);
+    source.schedule = { timezone: 'Europe/Moscow', startAt: '2026-08-31T19:00:00.000Z', endAt: '2026-08-31T20:00:00.000Z', estimatedDuration: 'PT1H' };
+    const series = makeSeries(source, 'FREQ=DAILY;INTERVAL=1', { activationOffset: 'P7D', autoRenew: true, closeAt: 'next_activation' });
+    series.revision = 7;
+    const occurrence = createOccurrence(series, new Date(series.schedule!.startAt!), 0);
+    occurrence.state = 'auto_closed'; occurrence.occurrence!.templateRevision = 4;
+    occurrence.closure = { actor: 'system', at: '2026-08-25T19:00:00.000Z', reason: 'auto_renew' };
+    occurrence.cycleHistory = [{ actor: 'system', closedAt: occurrence.closure.at, reason: 'auto_renew', recurrenceId: occurrence.occurrence!.recurrenceId, state: 'auto_closed' }];
+    workspace.items[series.id] = series; workspace.items[occurrence.id] = occurrence;
+    const original = Automerge.from(workspace as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
+
+    const repaired = commitWorkspaceDocument(original, 'Repair recurrence', (draft) => { reconcileRecurrences(draft, now); }, now);
+    expect(repaired.items[occurrence.id]?.state).toBe('open');
+    expect(repaired.items[occurrence.id]?.closure).toBeUndefined();
+    expect(repaired.items[occurrence.id]?.cycleHistory).toEqual([]);
   });
 
   it('renames a Project inside an Automerge transaction', () => {

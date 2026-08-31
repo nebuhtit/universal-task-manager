@@ -1,6 +1,6 @@
 .view-metrics-summary {
   display: block;
-  width: min(16ch, 100%);
+  width: min(30ch, 100%);
   min-height: 1.25em;
   max-width: 100%;
   margin: var(--space-1) auto 0;

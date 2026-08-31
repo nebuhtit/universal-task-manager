@@ -196,12 +196,23 @@ describe('safe expression language', () => {
   });
 
   it('keeps saved-view creation defaults portable while rejecting system and relation fields', () => {
-    const view = migrateView({ id: 'view-defaults', name: 'Draft', query: { source: '' }, renderer: 'table', sort: [], fields: [], list: 'Health', creationDefaults: { priority: 3, tags: ['work'], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' } }).value;
+    const view = migrateView({ id: 'view-defaults', name: 'Draft', query: { source: '' }, renderer: 'table', sort: [], fields: [], list: 'Health', creationDefaults: { priority: 3, tags: ['work'], location: 'Office', attachments: [{ id: 'brief', url: 'https://example.com/brief.pdf' }], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' }, statistics: { showTime: false, reservedItemIds: ['sleep-series'] } }).value;
     expect(view.list).toBe('Health');
-    expect(view.creationDefaults).toEqual({ priority: 3, tags: ['work'], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' });
+    expect(view.creationDefaults).toEqual({ priority: 3, tags: ['work'], location: 'Office', attachments: [{ id: 'brief', url: 'https://example.com/brief.pdf' }], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' });
+    expect(view.statistics).toEqual({ showTime: false, reservedItemIds: ['sleep-series'] });
     expect(validateViewCreationDefaults({ createdAt: '2026-08-24T10:00:00.000Z' }).valid).toBe(false);
     expect(validateViewCreationDefaults({ relations: [] }).valid).toBe(false);
     expect(() => migrateView({ ...view, creationDefaults: { id: 'old-item' } })).toThrow('not an editable default');
+  });
+
+  it('preserves item location and file links through schema migration', () => {
+    const item = createItem('Calendar import');
+    item.location = 'Room 204';
+    item.attachments = [{ id: 'agenda', url: 'https://example.com/agenda.pdf', title: 'Agenda' }];
+    const migrated = migrateItem({ ...item, schemaVersion: '1.18.0' }).value;
+    expect(migrated.location).toBe('Room 204');
+    expect(migrated.attachments).toEqual(item.attachments);
+    expect(migrated.schemaVersion).toBe('1.19.0');
   });
 
   it('restores list membership hidden by the older strict schema', () => {
@@ -282,6 +293,47 @@ describe('portable tabular and calendar formats', () => {
 });
 
 describe('recurrence and auto-renew', () => {
+  it('materializes the first daily rolling occurrence as soon as its activation window opens', () => {
+    const workspace = createWorkspace('Daily rolling', new Date('2026-08-31T15:09:53.717Z'));
+    const item = createItem('Oooo', 'event', new Date('2026-08-31T11:31:20.123Z'));
+    item.schedule = { timezone: 'Europe/Moscow', startAt: '2026-08-31T20:00:00.000Z', endAt: '2026-08-31T21:00:00.000Z', estimatedDuration: 'PT1H' };
+    const series = makeSeries(item, 'FREQ=DAILY;INTERVAL=1', { activationOffset: 'P7D', autoRenew: true, closeAt: 'next_activation' });
+    workspace.items[series.id] = series;
+    reconcileRecurrences(workspace, new Date('2026-08-31T15:09:53.717Z'));
+    const occurrences = Object.values(workspace.items).filter((candidate) => candidate.occurrence?.seriesId === series.id);
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0]?.schedule?.startAt).toBe('2026-08-31T20:00:00.000Z');
+    const updatedAt = workspace.updatedAt;
+    reconcileRecurrences(workspace, new Date('2026-08-31T15:10:53.717Z'));
+    expect(workspace.updatedAt).toBe(updatedAt);
+  });
+  it('repairs a current occurrence that an older build auto-closed before its event', () => {
+    const now = new Date('2026-08-31T15:25:40.007Z');
+    const workspace = createWorkspace('Legacy daily rolling', now);
+    const item = createItem('Sleep', 'event', new Date('2026-08-31T14:59:27.245Z'));
+    item.schedule = { timezone: 'Europe/Moscow', startAt: '2026-08-31T19:00:00.000Z', endAt: '2026-08-31T20:00:00.000Z', estimatedDuration: 'PT1H' };
+    const series = makeSeries(item, 'FREQ=DAILY;INTERVAL=1', { activationOffset: 'P7D', autoRenew: true, closeAt: 'next_activation' });
+    series.revision = 7;
+    workspace.items[series.id] = series;
+    const occurrence = createOccurrence(series, new Date('2026-08-31T19:00:00.000Z'), 0);
+    occurrence.state = 'auto_closed';
+    occurrence.occurrence!.templateRevision = 4;
+    occurrence.closure = { actor: 'system', at: '2026-08-25T19:00:00.000Z', reason: 'auto_renew' };
+    occurrence.cycleHistory = [{
+      actor: 'system', availableFrom: occurrence.schedule!.availableFrom, closedAt: occurrence.closure.at,
+      endAt: occurrence.schedule!.endAt, reason: 'auto_renew', recurrenceId: occurrence.occurrence!.recurrenceId,
+      startAt: occurrence.schedule!.startAt, state: 'auto_closed',
+    }];
+    workspace.items[occurrence.id] = occurrence;
+
+    const result = reconcileRecurrences(workspace, now);
+    const repaired = workspace.items[occurrence.id]!;
+    expect(repaired.state).toBe('open');
+    expect(repaired.closure).toBeUndefined();
+    expect(repaired.occurrence?.templateRevision).toBe(7);
+    expect(repaired.cycleHistory).toEqual([]);
+    expect(result.updated.map((entry) => entry.id)).toContain(occurrence.id);
+  });
   it('keeps a local series at the same wall-clock time across DST', () => {
     const item = createItem('Berlin weekly');
     // 09:00 in Berlin, one week before the 2026 spring DST transition.
@@ -363,7 +415,7 @@ describe('recurrence and auto-renew', () => {
     expect(second.created).toHaveLength(0);
     expect(second.autoClosed).toHaveLength(0);
     expect(first.created).toHaveLength(1);
-    expect(second.updated).toHaveLength(1);
+    expect(second.updated).toHaveLength(0);
   });
 
   it('shows one weekly item only inside its active window and shifts its reminders', () => {

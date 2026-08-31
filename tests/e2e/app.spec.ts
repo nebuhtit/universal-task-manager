@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.80\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.93\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -120,7 +120,8 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.getByText('v1.82.0', { exact: true })).toBeVisible();
+  await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
+  await expect(page.getByText('v1.93.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();

@@ -8,6 +8,7 @@ import type { CalendarApi, DateClickInfo, DateSelectInfo, DatesSetInfo, EventCli
 import '@fullcalendar/react/skeleton.css';
 import { CloseIcon, LineIcon } from '../../components/ui/icons';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
+import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { Button, Checkbox, Field, IconButton, Input, Select, Surface } from '../../components/ui/primitives';
 import { dateInput, fromDateInput, isSleepTime } from '../../utils/dates';
 import { compileQuery, materializeProjectedOccurrence, moveCalendarItems, moveRecurringOccurrence, projectOccurrences, resizeCalendarItem, type CalendarViewMode, type ItemPreset, type ProjectedOccurrence, type RecurrenceEditScope, type Schedule, type UniversalItem, type WorkspaceDocument } from '@utm/core';
@@ -180,13 +181,7 @@ export function CalendarPage({ workspace, now, commit, onEditItem, createUiItem 
         >{entry === 'three_day' ? '3 days' : entry}</Button>)}
       </div>
       <Field label="Saved view" className="calendar-view-field">
-        <Select value={preferences.selectedViewId ?? ''} onChange={(event) => commit('Set calendar view filter', (draft) => {
-          if (event.target.value) draft.calendarPreferences.selectedViewId = event.target.value;
-          else delete draft.calendarPreferences.selectedViewId;
-        })}>
-          <option value="">All active + completed</option>
-          {Object.values(workspace.views).map((view) => <option value={view.id} key={view.id}>{view.name}</option>)}
-        </Select>
+        <SearchableDisclosureList uiKey="calendar:saved-view-filter" className="calendar-view-picker" summary={preferences.selectedViewId ? workspace.views[preferences.selectedViewId]?.name ?? 'All active + completed' : 'All active + completed'} items={[null, ...Object.values(workspace.views)]} getSearchText={(view) => view?.name ?? 'All active completed'} searchLabel="Search Saved views" searchPlaceholder="Search views" renderItem={(view) => <Button size="compact" variant="ghost" key={view?.id ?? 'all'} aria-pressed={(preferences.selectedViewId ?? '') === (view?.id ?? '')} onClick={(event) => { commit('Set calendar view filter', (draft) => { if (view) draft.calendarPreferences.selectedViewId = view.id; else delete draft.calendarPreferences.selectedViewId; }); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{view?.name ?? 'All active + completed'}</Button>} />
       </Field>
       <Button size="compact" className="unscheduled-toggle" onClick={() => setUnscheduledOpen(true)}>Unscheduled ({unscheduled.length})</Button>
     </div>

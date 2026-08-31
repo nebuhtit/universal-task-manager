@@ -1,6 +1,6 @@
 # Universal Task Manager workspace format
 
-Current application: `v1.20.0`. Current workspace schema: `1.18.0`.
+Current application: `v1.82.0`. Current workspace schema: `1.19.0`.
 
 This document is intentionally written for people, migration authors and AI
 tools that do not have Universal Task Manager installed. A decrypted recovery
@@ -41,7 +41,7 @@ sanitized copy when assistance is necessary.
 - `name`, `createdAt`, `updatedAt`: workspace metadata.
 - `items`: object keyed by stable item ID. Contains tasks, events, habits,
   recurrence templates and materialized occurrences.
-- `views`: saved filters, sort expressions, renderer choice and displayed fields.
+- `views`: saved filters, sort expressions, renderer choice, displayed fields and optional time-statistics settings. Derived percentages and capacity are never persisted.
 - `areas`, `projects`, `lists`, `tags` and their order arrays: reusable PARA and
   classification definitions. Items can refer to multiple Areas and Projects;
   Projects can belong to multiple Areas.
@@ -57,7 +57,7 @@ sanitized copy when assistance is necessary.
 
 Important item fields:
 
-- `id`, `title`, `bodyMarkdown`, `state`, `priority`, `tags`, `areas`, `projects`;
+- `id`, `title`, `bodyMarkdown`, optional `location`, `attachments`, `state`, `priority`, `tags`, `areas`, `projects`;
 - `startAt`, `endAt`, `dueAt` and other dates are ISO 8601 strings when present;
 - `role` is `standalone`, `series_template`, or `occurrence`;
 - `preset` is a UI hint (`task`, `event`, `habit`, or `blank`), not a separate
@@ -85,6 +85,8 @@ Every item stores immutable provenance in `createdWithAppId`, `createdWithAppNam
 Schema 1.2 adds encrypted `CalendarPreferences`, virtual `ProjectedOccurrence` values, and recurrence override metadata. Projecting a visible range is read-only: an occurrence enters the Automerge document only when it is opened, completed, activated, dragged, or resized.
 
 Schema 1.3 adds `calendarPreferences.sleepSchedule` with `wake` and `sleep` wall-clock values. Calendar time grids always retain the full 24-hour day; this schedule only controls the subdued night shading and the initial scroll position. Existing 1.2 workspaces derive the values from their former working-hour bounds.
+
+Schema 1.19 adds `SavedView.statistics` with a presentation toggle and stable IDs of scheduled items that reserve capacity. Missing settings keep the legacy visible time summary. Invalid settings are quarantined during migration. Item `location` and URL-only `attachments` remain first-class JSON fields and are also allowed in view creation defaults.
 
 Closure states distinguish manual completion from automation:
 

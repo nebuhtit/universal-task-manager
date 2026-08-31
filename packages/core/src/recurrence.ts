@@ -201,6 +201,16 @@ function cycleHistoryFrom(item: UniversalItem, state: CycleHistoryEntry['state']
   };
 }
 
+function detachedCycleHistory(item: UniversalItem, excludePrematureRecurrenceId?: string): CycleHistoryEntry[] | undefined {
+  if (!item.cycleHistory) return undefined;
+  const kept = excludePrematureRecurrenceId
+    ? item.cycleHistory.filter((entry) => entry.recurrenceId !== excludePrematureRecurrenceId || entry.reason !== 'auto_renew')
+    : item.cycleHistory;
+  // Automerge draft children cannot be reattached after their parent fields
+  // are deleted. Keep the history as detached values before rebuilding a row.
+  return JSON.parse(JSON.stringify(kept)) as CycleHistoryEntry[];
+}
+
 /**
  * Auto-renew is a rolling item, not an occurrence archive. Finished cycles are
  * appended to cycleHistory and the same materialized item is moved forward.
@@ -220,6 +230,7 @@ function reconcileRollingSeries(
     .filter((item) => item.occurrence?.seriesId === series.id && !item.deletedAt)
     .sort((left, right) => left.occurrence!.recurrenceId.localeCompare(right.occurrence!.recurrenceId));
   let rolling = occurrences.at(-1);
+  let rollingChanged = false;
   const pendingHistory: CycleHistoryEntry[] = [];
 
   // Collapse data produced by older versions. Manual outcomes are preserved;
@@ -229,16 +240,21 @@ function reconcileRollingSeries(
     const state = legacy.state === 'done' || legacy.state === 'cancelled' ? legacy.state : 'auto_closed';
     const closedAt = legacy.closure?.at ?? legacy.schedule?.dueAt ?? legacy.updatedAt;
     const history = cycleHistoryFrom(legacy, state, closedAt);
-    if (rolling) appendCycleHistory(rolling, history); else pendingHistory.push(history);
+    if (rolling) rollingChanged = appendCycleHistory(rolling, history) || rollingChanged; else pendingHistory.push(history);
     delete workspace.items[legacy.id];
     removedIds.push(legacy.id);
+    rollingChanged = true;
   }
 
   if (!activeAnchors.length) return rolling;
-  const activationOffset = series.recurrence?.activationOffset ? durationToMs(series.recurrence.activationOffset) : 0;
+  const configuredActivationOffset = series.recurrence?.activationOffset ? durationToMs(series.recurrence.activationOffset) : 0;
+  const scheduledSpan = Math.max(0, new Date(series.schedule?.endAt ?? series.schedule?.dueAt ?? series.schedule?.startAt ?? 0).getTime() - new Date(series.schedule?.startAt ?? series.schedule?.dueAt ?? 0).getTime());
+  const effectiveActivationOffset = (anchor: Date, nextAnchor: Date) => Math.min(configuredActivationOffset, Math.max(0, nextAnchor.getTime() - anchor.getTime() - scheduledSpan));
   const boundaryFor = (occurrence: UniversalItem, anchor: Date) => {
     const nextAnchor = rule.after(anchor, false);
-    const nextActivation = nextAnchor ? new Date(nextAnchor.getTime() - activationOffset) : undefined;
+    let nextActivation = nextAnchor ? new Date(nextAnchor.getTime() - effectiveActivationOffset(anchor, nextAnchor)) : undefined;
+    const visibleUntil = new Date(occurrence.schedule?.endAt ?? occurrence.schedule?.dueAt ?? occurrence.schedule?.startAt ?? 0);
+    if (nextActivation && Number.isFinite(visibleUntil.getTime()) && nextActivation < visibleUntil) nextActivation = visibleUntil;
     return closingBoundary(occurrence, nextActivation);
   };
 
@@ -249,7 +265,7 @@ function reconcileRollingSeries(
     const boundary = boundaryFor(snapshot, anchor);
     if (!boundary || boundary.getTime() > now.getTime()) continue;
     const history = cycleHistoryFrom(snapshot, 'auto_closed', boundary.toISOString());
-    if (rolling) appendCycleHistory(rolling, history); else pendingHistory.push(history);
+    if (rolling) rollingChanged = appendCycleHistory(rolling, history) || rollingChanged; else pendingHistory.push(history);
   }
 
   const latestAnchor = activeAnchors.at(-1)!;
@@ -272,7 +288,34 @@ function reconcileRollingSeries(
   }
 
   const sameCycle = rolling.occurrence?.recurrenceId === latestAnchor.toISOString();
-  if (!sameCycle) {
+  const visibleUntil = new Date(rolling.schedule?.endAt ?? rolling.schedule?.dueAt ?? rolling.schedule?.startAt ?? 0);
+  const closedAt = rolling.closure?.at ? new Date(rolling.closure.at) : undefined;
+  const prematurelyAutoClosed = sameCycle
+    && rolling.state === 'auto_closed'
+    && rolling.closure?.actor === 'system'
+    && rolling.closure.reason === 'auto_renew'
+    && closedAt !== undefined
+    && Number.isFinite(closedAt.getTime())
+    && Number.isFinite(visibleUntil.getTime())
+    && closedAt.getTime() < visibleUntil.getTime();
+  if (prematurelyAutoClosed) {
+    // Older builds subtracted activationOffset from the next recurrence without
+    // clamping it to the event span. A daily series with the former P7D default
+    // could therefore close six days before the event itself. Rehydrate that
+    // still-current cycle from its source template and discard only the bogus
+    // system-generated history entry; user completions remain untouched.
+    const stable = {
+      id: rolling.id,
+      createdAt: rolling.createdAt,
+      createdWithAppId: rolling.createdWithAppId,
+      createdWithAppName: rolling.createdWithAppName,
+      createdWithVersion: rolling.createdWithVersion,
+      cycleHistory: detachedCycleHistory(rolling, latestAnchor.toISOString()),
+    };
+    Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
+    Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
+    rollingChanged = true;
+  } else if (!sameCycle) {
     if (rolling.state === 'done' || rolling.state === 'cancelled' || rolling.state === 'auto_closed') {
       appendCycleHistory(rolling, cycleHistoryFrom(rolling, rolling.state, rolling.closure?.at ?? rolling.updatedAt));
     }
@@ -282,10 +325,11 @@ function reconcileRollingSeries(
       createdWithAppId: rolling.createdWithAppId,
       createdWithAppName: rolling.createdWithAppName,
       createdWithVersion: rolling.createdWithVersion,
-      cycleHistory: rolling.cycleHistory,
+      cycleHistory: detachedCycleHistory(rolling),
     };
     Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
     Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
+    rollingChanged = true;
   } else if (rolling.state === 'open' && rolling.occurrence?.templateRevision !== series.revision) {
     // The View renders the materialized rolling item, while Edit item opens
     // the source series.  Refresh an untouched live cycle whenever its source
@@ -298,10 +342,11 @@ function reconcileRollingSeries(
       createdWithAppId: rolling.createdWithAppId,
       createdWithAppName: rolling.createdWithAppName,
       createdWithVersion: rolling.createdWithVersion,
-      cycleHistory: rolling.cycleHistory,
+      cycleHistory: detachedCycleHistory(rolling),
     };
     Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
     Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
+    rollingChanged = true;
   }
 
   if (shouldAutoClose && boundary && rolling.state === 'open') {
@@ -311,8 +356,9 @@ function reconcileRollingSeries(
     rolling.revision += 1;
     appendCycleHistory(rolling, cycleHistoryFrom(rolling, 'auto_closed', boundary.toISOString()));
     autoClosed.push(rolling);
+    rollingChanged = true;
   }
-  if (!updated.includes(rolling)) updated.push(rolling);
+  if (rollingChanged && !updated.includes(rolling)) updated.push(rolling);
   return rolling;
 }
 
@@ -357,13 +403,17 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
     const rule = buildRecurrenceRule(series);
     const recurrence = series.recurrence!;
     const start = new Date(series.schedule!.startAt ?? series.schedule!.dueAt!);
-    const next = rule.after(now, true);
+    const startIsIncluded = start.getTime() >= now.getTime() && rule.between(new Date(start.getTime() - 1), start, true).some((anchor) => anchor.getTime() === start.getTime());
+    const next = startIsIncluded ? start : rule.after(now, true);
     const anchors = recurrence.anchor === 'completion'
       ? [start]
       : [...rule.between(new Date(start.getTime() - 1), now, true), ...(next && next.getTime() > now.getTime() ? [next] : [])];
     const unique = [...new Map(anchors.map((date) => [date.toISOString(), date])).values()].sort((a, b) => a.getTime() - b.getTime());
-    const activeAnchors = unique.filter((anchor) => {
-      const offset = series.recurrence?.activationOffset ? durationToMs(series.recurrence.activationOffset) : 0;
+    const activeAnchors = unique.filter((anchor, index) => {
+      const configuredOffset = series.recurrence?.activationOffset ? durationToMs(series.recurrence.activationOffset) : 0;
+      const previous = unique[index - 1];
+      const scheduledSpan = Math.max(0, new Date(series.schedule?.endAt ?? series.schedule?.dueAt ?? series.schedule?.startAt ?? 0).getTime() - new Date(series.schedule?.startAt ?? series.schedule?.dueAt ?? 0).getTime());
+      const offset = previous ? Math.min(configuredOffset, Math.max(0, anchor.getTime() - previous.getTime() - scheduledSpan)) : configuredOffset;
       return anchor.getTime() - offset <= now.getTime();
     });
     if (recurrence.autoRenew) {
@@ -400,7 +450,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
       }
     });
   }
-  workspace.updatedAt = now.toISOString();
+  if (created.length || updated.length || autoClosed.length || removedIds.length) workspace.updatedAt = now.toISOString();
   return { created, updated, autoClosed, removedIds, untouched };
 }
 

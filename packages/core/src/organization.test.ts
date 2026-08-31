@@ -280,7 +280,7 @@ describe('PARA organization', () => {
     };
 
     const migrated = migrateWorkspace(legacy).value;
-    expect(migrated.schemaVersion).toBe('1.18.0');
+    expect(migrated.schemaVersion).toBe('1.19.0');
     expect(migrated.organizationPreferences.priorityOrder.slice(0, 2)).toEqual([
       { kind: 'project', name: 'Shared', area: 'Work' },
       { kind: 'project', name: 'Shared', area: 'Personal' },

@@ -84,3 +84,32 @@
 .ui-disclosure-summary:active { color: var(--color-accent); }
 .ui-disclosure-summary:focus-visible { outline-color: var(--color-focus-ring); }
 .ui-disclosure-content { padding: 0 0 var(--space-3); }
+
+.ui-searchable-disclosure-body,
+.ui-searchable-disclosure-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ui-searchable-disclosure > .ui-disclosure-summary {
+  box-sizing: border-box;
+  min-height: var(--control-height-default);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.ui-searchable-disclosure > .ui-disclosure-content { padding-top: var(--space-2); }
+.ui-searchable-disclosure-list .ui-button { width: 100%; justify-content: flex-start; }
+
+.ui-searchable-disclosure-list {
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.ui-searchable-disclosure-empty {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
+}

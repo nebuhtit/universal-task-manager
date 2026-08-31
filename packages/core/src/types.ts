@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.18.0';
+export const SCHEMA_VERSION = '1.19.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.82.0';
-export const APP_RELEASED_AT = '2026-08-31T12:16:43.454Z';
+export const APP_VERSION = '1.93.0';
+export const APP_RELEASED_AT = '2026-08-31T16:20:34.746Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -222,6 +222,13 @@ export interface ViewSortRule {
   nulls: 'first' | 'last';
 }
 
+export interface ViewStatisticsSettings {
+  /** Shows duration-weighted completion, remaining work and capacity for finite periods. */
+  showTime: boolean;
+  /** Scheduled or recurring source items that always reserve capacity in this view period. */
+  reservedItemIds: string[];
+}
+
 export interface SavedView {
   id: string;
   name: string;
@@ -243,6 +250,8 @@ export interface SavedView {
   project?: string;
   /** Explicit editable values copied into a fresh item created from this view. */
   creationDefaults?: Record<string, unknown>;
+  /** Optional presentation and capacity settings. Missing settings retain the legacy visible summary. */
+  statistics?: ViewStatisticsSettings;
   /** Namespaced data from a newer or foreign schema that this version cannot interpret. */
   extensions?: Record<string, unknown>;
 }

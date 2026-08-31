@@ -636,6 +636,8 @@ export default function App() {
     setUndoActions((current) => current.filter((candidate) => candidate.id !== id));
   };
   const systemNow = workspace ? effectiveWorkspaceNow(workspace, new Date(clockTick)) : new Date(clockTick);
+  const recurrenceReconcileMinute = Math.floor(systemNow.getTime() / 60_000);
+  const recurrenceSeriesSignature = workspace ? Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.recurrence && !item.deletedAt).map((item) => `${item.id}:${item.revision}`).sort().join('|') : '';
   const backupReminderDays = workspace?.calendarPreferences.backupPreferences?.reminderDays ?? 7;
   const [backupReminderDraft, setBackupReminderDraft] = useState(() => String(backupReminderDays));
   useEffect(() => { setBackupReminderDraft(String(backupReminderDays)); }, [backupReminderDays]);
@@ -664,6 +666,10 @@ export default function App() {
     return () => window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
   }, []);
   useViewport(captureInputRef, boot === 'ready');
+  useEffect(() => {
+    if (!workspace || !recurrenceSeriesSignature) return;
+    commit('Reconcile recurring items', (draft) => { reconcileRecurrences(draft, effectiveWorkspaceNow(draft, new Date(clockTick))); });
+  }, [workspace?.workspaceId, recurrenceSeriesSignature, recurrenceReconcileMinute]);
   useEffect(() => {
     if (!workspace) return;
     const prefs = workspace.calendarPreferences.backupPreferences;
