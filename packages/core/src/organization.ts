@@ -55,7 +55,7 @@ export function calculateItemSetMetrics(items: Iterable<UniversalItem>): ItemSet
   for (const item of items) {
     if (seen.has(item.id)) continue;
     seen.add(item.id);
-    if (item.deletedAt || item.role === 'series_template' || item.state === 'cancelled' || item.state === 'archived') continue;
+    if (item.deletedAt || item.role === 'series_template' || item.state === 'cancelled' || item.state === 'archived' || item.external?.readOnly) continue;
     totalItems += 1;
     const duration = effectiveItemDurationMs(item);
     totalDurationMs += duration;

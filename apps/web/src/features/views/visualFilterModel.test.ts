@@ -15,6 +15,14 @@ describe('visual filter model', () => {
     expect(toSqlExpression('state == "open" && priority >= 2')).toBe('state = "open" AND priority >= 2');
   });
 
+  it('round-trips the Google Calendar provider filter', () => {
+    const source = 'external.provider == "google_calendar"';
+    expect(visualOperators('external.provider')).toContain('==');
+    const rows = parseVisualRows(source);
+    expect(rows).toMatchObject([{ field: 'external.provider', operator: '==', value: 'google_calendar' }]);
+    expect(serializeVisualRows(rows!)).toBe(source);
+  });
+
   it('round-trips the reusable schedule period condition', () => {
     const value = { ...defaultSchedulePeriodValue(), period: 'tomorrow' as const, includeOverdue: true };
     const source = serializeVisualRows([{ id: 'period', join: 'and', field: schedulePeriodField, operator: 'matches', value: JSON.stringify(value) }]);

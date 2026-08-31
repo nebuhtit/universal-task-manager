@@ -47,6 +47,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'isSubtask', label: 'Subtask', group: 'Connections' }, { path: 'isParent', label: 'Parent item', group: 'Connections' },
   { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
   { path: 'attachments', label: 'Links', group: 'Connections' },
+  { path: 'external.provider', label: 'External source', group: 'Connections' }, { path: 'external.calendarId', label: 'External calendar', group: 'Connections' },
   { path: 'scripts', label: 'Script results', group: 'Scripts' },
   { path: 'closure.at', label: 'Closed at', group: 'History' }, { path: 'closure.actor', label: 'Closed by', group: 'History' },
   { path: 'closure.reason', label: 'Closure reason', group: 'History' }, { path: 'closure.automationId', label: 'Closing automation ID', group: 'History' },
@@ -115,7 +116,7 @@ export const exampleViewFieldValue = (path: string): string => {
     'recurrence.closeAt': 'Next activation', 'recurrence.anchor': 'Scheduled time', 'recurrence.autoRenew': 'Yes',
     'progress.mode': 'Counter', 'progress.current': '2', 'progress.target': '4', 'progress.unit': 'chapters',
     'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
-    reminders: 'Mon 09:00 · Thu 17:00', relations: 'Related: Project brief', attachments: 'Research link',
+    reminders: 'Mon 09:00 · Thu 17:00', relations: 'Related: Project brief', attachments: 'Research link', 'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar',
     'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
     'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', cycleHistory: '4 finished cycles', subtasks: 'Draft outline, Review notes', parent: 'Quarterly review',
     isSubtask: 'Yes', isParent: 'Yes', parentDepth: '1', childDepth: '2', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
@@ -184,6 +185,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
 
 export const displayViewValue = (value: unknown, field: string, language?: WorkspaceLanguage): string => {
   if (value === undefined || value === null || value === '') return '';
+  if (field === 'external.provider' && value === 'google_calendar') return 'Google Calendar';
   if ((field.endsWith('Duration') || field.endsWith('Offset')) && typeof value === 'string' && /^P/.test(value)) {
     const parsed = parseFriendlyDuration(value);
     const totalMinutes = Math.round(calendarDurationMs(parsed.amount, parsed.unit) / 60_000);

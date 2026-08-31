@@ -16,7 +16,7 @@ type Props = {
   backupReminder: boolean; onBackupReminder: () => void; onDismissBackupReminder: () => void;
 };
 
-const nav: NavItem[] = [['home', 'home', 'Home'], ['all', 'items', 'All items'], ['organization', 'views', 'PARA'], ['settings', 'settings', 'Settings']];
+const nav: NavItem[] = [['home', 'home', 'Home'], ['calendar', 'calendar', 'Calendar'], ['all', 'items', 'All items'], ['organization', 'views', 'PARA'], ['settings', 'settings', 'Settings']];
 
 function NoticeCard({ notice, actionLabel, onOpen, onAction, dismissPopup = false }: {
   notice: AppNotice; actionLabel: string; onOpen: () => void; onAction: () => void; dismissPopup?: boolean;

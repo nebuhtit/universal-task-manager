@@ -54,4 +54,19 @@ describe('ViewResults manual ordering controls', () => {
     expect(duplicateMarkup).toContain('--completion-accent:#c27a00');
     expect(duplicateMarkup).not.toContain('--completion-accent:#2864c7');
   });
+
+  it('renders mirrored Google events as read-only in every renderer', () => {
+    const workspace = createWorkspace('Google');
+    const item = createItem('Imported meeting', 'event');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-31T10:00:00.000Z', endAt: '2026-08-31T11:00:00.000Z' };
+    item.external = { provider: 'google_calendar', connectionId: 'connection', calendarId: 'primary', eventId: 'event', sourceUrl: 'https://calendar.google.com/', readOnly: true, syncedAt: '2026-08-31T09:00:00.000Z' };
+    workspace.items[item.id] = item;
+    const view: SavedView = { id: 'google', name: 'Google', query: { source: 'true' }, renderer: 'list', fields: ['title', 'external.provider'], sort: [] };
+    const props = { workspace, onEdit: vi.fn(), onState: vi.fn() };
+    for (const renderer of ['list', 'table', 'calendar', 'board'] as const) {
+      const markup = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer }} />);
+      expect(markup).toContain('aria-label="Read-only Google Calendar event"');
+      expect(markup).toContain('disabled=""');
+    }
+  });
 });

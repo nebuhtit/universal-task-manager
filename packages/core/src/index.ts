@@ -11,4 +11,6 @@ export * from './clock.js';
 export * from './lists.js';
 export * from './organization.js';
 export * from './view-statistics.js';
+export * from './google-calendar.js';
+export * from './export-privacy.js';
 export * from './format-guide.js';

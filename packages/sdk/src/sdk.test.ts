@@ -1,6 +1,6 @@
 import * as Automerge from '@automerge/automerge';
 import { describe, expect, it } from 'vitest';
-import { createId, createItem, createWorkspace } from '@utm/core';
+import { createId, createItem, createWorkspace, googleCalendarEventToItem } from '@utm/core';
 import { createAutomergeDocument, exportContainer, merge, toJSON, unlock, validateContainer } from './container.js';
 import { encryptBytes, encryptWithKey, randomKey } from './crypto.js';
 import { decryptWorkspaceFile, faceIdStatus } from './storage.js';
@@ -19,6 +19,55 @@ describe('encrypted .utmb container', () => {
     expect(source).not.toContain('Secret task');
     expect((await validateContainer(source, password)).itemCount).toBe(1);
     expect(await toJSON(source, password)).toContain('Secret task');
+  });
+
+  it('removes Google Calendar data from encrypted snapshots and Automerge history', async () => {
+    const workspace = createWorkspace('Private calendar backup');
+    const ordinary = createItem('Ordinary task');
+    const external = googleCalendarEventToItem({
+      id: 'private-event-id', summary: 'PRIVATE GOOGLE EVENT', description: 'PRIVATE GOOGLE DESCRIPTION',
+      start: { dateTime: '2026-08-31T10:00:00.000Z' }, end: { dateTime: '2026-08-31T11:00:00.000Z' },
+    }, 'private-account@example.com', 'private-connection', '2026-08-31T09:00:00.000Z')!;
+    workspace.items[ordinary.id] = ordinary;
+    workspace.items[external.id] = external;
+    workspace.calendarPreferences.googleCalendar = {
+      connectionId: 'private-connection', accountEmail: 'private-account@example.com',
+      calendars: [{ id: 'private-account@example.com', name: 'Private calendar', selected: true }],
+      syncTokens: { 'private-account@example.com': 'private-sync-token' },
+    };
+
+    const source = await exportContainer(createAutomergeDocument(workspace), password);
+    const restored = await unlock(source, password);
+    const readable = await toJSON(source, password);
+    expect(restored.payload.manifest.historyMode).toBe('snapshot');
+    expect(restored.document.items[ordinary.id]?.title).toBe('Ordinary task');
+    expect(restored.document.items[external.id]).toBeUndefined();
+    for (const value of [readable, JSON.stringify(restored.payload.snapshot), JSON.stringify(restored.document), JSON.stringify(Automerge.getHistory(restored.document))]) {
+      expect(value).not.toContain('PRIVATE GOOGLE');
+      expect(value).not.toContain('private-account@example.com');
+      expect(value).not.toContain('private-event-id');
+      expect(value).not.toContain('private-sync-token');
+    }
+  });
+
+  it('removes Google Calendar values that only remain in Automerge history', async () => {
+    let document = createAutomergeDocument(createWorkspace('History privacy'));
+    document = Automerge.change(document, 'Mirror Google event', (draft) => {
+      const external = googleCalendarEventToItem({
+        id: 'old-event', summary: 'PRIVATE OLD GOOGLE EVENT',
+        start: { dateTime: '2026-08-31T10:00:00.000Z' }, end: { dateTime: '2026-08-31T11:00:00.000Z' },
+      }, 'private-calendar@example.com', 'private-connection', '2026-08-31T09:00:00.000Z')!;
+      draft.items[external.id] = external;
+    });
+    document = Automerge.change(document, 'Remove external cache', (draft) => {
+      Object.keys(draft.items).forEach((id) => { if (id.startsWith('google:')) delete draft.items[id]; });
+    });
+
+    const source = await exportContainer(document, password);
+    const restored = await unlock(source, password);
+    expect(restored.payload.manifest.historyMode).toBe('snapshot');
+    expect(JSON.stringify(Automerge.getHistory(restored.document))).not.toContain('private-calendar@example.com');
+    expect(JSON.stringify(restored.payload.snapshot)).not.toContain('PRIVATE OLD GOOGLE EVENT');
   });
 
   it('decrypts an arbitrary portable backup to documented readable JSON without importing it', async () => {
@@ -79,5 +128,22 @@ describe('encrypted .utmb container', () => {
     const right = Automerge.change(Automerge.clone(base), (draft) => { draft.items[rightItem.id] = rightItem; });
     const result = await merge(left, await exportContainer(right, password), password);
     expect(Object.values(result.document.items).map((item) => item.title).sort()).toEqual(['From left', 'From right']);
+  });
+
+  it('merges a privacy-safe snapshot without deleting the local Google cache', async () => {
+    const baseWorkspace = createWorkspace('Private merge');
+    const external = googleCalendarEventToItem({
+      id: 'private-event-id', summary: 'PRIVATE GOOGLE EVENT',
+      start: { dateTime: '2026-08-31T10:00:00.000Z' }, end: { dateTime: '2026-08-31T11:00:00.000Z' },
+    }, 'private-account@example.com', 'private-connection', '2026-08-31T09:00:00.000Z')!;
+    baseWorkspace.items[external.id] = external;
+    const base = createAutomergeDocument(baseWorkspace);
+    const leftItem = createItem('From left');
+    const rightItem = createItem('From right');
+    const left = Automerge.change(Automerge.clone(base), (draft) => { draft.items[leftItem.id] = leftItem; });
+    const right = Automerge.change(Automerge.clone(base), (draft) => { draft.items[rightItem.id] = rightItem; draft.updatedAt = '2026-08-31T12:00:00.000Z'; });
+    const source = await exportContainer(right, password);
+    const result = await merge(left, source, password);
+    expect(Object.values(result.document.items).map((item) => item.title).sort()).toEqual(['From left', 'From right', 'PRIVATE GOOGLE EVENT']);
   });
 });

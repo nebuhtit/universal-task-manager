@@ -86,7 +86,7 @@ export function inferViewPeriod(view: Pick<SavedView, 'query'>, now: Date, optio
   };
 }
 
-const eligible = (item: UniversalItem) => !item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived';
+const eligible = (item: UniversalItem) => !item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && item.external?.transparency !== 'transparent';
 
 function durationInsidePeriod(item: UniversalItem, period: ViewPeriodBounds): number {
   const duration = effectiveItemDurationMs(item);

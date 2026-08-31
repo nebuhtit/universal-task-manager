@@ -39,6 +39,7 @@ jobs:
           VITE_GITHUB_PAGES: 'true'
           # Make the exact source revision visible in the deployed login screen.
           VITE_COMMIT_SHA: ${{ github.sha }}
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_CLIENT_ID }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: apps/web/dist

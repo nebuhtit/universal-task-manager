@@ -12,12 +12,14 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebr
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
   const today = (now ?? new Date()).toISOString().slice(0, 10);
   const isHabit = Boolean(item.habit);
+  const readOnlyExternal = Boolean(item.external?.readOnly);
   const habitCompletedToday = isHabit && Boolean(item.habit?.completedDates?.includes(today));
   const visiblyClosed = isHabit ? habitCompletedToday : item.state !== 'open';
   const [optimisticClosed, setOptimisticClosed] = useState<boolean | null>(null);
   const optimisticReset = useRef<number | undefined>(undefined);
   const shownClosed = optimisticClosed ?? visiblyClosed;
   const primeStateToggle = (event?: ReactPointerEvent<HTMLButtonElement>) => {
+    if (readOnlyExternal) return;
     if (event && event.pointerType === 'mouse' && event.button !== 0) return;
     if (!visiblyClosed) previewCompletionSound(item.id, workspace?.calendarPreferences.appearance.tickSound);
     flushSync(() => setOptimisticClosed(!visiblyClosed));
@@ -25,6 +27,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebr
     optimisticReset.current = window.setTimeout(() => setOptimisticClosed(null), 1_200);
   };
   const beginStateToggle = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (readOnlyExternal) return;
     primeStateToggle(event);
     if (event.pointerType === 'mouse') return;
     touchStateCommits.set(item.id, performance.now() + 1_000);
@@ -32,6 +35,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebr
     onState(nextState);
   };
   const finishStateToggle = () => {
+    if (readOnlyExternal) return;
     const touchCommitUntil = touchStateCommits.get(item.id) ?? 0;
     touchStateCommits.delete(item.id);
     if (touchCommitUntil >= performance.now()) {
@@ -64,7 +68,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebr
     return <>{names.map((name, index) => <span className="organization-colored-name" style={{ '--organization-accent': organizationAccentFor(workspace, kind, name) } as CSSProperties} key={name}>{index ? ', ' : ''}{kind === 'tag' ? '#' : ''}{name}</span>)}</>;
   };
   return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}${optimisticClosed === true ? ' is-optimistic-complete' : optimisticClosed === false ? ' is-optimistic-reopen' : ''}`}>
-    <button className={`state-toggle${optimisticClosed === true ? ' is-optimistic-closed' : ''}`} data-sound={!visiblyClosed ? 'none' : undefined} aria-label={isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onPointerDown={beginStateToggle} onClick={finishStateToggle}>
+    <button className={`state-toggle${optimisticClosed === true ? ' is-optimistic-closed' : ''}`} disabled={readOnlyExternal} data-sound={!visiblyClosed && !readOnlyExternal ? 'none' : undefined} aria-label={readOnlyExternal ? 'Read-only Google Calendar event' : isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onPointerDown={beginStateToggle} onClick={finishStateToggle}>
       {shownClosed ? '✓' : ''}
     </button>
     <button className="item-main" onClick={onEdit}>

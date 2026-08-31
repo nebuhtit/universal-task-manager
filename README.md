@@ -130,18 +130,16 @@ The query and formula language is parsed by UTM's allowlisted DSL. It does not u
 
 ### Calendar
 
-The calendar is a responsive interface over the same universal items and Saved Views.
+The calendar is a responsive one-day list over the same universal items and Saved Views.
 
-- Month, Week, Day, 3-day, and Agenda modes.
-- Full 24-hour timeline; sleep hours are shaded instead of hidden.
-- Configurable wake/sleep time, week start, weekends, snap interval, default duration, and timezone.
+- Week and Month navigator panels; only the selected day is rendered as a normal item list.
+- Duration-weighted completion and free-time statistics for every day.
+- Configurable week start, timezone, item states, and optional Saved View filter.
 - Filter by a Saved View and by item state.
 - Show scheduled items, deadlines, and projected recurring occurrences.
-- Keep unscheduled matching items available in a separate panel.
-- Drag items to another time or day and resize their visible boundaries.
-- Move several selected items together.
-- Choose the appropriate recurrence scope when changing a repeating occurrence.
-- Use keyboard movement and Undo for calendar operations.
+- Mirror selected Google calendars into the encrypted workspace with read-only provenance; source events open in Google Calendar.
+- Keep Google OAuth access tokens in memory only. Incremental sync tokens contain no account access credential and may be stored in the workspace.
+- Treat mirrored Google events as a local cache: every JSON, CSV, Excel, iCalendar and encrypted `.utmb` export removes the events, connection metadata, sync tokens and dangling item references. Reconnect and sync after restoring a backup.
 
 Calendar and calendar-driven automations are currently marked **beta** and receive stricter regression testing before releases.
 
@@ -262,7 +260,8 @@ Each browser or installed PWA has its own local workspace. Moving to another dev
 - Exact closed-app alarms are outside the current web platform implementation.
 - Binary file attachments are not embedded in the workspace; attachments are links.
 - Calendar and Automations remain beta areas.
-- Google Calendar realtime sync, arbitrary JavaScript, webhooks, and third-party account integrations are out of scope for the current release.
+- Google Calendar sync requires an OAuth web client ID and explicit reconnect after an access token expires. Closed-app background sync is not provided by the static PWA.
+- Arbitrary JavaScript, webhooks, Apple Calendar, and other third-party account integrations remain out of scope.
 
 ## Run locally
 
@@ -278,6 +277,14 @@ pnpm dev
 ```
 
 Open the URL printed by Vite. To test on a phone connected to the same network, use the LAN address shown by the development server.
+
+Google Calendar connection needs a Google OAuth Web client configured with the local and deployed origins. Put its public client ID in an uncommitted `.env.local`:
+
+```dotenv
+VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+```
+
+For GitHub Pages, add the same value as the repository Actions secret `GOOGLE_CALENDAR_CLIENT_ID`. The app requests only `calendar.readonly`; access tokens remain in browser memory. Mirrored events and all Google connection state are excluded from every export, including encrypted recovery copies, so a restored workspace must reconnect and sync again.
 
 The production PWA works offline after its application files have been loaded and cached successfully at least once.
 

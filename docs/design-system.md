@@ -80,7 +80,7 @@ The spike verified Chromium keyboard focus restoration, Escape dismissal, portal
 
 Do not use these as early migration pilots:
 
-- Calendar and FullCalendar drag, resize, recurrence scope, and projection behavior.
+- Calendar recurrence projection, per-day capacity metrics, and external synchronization behavior.
 - CodeEditor overlay, caret, syntax highlighting, and iOS dark-mode fallback.
 - Lock, unlock, backup import, and workspace activation.
 - Quick capture, Visual Viewport, mobile keyboard, and sticky editor actions.
@@ -91,6 +91,6 @@ The first real migration pilot is the isolated All Items display-settings dialog
 
 ## Phase 3 migration status
 
-The bounded Phase 3 migrations now cover All Items display settings, the low-risk and date/duration ItemEditor sections, Views editor, AppShell, and Calendar presentation. Calendar keeps FullCalendar as the interaction and layout owner; only controls, dialogs, surfaces, responsive overflow, and semantic colors moved to the design system. Calendar projection, filtering, drag/resize, recurrence scopes, selection, and Undo remain domain-owned behavior.
+The bounded Phase 3 migrations now cover All Items display settings, the low-risk and date/duration ItemEditor sections, Views editor, AppShell, and Calendar presentation. Calendar reuses the normal View list renderer and semantic primitives; recurrence projection, filtering, per-day statistics, selection, and external sync remain domain-owned behavior.
 
 `styles/legacy.css` still contains unmigrated application areas and the `open-calendar-button` bridge used by calendar-rendered saved views. Those selectors are not a design-system API and should be removed only with their remaining consumer.

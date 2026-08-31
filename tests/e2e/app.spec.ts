@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.93\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.94\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -121,20 +121,24 @@ test('shows the release version on registration, login and settings', async ({ p
 
   await goToSettings(page);
   await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
-  await expect(page.getByText('v1.93.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.94.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 });
 
-test('keeps Calendar and Automations archived without beta navigation labels', async ({ page }) => {
+test('shows the rebuilt Calendar without reviving Automations or beta labels', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Beta labels');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await expect(page.locator('.sidebar .nav-beta')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Calendar', exact: true })).toHaveCount(0);
+  if ((page.viewportSize()?.width ?? 0) > 620) await expect(page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true })).toBeVisible();
+  else {
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await expect(page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true })).toBeVisible();
+  }
   await expect(page.getByRole('button', { name: 'Automations', exact: true })).toHaveCount(0);
 });
 
@@ -404,46 +408,37 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
-test.skip('calendar switches modes and creates a timed universal item', async ({ page }, testInfo) => {
+test('calendar switches week and month day panels and exposes read-only Google setup', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Calendar workspace');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await goToCalendar(page);
-  await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
+  await expect(page.locator('.calendar-title h1')).toBeVisible();
+  await expect(page.locator('.calendar-day-panel.is-week .calendar-day-choice')).toHaveCount(7);
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  await expect(page.locator('.calendar-day-panel.is-month .calendar-day-choice')).toHaveCount(31);
+  await page.getByRole('button', { name: 'Week', exact: true }).click();
+  const calendarList = page.locator('.calendar-day-list');
+  const listTopBeforePicker = await calendarList.evaluate((element) => element.getBoundingClientRect().top);
+  await page.locator('.calendar-view-picker > summary').click();
+  await expect(page.locator('.calendar-view-picker')).toHaveAttribute('open', '');
+  const listTopWithPicker = await calendarList.evaluate((element) => element.getBoundingClientRect().top);
+  expect(Math.abs(listTopWithPicker - listTopBeforePicker)).toBeLessThanOrEqual(1);
+  const pickerBorders = await page.locator('.calendar-view-picker').evaluate((element) => {
+    const details = getComputedStyle(element);
+    const popup = getComputedStyle(element.querySelector('.ui-disclosure-content')!);
+    return { detailsTop: details.borderTopWidth, detailsBottom: details.borderBottomWidth, popupTop: popup.borderTopWidth, popupBottom: popup.borderBottomWidth };
+  });
+  expect(pickerBorders).toEqual({ detailsTop: '0px', detailsBottom: '0px', popupTop: '0px', popupBottom: '0px' });
+  await page.locator('.calendar-view-picker > summary').click();
   await page.getByRole('button', { name: 'Calendar settings' }).click();
-  await expect(page.getByLabel('Wake time')).toHaveValue('08:00');
-  await expect(page.getByLabel('Sleep time')).toHaveValue('22:00');
-  await page.getByLabel('Wake time').fill('07:00');
-  await page.getByLabel('Sleep time').fill('23:00');
+  await expect(page.getByLabel('Timezone')).not.toHaveValue('');
+  await expect(page.getByText('Google Calendar', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect Google Calendar' })).toBeDisabled();
+  await expect(page.getByText(/needs a Google OAuth client ID/)).toBeVisible();
   await page.getByRole('button', { name: 'Close calendar settings' }).click();
-  if (testInfo.project.name === 'desktop') await expect(page.getByRole('grid', { name: /August 2026/ })).toBeVisible();
-  else await expect(page.locator('.calendar-modes').getByRole('button', { name: 'day', exact: true })).toHaveClass(/active/);
-  await page.locator('.calendar-modes').getByRole('button', { name: 'day', exact: true }).click();
-  await expect(page.locator('[data-time="08:00:00"]').filter({ hasText: '8:00' }).first()).toBeVisible();
-  await expect(page.locator('[data-time="06:00:00"].calendar-sleep-slot')).toHaveCount(1);
-  await expect(page.locator('[data-time="07:00:00"].calendar-sleep-slot')).toHaveCount(0);
-  await expect(page.locator('[data-time="23:00:00"].calendar-sleep-slot')).toHaveCount(1);
-  const timedGrid = page.getByRole('row', { name: 'Timed' }).getByRole('gridcell');
-  await expect(timedGrid).toBeVisible();
-  await timedGrid.click({ position: { x: 80, y: 80 } });
-  await expect(page.getByRole('heading', { name: 'New calendar item' })).toBeVisible();
-  await page.getByLabel('Title', { exact: true }).fill('Calendar-created task');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('Calendar-created task', { exact: true })).toBeVisible();
-  const calendarEvent = page.locator('.calendar-time-event').filter({ hasText: 'Calendar-created task' });
-  await expect(calendarEvent).toHaveCount(1);
-  await expect(calendarEvent).toHaveCSS('border-top-width', '1px');
-  await goHome(page);
-  await page.getByRole('button', { name: 'New view' }).click();
-  await page.getByLabel('Name', { exact: true }).fill('Items below priority 3');
-  await openViewEditorSection(page, 'Advanced filter code');
-  await page.getByLabel('Advanced filter code').fill('priority < 3');
-  await page.getByRole('button', { name: 'Save view' }).click();
-  await goToCalendar(page);
-  await page.getByRole('combobox', { name: 'Saved view' }).selectOption({ label: 'Items below priority 3' });
-  await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'Saved view' })).toHaveValue(/.+/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 test('deleted items appear in Trash and can be restored', async ({ page }) => {

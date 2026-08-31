@@ -1,256 +1,267 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import FullCalendar from '@fullcalendar/react';
-import dayGridPlugin from '@fullcalendar/react/daygrid';
-import timeGridPlugin from '@fullcalendar/react/timegrid';
-import listPlugin from '@fullcalendar/react/list';
-import interactionPlugin, { Draggable } from '@fullcalendar/react/interaction';
-import type { CalendarApi, DateClickInfo, DateSelectInfo, DatesSetInfo, EventClickInfo, EventDropInfo, EventInput, EventReceiveInfo, EventResizeDoneInfo } from '@fullcalendar/react';
-import '@fullcalendar/react/skeleton.css';
-import { CloseIcon, LineIcon } from '../../components/ui/icons';
+import { useMemo, useState } from 'react';
+import {
+  applyGoogleCalendarSync, calculateViewTimeMetrics, createId, createOccurrence, projectOccurrences,
+  type GoogleCalendarPreferences,
+  type ItemPreset, type ProjectedOccurrence, type SavedView, type UniversalItem,
+  type ViewTimeMetrics, type WorkspaceDocument,
+} from '@utm/core';
+import { LineIcon } from '../../components/ui/icons';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { Button, Checkbox, Field, IconButton, Input, Select, Surface } from '../../components/ui/primitives';
-import { dateInput, fromDateInput, isSleepTime } from '../../utils/dates';
-import { compileQuery, materializeProjectedOccurrence, moveCalendarItems, moveRecurringOccurrence, projectOccurrences, resizeCalendarItem, type CalendarViewMode, type ItemPreset, type ProjectedOccurrence, type RecurrenceEditScope, type Schedule, type UniversalItem, type WorkspaceDocument } from '@utm/core';
-import { inferredPreset, priorityNames, stateNames } from '../items';
+import { stateNames } from '../items';
+import { ViewMetricsSummary } from '../views/ViewMetricsSummary';
+import { ViewResults } from '../views/ViewResults';
+import { selectViewItems } from '../views/viewSelectors';
+import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from '../../services/googleCalendar';
 import './calendar.css';
 
+const DAY_MS = 86_400_000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+type NavigatorMode = 'week' | 'month';
 
-type CalendarPendingMove = { rows: ProjectedOccurrence[]; deltaMs: number };
-export function CalendarPage({ workspace, now, commit, onEditItem, createUiItem }: {
-  workspace: WorkspaceDocument; now: Date; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void; onEditItem: (item: UniversalItem) => void; createUiItem: (title?: string, preset?: ItemPreset, now?: Date) => UniversalItem;
+function localDateKey(date: Date, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+    const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  } catch { return date.toISOString().slice(0, 10); }
+}
+
+const dateFromKey = (key: string) => new Date(`${key}T12:00:00.000Z`);
+const shiftDateKey = (key: string, days: number) => new Date(dateFromKey(key).getTime() + days * DAY_MS).toISOString().slice(0, 10);
+const monthStart = (key: string) => `${key.slice(0, 7)}-01`;
+function nextMonthStart(key: string): string {
+  const [year, month] = key.slice(0, 7).split('-').map(Number);
+  return new Date(Date.UTC(year!, month!, 1, 12)).toISOString().slice(0, 10);
+}
+function shiftMonth(key: string, direction: -1 | 1): string {
+  const [year, month, day] = key.split('-').map(Number);
+  const target = new Date(Date.UTC(year!, month! - 1 + direction, 1, 12));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0, 12)).getUTCDate();
+  target.setUTCDate(Math.min(day!, lastDay));
+  return target.toISOString().slice(0, 10);
+}
+function weekStart(key: string, startsOn: 0 | 1): string {
+  const weekday = dateFromKey(key).getUTCDay();
+  return shiftDateKey(key, -((weekday - startsOn + 7) % 7));
+}
+
+function zonedStart(key: string, timeZone: string): Date {
+  const [year, month, day] = key.split('-').map(Number);
+  const wallClock = Date.UTC(year!, month! - 1, day!);
+  let instant = new Date(wallClock);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(instant);
+    const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+    const displayed = Date.UTC(values.year!, values.month! - 1, values.day!, values.hour!, values.minute!, values.second!);
+    const next = new Date(wallClock - (displayed - instant.getTime()));
+    if (next.getTime() === instant.getTime()) break;
+    instant = next;
+  }
+  return instant;
+}
+
+function itemForRow(workspace: WorkspaceDocument, row: ProjectedOccurrence): UniversalItem | null {
+  const source = workspace.items[row.materializedItemId ?? row.sourceItemId];
+  if (!source) return null;
+  if (!row.virtual) return clean({ ...source, schedule: row.schedule, state: row.state });
+  if (!row.recurrenceId) return null;
+  const projected = createOccurrence(source, new Date(row.recurrenceId), 0);
+  projected.id = row.id;
+  projected.schedule = clean(row.schedule);
+  projected.state = row.state;
+  return projected;
+}
+
+function overlapsDay(item: UniversalItem, start: Date, end: Date): boolean {
+  const startsAt = Date.parse(item.schedule?.startAt ?? item.schedule?.dueAt ?? '');
+  if (!Number.isFinite(startsAt)) return false;
+  const endsAt = Date.parse(item.schedule?.endAt ?? item.schedule?.startAt ?? item.schedule?.dueAt ?? '');
+  if (!Number.isFinite(endsAt) || endsAt <= startsAt) return startsAt >= start.getTime() && startsAt < end.getTime();
+  return startsAt < end.getTime() && endsAt > start.getTime();
+}
+
+function dayView(key: string): SavedView {
+  return {
+    id: `calendar:${key}`,
+    name: key,
+    renderer: 'list',
+    fields: ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project', 'schedule.estimatedDuration', 'external.provider'],
+    query: { source: `scheduleInPeriod("custom", "event_open,duration,due", false, 7, "${key}", "${key}")` },
+    sort: [{ field: 'schedule.startAt', direction: 'asc', nulls: 'last' }, { field: 'schedule.dueAt', direction: 'asc', nulls: 'last' }],
+  };
+}
+
+const navigationMetrics = (metrics: ViewTimeMetrics): ViewTimeMetrics => ({ ...metrics, remainingDurationMs: 0 });
+
+export function CalendarPage({ workspace, now, commit, onEditItem, onState, createUiItem: _createUiItem, celebrationColors = new Map() }: {
+  workspace: WorkspaceDocument;
+  now: Date;
+  commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
+  onEditItem: (item: UniversalItem) => void;
+  onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void;
+  createUiItem: (title?: string, preset?: ItemPreset, now?: Date) => UniversalItem;
+  celebrationColors?: ReadonlyMap<string, string>;
 }) {
   const preferences = workspace.calendarPreferences;
-  const initialMode: CalendarViewMode = typeof window !== 'undefined' && window.innerWidth <= 620 && preferences.lastMode === 'month' ? 'day' : preferences.lastMode;
-  const [mode, setMode] = useState<CalendarViewMode>(initialMode);
-  const [range, setRange] = useState(() => ({ start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 8) }));
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [quickDraft, setQuickDraft] = useState<UniversalItem | null>(null);
-  const [pendingMove, setPendingMove] = useState<CalendarPendingMove | null>(null);
-  const [undoItems, setUndoItems] = useState<Record<string, UniversalItem> | null>(null);
-  const [moveDialog, setMoveDialog] = useState(false);
-  const [moveTarget, setMoveTarget] = useState('');
-  const [unscheduledOpen, setUnscheduledOpen] = useState(false);
-  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
-  const unscheduledRef = useRef<HTMLDivElement>(null);
-  const calendarRef = useRef<{ getApi: () => CalendarApi }>(null);
+  const [selectedDate, setSelectedDate] = useState(() => localDateKey(now, preferences.timezone));
+  const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [googleToken, setGoogleToken] = useState<{ accessToken: string; expiresAt: number } | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleError, setGoogleError] = useState('');
+  const todayKey = localDateKey(now, preferences.timezone);
+  const rangeStartKey = navigatorMode === 'week' ? weekStart(selectedDate, preferences.weekStartsOn) : monthStart(selectedDate);
+  const rangeEndKey = navigatorMode === 'week' ? shiftDateKey(rangeStartKey, 7) : nextMonthStart(selectedDate);
+  const rangeStart = zonedStart(rangeStartKey, preferences.timezone);
+  const rangeEnd = zonedStart(rangeEndKey, preferences.timezone);
 
-  const projected = useMemo(() => {
-    const all = projectOccurrences(workspace, range.start, range.end);
-    const predicate = preferences.selectedViewId ? (() => {
-      const view = workspace.views[preferences.selectedViewId!];
-      if (!view) return (_row: ProjectedOccurrence) => true;
-      try {
-        const compiled = compileQuery(view.query.source.trim() || 'true', undefined, { timeZone: preferences.timezone, weekStartsOn: preferences.weekStartsOn });
-        return (row: ProjectedOccurrence) => {
-          const source = workspace.items[row.materializedItemId ?? row.sourceItemId];
-          if (!source) return false;
-          const logical = row.virtual ? { ...clean(source), role: 'occurrence' as const, state: row.state, schedule: row.schedule } : source;
-          try { return compiled(logical); } catch { return false; }
+  const projected = useMemo(() => projectOccurrences(workspace, rangeStart, rangeEnd)
+    .map((row) => ({ row, item: itemForRow(workspace, row) }))
+    .filter((entry): entry is { row: ProjectedOccurrence; item: UniversalItem } => Boolean(entry.item))
+    .filter(({ item }) => preferences.includeStates.includes(item.state)), [workspace, rangeStart.getTime(), rangeEnd.getTime(), preferences.includeStates.join('|')]);
+
+  const filtered = useMemo(() => {
+    const selectedView = preferences.selectedViewId ? workspace.views[preferences.selectedViewId] : undefined;
+    if (!selectedView) return projected;
+    const candidateWorkspace = clean(workspace);
+    candidateWorkspace.items = Object.fromEntries(projected.map(({ item }) => [item.id, clean(item)]));
+    const accepted = new Set(selectViewItems(candidateWorkspace, selectedView).map((item) => item.id));
+    return projected.filter(({ item }) => accepted.has(item.id));
+  }, [projected, preferences.selectedViewId, workspace]);
+
+  const dayKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (let key = rangeStartKey; key < rangeEndKey; key = shiftDateKey(key, 1)) keys.push(key);
+    return keys;
+  }, [rangeStartKey, rangeEndKey]);
+  const dayData = useMemo(() => Object.fromEntries(dayKeys.map((key) => {
+    const start = zonedStart(key, preferences.timezone);
+    const end = zonedStart(shiftDateKey(key, 1), preferences.timezone);
+    const entries = filtered.filter(({ item }) => overlapsDay(item, start, end));
+    const view = dayView(key);
+    const candidateWorkspace = clean(workspace);
+    candidateWorkspace.items = Object.fromEntries(entries.map(({ item }) => [item.id, clean(item)]));
+    const metrics = calculateViewTimeMetrics(candidateWorkspace, view, entries.map(({ item }) => item), now);
+    return [key, { entries, view, workspace: candidateWorkspace, metrics }];
+  })), [dayKeys, filtered, preferences.timezone, workspace, now.getTime()]);
+
+  const emptyWorkspace = clean(workspace); emptyWorkspace.items = {};
+  const selected = dayData[selectedDate] ?? { entries: [], view: dayView(selectedDate), workspace: emptyWorkspace, metrics: calculateViewTimeMetrics(emptyWorkspace, dayView(selectedDate), [], now) };
+  const rowsById = new Map(selected.entries.map(({ row, item }) => [item.id, row]));
+  const formatDate = (key: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(preferences.language, { ...options, timeZone: 'UTC' }).format(dateFromKey(key));
+  const selectedLabel = formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const weekdayOffset = navigatorMode === 'month' ? (dateFromKey(rangeStartKey).getUTCDay() - preferences.weekStartsOn + 7) % 7 : 0;
+  const labelWeek = weekStart('2026-08-31', preferences.weekStartsOn);
+
+  const materialize = (row: ProjectedOccurrence): UniversalItem | undefined => {
+    if (!row.virtual) return workspace.items[row.materializedItemId ?? row.id];
+    let result: UniversalItem | undefined;
+    commit('Materialize calendar occurrence', (draft) => {
+      const source = draft.items[row.sourceItemId];
+      if (!source || !row.recurrenceId) return;
+      const occurrence = createOccurrence(source, new Date(row.recurrenceId), 0);
+      draft.items[occurrence.id] = occurrence;
+      result = clean(occurrence);
+    });
+    return result;
+  };
+  const openItem = (item: UniversalItem) => {
+    const row = rowsById.get(item.id);
+    const source = row ? materialize(row) : workspace.items[item.id] ?? item;
+    if (source) onEditItem(source);
+  };
+  const changeState = (item: UniversalItem, state: UniversalItem['state'], color?: string) => {
+    if (item.external?.readOnly) { window.open(item.external.sourceUrl, '_blank', 'noopener,noreferrer'); return; }
+    const row = rowsById.get(item.id);
+    const source = row ? materialize(row) : workspace.items[item.id] ?? item;
+    if (source) window.setTimeout(() => onState(source, state, color), 0);
+  };
+
+  const syncGoogle = async () => {
+    setGoogleBusy(true); setGoogleError('');
+    const current: GoogleCalendarPreferences = preferences.googleCalendar ?? { connectionId: createId(), calendars: [], syncTokens: {} };
+    try {
+      const token = googleToken && googleToken.expiresAt > Date.now() + 60_000 ? googleToken : await requestGoogleCalendarToken();
+      setGoogleToken(token);
+      const result = await synchronizeGoogleCalendars(token.accessToken, current);
+      commit('Sync Google Calendar', (draft) => {
+        for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
+        draft.calendarPreferences.googleCalendar = {
+          connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens,
+          ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
         };
-      } catch { return (_row: ProjectedOccurrence) => false; }
-    })() : (_row: ProjectedOccurrence) => true;
-    return all.filter((row) => preferences.includeStates.includes(row.state) && predicate(row));
-  }, [workspace, range.start, range.end, preferences.selectedViewId, preferences.includeStates]);
-  const byId = useMemo(() => new Map(projected.map((row) => [row.id, row])), [projected]);
-  const unscheduled = Object.values(workspace.items).filter((item) => !item.deletedAt && item.role !== 'series_template' && !item.schedule?.startAt && !item.schedule?.dueAt);
-
-  useEffect(() => {
-    const container = unscheduledRef.current; if (!container) return;
-    const draggable = new Draggable(container, {
-      itemSelector: '.unscheduled-item', longPressDelay: 420,
-      eventData: (element) => ({ id: `external:${(element as HTMLElement).dataset.itemId}`, title: (element as HTMLElement).dataset.title, duration: '00:30' }),
-    });
-    return () => draggable.destroy();
-  }, [unscheduled.map((item) => item.id).join('|')]);
-
-  useEffect(() => {
-    if (!undoItems) return; const timer = window.setTimeout(() => setUndoItems(null), 8_000); return () => window.clearTimeout(timer);
-  }, [undoItems]);
-
-  const setCalendarMode = (next: CalendarViewMode) => {
-    setMode(next); calendarRef.current?.getApi().changeView(next === 'month' ? 'dayGridMonth' : next === 'week' ? 'timeGridWeek' : next === 'day' ? 'timeGridDay' : next === 'three_day' ? 'timeGridThreeDay' : 'listYear');
-    commit('Save calendar mode', (draft) => { draft.calendarPreferences.lastMode = next; });
-  };
-  const saveUndoPoint = () => setUndoItems(clean(workspace.items));
-  const applyMove = (rows: ProjectedOccurrence[], deltaMs: number, scope: RecurrenceEditScope) => {
-    saveUndoPoint();
-    commit(rows.length > 1 ? 'Move selected calendar items' : 'Move calendar item', (draft) => {
-      const ordinaryIds: string[] = [];
-      const movedSeries = new Set<string>();
-      rows.forEach((row) => {
-        if (row.seriesId) {
-          if (scope === 'entire_series' && movedSeries.has(row.seriesId)) return;
-          moveRecurringOccurrence(draft, row, deltaMs, scope, now); movedSeries.add(row.seriesId);
-        } else ordinaryIds.push(materializeProjectedOccurrence(draft, row, now).id);
       });
-      if (ordinaryIds.length) moveCalendarItems(draft, ordinaryIds, deltaMs, now);
-    });
-    setSelected(new Set()); setPendingMove(null);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setGoogleError(message);
+      if (preferences.googleCalendar) commit('Record Google Calendar sync error', (draft) => { if (draft.calendarPreferences.googleCalendar) draft.calendarPreferences.googleCalendar.lastError = message; });
+    } finally { setGoogleBusy(false); }
   };
-  const requestMove = (row: ProjectedOccurrence, deltaMs: number) => {
-    const rows = selected.has(row.id) ? projected.filter((entry) => selected.has(entry.id)) : [row];
-    if (rows.some((entry) => entry.seriesId)) setPendingMove({ rows, deltaMs });
-    else applyMove(rows, deltaMs, 'this_occurrence');
-  };
-  const createDraftForRange = (start: Date, end: Date | null, allDay: boolean) => {
-    const item = createUiItem('', 'task', start);
-    item.schedule = { timezone: preferences.timezone, startAt: start.toISOString(), endAt: (end ?? new Date(start.getTime() + preferences.defaultDurationMinutes * 60_000)).toISOString(), ...(allDay ? { allDay: true } : {}) };
-    setQuickDraft(item);
-  };
-  const patchQuickSchedule = (key: 'startAt' | 'endAt', value: string) => setQuickDraft((current) => {
-    if (!current) return current;
-    const schedule = { ...current.schedule! } as Record<string, unknown>; const converted = fromDateInput(value);
-    if (converted) schedule[key] = converted; else delete schedule[key];
-    return { ...current, schedule: schedule as unknown as Schedule };
-  });
-  const openProjected = (row: ProjectedOccurrence) => {
-    let opened: UniversalItem | undefined;
-    if (row.virtual) commit('Materialize calendar occurrence', (draft) => { opened = clean(materializeProjectedOccurrence(draft, row, now)); });
-    else opened = workspace.items[row.materializedItemId ?? row.id];
-    if (opened) onEditItem(clean(opened));
-  };
-  const events: EventInput[] = projected.map((row) => {
-    const start = row.schedule.startAt ?? row.schedule.dueAt!;
-    const defaultEnd = row.schedule.startAt ? new Date(new Date(start).getTime() + preferences.defaultDurationMinutes * 60_000).toISOString() : undefined;
-    const end = row.schedule.endAt ?? defaultEnd;
-    return {
-      id: row.id, title: row.title || 'Untitled', start, ...(end ? { end } : {}), allDay: Boolean(row.schedule.allDay),
-      editable: true, durationEditable: !row.dueOnly, class: [`calendar-state-${row.state}`, `calendar-priority-${row.priority ?? 0}`, row.schedule.startAt && !row.schedule.allDay ? 'calendar-time-event' : '', row.dueOnly ? 'calendar-due-only' : '', selected.has(row.id) ? 'calendar-selected' : ''].filter(Boolean).join(' '),
-      extendedProps: { row },
-    };
-  });
-  const handleEventClick = (info: EventClickInfo) => {
-    const row = byId.get(info.event.id); if (!row) return;
-    if (info.jsEvent.shiftKey) { setSelected((current) => { const next = new Set(current); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; }); return; }
-    openProjected(row);
-  };
-  const handleSelect = (info: DateSelectInfo) => {
-    if (info.jsEvent?.shiftKey || info.jsEvent === null) {
-      const start = info.start.getTime(); const end = info.end.getTime();
-      setSelected(new Set(projected.filter((row) => { const value = new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime(); return value >= start && value < end; }).map((row) => row.id)));
-      return;
+
+  const selectGoogleCalendar = (calendarId: string) => commit('Select Google calendar', (draft) => {
+    const google = draft.calendarPreferences.googleCalendar;
+    if (!google) return;
+    const calendar = google.calendars.find((entry) => entry.id === calendarId);
+    if (!calendar) return;
+    calendar.selected = !calendar.selected;
+    delete google.syncTokens[calendarId];
+    if (!calendar.selected) {
+      Object.values(draft.items).forEach((item) => {
+        if (item.external?.provider !== 'google_calendar' || item.external.connectionId !== google.connectionId || item.external.calendarId !== calendarId) return;
+        delete draft.items[item.id]; delete draft.tombstones[item.id];
+      });
     }
-    createDraftForRange(info.start, info.end, info.allDay);
-  };
-  const handleDrop = (info: EventDropInfo) => {
-    const row = byId.get(info.event.id); const start = info.event.start; if (!row || !start) { info.revert(); return; }
-    const original = new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime(); const delta = start.getTime() - original;
-    info.revert(); requestMove(row, delta);
-  };
-  const handleResize = (info: EventResizeDoneInfo) => {
-    const row = byId.get(info.event.id); const start = info.event.start; const end = info.event.end; info.revert(); if (!row || !start || !end) return;
-    saveUndoPoint();
-    commit('Resize calendar item', (draft) => { const item = materializeProjectedOccurrence(draft, row, now); resizeCalendarItem(draft, item.id, end.toISOString(), now, start.toISOString()); });
-  };
-  const handleExternal = (info: EventReceiveInfo) => {
-    const itemId = info.event.id.replace(/^external:/, ''); const start = info.event.start; const end = info.event.end; const allDay = info.event.allDay; info.revert(); if (!start) return;
-    saveUndoPoint();
-    commit('Schedule unscheduled item', (draft) => { const item = draft.items[itemId]; if (!item) return; item.schedule = { timezone: preferences.timezone, startAt: start.toISOString(), endAt: (end ?? new Date(start.getTime() + preferences.defaultDurationMinutes * 60_000)).toISOString(), ...(allDay ? { allDay: true } : {}) }; item.updatedAt = now.toISOString(); item.revision += 1; });
-    setUnscheduledOpen(false);
-  };
-  const selectedRows = projected.filter((row) => selected.has(row.id));
-  const performKeyboardMove = () => {
-    if (!selectedRows.length || !moveTarget) return;
-    const earliest = Math.min(...selectedRows.map((row) => new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime()));
-    const delta = new Date(moveTarget).getTime() - earliest;
-    if (selectedRows.some((row) => row.seriesId)) setPendingMove({ rows: selectedRows, deltaMs: delta }); else applyMove(selectedRows, delta, 'this_occurrence');
-    setMoveDialog(false);
-  };
+  });
 
   return <section className="calendar-page page-section">
-    <div className="calendar-title">
-      <div><p className="eyebrow">TIME, WITHOUT SILOS</p><h1>Calendar</h1></div>
-      <div className="calendar-nav">
-        <IconButton size="compact" variant="ghost" onClick={() => setCalendarSettingsOpen(true)} aria-label="Calendar settings"><LineIcon name="settings" /></IconButton>
-        <IconButton size="compact" variant="ghost" onClick={() => calendarRef.current?.getApi().prev()} aria-label="Previous period">‹</IconButton>
-        <Button size="compact" variant="ghost" onClick={() => calendarRef.current?.getApi().today()}>Today</Button>
-        <IconButton size="compact" variant="ghost" onClick={() => calendarRef.current?.getApi().next()} aria-label="Next period">›</IconButton>
-      </div>
-    </div>
-    <div className="calendar-controls">
-      <div className="calendar-modes" aria-label="Calendar view">
-        {(['month', ...(window.innerWidth <= 620 ? ['three_day'] : ['week']), 'day', 'agenda'] as CalendarViewMode[]).map((entry) => <Button
-          variant="ghost"
-          size="compact"
-          className={mode === entry ? 'active' : ''}
-          aria-pressed={mode === entry}
-          key={entry}
-          onClick={() => setCalendarMode(entry)}
-        >{entry === 'three_day' ? '3 days' : entry}</Button>)}
-      </div>
-      <Field label="Saved view" className="calendar-view-field">
-        <SearchableDisclosureList uiKey="calendar:saved-view-filter" className="calendar-view-picker" summary={preferences.selectedViewId ? workspace.views[preferences.selectedViewId]?.name ?? 'All active + completed' : 'All active + completed'} items={[null, ...Object.values(workspace.views)]} getSearchText={(view) => view?.name ?? 'All active completed'} searchLabel="Search Saved views" searchPlaceholder="Search views" renderItem={(view) => <Button size="compact" variant="ghost" key={view?.id ?? 'all'} aria-pressed={(preferences.selectedViewId ?? '') === (view?.id ?? '')} onClick={(event) => { commit('Set calendar view filter', (draft) => { if (view) draft.calendarPreferences.selectedViewId = view.id; else delete draft.calendarPreferences.selectedViewId; }); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{view?.name ?? 'All active + completed'}</Button>} />
-      </Field>
-      <Button size="compact" className="unscheduled-toggle" onClick={() => setUnscheduledOpen(true)}>Unscheduled ({unscheduled.length})</Button>
-    </div>
-    <div className="calendar-state-filters" aria-label="Calendar item states">
-      {(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => <Checkbox
-        key={state}
-        label={stateNames[state]}
-        checked={preferences.includeStates.includes(state)}
-        onChange={() => commit('Change calendar state filters', (draft) => {
-          const values = draft.calendarPreferences.includeStates;
-          const index = values.indexOf(state);
-          if (index >= 0) values.splice(index, 1); else values.push(state);
-        })}
-      />)}
-    </div>
-    {selected.size > 0 && <Surface variant="muted" className="selection-bar">
-      <strong>{selected.size} selected</strong>
-      <Button size="compact" onClick={() => {
-        const earliest = Math.min(...selectedRows.map((row) => new Date(row.schedule.startAt ?? row.schedule.dueAt!).getTime()));
-        setMoveTarget(dateInput(new Date(earliest).toISOString()));
-        setMoveDialog(true);
-      }}>Move selected…</Button>
-      <Button size="compact" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
-    </Surface>}
-    <div className="calendar-layout">
-      <Surface className="calendar-main-panel"><FullCalendar ref={calendarRef} plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]} initialDate={now} now={now.toISOString()} initialView={mode === 'month' ? 'dayGridMonth' : mode === 'week' ? 'timeGridWeek' : mode === 'day' ? 'timeGridDay' : mode === 'three_day' ? 'timeGridThreeDay' : 'listYear'} views={{ timeGridThreeDay: { type: 'timeGrid', duration: { days: 3 } } }} headerToolbar={false} events={events} editable eventResizableFromStart selectable selectMirror droppable nowIndicator weekends={preferences.weekends} firstDay={preferences.weekStartsOn} slotMinTime="00:00:00" slotMaxTime="24:00:00" scrollTime={`${preferences.sleepSchedule.wake}:00`} scrollTimeReset={false} slotHeaderContent={(info) => info.isTime ? `${info.date.getHours()}:${String(info.date.getMinutes()).padStart(2, '0')}` : info.text} slotLaneClass={(info) => [info.isMajor ? 'calendar-hour-line' : 'calendar-half-hour-line', isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-slot' : ''].filter(Boolean).join(' ')} slotHeaderClass={(info) => info.isTime && isSleepTime(info.date, preferences.sleepSchedule) ? 'calendar-sleep-label' : ''} snapDuration={`00:${String(preferences.snapMinutes).padStart(2, '0')}:00`} slotDuration="00:30:00" longPressDelay={420} eventLongPressDelay={420} selectLongPressDelay={420} height="auto" datesSet={(info: DatesSetInfo) => setRange((current) => current.start.getTime() === info.start.getTime() && current.end.getTime() === info.end.getTime() ? current : { start: info.start, end: info.end })} dateClick={(info: DateClickInfo) => createDraftForRange(info.date, null, info.allDay)} select={handleSelect} eventClick={handleEventClick} eventDrop={handleDrop} eventResize={handleResize} eventReceive={handleExternal} eventContent={(info) => { const row = info.event.extendedProps.row as ProjectedOccurrence | undefined; return <span className="calendar-event-content"><i aria-hidden>{selected.has(info.event.id) ? '✓' : ''}</i><span>{info.event.title}</span>{row?.schedule.dueAt && !row.dueOnly && <b title="Has deadline">◆</b>}</span>; }} eventDidMount={(info) => { let timer = 0; info.el.addEventListener('touchstart', () => { timer = window.setTimeout(() => setSelected((current) => new Set(current).add(info.event.id)), 460); }, { passive: true }); info.el.addEventListener('touchend', () => window.clearTimeout(timer), { passive: true }); }} /></Surface>
-      <Surface ref={unscheduledRef} role="complementary" className={`unscheduled-panel ${unscheduledOpen ? 'open' : ''}`}>
-        <header><div><h2>Unscheduled</h2><p>Drag an item into the calendar.</p></div><IconButton size="compact" variant="ghost" className="mobile-unscheduled-close" aria-label="Close unscheduled items" onClick={() => setUnscheduledOpen(false)}><CloseIcon /></IconButton></header>
-        <div>{unscheduled.map((item) => <Button variant="ghost" className="unscheduled-item" data-item-id={item.id} data-title={item.title} key={item.id} onClick={() => onEditItem(item)}><span>{item.title}</span><small>{inferredPreset(item)}</small></Button>)}{!unscheduled.length && <p className="empty">Everything has a date.</p>}</div>
-      </Surface>
-    </div>
-    <ResponsiveDialog
-      open={Boolean(quickDraft)}
-      onOpenChange={(open) => { if (!open) setQuickDraft(null); }}
-      title="New calendar item"
-      closeLabel="Close quick create"
-      className="quick-event"
-      initialFocus
-      footer={quickDraft && <><Button onClick={() => { onEditItem(quickDraft); setQuickDraft(null); }}>More options</Button><Button variant="primary" disabled={!quickDraft.title.trim()} onClick={() => { commit('Create calendar item', (draft) => { draft.items[quickDraft.id] = clean({ ...quickDraft, title: quickDraft.title.trim() }); }); setQuickDraft(null); }}>Save</Button></>}
-    >
-      {quickDraft && <div className="calendar-dialog-fields">
-        <Field label="Title"><Input value={quickDraft.title} onChange={(event) => setQuickDraft({ ...quickDraft, title: event.target.value })} /></Field>
-        <div className="calendar-field-grid">
-          <Field label="Start"><Input type="datetime-local" value={dateInput(quickDraft.schedule?.startAt)} onChange={(event) => patchQuickSchedule('startAt', event.target.value)} /></Field>
-          <Field label="End"><Input type="datetime-local" value={dateInput(quickDraft.schedule?.endAt)} onChange={(event) => patchQuickSchedule('endAt', event.target.value)} /></Field>
+    <header className="calendar-title">
+      <div><p className="eyebrow">CALENDAR</p><h1>{selectedLabel}</h1><ViewMetricsSummary metrics={selected.metrics} language={preferences.language} /></div>
+      <IconButton size="compact" variant="ghost" onClick={() => setSettingsOpen(true)} aria-label="Calendar settings"><LineIcon name="settings" /></IconButton>
+    </header>
+
+    <Surface className="calendar-navigator">
+      <div className="calendar-navigator-toolbar">
+        <div className="calendar-period-switch" aria-label="Calendar navigation mode">
+          {(['week', 'month'] as const).map((mode) => <Button size="compact" variant="ghost" aria-pressed={navigatorMode === mode} className={navigatorMode === mode ? 'active' : ''} key={mode} onClick={() => setNavigatorMode(mode)}>{mode === 'week' ? 'Week' : 'Month'}</Button>)}
         </div>
-        <Field label="Priority"><Select value={quickDraft.priority ?? 0} onChange={(event) => setQuickDraft({ ...quickDraft, priority: Number(event.target.value) as NonNullable<UniversalItem['priority']> })}>{[0, 1, 2, 3, 4].map((value) => <option value={value} key={value}>{value === 0 ? 'None' : priorityNames[value as 1 | 2 | 3 | 4]}</option>)}</Select></Field>
-      </div>}
-    </ResponsiveDialog>
-    <ResponsiveDialog open={Boolean(pendingMove)} onOpenChange={(open) => { if (!open) setPendingMove(null); }} title="Move repeating item" closeLabel="Cancel recurring move">
-      {pendingMove && <><p>{pendingMove.rows.length > 1 ? 'Choose one scope for the selected recurring items. You can move individual rows separately afterwards.' : 'Which part of the series should move?'}</p><div className="scope-actions"><Button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'this_occurrence')}>This occurrence</Button><Button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'this_and_future')}>This and future</Button><Button onClick={() => applyMove(pendingMove.rows, pendingMove.deltaMs, 'entire_series')}>Entire series</Button></div></>}
-    </ResponsiveDialog>
-    <ResponsiveDialog open={moveDialog} onOpenChange={setMoveDialog} title="Move selected items" closeLabel="Close move dialog" footer={<><Button onClick={() => setMoveDialog(false)}>Cancel</Button><Button variant="primary" onClick={performKeyboardMove}>Move group</Button></>}>
-      <p>Set the new date and time for the earliest selected item. Every selected item keeps the same relative distance.</p>
-      <Field label="New start"><Input type="datetime-local" value={moveTarget} onChange={(event) => setMoveTarget(event.target.value)} /></Field>
-    </ResponsiveDialog>
-    {undoItems && <div className="calendar-undo" role="status"><span>Calendar change saved</span><Button size="compact" onClick={() => { commit('Undo calendar operation', (draft) => { draft.items = clean(undoItems); }); setUndoItems(null); }}>Undo</Button></div>}
-    <ResponsiveDialog open={calendarSettingsOpen} onOpenChange={setCalendarSettingsOpen} title="Calendar settings" closeLabel="Close calendar settings">
+        <div className="calendar-period-actions">
+          <IconButton size="compact" variant="ghost" aria-label="Previous period" onClick={() => setSelectedDate(navigatorMode === 'week' ? shiftDateKey(selectedDate, -7) : shiftMonth(selectedDate, -1))}>‹</IconButton>
+          <Button size="compact" variant="ghost" onClick={() => setSelectedDate(todayKey)}>Today</Button>
+          <IconButton size="compact" variant="ghost" aria-label="Next period" onClick={() => setSelectedDate(navigatorMode === 'week' ? shiftDateKey(selectedDate, 7) : shiftMonth(selectedDate, 1))}>›</IconButton>
+        </div>
+      </div>
+      <div className={`calendar-day-panel is-${navigatorMode}`}>
+        {navigatorMode === 'month' && Array.from({ length: 7 }, (_, index) => <span className="calendar-weekday-label" key={index}>{formatDate(shiftDateKey(labelWeek, index), { weekday: 'short' })}</span>)}
+        {navigatorMode === 'month' && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
+        {dayKeys.map((key) => <button type="button" className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} onClick={() => setSelectedDate(key)} key={key}>
+          <span className="calendar-day-label"><b>{navigatorMode === 'week' ? formatDate(key, { weekday: 'short' }) : Number(key.slice(-2))}</b>{navigatorMode === 'week' && <small>{formatDate(key, { day: 'numeric', month: 'short' })}</small>}</span>
+          <ViewMetricsSummary metrics={navigationMetrics(dayData[key]!.metrics)} language={preferences.language} />
+        </button>)}
+      </div>
+    </Surface>
+
+    <SearchableDisclosureList uiKey="calendar:saved-view-filter" className="calendar-view-picker" summary={preferences.selectedViewId ? workspace.views[preferences.selectedViewId]?.name ?? 'All scheduled items' : 'All scheduled items'} items={[null, ...Object.values(workspace.views)]} getSearchText={(view) => view?.name ?? 'All scheduled items'} searchLabel="Search Saved views" searchPlaceholder="Search views" renderItem={(view) => <Button size="compact" variant="ghost" key={view?.id ?? 'all'} aria-pressed={(preferences.selectedViewId ?? '') === (view?.id ?? '')} onClick={(event) => { commit('Set calendar view filter', (draft) => { if (view) draft.calendarPreferences.selectedViewId = view.id; else delete draft.calendarPreferences.selectedViewId; }); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{view?.name ?? 'All scheduled items'}</Button>} />
+
+    <Surface className="calendar-day-list"><ViewResults view={selected.view} workspace={selected.workspace} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></Surface>
+
+    <ResponsiveDialog open={settingsOpen} onOpenChange={setSettingsOpen} title="Calendar settings" closeLabel="Close calendar settings">
       <div className="calendar-dialog-fields">
         <Field label="Timezone"><Input value={preferences.timezone} onChange={(event) => commit('Change calendar timezone', (draft) => { draft.calendarPreferences.timezone = event.target.value; })} /></Field>
-        <div className="calendar-field-grid">
-          <Field label="Wake time"><Input type="time" value={preferences.sleepSchedule.wake} onChange={(event) => commit('Change wake time', (draft) => { draft.calendarPreferences.sleepSchedule.wake = event.target.value; })} /></Field>
-          <Field label="Sleep time"><Input type="time" value={preferences.sleepSchedule.sleep} onChange={(event) => commit('Change sleep time', (draft) => { draft.calendarPreferences.sleepSchedule.sleep = event.target.value; })} /></Field>
-          <Field label="Snap minutes"><Input type="number" min="5" step="5" value={preferences.snapMinutes} onChange={(event) => commit('Change calendar snap', (draft) => { draft.calendarPreferences.snapMinutes = Math.max(5, Number(event.target.value) || 15); })} /></Field>
-          <Field label="Default duration"><Input type="number" min="5" step="5" value={preferences.defaultDurationMinutes} onChange={(event) => commit('Change default duration', (draft) => { draft.calendarPreferences.defaultDurationMinutes = Math.max(5, Number(event.target.value) || 30); })} /></Field>
-        </div>
-        <p className="ui-field-hint">The full 24-hour day stays available. Time between Sleep and Wake is shaded in the calendar.</p>
-        <Checkbox label="Show weekends" checked={preferences.weekends} onChange={(event) => commit('Toggle calendar weekends', (draft) => { draft.calendarPreferences.weekends = event.target.checked; })} />
         <Field label="Week starts"><Select value={preferences.weekStartsOn} onChange={(event) => commit('Change first weekday', (draft) => { draft.calendarPreferences.weekStartsOn = Number(event.target.value) as 0 | 1; })}><option value="1">Monday</option><option value="0">Sunday</option></Select></Field>
+        <div className="calendar-state-filters" aria-label="Calendar item states">{(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => <Checkbox key={state} label={stateNames[state]} checked={preferences.includeStates.includes(state)} onChange={() => commit('Change calendar state filters', (draft) => { const values = draft.calendarPreferences.includeStates; const index = values.indexOf(state); if (index >= 0) values.splice(index, 1); else values.push(state); })} />)}</div>
+        <section className="calendar-google-settings" aria-label="Google Calendar sync">
+          <div><strong>Google Calendar</strong><small>Read-only. Events are mirrored into this workspace; editing opens Google Calendar.</small></div>
+          {!GOOGLE_CALENDAR_CLIENT_ID && <p className="hint">This build needs a Google OAuth client ID before connection is available.</p>}
+          {preferences.googleCalendar?.accountEmail && <small>Connected as {preferences.googleCalendar.accountEmail}</small>}
+          {preferences.googleCalendar?.calendars.length ? <div className="calendar-google-list">{preferences.googleCalendar.calendars.map((calendar) => <Checkbox key={calendar.id} label={`${calendar.name}${calendar.primary ? ' · primary' : ''}`} checked={calendar.selected} onChange={() => selectGoogleCalendar(calendar.id)} />)}</div> : null}
+          <Button onClick={() => void syncGoogle()} disabled={googleBusy || !GOOGLE_CALENDAR_CLIENT_ID}>{googleBusy ? 'Syncing…' : preferences.googleCalendar ? 'Sync now' : 'Connect Google Calendar'}</Button>
+          {preferences.googleCalendar?.lastSyncedAt && <small>Last synced {new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(preferences.googleCalendar.lastSyncedAt))}</small>}
+          {(googleError || preferences.googleCalendar?.lastError) && <p className="form-error" role="alert">{googleError || preferences.googleCalendar?.lastError}</p>}
+        </section>
       </div>
     </ResponsiveDialog>
   </section>;

@@ -29,9 +29,6 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@fullcalendar/react':
-        specifier: ^7.0.2
-        version: 7.0.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(temporal-polyfill@1.0.3)
       '@utm/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -850,24 +847,6 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
-
-  '@full-ui/headless-calendar@7.0.2':
-    resolution: {integrity: sha512-i6UlTNjBVuiBca5Sq6OoLxFqK6eaQ/v1XOLObjRkzXLuSuNn+qs9/dUvlzrbeesn7QbRH7+u7lyvlQyq8WvmGA==}
-    peerDependencies:
-      temporal-polyfill: ^1.0.1
-
-  '@fullcalendar/core@7.0.2':
-    resolution: {integrity: sha512-EkhE1wkPttp5kKNmUNLsMwl8nUuQmLdj30SPKagOEWMJUE4AHETAu/F/SbYoRq+nksm2GWPe9cQs1kbQP2H9pA==}
-    peerDependencies:
-      '@full-ui/headless-calendar': 7.0.2
-      temporal-polyfill: ^1.0.1
-
-  '@fullcalendar/react@7.0.2':
-    resolution: {integrity: sha512-+etsJS6UsS1asxpEJt2h/vH/OCC/lqb8OCO/Xv7Mwb7GeJnR25iwBDEZmMKKmxNjJ2o8eU3uNGl/e7551eAt3A==}
-    peerDependencies:
-      react: ^17 || ^18 || ^19
-      react-dom: ^17 || ^18 || ^19
-      temporal-polyfill: ^1.0.1
 
   '@isaacs/cliui@9.0.0':
     resolution: {integrity: sha512-AokJm4tuBHillT+FpMtxQ60n8ObyXBatq7jD2/JA9dxbDDokKQm8KMht5ibGzLVU9IJDIKK4TPKgMHEYMn3lMg==}
@@ -3369,23 +3348,6 @@ snapshots:
       react-dom: 19.2.8(react@19.2.8)
 
   '@floating-ui/utils@0.2.12': {}
-
-  '@full-ui/headless-calendar@7.0.2(temporal-polyfill@1.0.3)':
-    dependencies:
-      temporal-polyfill: 1.0.3
-
-  '@fullcalendar/core@7.0.2(@full-ui/headless-calendar@7.0.2(temporal-polyfill@1.0.3))(temporal-polyfill@1.0.3)':
-    dependencies:
-      '@full-ui/headless-calendar': 7.0.2(temporal-polyfill@1.0.3)
-      temporal-polyfill: 1.0.3
-
-  '@fullcalendar/react@7.0.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(temporal-polyfill@1.0.3)':
-    dependencies:
-      '@full-ui/headless-calendar': 7.0.2(temporal-polyfill@1.0.3)
-      '@fullcalendar/core': 7.0.2(@full-ui/headless-calendar@7.0.2(temporal-polyfill@1.0.3))(temporal-polyfill@1.0.3)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      temporal-polyfill: 1.0.3
 
   '@isaacs/cliui@9.0.0': {}
 

@@ -46,6 +46,17 @@ describe('view time statistics', () => {
     expect(calculateViewTimeMetrics(workspace, view, [fixed], new Date('2026-08-31T12:00:00.000Z'))).toMatchObject({ reservedDurationMs: 0, freeDurationMs: 23 * 60 * 60_000 });
   });
 
+  it('treats opaque external events as capacity reservations but not completable work', () => {
+    const workspace = createWorkspace();
+    workspace.calendarPreferences.timezone = 'UTC';
+    const event = createItem('Google meeting', 'event');
+    event.schedule = { timezone: 'UTC', startAt: '2026-08-31T10:00:00.000Z', endAt: '2026-08-31T11:00:00.000Z', estimatedDuration: 'PT1H' };
+    event.external = { provider: 'google_calendar', connectionId: 'connection', calendarId: 'primary', eventId: 'event', sourceUrl: 'https://calendar.google.com/', readOnly: true, transparency: 'opaque', syncedAt: '2026-08-31T09:00:00.000Z' };
+    workspace.items[event.id] = event;
+    const metrics = calculateViewTimeMetrics(workspace, periodView(), [event], new Date('2026-08-31T12:00:00.000Z'));
+    expect(metrics).toMatchObject({ totalItems: 0, completionPercent: 0, remainingDurationMs: 0, freeDurationMs: 23 * 60 * 60_000 });
+  });
+
   it('keeps old views visible by default and quarantines malformed settings', () => {
     const base = { id: 'legacy', name: 'Legacy', query: { source: '' }, renderer: 'list', sort: [], fields: [] };
     expect(migrateView(base).value.statistics).toBeUndefined();

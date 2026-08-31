@@ -212,7 +212,7 @@ describe('safe expression language', () => {
     const migrated = migrateItem({ ...item, schemaVersion: '1.18.0' }).value;
     expect(migrated.location).toBe('Room 204');
     expect(migrated.attachments).toEqual(item.attachments);
-    expect(migrated.schemaVersion).toBe('1.19.0');
+    expect(migrated.schemaVersion).toBe('1.20.0');
   });
 
   it('restores list membership hidden by the older strict schema', () => {

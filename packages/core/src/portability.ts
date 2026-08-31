@@ -1,6 +1,7 @@
 import { APP_ID, APP_NAME, APP_VERSION, createId, SCHEMA_VERSION } from './types.js';
 import { defaultOrganizationPreferences, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, normalizedOrder, normalizedOrganizationPriorityOrder } from './organization.js';
 import { migrateItem, migrateView, validatePortablePackage } from './schema.js';
+import { itemsForExport, viewsForExport, workspaceForExport } from './export-privacy.js';
 import type {
   CustomFieldDefinition, OrganizationPreferences, PortablePackage, PortableSelection, ProjectDefinition, SavedView, UniversalItem, WorkspaceDocument,
 } from './types.js';
@@ -17,13 +18,18 @@ export interface PortablePackageOptions {
 }
 
 export function createPortablePackage(workspace: WorkspaceDocument, options: PortablePackageOptions): PortablePackage {
+  const safeWorkspace = workspaceForExport(workspace);
+  const items = itemsForExport(workspace, options.items ?? []);
+  const views = viewsForExport(workspace, options.views ?? []);
+  const itemIds = new Set(items.map((item) => item.id));
+  const selection = options.selection?.type === 'single_item' && !itemIds.has(options.selection.itemId) ? undefined : options.selection;
   return {
     format: 'utm-portable', formatVersion: 1, kind: options.kind, schemaVersion: SCHEMA_VERSION,
     exportedAt: (options.now ?? new Date()).toISOString(),
-    source: { appId: APP_ID, appName: APP_NAME, appVersion: APP_VERSION, workspaceId: workspace.workspaceId },
-    customFields: clone(workspace.customFields), areaDefinitions: clone(workspace.areaDefinitions), projectDefinitions: clone(workspace.projectDefinitions), organizationPreferences: clone(workspace.organizationPreferences), items: clone(options.items ?? []), views: clone(options.views ?? []),
-    ...(options.selection ? { selection: clone(options.selection) } : {}),
-    dependencyItemIds: [...new Set(options.dependencyItemIds ?? [])],
+    source: { appId: APP_ID, appName: APP_NAME, appVersion: APP_VERSION, workspaceId: safeWorkspace.workspaceId },
+    customFields: clone(safeWorkspace.customFields), areaDefinitions: clone(safeWorkspace.areaDefinitions), projectDefinitions: clone(safeWorkspace.projectDefinitions), organizationPreferences: clone(safeWorkspace.organizationPreferences), items, views,
+    ...(selection ? { selection: clone(selection) } : {}),
+    dependencyItemIds: [...new Set(options.dependencyItemIds ?? [])].filter((id) => itemIds.has(id)),
   };
 }
 

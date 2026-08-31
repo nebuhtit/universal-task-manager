@@ -28,6 +28,7 @@ export const WORKSPACE_FORMAT_GUIDE = {
     recurrence: 'RRULE-based repeating behavior. A quarantined recurrence is preserved in extensions but must not be executed.',
     extensions: 'Lossless storage for unknown, legacy or quarantined fields. Preserve it during conversion even if the target tool cannot use it.',
     migrationIssues: 'Repair queue containing safe entity IDs and disabled capabilities; it does not contain passwords or encryption keys.',
+    external: 'Read-only calendar provenance. Google source IDs and URLs may be stored, but OAuth access tokens are never part of the workspace.',
     automationsAndScripts: 'Executable behavior. Treat as untrusted input and do not execute when merely importing or visualizing the JSON.',
   },
   safeConversionAdvice: [
@@ -37,4 +38,3 @@ export const WORKSPACE_FORMAT_GUIDE = {
     'Do not infer deletion from a missing view result: views are computed projections, while items is the source collection.',
   ],
 } as const;
-

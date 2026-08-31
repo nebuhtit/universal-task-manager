@@ -1,110 +1,57 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace } from '@utm/core';
 import { CalendarPage } from './CalendarPage';
 
-vi.mock('@fullcalendar/react', () => ({
-  default: ({
-    initialView,
-    editable,
-    selectable,
-    droppable,
-    nowIndicator,
-    slotMinTime,
-    slotMaxTime,
-    events,
-  }: Record<string, unknown>) => <div
-    data-testid="full-calendar"
-    data-initial-view={String(initialView)}
-    data-editable={String(editable)}
-    data-selectable={String(selectable)}
-    data-droppable={String(droppable)}
-    data-now-indicator={String(nowIndicator)}
-    data-slot-min={String(slotMinTime)}
-    data-slot-max={String(slotMaxTime)}
-    data-event-count={String((events as unknown[]).length)}
-  />,
-}));
-vi.mock('@fullcalendar/react/daygrid', () => ({ default: {} }));
-vi.mock('@fullcalendar/react/timegrid', () => ({ default: {} }));
-vi.mock('@fullcalendar/react/list', () => ({ default: {} }));
-vi.mock('@fullcalendar/react/interaction', () => ({
-  default: {},
-  Draggable: class { destroy() {} },
-}));
-
-describe('CalendarPage baseline contract', () => {
-  beforeEach(() => {
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      value: { innerWidth: 1024 },
-    });
-  });
-
-  it('keeps the full calendar interaction and 24-hour timeline contract', () => {
-    const workspace = createWorkspace('Calendar', new Date('2026-08-26T10:00:00.000Z'));
-    const item = createItem('Timed item', 'task', new Date('2026-08-26T10:00:00.000Z'));
-    item.schedule = {
-      timezone: 'UTC',
-      startAt: '2026-08-26T10:00:00.000Z',
-      endAt: '2026-08-26T10:30:00.000Z',
-    };
+const renderCalendar = (withItem = false) => {
+  const now = new Date('2026-08-26T10:00:00.000Z');
+  const workspace = createWorkspace('Calendar', now);
+  workspace.calendarPreferences.timezone = 'UTC';
+  if (withItem) {
+    const item = createItem('Timed item', 'task', now);
+    item.schedule = { timezone: 'UTC', startAt: now.toISOString(), endAt: '2026-08-26T10:30:00.000Z', estimatedDuration: 'PT30M' };
     workspace.items[item.id] = item;
+  }
+  return renderToStaticMarkup(<CalendarPage
+    workspace={workspace}
+    now={now}
+    commit={vi.fn()}
+    onEditItem={vi.fn()}
+    onState={vi.fn()}
+    createUiItem={(title, preset, createdAt) => createItem(title ?? '', preset, createdAt)}
+  />);
+};
 
-    const markup = renderToStaticMarkup(<CalendarPage
-      workspace={workspace}
-      now={new Date('2026-08-26T10:00:00.000Z')}
-      commit={vi.fn()}
-      onEditItem={vi.fn()}
-      createUiItem={(title, preset, now) => createItem(title ?? '', preset, now)}
-    />);
-
-    expect(markup).toContain('data-initial-view="dayGridMonth"');
-    expect(markup).toContain('data-editable="true"');
-    expect(markup).toContain('data-selectable="true"');
-    expect(markup).toContain('data-droppable="true"');
-    expect(markup).toContain('data-now-indicator="true"');
-    expect(markup).toContain('data-slot-min="00:00:00"');
-    expect(markup).toContain('data-slot-max="24:00:00"');
-    expect(markup).toContain('data-event-count="1"');
+describe('CalendarPage daily-list contract', () => {
+  it('renders one selected day as the shared list view without a timeline', () => {
+    const markup = renderCalendar(true);
+    expect(markup).toContain('Timed item');
+    expect(markup).toContain('calendar-day-list');
+    expect(markup).toContain('calendar-day-panel is-week');
+    expect((markup.match(/calendar-day-choice/g) ?? [])).toHaveLength(7);
+    expect(markup).not.toContain('full-calendar');
+    expect(markup).not.toContain('timeGrid');
+    expect(markup).not.toContain('Unscheduled');
   });
 
-  it('keeps all modes, saved-view filtering, state filters and unscheduled access visible', () => {
-    const workspace = createWorkspace('Calendar');
-    const markup = renderToStaticMarkup(<CalendarPage
-      workspace={workspace}
-      now={new Date('2026-08-26T10:00:00.000Z')}
-      commit={vi.fn()}
-      onEditItem={vi.fn()}
-      createUiItem={(title, preset, now) => createItem(title ?? '', preset, now)}
-    />);
-
-    expect(markup).toContain('month');
-    expect(markup).toContain('week');
-    expect(markup).toContain('day');
-    expect(markup).toContain('agenda');
-    expect(markup).toContain('Saved view');
-    expect(markup).toContain('All active + completed');
-    expect(markup).toContain('Active');
-    expect(markup).toContain('Completed');
-    expect(markup).toContain('Auto closed');
-    expect(markup).toContain('Cancelled');
-    expect(markup).toContain('Archived');
-    expect(markup).toContain('Unscheduled (0)');
+  it('offers week/month navigation, a Saved view filter and daily time metrics', () => {
+    const markup = renderCalendar(true);
+    expect(markup).toContain('Week');
+    expect(markup).toContain('Month');
+    expect(markup).toContain('All scheduled items');
+    expect(markup).toContain('30min');
+    expect(markup).toContain('free 23h 30min');
+    expect(markup).toContain('Calendar settings');
   });
 
-  it('owns semantic, horizontally scrollable calendar styling outside legacy CSS', () => {
-    const calendarCss = readFileSync(fileURLToPath(new URL('./calendar.css', import.meta.url)), 'utf8');
-    const legacyCss = readFileSync(fileURLToPath(new URL('../../styles/legacy.css', import.meta.url)), 'utf8');
-
-    expect(calendarCss).toContain('overflow: auto');
-    expect(calendarCss).toContain('min-width: 680px');
-    expect(calendarCss).toContain('var(--color-surface)');
-    expect(calendarCss).toContain('var(--color-text)');
-    expect(calendarCss).not.toMatch(/#[0-9a-f]{3,8}\b/i);
-    expect(legacyCss).not.toContain('.calendar-main-panel');
-    expect(legacyCss).not.toContain('.unscheduled-panel');
+  it('uses semantic tokens and mobile horizontal week navigation', () => {
+    const css = readFileSync(fileURLToPath(new URL('./calendar.css', import.meta.url)), 'utf8');
+    expect(css).toContain('overflow-x: auto');
+    expect(css).toContain('grid-template-columns: repeat(7');
+    expect(css).toContain('var(--color-surface)');
+    expect(css).toContain('var(--color-text)');
+    expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i);
   });
 });

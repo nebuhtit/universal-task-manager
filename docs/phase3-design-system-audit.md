@@ -19,7 +19,7 @@ The application version remains unchanged during this refactor. A release versio
 - Legacy aliases (`--paper`, `--card`, `--ink`, `--line`, `--muted`) remain available while unmigrated screens still depend on them.
 - Confirmed unused styles from the former dashboard, bottom navigation, old view renderer/query details and appearance grid were removed.
 - `legacy.css` remains an explicit compatibility layer for unmigrated settings, authentication and specialized editor/domain controls. Its remaining literal values are not design-system examples and should be migrated only with the owning feature.
-- Calendar retains a few feature-specific dimensions for FullCalendar hit targets, grid geometry and responsive breakpoints. Colors, focus and interactive states still come from tokens.
+- Calendar retains a few feature-specific dimensions for day-panel hit targets, grid geometry and responsive breakpoints. Colors, focus and interactive states still come from tokens.
 
 ## Accessibility and interaction
 

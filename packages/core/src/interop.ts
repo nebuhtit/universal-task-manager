@@ -1,14 +1,16 @@
 import { APP_ID, APP_NAME, createItem, SCHEMA_VERSION } from './types.js';
 import { migrateWorkspace, validateWorkspace } from './schema.js';
+import { workspaceForExport } from './export-privacy.js';
 import type { UniversalItem, WorkspaceDocument } from './types.js';
 
 export interface InteropWarning { itemId?: string; field: string; message: string }
 export interface ImportResult { workspace: WorkspaceDocument; warnings: InteropWarning[]; imported: number; updated: number }
 
 export function toCanonicalJSON(workspace: WorkspaceDocument, pretty = true): string {
-  const validation = validateWorkspace(workspace);
+  const safe = workspaceForExport(workspace);
+  const validation = validateWorkspace(safe);
   if (!validation.valid) throw new Error(`Invalid workspace: ${validation.errors.join('; ')}`);
-  return JSON.stringify(workspace, null, pretty ? 2 : undefined);
+  return JSON.stringify(safe, null, pretty ? 2 : undefined);
 }
 
 export function fromCanonicalJSON(source: string): WorkspaceDocument {
@@ -62,6 +64,7 @@ function readDescriptionMetadata(value: string): { body: string; item?: Universa
 }
 
 export function toICS(workspace: WorkspaceDocument, options: ICSExportOptions = {}): { ics: string; warnings: InteropWarning[] } {
+  workspace = workspaceForExport(workspace);
   const warnings: InteropWarning[] = [];
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Universal Task Manager//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
   for (const item of Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.role !== 'occurrence')) {

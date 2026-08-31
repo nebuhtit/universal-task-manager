@@ -10,7 +10,7 @@ const extensions = { type: 'object', additionalProperties: true } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.19.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.20.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -118,6 +118,16 @@ export const itemJsonSchema = {
         properties: { id: { type: 'string' }, url: { type: 'string' }, title: { type: 'string' }, mimeType: { type: 'string' } },
       },
     },
+    external: {
+      type: 'object', additionalProperties: false,
+      required: ['provider', 'connectionId', 'calendarId', 'eventId', 'sourceUrl', 'readOnly', 'syncedAt'],
+      properties: {
+        provider: { const: 'google_calendar' }, connectionId: { type: 'string', minLength: 1 },
+        calendarId: { type: 'string', minLength: 1 }, eventId: { type: 'string', minLength: 1 },
+        sourceUrl: { type: 'string', format: 'uri' }, readOnly: { const: true }, transparency: { enum: ['opaque', 'transparent'] }, etag: { type: 'string' },
+        syncedAt: { type: 'string', format: 'date-time' },
+      },
+    },
     custom: { type: 'object', additionalProperties: { anyOf: [scalar, { type: 'array', items: scalar }] } },
     scripts: {
       type: 'array', items: {
@@ -139,7 +149,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.19.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.20.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -198,7 +208,7 @@ const organizationPriorityEntrySchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.19.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.20.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -234,7 +244,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.19.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.20.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   // `viewOrder` was added after the schema version had already shipped. Keep it
   // optional at the validation boundary so an otherwise valid older workspace
@@ -278,6 +288,15 @@ export const workspaceJsonSchema = {
         showExplanations: { type: 'boolean' },
         testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
         backupPreferences: { type: 'object', additionalProperties: false, required: ['reminderDays'], properties: { reminderDays: { type: 'integer', minimum: 0 }, lastBackupAt: { type: 'string', format: 'date-time' }, locationLabel: { type: 'string' } } },
+        googleCalendar: {
+          type: 'object', additionalProperties: false, required: ['connectionId', 'calendars', 'syncTokens'],
+          properties: {
+            connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' },
+            calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, selected: { type: 'boolean' } } } },
+            syncTokens: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
+            lastSyncedAt: { type: 'string', format: 'date-time' }, lastError: { type: 'string' },
+          },
+        },
       },
     },
     pushPreferences: {
@@ -379,6 +398,21 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   item.createdWithAppId ??= APP_ID; item.createdWithAppName ??= APP_NAME; item.createdWithVersion ??= APP_VERSION;
   item.revision ??= 1; item.bodyMarkdown ??= ''; item.contexts ??= []; item.tags ??= []; item.reminders ??= []; item.relations ??= []; item.attachments ??= []; item.custom ??= {};
   if (item.location !== undefined && typeof item.location !== 'string') delete item.location;
+  if (item.external !== undefined) {
+    const raw = item.external;
+    const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
+    const valid = record?.provider === 'google_calendar' && typeof record.connectionId === 'string' && Boolean(record.connectionId)
+      && typeof record.calendarId === 'string' && Boolean(record.calendarId) && typeof record.eventId === 'string' && Boolean(record.eventId)
+      && typeof record.sourceUrl === 'string' && /^https?:\/\//.test(record.sourceUrl) && record.readOnly === true
+      && typeof record.syncedAt === 'string' && Number.isFinite(Date.parse(record.syncedAt));
+    if (!valid) {
+      const target = (item.extensions && typeof item.extensions === 'object' && !Array.isArray(item.extensions) ? item.extensions : {}) as Record<string, unknown>;
+      target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), external: structuredClone(raw) };
+      item.extensions = target;
+      delete item.external;
+      warnings.push('Disabled invalid external calendar provenance');
+    }
+  }
   const stringValues = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean) : [];
   item.areas = [...new Set([...stringValues(item.areas), ...(typeof item.area === 'string' && item.area.trim() ? [item.area.trim()] : [])])];
   item.projects = [...new Set([...stringValues(item.projects), ...(typeof item.project === 'string' && item.project.trim() ? [item.project.trim()] : [])])];
@@ -723,7 +757,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'backupPreferences', 'diagnosticsEnabled', 'showExplanations',
+    'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'googleCalendar',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
@@ -733,6 +767,28 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   if (!['en', 'ru', 'es', 'de', 'fr', 'ko'].includes(String(calendarPreferences.language))) calendarPreferences.language = 'en';
   calendarPreferences.diagnosticsEnabled = calendarPreferences.diagnosticsEnabled !== false;
   calendarPreferences.showExplanations = calendarPreferences.showExplanations === true;
+  if (calendarPreferences.googleCalendar !== undefined) {
+    const raw = calendarPreferences.googleCalendar;
+    const google = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
+    if (!google || typeof google.connectionId !== 'string' || !google.connectionId) delete calendarPreferences.googleCalendar;
+    else {
+      const calendars = Array.isArray(google.calendars) ? google.calendars.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+        const value = entry as Record<string, unknown>;
+        if (typeof value.id !== 'string' || !value.id || typeof value.name !== 'string' || !value.name) return [];
+        return [{ id: value.id, name: value.name, selected: value.selected !== false, ...(value.primary === true ? { primary: true } : {}) }];
+      }) : [];
+      const tokens = google.syncTokens && typeof google.syncTokens === 'object' && !Array.isArray(google.syncTokens)
+        ? Object.fromEntries(Object.entries(google.syncTokens as Record<string, unknown>).filter((entry): entry is [string, string] => Boolean(entry[0]) && typeof entry[1] === 'string' && Boolean(entry[1]))) : {};
+      calendarPreferences.googleCalendar = {
+        connectionId: google.connectionId,
+        ...(typeof google.accountEmail === 'string' ? { accountEmail: google.accountEmail } : {}),
+        calendars, syncTokens: tokens,
+        ...(typeof google.lastSyncedAt === 'string' && Number.isFinite(Date.parse(google.lastSyncedAt)) ? { lastSyncedAt: google.lastSyncedAt } : {}),
+        ...(typeof google.lastError === 'string' ? { lastError: google.lastError } : {}),
+      };
+    }
+  }
   calendarPreferences.appearance ??= { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 };
   const appearance = calendarPreferences.appearance as Record<string, unknown>;
   Object.keys(appearance).forEach((key) => {

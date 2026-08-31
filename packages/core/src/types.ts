@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.19.0';
+export const SCHEMA_VERSION = '1.20.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.93.0';
-export const APP_RELEASED_AT = '2026-08-31T16:20:34.746Z';
+export const APP_VERSION = '1.94.0';
+export const APP_RELEASED_AT = '2026-08-31T19:43:30.106Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -138,6 +138,19 @@ export type RelationType = 'parent' | 'blocks' | 'blocked_by' | 'related' | 'dup
 export interface ItemRelation { id: string; targetId: string; type: RelationType; label?: string }
 export interface LinkAttachment { id: string; url: string; title?: string; mimeType?: string }
 
+/** Provenance for an immutable event mirrored from an external calendar. */
+export interface ExternalCalendarSource {
+  provider: 'google_calendar';
+  connectionId: string;
+  calendarId: string;
+  eventId: string;
+  sourceUrl: string;
+  readOnly: true;
+  transparency?: 'opaque' | 'transparent';
+  etag?: string;
+  syncedAt: ISODateTime;
+}
+
 export interface UniversalItem {
   id: string;
   schemaVersion: string;
@@ -180,6 +193,8 @@ export interface UniversalItem {
   reminders: Reminder[];
   relations: ItemRelation[];
   attachments: LinkAttachment[];
+  /** External events are edited only in their source calendar. */
+  external?: ExternalCalendarSource;
   custom: Record<string, CustomValue>;
   /** Safe, item-local computed fields. Expressions use the allowlisted UTM DSL; arbitrary JavaScript is never executed. */
   scripts?: ItemScriptField[];
@@ -447,6 +462,21 @@ export interface TestClockPreferences {
 }
 /** UI language is a workspace preference; item data itself remains language-neutral. */
 export type WorkspaceLanguage = 'en' | 'ru' | 'es' | 'de' | 'fr' | 'ko';
+export interface GoogleCalendarDefinition {
+  id: string;
+  name: string;
+  primary?: boolean;
+  selected: boolean;
+}
+export interface GoogleCalendarPreferences {
+  connectionId: string;
+  accountEmail?: string;
+  calendars: GoogleCalendarDefinition[];
+  /** Opaque Google sync tokens. OAuth access tokens are deliberately never persisted. */
+  syncTokens: Record<string, string>;
+  lastSyncedAt?: ISODateTime;
+  lastError?: string;
+}
 export interface CalendarPreferences {
   timezone: string;
   lastMode: CalendarViewMode;
@@ -468,6 +498,7 @@ export interface CalendarPreferences {
   /** Optional accelerated clock for local recurrence testing; never enabled by default. */
   testClock?: TestClockPreferences;
   backupPreferences?: { reminderDays: number; lastBackupAt?: ISODateTime; locationLabel?: string };
+  googleCalendar?: GoogleCalendarPreferences;
 }
 
 export interface PushPreferences {
