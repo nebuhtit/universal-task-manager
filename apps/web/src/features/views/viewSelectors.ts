@@ -1,7 +1,9 @@
 import { compileQuery, compileSort, effectiveWorkspaceNow, itemAreas, itemProjects, listDefinitionFor, orderedOrganizationEntries, orderedTagEntries, organizationPriorityRank, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
-const recentlyDoneUntil = new Map<string, number>();
+export const COMPLETION_EXIT_MS = 200;
+export type CompletionHold = { previous: UniversalItem; undoUntil: number; removeAt: number };
+const completionHolds = new Map<string, CompletionHold>();
 export const MANUAL_ORDER_EXTENSION = 'utm:manualOrder';
 
 export function manualOrderFor(view: SavedView): string[] {
@@ -23,32 +25,54 @@ export function moveManualItem(itemIds: string[], draggedId: string, targetId: s
   return next;
 }
 
-export function setRecentlyDone(itemId: string, until?: number): void {
-  if (until === undefined) recentlyDoneUntil.delete(itemId);
-  else recentlyDoneUntil.set(itemId, until);
+export function setCompletionHold(itemId: string, hold?: CompletionHold): void {
+  if (hold === undefined) completionHolds.delete(itemId);
+  else completionHolds.set(itemId, hold);
+}
+
+function completionHoldFor(itemId: string, at = Date.now()): CompletionHold | undefined {
+  const hold = completionHolds.get(itemId);
+  if (!hold) return undefined;
+  if (hold.removeAt <= at) {
+    completionHolds.delete(itemId);
+    return undefined;
+  }
+  return hold;
+}
+
+export function completionPhase(itemId: string, at = Date.now()): 'held' | 'exiting' | undefined {
+  const hold = completionHoldFor(itemId, at);
+  if (!hold) return undefined;
+  return at < hold.undoUntil ? 'held' : 'exiting';
 }
 
 export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
   const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
-  const available = Object.values(workspace.items).filter((item) => !item.deletedAt
-    && (!view?.list || item.list === view.list)
-    && (!view?.area || itemAreas(item).includes(view.area))
-    && (!view?.project || itemProjects(item).includes(view.project))
-    && (templateFilterRequested || !isItemTemplate(item))
-    && !(item.role === 'occurrence' && item.occurrence?.seriesId && workspace.items[item.occurrence.seriesId]?.habit));
+  const selectionSource = (item: UniversalItem) => completionHoldFor(item.id)?.previous ?? item;
+  const available = Object.values(workspace.items).filter((item) => {
+    const source = selectionSource(item);
+    return !item.deletedAt
+      && (!view?.list || source.list === view.list)
+      && (!view?.area || itemAreas(source).includes(view.area))
+      && (!view?.project || itemProjects(source).includes(view.project))
+      && (templateFilterRequested || !isItemTemplate(source))
+      && !(source.role === 'occurrence' && source.occurrence?.seriesId && workspace.items[source.occurrence.seriesId]?.habit);
+  });
   if (!view) return available.filter((item) => item.role !== 'series_template');
 
   let items: UniversalItem[];
   try {
     const predicate = compileQuery(view.query.source || 'true', (item) => relationContext(workspace, item), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
     const matchingRows = available.filter((item) => {
-      const areas = itemAreas(item); const projects = itemProjects(item);
-      const queryItem = { ...item, area: areas.length ? areas : undefined, project: projects.length ? projects : undefined } as unknown as UniversalItem;
-      const visibleByQuery = item.role !== 'series_template' ? predicate(queryItem, now) : Boolean(item.habit) && predicate({ ...queryItem, role: 'standalone' }, now);
-      const grace = item.state === 'done' && (recentlyDoneUntil.get(item.id) ?? 0) > Date.now();
-      return visibleByQuery || grace;
+      const source = selectionSource(item);
+      const areas = itemAreas(source); const projects = itemProjects(source);
+      const queryItem = { ...source, area: areas.length ? areas : undefined, project: projects.length ? projects : undefined } as unknown as UniversalItem;
+      return source.role !== 'series_template' ? predicate(queryItem, now) : Boolean(source.habit) && predicate({ ...queryItem, role: 'standalone' }, now);
     });
-    const matchingSeries = available.filter((item) => item.role === 'series_template' && !item.habit && predicate(item, now));
+    const matchingSeries = available.filter((item) => {
+      const source = selectionSource(item);
+      return source.role === 'series_template' && !source.habit && predicate(source, now);
+    });
     const standalone = matchingRows.filter((item) => item.role !== 'occurrence');
     const occurrencesBySeries = new Map<string, UniversalItem[]>();
     matchingRows.filter((item) => item.role === 'occurrence').forEach((item) => {
@@ -77,7 +101,10 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
   if (sortSource.trim()) {
     const rules = parseSortSource(sortSource);
     const organizationSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'organizationOrder', 'areaOrder', 'projectOrder', 'tagOrder'].includes(expression)));
-    if (!organizationSorts.size) items.sort((left, right) => compileSort(sortSource)(left, right, now));
+    if (!organizationSorts.size) {
+      const comparator = compileSort(sortSource);
+      items.sort((left, right) => comparator(selectionSource(left), selectionSource(right), now));
+    }
     else {
       const expanded = serializeSortRules(rules.flatMap((rule) => {
         if (!organizationSorts.has(rule.expression)) return [rule];
@@ -111,7 +138,7 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
           __utm_tag_order: tagRank,
         } };
       };
-      items.sort((left, right) => comparator(sortable(left), sortable(right), now));
+      items.sort((left, right) => comparator(sortable(selectionSource(left)), sortable(selectionSource(right)), now));
     }
   }
   const manualOrder = manualOrderFor(view);

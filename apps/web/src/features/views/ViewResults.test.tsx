@@ -20,6 +20,7 @@ describe('ViewResults manual ordering controls', () => {
     const list = renderToStaticMarkup(<ViewResults {...props} view={view} />);
     expect(list).toContain('aria-label="Reorder Alpha"');
     expect(list).toContain(`data-view-item-id="${item.id}"`);
+    expect(list).toContain('data-sound="none"');
 
     const table = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer: 'table' }} />);
     expect(table).toContain('reorder-column');

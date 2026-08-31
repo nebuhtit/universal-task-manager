@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
-import { boardSettingsFor, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems } from './viewSelectors';
+import { boardSettingsFor, completionPhase, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold } from './viewSelectors';
 
 const view = (source = 'true'): SavedView => ({
   id: 'view-test', name: 'Test', query: { source }, renderer: 'table', fields: ['title'], sort: [],
@@ -16,6 +16,35 @@ describe('view selectors', () => {
     workspace.items[high.id] = high;
     const savedView = { ...view('priority >= 2'), sortSource: 'priority desc' };
     expect(selectViewItems(workspace, savedView).map((item) => item.title)).toEqual(['High']);
+  });
+
+  it('holds a completed item in its original views and sort position only until Undo exits', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-31T10:00:00.000Z'));
+    const workspace = createWorkspace('Stable completion');
+    const alpha = createItem('Alpha'); alpha.updatedAt = '2026-08-31T08:00:00.000Z'; alpha.priority = 1;
+    const beta = createItem('Beta'); beta.updatedAt = '2026-08-31T09:00:00.000Z'; beta.priority = 4;
+    workspace.items[alpha.id] = alpha; workspace.items[beta.id] = beta;
+    const previous = JSON.parse(JSON.stringify(alpha)) as typeof alpha;
+    alpha.state = 'done'; alpha.updatedAt = '2026-08-31T10:00:00.000Z';
+    const undoUntil = Date.now() + 4_000;
+    setCompletionHold(alpha.id, { previous, undoUntil, removeAt: undoUntil + 200 });
+    const openView = { ...view('state == "open"'), sortSource: 'updatedAt asc' };
+    const highPriorityView = view('priority >= 3');
+
+    expect(selectViewItems(workspace, openView).map((item) => item.title)).toEqual(['Alpha', 'Beta']);
+    expect(selectViewItems(workspace, highPriorityView).map((item) => item.title)).toEqual(['Beta']);
+    expect(completionPhase(alpha.id)).toBe('held');
+
+    vi.advanceTimersByTime(4_000);
+    expect(completionPhase(alpha.id)).toBe('exiting');
+    expect(selectViewItems(workspace, openView).map((item) => item.title)).toEqual(['Alpha', 'Beta']);
+
+    vi.advanceTimersByTime(200);
+    expect(completionPhase(alpha.id)).toBeUndefined();
+    expect(selectViewItems(workspace, openView).map((item) => item.title)).toEqual(['Beta']);
+    setCompletionHold(alpha.id);
+    vi.useRealTimers();
   });
 
   it('keeps field grouping and board defaults in the views feature', () => {

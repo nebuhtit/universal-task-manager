@@ -759,6 +759,101 @@ test('table and board renderers can complete and reopen items', async ({ page })
   }
 });
 
+test('completion keeps an open-only view stable through the Undo window', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Stable completion');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await page.getByPlaceholder('Add new item').fill('Stable row');
+  await page.getByPlaceholder('Add new item').press('Enter');
+  await page.getByRole('button', { name: 'Close item editor' }).click();
+
+  await page.getByRole('button', { name: 'New view' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Open stable');
+  await page.getByRole('combobox', { name: 'Renderer' }).selectOption('list');
+  await openViewEditorSection(page, 'Advanced filter code');
+  await page.getByLabel('Advanced filter code').fill('state == "open"');
+  await page.getByRole('button', { name: 'Save view' }).click();
+
+  const view = page.locator('.view-section').filter({ has: page.getByRole('heading', { name: 'Open stable', exact: true }) });
+  const row = view.locator('[data-view-item-id]').filter({ hasText: 'Stable row' });
+  await expect(row).toBeVisible();
+  const before = await view.boundingBox();
+  const complete = row.locator('.state-toggle');
+  const immediate = await complete.evaluate((button) => {
+    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', button: 0 }));
+    const shell = button.closest<HTMLElement>('[data-view-item-id]');
+    const wrapper = shell?.querySelector<HTMLElement>('.reorderable-view-item');
+    const card = shell?.querySelector<HTMLElement>('.item-card');
+    const toggle = shell?.querySelector<HTMLElement>('.state-toggle');
+    const title = shell?.querySelector<HTMLElement>('.item-title');
+    return {
+      label: toggle?.getAttribute('aria-label') ?? '',
+      mark: toggle?.textContent ?? '',
+      titleDecoration: title ? getComputedStyle(title).textDecorationLine : '',
+      wrapper: wrapper ? getComputedStyle(wrapper).backgroundColor : '',
+      card: card ? getComputedStyle(card).backgroundColor : '',
+      toggle: toggle ? getComputedStyle(toggle).backgroundColor : '',
+    };
+  });
+  expect(immediate.label).toBe('Complete item');
+  expect(immediate.mark).toBe('✓');
+  expect(immediate.titleDecoration).toBe('line-through');
+  expect(immediate.wrapper).not.toBe('rgba(0, 0, 0, 0)');
+  expect(immediate.card).toBe('rgba(0, 0, 0, 0)');
+  expect(immediate.toggle).not.toBe('rgba(0, 0, 0, 0)');
+  await expect(complete).toHaveAttribute('aria-label', 'Reopen item');
+  await expect(complete).toHaveCSS('background-color', immediate.toggle);
+  await complete.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
+  await complete.evaluate((button: HTMLButtonElement) => button.click());
+  await expect(row.getByRole('button', { name: 'Reopen item' })).toBeVisible();
+  const held = await view.boundingBox();
+  expect(before).not.toBeNull(); expect(held).not.toBeNull();
+  expect(Math.abs(held!.height - before!.height)).toBeLessThanOrEqual(2);
+  await expect(page.getByText('Item completed', { exact: true })).toBeVisible();
+  const undoBackground = await page.locator('.undo-toast').evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(undoBackground).toMatch(/rgba\(|\/\s*0\./);
+  expect(undoBackground).not.toBe('rgb(0, 0, 0)');
+
+  const reopen = row.locator('.state-toggle');
+  const immediateReopen = await reopen.evaluate((button) => {
+    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', button: 0 }));
+    const shell = button.closest<HTMLElement>('[data-view-item-id]');
+    const wrapper = shell?.querySelector<HTMLElement>('.reorderable-view-item');
+    const title = shell?.querySelector<HTMLElement>('.item-title');
+    return {
+      mark: button.textContent ?? '',
+      titleDecoration: title ? getComputedStyle(title).textDecorationLine : '',
+      wrapper: wrapper ? getComputedStyle(wrapper).backgroundColor : '',
+      toggle: getComputedStyle(button).backgroundColor,
+    };
+  });
+  expect(immediateReopen.mark).toBe('');
+  expect(immediateReopen.titleDecoration).toBe('none');
+  expect(immediateReopen.wrapper).toBe('rgba(0, 0, 0, 0)');
+  expect(immediateReopen.toggle).toBe('rgba(0, 0, 0, 0)');
+  await expect(reopen).toHaveAttribute('aria-label', 'Complete item');
+  await reopen.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
+  await reopen.evaluate((button: HTMLButtonElement) => button.click());
+
+  const repeat = row.locator('.state-toggle');
+  const immediateRepeat = await repeat.evaluate((button) => {
+    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', button: 0 }));
+    const title = button.closest<HTMLElement>('.item-card')?.querySelector<HTMLElement>('.item-title');
+    return { mark: button.textContent ?? '', titleDecoration: title ? getComputedStyle(title).textDecorationLine : '', toggle: getComputedStyle(button).backgroundColor };
+  });
+  expect(immediateRepeat.mark).toBe('✓');
+  expect(immediateRepeat.titleDecoration).toBe('line-through');
+  expect(immediateRepeat.toggle).toBe(immediate.toggle);
+  await expect(repeat).toHaveAttribute('aria-label', 'Reopen item');
+  await repeat.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
+  await repeat.evaluate((button: HTMLButtonElement) => button.click());
+
+  await page.waitForTimeout(4_300);
+  await expect(view.getByText('Stable row', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Item completed', { exact: true })).toHaveCount(0);
+});
+
 test('notifications auto-hide, close individually, and remain in the bell center', async ({ page }) => {
   const password = 'correct horse battery staple';
   await page.getByLabel('Workspace name').fill('Notifications');

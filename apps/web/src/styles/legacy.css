@@ -95,26 +95,52 @@
 .settings-card > header, .dialog > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .settings-card h2 { margin: 3px 0 14px; font-size: 18px; letter-spacing: -.015em; font-weight: 600; }
 .item-list { display: grid; gap: 5px; }
+.view-item-exit-shell { display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; overflow: hidden; overflow-anchor: none; }
+.view-item-exit-shell > .reorderable-view-item { min-height: 0; }
+.view-item-exit-shell.is-exiting { animation: completion-row-exit var(--motion-default) var(--motion-easing-standard) forwards; pointer-events: none; }
+.calendar-item.is-exiting, .board-item.is-exiting, .renderer-table-wrap tbody tr.is-exiting { animation: completion-row-fade var(--motion-default) var(--motion-easing-standard) forwards; pointer-events: none; }
 .reorderable-view-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; min-width: 0; border-radius: var(--radius-sm); transition: background var(--motion-fast) var(--motion-easing-standard), opacity var(--motion-fast) var(--motion-easing-standard); }
 .reorderable-view-item > .item-card { min-width: 0; }
+.view-section .reorderable-view-item:has(.state-toggle:active),
+.view-section .calendar-item:has(.state-toggle:active),
+.view-section .board-item:has(.state-toggle:active),
+.view-section .renderer-table-wrap tbody tr:has(.state-toggle:active) { background-color: color-mix(in srgb, var(--view-accent, var(--color-text)) 22%, transparent); }
 .reorderable-view-item.is-celebrating,
+.reorderable-view-item:has(> .item-card.is-optimistic-complete),
 .calendar-item.is-celebrating,
 .board-item.is-celebrating,
 .renderer-table-wrap tbody tr.is-celebrating { overflow: hidden; border-radius: var(--radius-md); animation: completion-row-highlight 720ms var(--motion-easing-standard); }
 .reorderable-view-item.is-celebrating > .item-card { background: transparent; }
 .view-section .is-celebrating .state-toggle { background: var(--completion-accent); border-color: transparent; color: #fff; }
-@keyframes completion-row-highlight { 0%, 100% { background-color: transparent; } 28% { background-color: color-mix(in srgb, var(--completion-accent) 22%, transparent); } }
+@keyframes completion-row-highlight {
+  0% { background-color: color-mix(in srgb, var(--completion-accent, var(--view-accent, var(--color-text))) 22%, transparent); }
+  100% { background-color: transparent; }
+}
+@keyframes completion-row-exit { to { grid-template-rows: minmax(0, 0fr); opacity: 0; } }
+@keyframes completion-row-fade { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .view-item-exit-shell.is-exiting, .calendar-item.is-exiting, .board-item.is-exiting, .renderer-table-wrap tbody tr.is-exiting { animation-duration: 1ms; }
+}
 .reorderable-view-item.is-dragging, .renderer-table-wrap tr.is-dragging { opacity: .5; }
 .reorderable-view-item.is-drop-target, .renderer-table-wrap tr.is-drop-target { box-shadow: inset 0 2px 0 var(--view-accent, var(--color-accent)); }
 .view-drag-handle { width: 28px; min-width: 28px; height: var(--control-height-compact); display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); padding: 0; background: transparent; color: var(--color-text-secondary); font-size: 18px; line-height: 1; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 .view-drag-handle:hover, .view-drag-handle:focus-visible { background: var(--color-interactive-hover); color: var(--color-text); }
 .view-drag-handle:active { cursor: grabbing; background: var(--color-interactive-active); }
 .item-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border-radius: 11px; padding: 7px 8px; transition: background .15s ease; }
-.item-card:hover { background: var(--soft); }
-.state-toggle { width: 26px; height: 26px; border: 1.5px solid #a3a3a3; border-radius: 50%; background: transparent; cursor: pointer; padding: 0; font-size: 14px; }
-.state-done .state-toggle, .state-auto_closed .state-toggle { background: var(--moss); color: white; border-color: var(--moss); }
-.view-section .state-done .state-toggle, .view-section .state-auto_closed .state-toggle { background: var(--view-accent, var(--moss)); border-color: var(--view-accent, var(--moss)); color: #fff; }
+@media (hover: hover) and (pointer: fine) { .item-card:hover { background: var(--soft); } }
+.item-card.is-optimistic-complete { background: color-mix(in srgb, var(--view-accent, var(--color-text)) 22%, transparent); animation: completion-row-highlight 720ms var(--motion-easing-standard); }
+.reorderable-view-item > .item-card.is-optimistic-complete { background: transparent; animation: none; }
+.item-card.is-optimistic-reopen, .reorderable-view-item:has(> .item-card.is-optimistic-reopen) { background: transparent; animation: none; }
+.state-toggle { width: 26px; height: 26px; border: 1.5px solid #a3a3a3; border-radius: 50%; background: transparent; cursor: pointer; padding: 0; font-size: 14px; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.state-done .state-toggle, .state-auto_closed .state-toggle { background: var(--color-text); color: var(--color-bg); border-color: var(--color-text); }
+.view-section .state-done .state-toggle, .view-section .state-auto_closed .state-toggle { background: var(--view-accent, var(--color-text)); border-color: var(--view-accent, var(--color-text)); color: #fff; }
+.view-section .state-toggle.is-optimistic-closed { background: var(--view-accent, var(--color-text)); border-color: var(--view-accent, var(--color-text)); color: var(--color-accent-contrast); }
+.item-card.is-optimistic-reopen .state-toggle { background: transparent; border-color: var(--view-accent, var(--color-text)); color: var(--view-accent, var(--color-text)); }
+.state-toggle[data-sound="none"]:active { background: var(--view-accent, var(--color-text)); border-color: var(--view-accent, var(--color-text)); color: var(--color-accent-contrast); font-size: 0; }
+.state-toggle[data-sound="none"]:active::after { content: '✓'; font-size: 14px; }
 .state-done .item-title, .state-auto_closed .item-title, .state-cancelled .item-title { text-decoration: line-through; color: var(--muted); }
+.item-card.is-optimistic-complete .item-title { text-decoration: line-through; color: var(--muted); }
+.item-card.is-optimistic-reopen .item-title { text-decoration: none; color: inherit; }
 .item-main { border: 0; background: transparent; padding: 5px 0; text-align: left; cursor: pointer; min-width: 0; }
 .item-title { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; margin-top: 4px; }
@@ -449,12 +475,12 @@ label.check input { width: 18px; height: 18px; }
 .views-page .views-stack > div:first-child .view-section { border-top: 0; }
 .view-section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 0 20px; min-width: 0; overflow: hidden; }
 .view-section { border: 0; border-radius: 0; padding: 0; background: transparent; }
-.view-section > .view-section-summary { position: relative; display: block; width: 100%; min-width: 0; overflow: hidden; padding: 14px 0 8px; }
+.view-section > .view-section-summary { position: relative; display: block; width: 100%; min-width: 0; overflow: hidden; overflow-anchor: auto; padding: 14px 0 8px; }
 .view-section-summary > .view-section-title { width: 100%; min-width: 0; overflow: hidden; padding: 0 74px; border: 0; background: transparent; color: inherit; text-align: center; cursor: pointer; }
 .view-section-summary h2 { max-width: 100%; margin: 5px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section.is-collapsed .view-section-summary h2 { color: var(--view-accent, var(--muted)); font-weight: 400; opacity: .52; }
-.view-section .state-toggle { border-color: var(--view-accent, var(--moss)); color: var(--view-accent, var(--moss)); }
+.view-section .state-toggle { border-color: var(--view-accent, var(--color-text)); color: var(--view-accent, var(--color-text)); }
 .view-section-actions { position: absolute; inset-inline-end: 0; top: 14px; display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
 .view-section-reorder { position: absolute; inset-inline-start: 0; top: 14px; z-index: 1; }
 .view-section-reorder .ui-reorder-handle { min-height: 30px; }

@@ -151,9 +151,23 @@
 }
 
 .undo-toast-stack { position: fixed; z-index: calc(var(--z-overlay) + 101); left: 50%; bottom: var(--space-5); width: min(420px, calc(100vw - var(--space-5))); display: grid; gap: var(--space-2); transform: translateX(-50%); }
-.undo-toast { position: static; width: 100%; display: flex; align-items: center; gap: var(--space-2); transform: none; }
+.undo-toast {
+  position: static;
+  width: 100%;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  transform: none;
+  border: 1px solid color-mix(in srgb, var(--color-text) 18%, transparent);
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+  color: var(--color-text);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  backdrop-filter: blur(18px) saturate(1.15);
+}
 .undo-toast > span { min-width: 0; flex: 1; }
-.undo-toast > strong { min-width: 1.5em; color: var(--color-accent-contrast); text-align: center; font-variant-numeric: tabular-nums; }
+.undo-toast > strong { min-width: 1.5em; color: var(--color-text-secondary); text-align: center; font-variant-numeric: tabular-nums; }
+.undo-toast .ui-button { border-color: color-mix(in srgb, var(--color-text) 20%, transparent); background: color-mix(in srgb, var(--color-text) 10%, transparent); color: var(--color-text); }
 
 .backup-reminder { max-width: min(640px, calc(100vw - var(--space-5))); display: flex; align-items: center; gap: var(--space-3); pointer-events: none; }
 .backup-reminder > span { min-width: 0; }

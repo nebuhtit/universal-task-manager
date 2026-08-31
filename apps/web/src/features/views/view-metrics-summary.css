@@ -1,11 +1,14 @@
 .view-metrics-summary {
   display: block;
+  width: min(16ch, 100%);
+  min-height: 1.25em;
   max-width: 100%;
-  margin-top: var(--space-1);
+  margin: var(--space-1) auto 0;
   overflow: hidden;
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-regular);
+  font-variant-numeric: tabular-nums;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;

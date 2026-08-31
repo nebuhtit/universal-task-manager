@@ -19,15 +19,16 @@ import { AppShell, type AppNotice as Notice, type AppPage as Page } from './comp
 import { ShellNotices } from './components/layout/ShellNotices';
 import { useAppearance } from './hooks/useAppearance';
 import { useToast } from './hooks/useToast';
-import { useUiSounds } from './hooks/useUiSounds';
+import { playCompletionSoundUnlessPreviewed, useUiSounds } from './hooks/useUiSounds';
 import { useViewport } from './hooks/useViewport';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
 import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
 import {
   ViewsPage,
+  COMPLETION_EXIT_MS,
   applyViewCreationDefaults,
   selectViewItems,
-  setRecentlyDone,
+  setCompletionHold,
 } from './features/views';
 import { formatHeaderDate, formatRussianDateTime, formatSystemDateTime } from './utils/dates';
 import {
@@ -81,16 +82,6 @@ export const itemEditorSource = (workspace: WorkspaceDocument | undefined, item:
 // Some iOS Files providers do not implement File.text() reliably for custom
 // extensions. Reading bytes ourselves keeps .utmb recovery working reliably.
 const readEncryptedBackup = async (file: File): Promise<string> => new TextDecoder().decode(await file.arrayBuffer());
-const playTickSound = () => {
-  try {
-    const Audio = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Audio) return;
-    const context = new Audio(); const oscillator = context.createOscillator(); const gain = context.createGain();
-    oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(740, context.currentTime); oscillator.frequency.exponentialRampToValueAtTime(1040, context.currentTime + .07);
-    gain.gain.setValueAtTime(.0001, context.currentTime); gain.gain.exponentialRampToValueAtTime(.12, context.currentTime + .008); gain.gain.exponentialRampToValueAtTime(.0001, context.currentTime + .11);
-    oscillator.connect(gain).connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + .12); oscillator.onended = () => void context.close();
-  } catch { /* Sound is optional and must never block completing an item. */ }
-};
 const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date()) => {
   const item = createItem(title, preset, now);
   const startAt = now.toISOString();
@@ -597,6 +588,7 @@ export default function App() {
   const [clockTick, refreshClock] = useState(() => Date.now());
   const seenNoticeIds = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, number>());
+  const completionTimers = useRef(new Map<string, { exit: number; remove: number }>());
   const pushError = useRef('');
   const captureInputRef = useRef<HTMLInputElement>(null);
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
@@ -612,7 +604,25 @@ export default function App() {
     if (sourceVersion !== SCHEMA_VERSION) { setPendingUpgrade({ session: unlocked, language }); return; }
     await activate(unlocked, language);
   };
-  const queueUndo = (label: string, undo: () => void) => setUndoActions((current) => [...current, { id: createId(), label, expiresAt: Date.now() + UNDO_WINDOW_MS, undo }]);
+  const queueUndo = (label: string, undo: () => void, expiresAt = Date.now() + UNDO_WINDOW_MS) => setUndoActions((current) => [...current, { id: createId(), label, expiresAt, undo }]);
+  const clearCompletionHold = (itemId: string) => {
+    const timers = completionTimers.current.get(itemId);
+    if (timers) { window.clearTimeout(timers.exit); window.clearTimeout(timers.remove); }
+    completionTimers.current.delete(itemId);
+    setCompletionHold(itemId);
+  };
+  const holdCompletedItem = (item: UniversalItem, undoUntil: number) => {
+    clearCompletionHold(item.id);
+    const removeAt = undoUntil + COMPLETION_EXIT_MS;
+    setCompletionHold(item.id, { previous: clean(item), undoUntil, removeAt });
+    const exit = window.setTimeout(() => refreshClock(Date.now()), Math.max(0, undoUntil - Date.now()));
+    const remove = window.setTimeout(() => {
+      completionTimers.current.delete(item.id);
+      setCompletionHold(item.id);
+      refreshClock(Date.now());
+    }, Math.max(0, removeAt - Date.now()));
+    completionTimers.current.set(item.id, { exit, remove });
+  };
   const runUndo = (id: string) => {
     const action = undoActions.find((candidate) => candidate.id === id);
     if (action && action.expiresAt > Date.now()) action.undo();
@@ -668,7 +678,13 @@ export default function App() {
     const timer = window.setInterval(refresh, 200);
     return () => window.clearInterval(timer);
   }, [undoActions.length]);
-  useEffect(() => { setUndoActions([]); }, [workspace?.workspaceId]);
+  useEffect(() => {
+    setUndoActions([]);
+    completionTimers.current.forEach(({ exit, remove }, itemId) => {
+      window.clearTimeout(exit); window.clearTimeout(remove); setCompletionHold(itemId);
+    });
+    completionTimers.current.clear();
+  }, [workspace?.workspaceId]);
   useEffect(() => {
     const fresh = notices.filter((notice) => !seenNoticeIds.current.has(notice.id));
     if (!fresh.length) return;
@@ -682,7 +698,10 @@ export default function App() {
     });
     setPopupNoticeIds((current) => [...current, ...fresh.map((notice) => notice.id)]);
   }, [notices]);
-  useEffect(() => () => { noticeTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
+  useEffect(() => () => {
+    noticeTimers.current.forEach((timer) => window.clearTimeout(timer));
+    completionTimers.current.forEach(({ exit, remove }) => { window.clearTimeout(exit); window.clearTimeout(remove); });
+  }, []);
 
   useEffect(() => {
     if (!workspace) return;
@@ -745,17 +764,23 @@ export default function App() {
     commit('Change background notification privacy', (draft) => { draft.pushPreferences.contentMode = contentMode; });
   };
 
-  const changeItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = '#2f7d32') => {
+  const changeItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)') => {
     const occurredAt = workspace ? effectiveWorkspaceNow(workspace).toISOString() : new Date().toISOString();
+    const completionExpiresAt = Date.now() + UNDO_WINDOW_MS;
     const targetId = item.habit ? item.id : item.occurrence?.seriesId && workspace?.items[item.occurrence.seriesId]?.habit ? item.occurrence.seriesId : item.id;
     const beforeTarget = workspace?.items[targetId] ? clean(workspace.items[targetId]!) : undefined;
-    if (state === 'done' && workspace?.calendarPreferences.appearance.tickSound) playTickSound();
+    if (state === 'done') playCompletionSoundUnlessPreviewed(item.id, workspace?.calendarPreferences.appearance.tickSound);
     if (state === 'done') {
-      setRecentlyDone(item.id, Date.now() + 10_000);
       setCelebrationColors((current) => new Map(current).set(item.id, celebrationColor));
       window.setTimeout(() => setCelebrationColors((current) => { const next = new Map(current); next.delete(item.id); return next; }), 900);
     }
-    else setRecentlyDone(item.id);
+    else {
+      clearCompletionHold(item.id);
+      setCelebrationColors((current) => {
+        if (!current.has(item.id)) return current;
+        const next = new Map(current); next.delete(item.id); return next;
+      });
+    }
     const changed = commit('Change item state', (draft) => {
       let target = draft.items[item.id]; if (!target) return;
       if (item.habit || (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]?.habit)) {
@@ -780,11 +805,14 @@ export default function App() {
       const result = runAutomationEvents(draft, [event]);
       if (result.notifications.length) setNotices((current) => [...current, ...result.notifications.map((notice) => ({ ...notice, id: createId(), at: occurredAt }))]);
     });
-    if (changed && state === 'done' && beforeTarget) queueUndo('Item completed', () => {
-      commit('Undo item completion', (draft) => { draft.items[targetId] = clean(beforeTarget); });
-      setRecentlyDone(item.id);
-      setCelebrationColors((current) => { const next = new Map(current); next.delete(item.id); return next; });
-    });
+    if (changed && state === 'done' && beforeTarget) {
+      holdCompletedItem(item, completionExpiresAt);
+      queueUndo('Item completed', () => {
+        commit('Undo item completion', (draft) => { draft.items[targetId] = clean(beforeTarget); });
+        clearCompletionHold(item.id);
+        setCelebrationColors((current) => { const next = new Map(current); next.delete(item.id); return next; });
+      }, completionExpiresAt);
+    }
     if (state !== 'open') setNotices((current) => current.filter((notice) => notice.itemId !== item.id));
   };
   const dismissPopupNotice = (id: string) => {

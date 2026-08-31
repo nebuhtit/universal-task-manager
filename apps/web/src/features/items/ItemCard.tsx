@@ -1,6 +1,8 @@
 import { organizationAccentFor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { formatViewDate } from '../../utils/dates';
+import { previewCompletionSound } from '../../hooks/useUiSounds';
 import { displayViewValue, inferredPreset, priorityNames, readItemField, viewFieldLabel } from './fieldDisplay';
 import { FieldIcon } from './FieldIcon';
 
@@ -10,6 +12,42 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebr
   const isHabit = Boolean(item.habit);
   const habitCompletedToday = isHabit && Boolean(item.habit?.completedDates?.includes(today));
   const visiblyClosed = isHabit ? habitCompletedToday : item.state !== 'open';
+  const [optimisticClosed, setOptimisticClosed] = useState<boolean | null>(null);
+  const optimisticReset = useRef<number | undefined>(undefined);
+  const committedOnPointerDown = useRef(false);
+  const shownClosed = optimisticClosed ?? visiblyClosed;
+  const primeStateToggle = (event?: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event && event.pointerType === 'mouse' && event.button !== 0) return;
+    if (!visiblyClosed) previewCompletionSound(item.id, workspace?.calendarPreferences.appearance.tickSound);
+    flushSync(() => setOptimisticClosed(!visiblyClosed));
+    if (optimisticReset.current) window.clearTimeout(optimisticReset.current);
+    optimisticReset.current = window.setTimeout(() => setOptimisticClosed(null), 1_200);
+  };
+  const beginStateToggle = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (committedOnPointerDown.current) return;
+    primeStateToggle(event);
+    if (event.pointerType === 'mouse') return;
+    committedOnPointerDown.current = true;
+    const nextState = visiblyClosed ? 'open' : 'done';
+    window.requestAnimationFrame(() => window.setTimeout(() => onState(nextState), 0));
+  };
+  const finishStateToggle = () => {
+    if (committedOnPointerDown.current) {
+      committedOnPointerDown.current = false;
+      return;
+    }
+    if (optimisticClosed === null) primeStateToggle();
+    const nextState = visiblyClosed ? 'open' : 'done';
+    window.requestAnimationFrame(() => window.setTimeout(() => onState(nextState), 0));
+  };
+  useEffect(() => {
+    if (optimisticClosed === visiblyClosed) {
+      if (optimisticReset.current) window.clearTimeout(optimisticReset.current);
+      optimisticReset.current = undefined;
+      setOptimisticClosed(null);
+    }
+  }, [optimisticClosed, visiblyClosed]);
+  useEffect(() => () => { if (optimisticReset.current) window.clearTimeout(optimisticReset.current); }, []);
   const customDisplay = fields !== undefined;
   const metadataFields = (fields?.filter((field) => field !== 'title') ?? [])
     .map((field) => ({
@@ -24,9 +62,9 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, celebr
     const kind = field === 'area' || field === 'areas' ? 'area' : field === 'project' || field === 'projects' ? 'project' : 'tag';
     return <>{names.map((name, index) => <span className="organization-colored-name" style={{ '--organization-accent': organizationAccentFor(workspace, kind, name) } as CSSProperties} key={name}>{index ? ', ' : ''}{kind === 'tag' ? '#' : ''}{name}</span>)}</>;
   };
-  return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}`}>
-    <button className="state-toggle" aria-label={isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onClick={() => onState(visiblyClosed ? 'open' : 'done')}>
-      {visiblyClosed ? '✓' : ''}
+  return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}${optimisticClosed === true ? ' is-optimistic-complete' : optimisticClosed === false ? ' is-optimistic-reopen' : ''}`}>
+    <button className={`state-toggle${optimisticClosed === true ? ' is-optimistic-closed' : ''}`} data-sound={!visiblyClosed ? 'none' : undefined} aria-label={isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onPointerDown={beginStateToggle} onClick={finishStateToggle}>
+      {shownClosed ? '✓' : ''}
     </button>
     <button className="item-main" onClick={onEdit}>
       {(!customDisplay || fields?.includes('title')) && <span className="item-title">{item.title}</span>}
