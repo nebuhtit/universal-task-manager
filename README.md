@@ -284,7 +284,7 @@ Google Calendar connection needs a Google OAuth Web client configured with the l
 VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 ```
 
-For GitHub Pages, add the same value as the repository Actions secret `GOOGLE_CALENDAR_CLIENT_ID`. The app requests only `calendar.readonly`; access tokens remain in browser memory. Mirrored events and all Google connection state are excluded from every export, including encrypted recovery copies, so a restored workspace must reconnect and sync again.
+For GitHub Pages, add the same value as the repository Actions secret `GOOGLE_CALENDAR_CLIENT_ID`. The app requests only `calendar.readonly`; access tokens remain in browser memory. The first event download is bounded to one year behind and one year ahead, then Google sync tokens fetch changes incrementally; the moving two-year window is refreshed weekly. Per-request timeouts and an on-device sync log keep a stalled mobile connection diagnosable without recording event contents. Mirrored events and all Google connection state are excluded from every export, including encrypted recovery copies, so a restored workspace must reconnect and sync again.
 
 The production PWA works offline after its application files have been loaded and cached successfully at least once.
 

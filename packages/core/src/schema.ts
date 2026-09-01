@@ -294,6 +294,7 @@ export const workspaceJsonSchema = {
             connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' },
             calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, selected: { type: 'boolean' } } } },
             syncTokens: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
+            syncWindow: { type: 'object', additionalProperties: false, required: ['timeMin', 'timeMax', 'refreshedAt'], properties: { timeMin: { type: 'string', format: 'date-time' }, timeMax: { type: 'string', format: 'date-time' }, refreshedAt: { type: 'string', format: 'date-time' } } },
             lastSyncedAt: { type: 'string', format: 'date-time' }, lastError: { type: 'string' },
           },
         },
@@ -784,6 +785,13 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
         connectionId: google.connectionId,
         ...(typeof google.accountEmail === 'string' ? { accountEmail: google.accountEmail } : {}),
         calendars, syncTokens: tokens,
+        ...(google.syncWindow && typeof google.syncWindow === 'object' && !Array.isArray(google.syncWindow)
+          && ['timeMin', 'timeMax', 'refreshedAt'].every((key) => typeof (google.syncWindow as Record<string, unknown>)[key] === 'string' && Number.isFinite(Date.parse((google.syncWindow as Record<string, string>)[key]!)))
+          ? { syncWindow: {
+            timeMin: (google.syncWindow as Record<string, string>).timeMin!,
+            timeMax: (google.syncWindow as Record<string, string>).timeMax!,
+            refreshedAt: (google.syncWindow as Record<string, string>).refreshedAt!,
+          } } : {}),
         ...(typeof google.lastSyncedAt === 'string' && Number.isFinite(Date.parse(google.lastSyncedAt)) ? { lastSyncedAt: google.lastSyncedAt } : {}),
         ...(typeof google.lastError === 'string' ? { lastError: google.lastError } : {}),
       };

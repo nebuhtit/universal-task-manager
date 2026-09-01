@@ -8,7 +8,8 @@ import {
 import { LineIcon } from '../../components/ui/icons';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
-import { Button, Checkbox, Field, IconButton, Input, Select, Surface } from '../../components/ui/primitives';
+import { Button, Checkbox, Disclosure, Field, IconButton, Input, Select, Surface } from '../../components/ui/primitives';
+import { recordDiagnostic } from '../../services/diagnostics';
 import { stateNames } from '../items';
 import { ViewMetricsSummary } from '../views/ViewMetricsSummary';
 import { ViewResults } from '../views/ViewResults';
@@ -19,6 +20,7 @@ import './calendar.css';
 const DAY_MS = 86_400_000;
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 type NavigatorMode = 'week' | 'month';
+type GoogleSyncLogEntry = { at: string; level: 'info' | 'error'; message: string };
 
 function localDateKey(date: Date, timeZone: string): string {
   try {
@@ -113,6 +115,8 @@ export function CalendarPage({ workspace, now, commit, onEditItem, onState, crea
   const [googleToken, setGoogleToken] = useState<{ accessToken: string; expiresAt: number } | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleError, setGoogleError] = useState('');
+  const [googleSyncStatus, setGoogleSyncStatus] = useState('');
+  const [googleSyncLog, setGoogleSyncLog] = useState<GoogleSyncLogEntry[]>([]);
   const todayKey = localDateKey(now, preferences.timezone);
   const rangeStartKey = navigatorMode === 'week' ? weekStart(selectedDate, preferences.weekStartsOn) : monthStart(selectedDate);
   const rangeEndKey = navigatorMode === 'week' ? shiftDateKey(rangeStartKey, 7) : nextMonthStart(selectedDate);
@@ -182,22 +186,49 @@ export function CalendarPage({ workspace, now, commit, onEditItem, onState, crea
   };
 
   const syncGoogle = async () => {
+    const startedAt = performance.now();
+    let diagnosticStage = 'authorization';
+    const appendLog = (message: string, level: GoogleSyncLogEntry['level'] = 'info') => setGoogleSyncLog((entries) => [...entries, { at: new Date().toISOString(), level, message }].slice(-30));
     setGoogleBusy(true); setGoogleError('');
     const current: GoogleCalendarPreferences = preferences.googleCalendar ?? { connectionId: createId(), calendars: [], syncTokens: {} };
     try {
-      const token = googleToken && googleToken.expiresAt > Date.now() + 60_000 ? googleToken : await requestGoogleCalendarToken();
+      const hasCurrentToken = Boolean(googleToken && googleToken.expiresAt > Date.now() + 60_000);
+      setGoogleSyncStatus(hasCurrentToken ? 'Using current Google authorization…' : 'Waiting for Google authorization…');
+      appendLog(hasCurrentToken ? 'Using current Google authorization.' : 'Waiting for Google authorization.');
+      const token = hasCurrentToken ? googleToken! : await requestGoogleCalendarToken();
       setGoogleToken(token);
-      const result = await synchronizeGoogleCalendars(token.accessToken, current);
+      appendLog('Google authorization received.');
+      diagnosticStage = 'download';
+      const result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
+        diagnosticStage = progress.stage;
+        setGoogleSyncStatus(progress.message);
+        appendLog(progress.message);
+      });
+      diagnosticStage = 'save';
+      setGoogleSyncStatus('Saving events to this workspace…');
+      appendLog('Saving downloaded events to this workspace.');
       commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {
-          connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens,
+          connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
           ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
         };
       });
+      const eventCount = result.batches.reduce((total, batch) => total + batch.events.length, 0);
+      const durationMs = Math.round(performance.now() - startedAt);
+      setGoogleSyncStatus(`Sync complete: ${eventCount} events.`);
+      appendLog(`Sync complete: ${eventCount} events in ${(durationMs / 1_000).toFixed(1)}s.`);
+      recordDiagnostic({ kind: 'result', message: 'Google Calendar sync completed', operation: 'Google Calendar sync', outcome: 'succeeded', durationMs, details: JSON.stringify({ calendars: result.batches.length, events: eventCount }) });
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
-      setGoogleError(message);
+      const durationMs = Math.round(performance.now() - startedAt);
+      setGoogleError(`${message} Stage: ${diagnosticStage}.`);
+      setGoogleSyncStatus('Sync failed.');
+      appendLog(`Sync failed during ${diagnosticStage}: ${message}`, 'error');
+      recordDiagnostic({
+        kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs,
+        details: JSON.stringify({ stage: diagnosticStage, status: (reason as { status?: unknown })?.status ?? null, errorType: reason instanceof Error ? reason.name : typeof reason }),
+      });
       if (preferences.googleCalendar) commit('Record Google Calendar sync error', (draft) => { if (draft.calendarPreferences.googleCalendar) draft.calendarPreferences.googleCalendar.lastError = message; });
     } finally { setGoogleBusy(false); }
   };
@@ -259,8 +290,12 @@ export function CalendarPage({ workspace, now, commit, onEditItem, onState, crea
           {preferences.googleCalendar?.accountEmail && <small>Connected as {preferences.googleCalendar.accountEmail}</small>}
           {preferences.googleCalendar?.calendars.length ? <div className="calendar-google-list">{preferences.googleCalendar.calendars.map((calendar) => <Checkbox key={calendar.id} label={`${calendar.name}${calendar.primary ? ' · primary' : ''}`} checked={calendar.selected} onChange={() => selectGoogleCalendar(calendar.id)} />)}</div> : null}
           <Button onClick={() => void syncGoogle()} disabled={googleBusy || !GOOGLE_CALENDAR_CLIENT_ID}>{googleBusy ? 'Syncing…' : preferences.googleCalendar ? 'Sync now' : 'Connect Google Calendar'}</Button>
+          {googleSyncStatus && <small className="calendar-google-status" role="status" aria-live="polite">{googleSyncStatus}</small>}
           {preferences.googleCalendar?.lastSyncedAt && <small>Last synced {new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(preferences.googleCalendar.lastSyncedAt))}</small>}
           {(googleError || preferences.googleCalendar?.lastError) && <p className="form-error" role="alert">{googleError || preferences.googleCalendar?.lastError}</p>}
+          {googleSyncLog.length > 0 && <Disclosure uiKey="calendar:google-sync-log" persist={false} className="calendar-google-log" summary={<span>Sync log <small>{googleSyncLog.length}</small></span>}>
+            <ol>{googleSyncLog.map((entry, index) => <li data-level={entry.level} key={`${entry.at}:${index}`}><time dateTime={entry.at}>{new Intl.DateTimeFormat(preferences.language, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(entry.at))}</time><span>{entry.message}</span></li>)}</ol>
+          </Disclosure>}
         </section>
       </div>
     </ResponsiveDialog>

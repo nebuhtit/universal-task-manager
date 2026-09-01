@@ -111,6 +111,12 @@
 .calendar-google-settings > div:first-child { display: grid; gap: var(--space-1); }
 .calendar-google-settings small { color: var(--color-text-secondary); }
 .calendar-google-list { display: grid; max-height: 220px; overflow: auto; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.calendar-google-status { min-height: 1em; }
+.calendar-google-log > .ui-disclosure-summary span { width: 100%; display: flex; justify-content: space-between; gap: var(--space-2); }
+.calendar-google-log ol { display: grid; max-height: 220px; overflow: auto; gap: var(--space-2); margin: 0; padding: var(--space-2) 0 0; list-style: none; }
+.calendar-google-log li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.calendar-google-log li[data-level='error'] { color: var(--color-destructive); }
+.calendar-google-log time { font-variant-numeric: tabular-nums; }
 
 @media (max-width: 720px) {
   .calendar-page { padding: var(--space-4) var(--space-2) 100px; }

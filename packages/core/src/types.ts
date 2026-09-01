@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.20.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.94.0';
-export const APP_RELEASED_AT = '2026-08-31T19:43:30.106Z';
+export const APP_VERSION = '1.95.0';
+export const APP_RELEASED_AT = '2026-08-31T20:06:34.024Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
@@ -474,6 +474,8 @@ export interface GoogleCalendarPreferences {
   calendars: GoogleCalendarDefinition[];
   /** Opaque Google sync tokens. OAuth access tokens are deliberately never persisted. */
   syncTokens: Record<string, string>;
+  /** The bounded event window used for the last full sync. Refreshed periodically so the horizon keeps moving. */
+  syncWindow?: { timeMin: ISODateTime; timeMax: ISODateTime; refreshedAt: ISODateTime };
   lastSyncedAt?: ISODateTime;
   lastError?: string;
 }

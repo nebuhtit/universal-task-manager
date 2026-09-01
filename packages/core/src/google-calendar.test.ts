@@ -31,11 +31,15 @@ describe('Google Calendar workspace mirror', () => {
     const item = createItem('Foreign');
     (item as unknown as { external: unknown }).external = { provider: 'google_calendar', accessToken: 'must-not-survive' };
     workspace.items[item.id] = item;
-    (workspace.calendarPreferences as unknown as { googleCalendar: unknown }).googleCalendar = { connectionId: 'connection-1', accessToken: 'secret', calendars: [{ id: 'primary', name: 'Main' }], syncTokens: { primary: 'sync-token' } };
+    (workspace.calendarPreferences as unknown as { googleCalendar: unknown }).googleCalendar = {
+      connectionId: 'connection-1', accessToken: 'secret', calendars: [{ id: 'primary', name: 'Main' }], syncTokens: { primary: 'sync-token' },
+      syncWindow: { timeMin: '2025-08-31T12:00:00.000Z', timeMax: '2027-08-31T12:00:00.000Z', refreshedAt: '2026-08-31T12:00:00.000Z', unexpected: 'drop-me' },
+    };
     const migrated = migrateWorkspace(workspace).value;
     expect(migrated.items[item.id]?.external).toBeUndefined();
     expect(migrated.items[item.id]?.extensions?.quarantine).toHaveProperty('external');
     expect(migrated.calendarPreferences.googleCalendar).toMatchObject({ connectionId: 'connection-1', calendars: [{ id: 'primary', name: 'Main', selected: true }], syncTokens: { primary: 'sync-token' } });
+    expect(migrated.calendarPreferences.googleCalendar?.syncWindow).toEqual({ timeMin: '2025-08-31T12:00:00.000Z', timeMax: '2027-08-31T12:00:00.000Z', refreshedAt: '2026-08-31T12:00:00.000Z' });
     expect(migrated.calendarPreferences.googleCalendar).not.toHaveProperty('accessToken');
     expect(validateWorkspace(migrated).valid).toBe(true);
   });
