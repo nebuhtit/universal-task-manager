@@ -48,4 +48,31 @@ describe('Google Calendar export privacy', () => {
       expect(output).not.toContain('private-sync-token');
     }
   });
+
+  it('builds the pre-unlock privacy snapshot before legacy arrays are migrated', () => {
+    const workspace = createWorkspace('Legacy private export');
+    const google = googleCalendarEventToItem({
+      id: 'legacy-event', summary: 'Legacy event',
+      start: { dateTime: '2026-08-31T10:00:00.000Z' }, end: { dateTime: '2026-08-31T11:00:00.000Z' },
+    }, 'legacy-calendar', 'legacy-connection', '2026-08-31T09:00:00.000Z')!;
+    workspace.items[google.id] = google;
+    const normal = createItem('Legacy task');
+    workspace.items[normal.id] = normal;
+    const view = Object.values(workspace.views)[0]!;
+    view.statistics = { showTime: true, reservedItemIds: [google.id] };
+
+    delete (view.statistics as Partial<typeof view.statistics>).reservedItemIds;
+    delete (normal as Partial<typeof normal>).relations;
+    delete (workspace as Partial<typeof workspace>).automationLog;
+    delete (workspace as Partial<typeof workspace>).migrationIssues;
+    delete (workspace as Partial<typeof workspace>).tombstones;
+
+    const safe = workspaceForExport(workspace);
+    expect(safe.items[google.id]).toBeUndefined();
+    expect(safe.items[normal.id]?.relations).toEqual([]);
+    expect(safe.views[view.id]?.statistics?.reservedItemIds).toEqual([]);
+    expect(safe.automationLog).toEqual([]);
+    expect(safe.migrationIssues).toEqual([]);
+    expect(safe.tombstones).toEqual({});
+  });
 });

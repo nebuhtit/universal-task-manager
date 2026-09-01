@@ -21,7 +21,10 @@ function stripKnownItemReferences<T>(value: T, removedIds: ReadonlySet<string>):
 
 function sanitizeView(view: SavedView, removedIds: ReadonlySet<string>): SavedView {
   const safe = clone(view);
-  if (safe.statistics) safe.statistics.reservedItemIds = safe.statistics.reservedItemIds.filter((id) => !removedIds.has(id));
+  if (safe.statistics) {
+    const reservedItemIds = Array.isArray(safe.statistics.reservedItemIds) ? safe.statistics.reservedItemIds : [];
+    safe.statistics.reservedItemIds = reservedItemIds.filter((id) => !removedIds.has(id));
+  }
   if (safe.creationDefaults) safe.creationDefaults = stripKnownItemReferences(safe.creationDefaults, removedIds) ?? {};
   if (safe.extensions) safe.extensions = stripKnownItemReferences(safe.extensions, removedIds) ?? {};
   return safe;
@@ -38,6 +41,13 @@ function actionReferencesRemovedItem(action: AutomationAction, removedIds: Reado
  */
 export function workspaceForExport(workspace: WorkspaceDocument): WorkspaceDocument {
   const safe = clone(workspace);
+  // This runs while an encrypted workspace is still locked, before normal
+  // schema migration can repair legacy/partial arrays. Keep recovery export
+  // generation tolerant so an old workspace can always reach migration.
+  safe.items = safe.items && typeof safe.items === 'object' && !Array.isArray(safe.items) ? safe.items : {};
+  safe.views = safe.views && typeof safe.views === 'object' && !Array.isArray(safe.views) ? safe.views : {};
+  safe.tombstones = safe.tombstones && typeof safe.tombstones === 'object' && !Array.isArray(safe.tombstones) ? safe.tombstones : {};
+  safe.automations = safe.automations && typeof safe.automations === 'object' && !Array.isArray(safe.automations) ? safe.automations : {};
   const removedIds = new Set(Object.entries(safe.items)
     .filter(([id, item]) => id.startsWith('google:') || isGoogleCalendarItem(item) || JSON.stringify(item.extensions ?? {}).includes('google_calendar'))
     .map(([id]) => id));
@@ -60,14 +70,14 @@ export function workspaceForExport(workspace: WorkspaceDocument): WorkspaceDocum
     delete safe.tombstones[id];
   }
   for (const item of Object.values(safe.items)) {
-    item.relations = item.relations.filter((relation) => !removedIds.has(relation.targetId));
+    item.relations = (Array.isArray(item.relations) ? item.relations : []).filter((relation) => !removedIds.has(relation.targetId));
     item.custom = stripKnownItemReferences(item.custom, removedIds) ?? {};
     if (item.extensions) item.extensions = stripKnownItemReferences(item.extensions, removedIds) ?? {};
   }
   for (const [id, view] of Object.entries(safe.views)) safe.views[id] = sanitizeView(view, removedIds);
-  for (const rule of Object.values(safe.automations)) rule.actions = rule.actions.filter((action) => !actionReferencesRemovedItem(action, removedIds));
-  safe.automationLog = safe.automationLog.filter((entry) => !entry.itemId || !removedIds.has(entry.itemId));
-  safe.migrationIssues = safe.migrationIssues.filter((issue) => !removedIds.has(issue.entityId));
+  for (const rule of Object.values(safe.automations)) rule.actions = (Array.isArray(rule.actions) ? rule.actions : []).filter((action) => !actionReferencesRemovedItem(action, removedIds));
+  safe.automationLog = (Array.isArray(safe.automationLog) ? safe.automationLog : []).filter((entry) => !entry.itemId || !removedIds.has(entry.itemId));
+  safe.migrationIssues = (Array.isArray(safe.migrationIssues) ? safe.migrationIssues : []).filter((issue) => !removedIds.has(issue.entityId));
   delete safe.calendarPreferences.googleCalendar;
   return safe;
 }
