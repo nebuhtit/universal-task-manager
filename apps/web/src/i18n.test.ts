@@ -10,6 +10,7 @@ describe('Russian interface translation', () => {
     expect(translateInterfaceText('Duration can be planned without calendar dates.', 'ru')).toBe('Длительность можно запланировать без календарных дат.');
     expect(translateInterfaceText('Completed items', 'ru')).toBe('Выполнено');
     expect(translateInterfaceText('Nearest deadline', 'ru')).toBe('Ближайший срок');
+    expect(translateInterfaceText('Match any selected condition (OR)', 'ru')).toBe('Подходит любое выбранное условие (ИЛИ)');
     expect(translateInterfaceText('if you remove Universal from the Home Screen, clear website data, or delete the browser profile, the local workspace may be lost. Export an encrypted', 'ru')).toContain('если удалить Universal');
     expect(translateInterfaceText('backup regularly and keep it in Files, iCloud Drive, or another trusted cloud.', 'ru')).toContain('резервную копию');
   });
@@ -23,5 +24,12 @@ describe('Russian interface translation', () => {
   it('does not spend maintenance effort changing other languages', () => {
     expect(translateInterfaceText('Unlock with Face ID', 'en')).toBe('Unlock with Face ID');
     expect(translateInterfaceText('Each device has its own encrypted workspace. Use an encrypted', 'en')).toBe('Each device has its own encrypted workspace. Use an encrypted');
+  });
+
+  it('localizes the schedule-condition OR label in every translated interface', () => {
+    expect(translateInterfaceText('Match any selected condition (OR)', 'es')).toBe('Coincidir con cualquier condición seleccionada (O)');
+    expect(translateInterfaceText('Match any selected condition (OR)', 'de')).toBe('Eine beliebige ausgewählte Bedingung erfüllen (ODER)');
+    expect(translateInterfaceText('Match any selected condition (OR)', 'fr')).toBe('Correspond à l’une des conditions sélectionnées (OU)');
+    expect(translateInterfaceText('Match any selected condition (OR)', 'ko')).toBe('선택한 조건 중 하나와 일치 (OR)');
   });
 });

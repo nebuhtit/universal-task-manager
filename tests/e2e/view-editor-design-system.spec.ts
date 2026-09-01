@@ -120,6 +120,22 @@ test('shows the existing Today preset as editable visual conditions', async ({ p
   await expect(period.getByRole('checkbox', { name: 'Include overdue' })).toBeChecked();
 });
 
+test('saving a view does not restore mobile focus to quick capture', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) > 620, 'Mobile focus behavior');
+  await createWorkspace(page);
+  const quickCapture = page.getByLabel('Add new item');
+  await quickCapture.focus();
+  const todayView = page.locator('.view-section').filter({ has: page.getByRole('heading', { name: 'Today', exact: true }) });
+  await todayView.getByRole('button', { name: /^Edit / }).evaluate((button) => (button as HTMLButtonElement).click());
+  await expect(page.getByRole('dialog', { name: 'Edit view' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Save view' }).click();
+
+  await expect(page.getByRole('dialog', { name: 'Edit view' })).toBeHidden();
+  await expect(quickCapture).not.toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toMatch(/INPUT|TEXTAREA/);
+});
+
 test('view ordering uses drag handles and a keyboard alternative', async ({ page }) => {
   await createWorkspace(page);
   await page.getByRole('button', { name: 'New view' }).click();

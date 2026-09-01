@@ -355,8 +355,8 @@ function cycleHistoryFrom(item: UniversalItem, state: CycleHistoryEntry['state']
   };
 }
 
-function detachedCycleHistory(item: UniversalItem, excludePrematureRecurrenceId?: string): CycleHistoryEntry[] | undefined {
-  if (!item.cycleHistory) return undefined;
+function detachedCycleHistory(item: UniversalItem, excludePrematureRecurrenceId?: string): CycleHistoryEntry[] {
+  if (!item.cycleHistory) return [];
   const kept = excludePrematureRecurrenceId
     ? item.cycleHistory.filter((entry) => entry.recurrenceId !== excludePrematureRecurrenceId || entry.reason !== 'auto_renew')
     : item.cycleHistory;

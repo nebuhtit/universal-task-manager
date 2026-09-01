@@ -629,6 +629,7 @@ describe('recurrence and auto-renew', () => {
       reminders: [{ id: 'updated-reminder', mode: 'relative', relativeTo: 'start', offset: '-PT30M', urgency: 'urgent', repeatUntilAcknowledged: false }],
     });
     expect(after.occurrence?.templateRevision).toBe(series.revision);
+    expect(after.cycleHistory).toEqual([]);
   });
 
   it('collapses legacy auto-renew duplicates into one stable item without losing outcomes', () => {

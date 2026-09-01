@@ -43,6 +43,30 @@ describe('workspace lifecycle integration', () => {
     expect(repaired.items[occurrence.id]?.cycleHistory).toEqual([]);
   });
 
+  it('refreshes a rolling recurrence without writing undefined history to Automerge', () => {
+    const now = new Date('2026-08-24T12:00:00.000Z');
+    const workspace = createWorkspace('Recurring save', now);
+    const source = createItem('Prepare lessons', 'task', new Date('2026-08-01T00:00:00.000Z'));
+    source.schedule = { timezone: 'UTC', startAt: '2026-08-24T09:00:00.000Z', dueAt: '2026-08-24T18:00:00.000Z' };
+    const series = makeSeries(source, 'FREQ=WEEKLY;BYDAY=MO', { activationOffset: 'PT0M', closeAt: 'due', autoRenew: true });
+    workspace.items[series.id] = series;
+    reconcileRecurrences(workspace, now);
+    const occurrence = Object.values(workspace.items).find((item) => item.occurrence?.seriesId === series.id)!;
+    delete occurrence.cycleHistory;
+    const original = Automerge.from(workspace as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
+
+    const saved = commitWorkspaceDocument(original, 'Save recurring item', (draft) => {
+      const target = draft.items[series.id]!;
+      target.revision += 1;
+      target.updatedAt = '2026-08-24T12:01:00.000Z';
+      reconcileRecurrences(draft, new Date(target.updatedAt));
+    }, new Date('2026-08-24T12:01:00.000Z'));
+
+    expect(saved.items[occurrence.id]?.state).toBe('open');
+    expect(saved.items[occurrence.id]?.cycleHistory).toEqual([]);
+    expect(saved.items[occurrence.id]?.occurrence?.templateRevision).toBe(saved.items[series.id]?.revision);
+  });
+
   it('renames a Project inside an Automerge transaction', () => {
     const base = createWorkspace('Rename integration');
     ensureAreaDefinition(base, 'Work'); ensureProjectDefinition(base, 'Launch', { areas: ['Work'] });

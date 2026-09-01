@@ -94,6 +94,10 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const handledCreateRequest = useRef(createRequest);
   const lastEditorId = useRef<string | null>(null);
   const editorOpenedAt = useRef<number | null>(null);
+  const closeEditor = () => {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    setEditing(null);
+  };
 
   useEffect(() => {
     const previousId = lastEditorId.current;
@@ -306,7 +310,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         kind: 'result', message: 'View editor save accepted', operation: 'Save view editor', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt),
         details: JSON.stringify({ viewId: result.id, renderer: result.renderer, displayedFields: saved.fields.length, sortRules: parsedSort.length }),
       });
-      setEditing(null);
+      closeEditor();
       setError('');
     } catch (reason) {
       recordDiagnostic({
@@ -387,13 +391,14 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     <div className="views-stack"><div className="expanded-views-stack">{expandedViews.map((view) => renderView(view))}</div>{collapsedViews.length > 0 && <div className="collapsed-views-stack" ref={collapsedViewReorder.container}>{collapsedViews.map((view, index) => <div key={view.id} {...collapsedViewReorder.rowProps(index)}>{renderView(view, collapsedViewReorder.handle(index, `view ${view.name}`))}</div>)}</div>}</div>
     {editing && <ResponsiveDialog
       open
-      onOpenChange={(open) => { if (!open) { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'dialog-dismiss' }) }); setEditing(null); } }}
+      onOpenChange={(open) => { if (!open) { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'dialog-dismiss' }) }); closeEditor(); } }}
       title="Edit view"
       description="Saved view"
       className="view-editor"
       closeLabel="Close view editor"
       initialFocus={false}
-      footer={<><Button variant="destructive" onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return; } commit('Delete view', (draft) => { delete draft.views[editing.id]; Object.values(draft.dashboards).forEach((dashboard) => { for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) if (dashboard.widgets[index]?.viewId === editing.id) dashboard.widgets.splice(index, 1); }); }); setEditing(null); setConfirmDelete(false); }}>{confirmDelete ? 'Confirm delete' : 'Delete view'}</Button><span className="view-editor-action-spacer" /><Button onClick={() => { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'cancel-button' }) }); setEditing(null); }}>Cancel</Button><Button variant="primary" onClick={save}>Save view</Button></>}
+      finalFocus={typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches ? false : undefined}
+      footer={<><Button variant="destructive" onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return; } commit('Delete view', (draft) => { delete draft.views[editing.id]; Object.values(draft.dashboards).forEach((dashboard) => { for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) if (dashboard.widgets[index]?.viewId === editing.id) dashboard.widgets.splice(index, 1); }); }); closeEditor(); setConfirmDelete(false); }}>{confirmDelete ? 'Confirm delete' : 'Delete view'}</Button><span className="view-editor-action-spacer" /><Button onClick={() => { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'cancel-button' }) }); closeEditor(); }}>Cancel</Button><Button variant="primary" onClick={save}>Save view</Button></>}
     >
       <Field label="Name"><Input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></Field>
       <Field label="Renderer"><Select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></Select></Field>
@@ -406,7 +411,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         {visualRows.map((row, index) => <div className="visual-condition-row" key={row.id}>
           <Field className="condition-join" label={index === 0 ? 'Where' : 'Join'}>{index === 0 ? <span className="field-hint">First rule</span> : <Select value={row.join} onChange={(event) => updateVisualRow(row.id, { join: event.target.value as 'and' | 'or' })}><option value="and">AND</option><option value="or">OR</option></Select>}</Field>
           <Field label="Property"><Select value={row.field} onChange={(event) => updateVisualRow(row.id, { field: event.target.value })}><optgroup label="Time periods"><option value={schedulePeriodField}>Schedule in period</option></optgroup>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}</Select></Field>
-          {row.field === schedulePeriodField ? <Field className="schedule-period-condition" label="Match any"><SchedulePeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</Select></Field>
+          {row.field === schedulePeriodField ? <Field className="schedule-period-condition" label="Match any selected condition (OR)"><SchedulePeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</Select></Field>
           <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptions[row.field] ? <Select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptions[row.field]!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</Select> : <Input type={row.field.startsWith('schedule.') ? 'datetime-local' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'tags' || row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'tags' || row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</Field></>}
           <IconButton size="compact" variant="ghost" className="visual-condition-remove" aria-label={`Remove filter rule ${index + 1}`} onClick={() => syncRowsToDsl(visualRows.filter((entry) => entry.id !== row.id))}><CloseIcon /></IconButton>
         </div>)}
