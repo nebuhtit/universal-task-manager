@@ -473,6 +473,31 @@ test('deleted items appear in Trash and can be restored', async ({ page }) => {
   await expect(page.locator('.trash-section summary b')).toHaveText('0');
 });
 
+test('planning collection counters match All items status counters', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Aligned counters');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await goToAllItems(page);
+
+  const statusCount = page.locator('.all-sections details summary b').first();
+  const planning = page.locator('.all-item-collections');
+  const planningCount = planning.locator(':scope > summary b');
+  await planning.locator(':scope > summary').click();
+  const collectionCount = planning.locator('details summary b').first();
+  const visualStyle = async (locator: Locator) => locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+    return { background: style.backgroundColor, radius: style.borderRadius, fontSize: style.fontSize, centerX: Math.round(bounds.left + bounds.width / 2) };
+  });
+
+  const statusStyle = await visualStyle(statusCount);
+  const planningStyle = await visualStyle(planningCount);
+  const collectionStyle = await visualStyle(collectionCount);
+  expect(planningStyle).toEqual(statusStyle);
+  expect(collectionStyle).toEqual(statusStyle);
+});
+
 test('edited view parameters change results and survive reload', async ({ page }) => {
   const password = 'correct horse battery staple';
   await page.getByLabel('Workspace name').fill('Persistent views');
