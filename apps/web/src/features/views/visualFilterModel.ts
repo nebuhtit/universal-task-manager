@@ -1,4 +1,4 @@
-import { createId } from '@utm/core';
+import { ACTIVE_ITEM_VIEW_QUERY, LEGACY_ACTIVE_ITEM_VIEW_QUERY, createId } from '@utm/core';
 
 export type VisualConditionRow = { id: string; join: 'and' | 'or'; field: string; operator: string; value: string };
 export type SchedulePeriodValue = {
@@ -63,10 +63,11 @@ const visualClause = (row: Pick<VisualConditionRow, 'field' | 'operator' | 'valu
 };
 export const serializeVisualRows = (rows: VisualConditionRow[]) => rows.reduce((source, row, index) => index === 0 ? visualClause(row) : `(${source} ${row.join === 'or' ? '||' : '&&'} ${visualClause(row)})`, '');
 export const parseVisualRows = (source: string): VisualConditionRow[] | null => {
-  const activeStarter = 'state == "open" && role != "series_template" && isTemplate != true';
   const legacyPeriodSources: Record<string, string> = {
-    [`${activeStarter} && (eventToday == true || dueTodayOrOverdue == true)`]: `(((${activeStarter}) && scheduleInPeriod("today", "event,due", true, 7, "", "")))`,
-    [`${activeStarter} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`]: `(((${activeStarter}) && scheduleInPeriod("this_week", "event,due", true, 7, "", "")))`,
+    [`${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && (eventToday == true || dueTodayOrOverdue == true)`]: `(((${ACTIVE_ITEM_VIEW_QUERY}) && scheduleInPeriod("today", "event,due", true, 7, "", "")))`,
+    [`${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`]: `(((${ACTIVE_ITEM_VIEW_QUERY}) && scheduleInPeriod("this_week", "event,due", true, 7, "", "")))`,
+    [`${ACTIVE_ITEM_VIEW_QUERY} && (eventToday == true || dueTodayOrOverdue == true)`]: `(((${ACTIVE_ITEM_VIEW_QUERY}) && scheduleInPeriod("today", "event,due", true, 7, "", "")))`,
+    [`${ACTIVE_ITEM_VIEW_QUERY} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`]: `(((${ACTIVE_ITEM_VIEW_QUERY}) && scheduleInPeriod("this_week", "event,due", true, 7, "", "")))`,
   };
   source = legacyPeriodSources[source.trim()] ?? source;
   const strip = (value: string) => { let result = value.trim(); while (result.startsWith('(') && result.endsWith(')')) { let depth = 0, quoted = false, escaped = false, whole = true; for (let index = 0; index < result.length; index += 1) { const character = result[index]!; if (escaped) { escaped = false; continue; } if (character === '\\' && quoted) { escaped = true; continue; } if (character === '"') { quoted = !quoted; continue; } if (quoted) continue; if (character === '(') depth += 1; if (character === ')') depth -= 1; if (depth === 0 && index < result.length - 1) { whole = false; break; } } if (!whole || depth !== 0) break; result = result.slice(1, -1).trim(); } return result; };

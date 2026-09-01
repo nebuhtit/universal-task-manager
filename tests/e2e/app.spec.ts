@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.95\.3 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.95\.4 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -121,7 +121,7 @@ test('shows the release version on registration, login and settings', async ({ p
 
   await goToSettings(page);
   await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
-  await expect(page.getByText('v1.95.3', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.95.4', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -983,6 +983,7 @@ test('recurring item accepts Deadline as its schedule anchor and handles missing
   });
   await openEditorSection(page, 'Recurrence & auto-renew');
   await page.getByLabel('Make this a recurring series').check();
+  await page.getByLabel('Repeat after completion').check();
   await page.getByLabel('Repeat frequency').selectOption('WEEKLY');
   await page.getByLabel('Repeat interval').fill('2');
   await page.getByRole('button', { name: `Repeat on ${dueSetup.weekday}` }).click();
@@ -1008,12 +1009,27 @@ test('recurring item accepts Deadline as its schedule anchor and handles missing
   await goHome(page);
   await page.getByRole('button', { name: 'New view' }).click();
   await openViewEditorSection(page, 'Advanced filter code');
-  await expect(page.getByLabel('Advanced filter code')).toHaveValue('(state == "open" || state == "done") && role != "series_template" && isTemplate != true');
+  await expect(page.getByLabel('Advanced filter code')).toHaveValue('(state == "open" || state == "done") && isTemplate != true');
   await expect(page.getByLabel('Advanced filter code')).toHaveCSS('font-family', /monospace|Menlo|Monaco|Consolas/i);
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Open items');
   await page.getByRole('button', { name: 'Save view' }).click();
   const openItemsView = page.locator('.view-section').filter({ hasText: 'Open items' });
   await expect(openItemsView.getByText('Weekly due-only item', { exact: true })).toHaveCount(1);
+
+  const recurringRow = openItemsView.getByRole('row').filter({ hasText: 'Weekly due-only item' });
+  await recurringRow.getByRole('button', { name: /^Complete/ }).click();
+  await page.waitForTimeout(100);
+  await openItemsView.getByRole('row').filter({ hasText: 'Weekly due-only item' }).click();
+  const history = await openEditorSection(page, 'Completion history');
+  const completionTime = history.locator('input[type="datetime-local"][aria-label^="Completion time for"]');
+  await expect(completionTime).toBeVisible();
+  const correctedCompletion = await page.evaluate(() => {
+    const date = new Date(Date.now() - 30 * 60 * 1_000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  await completionTime.fill(correctedCompletion);
+  await history.getByRole('button', { name: 'Save time' }).click();
+  await expect(page.getByText('Completion time saved. Next cycle updated.', { exact: true })).toBeVisible();
 });
 
 test('active window reuses recurrence fields without duplicating controls', async ({ page }) => {

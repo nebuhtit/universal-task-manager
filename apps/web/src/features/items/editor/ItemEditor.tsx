@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
-  createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage,
-  type Schedule, type UniversalItem, type WorkspaceDocument,
+  createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage, recurrenceCompletionHistory,
+  type RecurrenceCompletionRecord, type Schedule, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../../components/ui/CodeEditor';
 import { CloseIcon } from '../../../components/ui/icons';
@@ -20,6 +20,7 @@ import { DateTimeField } from './fields/DateTimeField';
 import { DatesSection } from './sections/DatesSection';
 import { RemindersSection } from './sections/RemindersSection';
 import { RecurrenceSection } from './sections/RecurrenceSection';
+import { RecurrenceHistorySection } from './sections/RecurrenceHistorySection';
 import { ScriptsSection } from './sections/ScriptsSection';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
@@ -52,8 +53,8 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose }: {
-  initial: UniversalItem; workspace: WorkspaceDocument; now: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string }) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
+export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onUpdateRecurrenceCompletion, onReadPortableFile, onExportItem, onClose }: {
+  initial: UniversalItem; workspace: WorkspaceDocument; now: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string }) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const [item, setItem] = useState(() => clean(initial));
   const [tags, setTags] = useState(item.tags.join(', '));
@@ -69,6 +70,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
   const [jsonDirty, setJsonDirty] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
+  const recurrenceHistory = recurring ? recurrenceCompletionHistory(workspace, item.id) : [];
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const suppressFocusRestore = useRef(false);
@@ -347,7 +349,11 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
         <ScriptsSection item={item} patchItem={patchItem} scriptResults={scriptResults} />
         {definitions.length > 0 && <details><summary><FieldIconLabel path="custom" label="Custom fields" /> {sectionMark(Object.keys(item.custom).length > 0)}</summary><div className="details-body">{definitions.map((field) => <label key={field.id}><FieldIconLabel path={`custom.${field.key}`} label={field.label} />{field.kind === 'formula' ? <output className="formula-output">{String(formulas.values[field.key] ?? formulas.errors[field.key] ?? '—')}</output> : <input value={String(item.custom[field.key] ?? '')} onChange={(event) => patchItem({ custom: { ...item.custom, [field.key]: field.kind === 'number' ? Number(event.target.value) : field.kind === 'boolean' ? event.target.value === 'true' : event.target.value } })} />}</label>)}</div></details>}
         <details><summary><FieldIconLabel path="system.json" label="Item JSON" /> {sectionMark(jsonDirty)}</summary><div className="details-body json-editor"><p className="hint">Edit the same item draft as the form. Protected identity, provenance, timestamps and occurrence fields are preserved when updating an existing item.</p><SectionGuide title="JSON safety"><p>Apply JSON updates the form first; only Save item writes it to the workspace. Import as new item always creates a separate copy. Exported data is readable, so do not share it accidentally.</p></SectionGuide><CodeEditor language="json" ariaLabel="Item JSON" rows={18} value={jsonDraft} onChange={(value) => { setJsonDraft(value); setJsonDirty(true); }} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => { setJsonDraft(JSON.stringify(item, null, 2)); setJsonDirty(false); }}>Refresh from form</button><button className="secondary compact-action" onClick={applyJson}>Apply JSON to form</button><details className="inline-menu"><summary>Export…</summary><div><button onClick={exportItemJson}>JSON</button><button onClick={() => exportItem('csv')}>CSV</button><button onClick={() => exportItem('xlsx')}>Excel</button><button onClick={() => exportItem('ics')}>iCalendar</button><button onClick={() => exportItem('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary compact-action" onClick={() => importJsonRef.current?.click()}>Import as new item</button><input ref={importJsonRef} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => event.target.files?.[0] && void importAsNew(event.target.files[0])} /></div></div></details>
-        {Boolean(item.cycleHistory?.length) && <details><summary><FieldIconLabel path="cycleHistory" label="Cycle history" /> <span className="summary-count">{item.cycleHistory!.length}</span></summary><div className="details-body cycle-history"><p className="field-hint">Finished auto-renew cycles stay inside this item. Its current Dates &amp; time always describe the active or most recent cycle.</p>{[...item.cycleHistory!].reverse().map((cycle) => <article key={cycle.recurrenceId}><div><strong>{cycle.state === 'auto_closed' ? 'Auto closed' : cycle.state === 'done' ? 'Completed' : 'Cancelled'}</strong><time dateTime={cycle.closedAt}>{formatViewDate(cycle.closedAt, true, workspace.calendarPreferences.language)}</time></div><small>{cycle.startAt ? `Opened ${formatViewDate(cycle.startAt, true, workspace.calendarPreferences.language)}` : `Cycle ${formatViewDate(cycle.recurrenceId, true, workspace.calendarPreferences.language)}`}{cycle.dueAt ? ` · Due ${formatViewDate(cycle.dueAt, true, workspace.calendarPreferences.language)}` : ''}</small></article>)}</div></details>}
+        {recurring && <RecurrenceHistorySection records={recurrenceHistory} language={workspace.calendarPreferences.language} onSave={(record, completedAt) => {
+          const result = onUpdateRecurrenceCompletion(record, completedAt);
+          if (result.series?.id === item.id) setItem((current) => ({ ...current, ...(result.series!.schedule ? { schedule: clean(result.series!.schedule) } : {}), updatedAt: result.series!.updatedAt, revision: result.series!.revision }));
+          return result;
+        }} />}
         <details><summary><FieldIconLabel path="system" label="System metadata" /></summary><div className="details-body metadata-grid"><div><span>Created at</span><output><time dateTime={item.createdAt}>{formatViewDate(item.createdAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Last modified</span><output><time dateTime={item.updatedAt}>{formatViewDate(item.updatedAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Created by application</span><output>{item.createdWithAppName} v{item.createdWithVersion}</output></div><div><span>Application ID</span><output className="mono">{item.createdWithAppId}</output></div><div><span>Item schema</span><output>{item.schemaVersion}</output></div><div><span>Item ID</span><output>{item.id}</output></div></div></details>
         </ItemSection>
       {error && <p className="editor-error error" role="alert">{error}</p>}

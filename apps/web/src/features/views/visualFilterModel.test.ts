@@ -48,7 +48,7 @@ describe('visual filter model', () => {
     const week = parseVisualRows(`${active} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`);
     expect(today).not.toBeNull();
     expect(week).not.toBeNull();
-    expect(today?.map((row) => row.field)).toEqual(['state', 'role', 'isTemplate', schedulePeriodField]);
+    expect(today?.map((row) => row.field)).toEqual(['state', 'isTemplate', schedulePeriodField]);
     expect(parseSchedulePeriodValue(today?.at(-1)?.value ?? '')).toMatchObject({ period: 'today', sources: ['event', 'due'], includeOverdue: true });
     expect(parseSchedulePeriodValue(week?.at(-1)?.value ?? '')).toMatchObject({ period: 'this_week', sources: ['event', 'due'], includeOverdue: true });
   });

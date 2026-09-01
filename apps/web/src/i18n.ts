@@ -45,6 +45,7 @@ const en = {
   'Install on your phone': 'Установка на телефон', 'Troubleshooting log': 'Технический журнал', 'Download log': 'Скачать лог', 'Clear log': 'Очистить лог',
   'Opening encrypted workspace…': 'Открытие зашифрованного пространства…', 'System metadata': 'Системные метаданные',
   'Item JSON': 'JSON элемента', 'View JSON': 'JSON вида', 'DSL expression': 'DSL-выражение', 'Sort DSL': 'DSL-сортировка',
+  Copy: 'Копировать', Copied: 'Скопировано', 'Copy failed': 'Не удалось скопировать',
   'Displayed fields': 'Отображаемые поля', Renderer: 'Отображение', Sorting: 'Сортировка', 'Visual condition': 'Визуальное условие',
   Field: 'Поле', Operator: 'Оператор', Value: 'Значение', 'Apply condition': 'Применить условие', 'Add AND condition': 'Добавить И', 'Add OR condition': 'Добавить ИЛИ',
   Title: 'Название', Description: 'Описание', Location: 'Место', 'Files (links only)': 'Файлы (только ссылки)', Status: 'Статус', Priority: 'Приоритет', Tags: 'Теги', Contexts: 'Контексты',
@@ -52,6 +53,11 @@ const en = {
   'Estimated duration': 'Оценка длительности', 'Actual duration': 'Фактическая длительность', 'All day': 'Весь день',
   None: 'Нет', Low: 'Низкий', Medium: 'Средний', High: 'Высокий', Urgent: 'Срочный',
   Task: 'Задача', Event: 'Событие', Habit: 'Привычка', Blank: 'Пустой', 'Save item': 'Сохранить элемент',
+  'Completion history': 'История выполнений', 'Save time': 'Сохранить время', 'Actually completed at': 'Фактически выполнено', 'Read only': 'Только чтение',
+  'No finished cycles yet.': 'Завершённых циклов пока нет.', 'Completion time saved.': 'Время выполнения сохранено.', 'Completion time saved. Next cycle updated.': 'Время выполнения сохранено. Следующий цикл обновлён.',
+  'Manual completion times can be corrected here. Automatic closures are kept separately and cannot be edited as if they were completed by you.': 'Здесь можно исправить время ручных выполнений. Автоматические закрытия хранятся отдельно и не редактируются как выполненные вами.',
+  'An older app stored only the completion date. Choose the actual time to complete this history record.': 'Старая версия приложения сохранила только дату выполнения. Выберите фактическое время, чтобы дополнить запись истории.',
+  'This is the latest completion. Changing it also moves the next cycle.': 'Это последнее выполнение. Его изменение также сдвинет следующий цикл.',
   'Close notification': 'Закрыть уведомление', 'Delete notification': 'Удалить уведомление', 'Notification center': 'Центр уведомлений',
   CALENDAR: 'КАЛЕНДАРЬ', Calendar: 'Календарь', Today: 'Сегодня', Tomorrow: 'Завтра', 'This week': 'Эта неделя', 'Next week': 'Следующая неделя', 'Next N days': 'Следующие N дней', 'Custom period': 'Произвольный период', 'Calendar settings': 'Настройки календаря', 'Close calendar settings': 'Закрыть настройки календаря',
   Week: 'Неделя', Month: 'Месяц', 'Previous period': 'Предыдущий период', 'Next period': 'Следующий период', 'Calendar navigation mode': 'Режим навигации календаря',
@@ -88,6 +94,10 @@ common.es['Add new item'] = 'Añadir nuevo elemento';
 common.de['Add new item'] = 'Neues Element hinzufügen';
 common.fr['Add new item'] = 'Ajouter un nouvel élément';
 common.ko['Add new item'] = '새 항목 추가';
+Object.assign(common.es, { Copy: 'Copiar', Copied: 'Copiado', 'Copy failed': 'No se pudo copiar' });
+Object.assign(common.de, { Copy: 'Kopieren', Copied: 'Kopiert', 'Copy failed': 'Kopieren fehlgeschlagen' });
+Object.assign(common.fr, { Copy: 'Copier', Copied: 'Copié', 'Copy failed': 'Échec de la copie' });
+Object.assign(common.ko, { Copy: '복사', Copied: '복사됨', 'Copy failed': '복사 실패' });
 
 const onboarding: Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary> = {
   ru: {
@@ -423,7 +433,8 @@ export function translateInterfaceText(value: string, language: WorkspaceLanguag
 
 function shouldSkip(node: Text) {
   const parent = node.parentElement;
-  return !parent || Boolean(parent.closest('code, pre, textarea, input, output, .syntax-editor, .rendered-markdown'));
+  return !parent || Boolean(parent.closest('code, pre, textarea, input, output, .rendered-markdown')
+    || (parent.closest('.syntax-editor') && !parent.closest('.syntax-editor-toolbar')));
 }
 
 export function localizeDom(root: ParentNode, language: WorkspaceLanguage) {

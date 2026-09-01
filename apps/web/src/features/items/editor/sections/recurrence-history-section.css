@@ -1,0 +1,47 @@
+.recurrence-completion-history-body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.recurrence-completion-row {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.recurrence-completion-row > small,
+.recurrence-completion-row > time,
+.recurrence-history-readonly {
+  color: var(--color-text-secondary);
+}
+
+.recurrence-completion-row-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.recurrence-completion-row-heading strong {
+  font-weight: var(--font-weight-medium);
+}
+
+.recurrence-history-readonly {
+  font-size: var(--font-size-caption);
+}
+
+.recurrence-completion-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+@media (max-width: 620px) {
+  .recurrence-completion-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

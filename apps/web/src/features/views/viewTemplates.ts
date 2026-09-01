@@ -1,9 +1,9 @@
-import type { SavedView } from '@utm/core';
+import { ACTIVE_ITEM_VIEW_QUERY, type SavedView } from '@utm/core';
 
 export const VIEW_TEMPLATE_EXTENSION = 'utm:view-template';
 export const VIEW_TEMPLATE_FIELDS = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
 
-const active = 'state == "open" && role != "series_template" && isTemplate != true';
+const active = ACTIVE_ITEM_VIEW_QUERY;
 const defaultSort = 'schedule.dueAt asc nulls last\nschedule.startAt asc nulls last\norganizationOrder asc nulls last';
 
 const template = (id: string, name: string, source: string, accent: string): SavedView => ({

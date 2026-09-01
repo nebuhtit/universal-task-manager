@@ -1,6 +1,6 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION } from './types.js';
+import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, SCHEMA_VERSION } from './types.js';
 import { normalizedOrganizationPriorityOrder } from './organization.js';
 import type { PortablePackage, SavedView, UniversalItem, WorkspaceDocument } from './types.js';
 
@@ -542,11 +542,14 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       return [key, safe];
     }
   }));
-  const activeStarterQuery = 'state == "open" && role != "series_template" && isTemplate != true';
-  const legacyTodayQuery = `${activeStarterQuery} && dueTodayOrOverdue == true`;
-  const legacyWeekQuery = `${activeStarterQuery} && dueThisWeekOrOverdue == true`;
-  const todayQuery = `${activeStarterQuery} && (eventToday == true || dueTodayOrOverdue == true)`;
-  const weekQuery = `${activeStarterQuery} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`;
+  const legacyTodayQuery = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && dueTodayOrOverdue == true`;
+  const legacyWeekQuery = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && dueThisWeekOrOverdue == true`;
+  const legacyCurrentTodayQuery = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && (eventToday == true || dueTodayOrOverdue == true)`;
+  const legacyCurrentWeekQuery = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`;
+  const legacyTomorrowQuery = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")`;
+  const todayQuery = `${ACTIVE_ITEM_VIEW_QUERY} && (eventToday == true || dueTodayOrOverdue == true)`;
+  const weekQuery = `${ACTIVE_ITEM_VIEW_QUERY} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`;
+  const tomorrowQuery = `${ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")`;
   const starterFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
   const legacyStarterFields = [
     ['title', 'schedule.dueAt', 'bodyMarkdown', 'list', 'tags'],
@@ -565,6 +568,14 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
         migrated.value.name = 'This week'; migrated.value.query.source = weekQuery;
         migrated.value.fields = [...starterFields];
         migrated.value.sort = [{ field: 'schedule.startAt', direction: 'asc', nulls: 'last' }, { field: 'schedule.endAt', direction: 'asc', nulls: 'last' }];
+      }
+      const source = migrated.value.query.source;
+      if (key === '__all_items__' && source === LEGACY_ACTIVE_ITEM_VIEW_QUERY) migrated.value.query.source = ACTIVE_ITEM_VIEW_QUERY;
+      else if (migrated.value.name === 'Today' && source === legacyCurrentTodayQuery) migrated.value.query.source = todayQuery;
+      else if (migrated.value.name === 'Tomorrow' && source === legacyTomorrowQuery) migrated.value.query.source = tomorrowQuery;
+      else if (migrated.value.name === 'This week' && source === legacyCurrentWeekQuery) migrated.value.query.source = weekQuery;
+      else if (migrated.value.extensions?.['utm:para-view'] === true && (source === LEGACY_ACTIVE_ITEM_VIEW_QUERY || source.startsWith(`${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && `))) {
+        migrated.value.query.source = `${ACTIVE_ITEM_VIEW_QUERY}${source.slice(LEGACY_ACTIVE_ITEM_VIEW_QUERY.length)}`;
       }
       return [key, migrated.value];
     }

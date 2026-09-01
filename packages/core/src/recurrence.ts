@@ -16,6 +16,27 @@ export interface RecurrenceIterator {
   between(after: Date, before: Date, inclusive?: boolean): Date[];
 }
 
+export type RecurrenceCompletionStorage = 'closure' | 'cycle_history' | 'habit_date';
+export interface RecurrenceCompletionRecord {
+  seriesId: string;
+  ownerItemId: string;
+  recurrenceId: string;
+  completedAt: string;
+  state: CycleHistoryEntry['state'];
+  actor: CycleHistoryEntry['actor'];
+  reason: CycleHistoryEntry['reason'];
+  storage: RecurrenceCompletionStorage;
+  startAt?: string;
+  dueAt?: string;
+  timeRecorded: boolean;
+  affectsNextCycle: boolean;
+}
+
+export interface RecurrenceCompletionEditResult {
+  changed: boolean;
+  rescheduled: boolean;
+}
+
 function shiftIso(value: string | undefined, deltaMs: number): string | undefined {
   return value ? new Date(new Date(value).getTime() + deltaMs).toISOString() : undefined;
 }
@@ -172,6 +193,136 @@ export function advanceCompletionAnchoredSeries(workspace: WorkspaceDocument, oc
   series.updatedAt = closed.toISOString();
   series.revision += 1;
   return true;
+}
+
+function recurrenceOwnerItems(workspace: WorkspaceDocument, seriesId: string): UniversalItem[] {
+  return Object.values(workspace.items).filter((item) => !item.deletedAt && (item.id === seriesId || item.occurrence?.seriesId === seriesId));
+}
+
+/**
+ * Returns one logical history row per finished recurrence cycle. Auto-renew
+ * stores old cycles inside the rolling occurrence, while ordinary recurrence
+ * keeps closures on occurrence rows. Habits created by older versions only
+ * know the calendar date; those rows remain editable but are marked as not
+ * having an originally recorded time.
+ */
+export function recurrenceCompletionHistory(workspace: WorkspaceDocument, seriesId: string): RecurrenceCompletionRecord[] {
+  const series = workspace.items[seriesId];
+  if (!series?.recurrence) return [];
+  const rows: RecurrenceCompletionRecord[] = [];
+  const historyKeys = new Set<string>();
+  for (const owner of recurrenceOwnerItems(workspace, seriesId)) {
+    for (const entry of owner.cycleHistory ?? []) {
+      const key = `${entry.recurrenceId}:${entry.state}`;
+      if (historyKeys.has(key)) continue;
+      historyKeys.add(key);
+      rows.push({
+        seriesId, ownerItemId: owner.id, recurrenceId: entry.recurrenceId, completedAt: entry.closedAt,
+        state: entry.state, actor: entry.actor, reason: entry.reason, storage: 'cycle_history',
+        ...(entry.startAt ? { startAt: entry.startAt } : {}), ...(entry.dueAt ? { dueAt: entry.dueAt } : {}),
+        timeRecorded: true, affectsNextCycle: false,
+      });
+    }
+    if (owner.role === 'occurrence' && owner.closure && (owner.state === 'done' || owner.state === 'cancelled' || owner.state === 'auto_closed')) {
+      const recurrenceId = owner.occurrence?.recurrenceId ?? owner.schedule?.startAt ?? owner.closure.at;
+      const key = `${recurrenceId}:${owner.state}`;
+      if (!historyKeys.has(key)) {
+        historyKeys.add(key);
+        rows.push({
+          seriesId, ownerItemId: owner.id, recurrenceId, completedAt: owner.closure.at,
+          state: owner.state, actor: owner.closure.actor, reason: owner.closure.reason, storage: 'closure',
+          ...(owner.schedule?.startAt ? { startAt: owner.schedule.startAt } : {}), ...(owner.schedule?.dueAt ? { dueAt: owner.schedule.dueAt } : {}),
+          timeRecorded: true, affectsNextCycle: false,
+        });
+      }
+    }
+  }
+  for (const date of series.habit?.completedDates ?? []) {
+    if (rows.some((row) => row.state === 'done' && row.completedAt.slice(0, 10) === date)) continue;
+    rows.push({
+      seriesId, ownerItemId: seriesId, recurrenceId: date, completedAt: `${date}T00:00:00.000Z`,
+      state: 'done', actor: 'user', reason: 'manual', storage: 'habit_date', timeRecorded: false, affectsNextCycle: false,
+    });
+  }
+  rows.sort((left, right) => right.recurrenceId.localeCompare(left.recurrenceId) || right.completedAt.localeCompare(left.completedAt));
+  if (series.recurrence.anchor === 'completion' && rows[0]) rows[0].affectsNextCycle = true;
+  return rows;
+}
+
+function nextAnchorFromCompletion(series: UniversalItem, completedAt: string): Date | null {
+  const completed = new Date(completedAt);
+  if (Number.isNaN(completed.getTime()) || !series.schedule) return null;
+  const probe = JSON.parse(JSON.stringify(series)) as UniversalItem;
+  if (probe.schedule?.startAt) probe.schedule.startAt = completed.toISOString();
+  else if (probe.schedule?.dueAt) probe.schedule.dueAt = completed.toISOString();
+  else return null;
+  return buildRecurrenceRule(probe).after(completed, false);
+}
+
+/** Updates one recorded manual completion without rewriting unrelated cycles. */
+export function updateRecurrenceCompletionTime(
+  workspace: WorkspaceDocument,
+  record: Pick<RecurrenceCompletionRecord, 'seriesId' | 'ownerItemId' | 'recurrenceId' | 'storage' | 'state'>,
+  completedAt: string,
+  now = new Date(),
+): RecurrenceCompletionEditResult {
+  if (record.state !== 'done') throw new Error('Only manually completed cycles have an editable completion time.');
+  const completed = new Date(completedAt);
+  if (Number.isNaN(completed.getTime())) throw new Error('Completion time is invalid.');
+  const series = workspace.items[record.seriesId];
+  const owner = workspace.items[record.ownerItemId];
+  if (!series?.recurrence || !owner) throw new Error('Recurring series history is no longer available.');
+  let previous = '';
+  const normalizedCompletedAt = completed.toISOString();
+  if (record.storage === 'cycle_history') {
+    const entry = owner.cycleHistory?.find((candidate) => candidate.recurrenceId === record.recurrenceId && candidate.state === 'done');
+    if (!entry) throw new Error('Completion history entry was not found.');
+    previous = entry.closedAt;
+    if (previous === normalizedCompletedAt) return { changed: false, rescheduled: false };
+    entry.closedAt = normalizedCompletedAt; entry.actor = 'user'; entry.reason = 'manual';
+  } else if (record.storage === 'closure') {
+    if (owner.role !== 'occurrence' || owner.occurrence?.recurrenceId !== record.recurrenceId || owner.state !== 'done' || !owner.closure) throw new Error('Completed occurrence was not found.');
+    previous = owner.closure.at;
+    if (previous === normalizedCompletedAt) return { changed: false, rescheduled: false };
+    owner.closure.at = normalizedCompletedAt; owner.closure.actor = 'user'; owner.closure.reason = 'manual';
+  } else {
+    const index = series.habit?.completedDates.indexOf(record.recurrenceId) ?? -1;
+    if (index < 0 || !series.habit) throw new Error('Habit completion date was not found.');
+    previous = `${record.recurrenceId}T00:00:00.000Z`;
+    const nextDate = completed.toISOString().slice(0, 10);
+    series.habit.completedDates[index] = nextDate;
+    series.habit.completedDates = [...new Set(series.habit.completedDates)].sort();
+    series.cycleHistory ??= [];
+    series.cycleHistory.push({ recurrenceId: new Date(previous).toISOString(), closedAt: normalizedCompletedAt, state: 'done', actor: 'user', reason: 'manual' });
+  }
+  owner.updatedAt = now.toISOString(); owner.revision += 1;
+
+  let rescheduled = false;
+  const latest = recurrenceCompletionHistory(workspace, record.seriesId)[0];
+  if (series.recurrence.anchor === 'completion' && latest?.recurrenceId === record.recurrenceId) {
+    const currentAnchor = series.schedule?.startAt ?? series.schedule?.dueAt;
+    const expectedCurrent = nextAnchorFromCompletion(series, previous);
+    const next = nextAnchorFromCompletion(series, normalizedCompletedAt);
+    if (currentAnchor && expectedCurrent && next && Math.abs(expectedCurrent.getTime() - new Date(currentAnchor).getTime()) < 1_000) {
+      const delta = next.getTime() - new Date(currentAnchor).getTime();
+      const shifted = JSON.parse(JSON.stringify(series.schedule)) as NonNullable<UniversalItem['schedule']>;
+      for (const key of ['availableFrom', 'startAt', 'endAt', 'dueAt'] as const) {
+        const value = shifted[key];
+        if (value) shifted[key] = shiftIso(value, delta)!;
+      }
+      series.schedule = shifted;
+      series.updatedAt = now.toISOString(); series.revision += 1;
+      if (!series.recurrence.autoRenew) {
+        for (const candidate of recurrenceOwnerItems(workspace, series.id)) {
+          if (candidate.role !== 'occurrence' || candidate.state !== 'open' || candidate.recurrenceOverride) continue;
+          delete workspace.items[candidate.id]; workspace.tombstones[candidate.id] = now.toISOString();
+        }
+      }
+      rescheduled = true;
+    }
+  }
+  workspace.updatedAt = now.toISOString();
+  return { changed: true, rescheduled };
 }
 
 function closingBoundary(current: UniversalItem, nextActivation: Date | undefined): Date | undefined {

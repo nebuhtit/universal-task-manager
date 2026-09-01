@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import {
-  calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, effectiveWorkspaceNow, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries,
+  ACTIVE_ITEM_VIEW_QUERY, calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, effectiveWorkspaceNow, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries,
   orderedTagEntries, organizationAccentFor, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset,
   type OrganizationPreferences, type OrganizationPriorityEntry, type ProjectMetrics, type SavedView, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
@@ -18,7 +18,7 @@ type Commit = (message: string, mutation: (draft: WorkspaceDocument) => void) =>
 type Route = { kind: 'overview' } | { kind: 'area'; area?: string } | { kind: 'project'; project: string } | { kind: 'tag'; tag?: string };
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const priorityKey = (entry: OrganizationPriorityEntry) => JSON.stringify([entry.kind, entry.name, entry.kind === 'project' && entry.name !== null ? entry.area ?? null : undefined]);
-const activeQuery = 'state == "open" && role != "series_template" && isTemplate != true';
+const activeQuery = ACTIVE_ITEM_VIEW_QUERY;
 const defaultSort = 'schedule.dueAt asc nulls last\nschedule.startAt asc nulls last\norganizationOrder asc nulls last';
 const PARA_VIEW_EXTENSION = 'utm:para-view';
 const PARA_SCOPE_EXTENSION = 'utm:para-scope';

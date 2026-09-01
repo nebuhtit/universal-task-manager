@@ -1,4 +1,4 @@
-import type { CustomFieldDefinition, CustomValue, Expression, Scalar, UniversalItem, ViewSortRule } from './types.js';
+import { ACTIVE_ITEM_VIEW_QUERY, LEGACY_ACTIVE_ITEM_VIEW_QUERY, type CustomFieldDefinition, type CustomValue, type Expression, type Scalar, type UniversalItem, type ViewSortRule } from './types.js';
 
 type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'paren' | 'comma' | 'eof';
 interface Token { kind: TokenKind; value: string; at: number }
@@ -376,10 +376,9 @@ export interface QueryRelationContext { isSubtask?: boolean; isParent?: boolean;
 export function compileQuery(source: string, relationContext?: (item: UniversalItem) => QueryRelationContext, temporalOptions: QueryTemporalOptions = {}): (item: UniversalItem, now?: Date) => boolean {
   // Compatibility for early Views: before habits became a universal capability,
   // the visual builder expressed them as `preset == "habit"`.
-  const activeQuery = 'state == "open" && role != "series_template" && isTemplate != true';
-  const legacyToday = `${activeQuery} && dueTodayOrOverdue == true`;
-  const legacyWeek = `${activeQuery} && dueThisWeekOrOverdue == true`;
-  const compatibleSource = source === legacyToday ? `${activeQuery} && (eventToday == true || dueTodayOrOverdue == true)` : source === legacyWeek ? `${activeQuery} && (eventThisWeek == true || dueThisWeekOrOverdue == true)` : source;
+  const legacyToday = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && dueTodayOrOverdue == true`;
+  const legacyWeek = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && dueThisWeekOrOverdue == true`;
+  const compatibleSource = source === legacyToday ? `${ACTIVE_ITEM_VIEW_QUERY} && (eventToday == true || dueTodayOrOverdue == true)` : source === legacyWeek ? `${ACTIVE_ITEM_VIEW_QUERY} && (eventThisWeek == true || dueThisWeekOrOverdue == true)` : source;
   const normalizedSource = compatibleSource
     .replace(/\bpreset\s*==\s*(["'])habit\1/g, 'isHabit == true')
     .replace(/\bpreset\s*!=\s*(["'])habit\1/g, 'isHabit != true')

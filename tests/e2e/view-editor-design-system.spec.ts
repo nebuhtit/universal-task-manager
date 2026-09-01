@@ -14,7 +14,8 @@ async function openSection(page: Page, name: string) {
   return details;
 }
 
-test('view editor keeps visual, display, sorting, and creation-default semantics', async ({ page }) => {
+test('view editor keeps visual, display, sorting, and creation-default semantics', async ({ page, browserName }) => {
+  if (browserName === 'chromium') await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await createWorkspace(page);
   const trigger = page.getByRole('button', { name: 'New view' });
   await trigger.click();
@@ -35,8 +36,12 @@ test('view editor keeps visual, display, sorting, and creation-default semantics
   if (!await core.evaluate((element) => (element as HTMLDetailsElement).open)) await core.locator(':scope > summary').click();
   await core.getByRole('checkbox', { name: /^Title/ }).check();
 
-  await openSection(page, 'Advanced filter code');
+  const advanced = await openSection(page, 'Advanced filter code');
   await expect(page.getByLabel('Advanced filter code')).toHaveValue(/state == "done"/);
+  const copyCode = advanced.getByRole('button', { name: 'Copy' });
+  await copyCode.click();
+  await expect(copyCode).toHaveText('Copied');
+  if (browserName === 'chromium') await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('state == "done"');
 
   await openSection(page, 'Sorting');
   await page.getByRole('combobox', { name: 'Sort field 1' }).selectOption('priority');
@@ -108,7 +113,7 @@ test('shows the existing Today preset as editable visual conditions', async ({ p
   const todayView = page.locator('.view-section').filter({ has: page.getByRole('heading', { name: 'Today', exact: true }) });
   await todayView.getByRole('button', { name: /^Edit / }).click();
   const visual = await openSection(page, 'Visual setup');
-  await expect(visual.locator('.visual-condition-row')).toHaveCount(4);
+  await expect(visual.locator('.visual-condition-row')).toHaveCount(3);
   const period = visual.locator('.visual-condition-row').last();
   await expect(period.getByRole('combobox', { name: 'Property' })).toHaveValue('schedulePeriod');
   await expect(period.getByRole('combobox', { name: 'Schedule period' })).toHaveValue('today');

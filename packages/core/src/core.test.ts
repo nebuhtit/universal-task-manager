@@ -3,8 +3,9 @@ import {
   APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, SCHEMA_VERSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
-  projectOccurrences, reconcileRecurrences, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
+  projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
   packageToTabular, parseCsv, serializePortablePackage, serializeSortRules, tabularToPackage, toCsv, toICS, validateViewCreationDefaults, validateWorkspace,
+  updateRecurrenceCompletionTime,
 } from './index.js';
 import type { AutomationRule, DomainEvent, UniversalItem } from './types.js';
 
@@ -72,7 +73,7 @@ describe('safe expression language', () => {
   it('matches Today and This week when an event interval overlaps the period while retaining overdue items', () => {
     const now = new Date('2026-08-26T12:00:00.000Z');
     const event = (startAt: string, endAt: string) => { const item = createItem('Event'); item.schedule = { startAt, endAt, timezone: 'UTC' }; return item; };
-    const active = 'state == "open" && role != "series_template" && isTemplate != true';
+    const active = 'state == "open" && isTemplate != true';
     const today = compileQuery(`${active} && (eventToday == true || dueTodayOrOverdue == true)`, undefined, { timeZone: 'UTC', weekStartsOn: 1 });
     const week = compileQuery(`${active} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`, undefined, { timeZone: 'UTC', weekStartsOn: 1 });
     expect(today(event('2026-08-25T20:00:00.000Z', '2026-08-26T15:00:00.000Z'), now)).toBe(true);
@@ -117,6 +118,25 @@ describe('safe expression language', () => {
     expect(migrated.views[today.id]?.fields).toEqual(['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project']);
     expect(migrated.views[week.id]?.name).toBe('This week');
     expect(migrated.views.custom?.query.source).toBe('dueTodayOrOverdue == true');
+  });
+
+  it('removes the obsolete series exclusion from system views without rewriting an explicit custom filter', () => {
+    const workspace = createWorkspace('Recurring system views');
+    const today = Object.values(workspace.views).find((view) => view.name === 'Today')!;
+    const week = Object.values(workspace.views).find((view) => view.name === 'This week')!;
+    const legacyActive = 'state == "open" && role != "series_template" && isTemplate != true';
+    workspace.views.__all_items__!.query.source = legacyActive;
+    today.query.source = `${legacyActive} && (eventToday == true || dueTodayOrOverdue == true)`;
+    week.query.source = `${legacyActive} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`;
+    workspace.views.para = { id: 'para', name: 'No Project', query: { source: `${legacyActive} && length(projects) == 0` }, renderer: 'list', sort: [], fields: ['title'], extensions: { 'utm:para-view': true } };
+    workspace.views.custom = { id: 'custom', name: 'Sources only', query: { source: legacyActive }, renderer: 'list', sort: [], fields: ['title'] };
+
+    const migrated = migrateWorkspace(workspace).value;
+    expect(migrated.views.__all_items__?.query.source).toBe('state == "open" && isTemplate != true');
+    expect(migrated.views[today.id]?.query.source).not.toContain('series_template');
+    expect(migrated.views[week.id]?.query.source).not.toContain('series_template');
+    expect(migrated.views.para?.query.source).toBe('state == "open" && isTemplate != true && length(projects) == 0');
+    expect(migrated.views.custom?.query.source).toBe(legacyActive);
   });
 
   it('detects formula cycles', () => {
@@ -414,6 +434,80 @@ describe('recurrence and auto-renew', () => {
       timezone: 'Europe/Moscow',
     });
     expect(workspace.items[series.id]!.schedule?.startAt).toBeUndefined();
+  });
+
+  it('edits a recurring completion time and moves the next completion-anchored deadline', () => {
+    const workspace = createWorkspace('Editable completion history');
+    const item = createItem('Get a haircut');
+    item.schedule = { timezone: 'UTC', dueAt: '2026-09-03T08:46:00.000Z', estimatedDuration: 'PT10M' };
+    const series = makeSeries(item, 'FREQ=WEEKLY;INTERVAL=3', { anchor: 'completion', activationOffset: 'P7D' });
+    workspace.items[series.id] = series;
+    const occurrence = createOccurrence(series, new Date('2026-09-03T08:46:00.000Z'), 0);
+    occurrence.state = 'done';
+    occurrence.closure = { at: '2026-09-01T08:46:00.000Z', actor: 'user', reason: 'manual' };
+    workspace.items[occurrence.id] = occurrence;
+    advanceCompletionAnchoredSeries(workspace, occurrence, occurrence.closure.at);
+
+    const record = recurrenceCompletionHistory(workspace, series.id)[0]!;
+    expect(record).toMatchObject({ storage: 'closure', state: 'done', affectsNextCycle: true });
+    const result = updateRecurrenceCompletionTime(workspace, record, '2026-09-02T10:15:00.000Z', new Date('2026-09-02T10:16:00.000Z'));
+
+    expect(result).toEqual({ changed: true, rescheduled: true });
+    expect(workspace.items[occurrence.id]!.closure?.at).toBe('2026-09-02T10:15:00.000Z');
+    expect(workspace.items[series.id]!.schedule?.dueAt).toBe('2026-09-23T10:15:00.000Z');
+  });
+
+  it('edits rolling cycle history without moving the next cycle for an older completion', () => {
+    const workspace = createWorkspace('Rolling history');
+    const item = createItem('Weekly review');
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-22T09:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=WEEKLY', { anchor: 'completion', activationOffset: 'P7D', autoRenew: true });
+    workspace.items[series.id] = series;
+    const occurrence = createOccurrence(series, new Date('2026-09-22T09:00:00.000Z'), 2);
+    occurrence.cycleHistory = [
+      { recurrenceId: '2026-09-01T09:00:00.000Z', closedAt: '2026-09-01T12:00:00.000Z', state: 'done', actor: 'user', reason: 'manual' },
+      { recurrenceId: '2026-09-08T09:00:00.000Z', closedAt: '2026-09-08T12:00:00.000Z', state: 'done', actor: 'user', reason: 'manual' },
+    ];
+    workspace.items[occurrence.id] = occurrence;
+    const originalNext = series.schedule!.startAt;
+    const older = recurrenceCompletionHistory(workspace, series.id).find((record) => record.recurrenceId === '2026-09-01T09:00:00.000Z')!;
+
+    const result = updateRecurrenceCompletionTime(workspace, older, '2026-09-01T15:30:00.000Z');
+
+    expect(result).toEqual({ changed: true, rescheduled: false });
+    expect(occurrence.cycleHistory[0]!.closedAt).toBe('2026-09-01T15:30:00.000Z');
+    expect(series.schedule!.startAt).toBe(originalNext);
+  });
+
+  it('upgrades a legacy habit completion date to a timestamp', () => {
+    const workspace = createWorkspace('Habit history');
+    const item = createItem('Walk', 'habit');
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-01T08:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=DAILY');
+    series.habit!.completedDates = ['2026-09-01'];
+    workspace.items[series.id] = series;
+
+    const legacy = recurrenceCompletionHistory(workspace, series.id)[0]!;
+    expect(legacy).toMatchObject({ storage: 'habit_date', timeRecorded: false });
+    updateRecurrenceCompletionTime(workspace, legacy, '2026-09-01T10:15:00.000Z');
+
+    const upgraded = recurrenceCompletionHistory(workspace, series.id)[0]!;
+    expect(upgraded).toMatchObject({ storage: 'cycle_history', completedAt: '2026-09-01T10:15:00.000Z', timeRecorded: true });
+    expect(series.habit!.completedDates).toEqual(['2026-09-01']);
+  });
+
+  it('keeps automatic closures read-only in recurring completion history', () => {
+    const workspace = createWorkspace('Read-only auto close');
+    const item = createItem('Weekly plan');
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-01T09:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=WEEKLY', { autoRenew: true });
+    workspace.items[series.id] = series;
+    const occurrence = createOccurrence(series, new Date('2026-09-01T09:00:00.000Z'), 0);
+    occurrence.cycleHistory = [{ recurrenceId: occurrence.occurrence!.recurrenceId, closedAt: '2026-09-08T09:00:00.000Z', state: 'auto_closed', actor: 'system', reason: 'auto_renew' }];
+    workspace.items[occurrence.id] = occurrence;
+    const record = recurrenceCompletionHistory(workspace, series.id)[0]!;
+
+    expect(() => updateRecurrenceCompletionTime(workspace, record, '2026-09-08T10:00:00.000Z')).toThrow('Only manually completed');
   });
 
   it('repairs a previously completed due-only series that was not advanced', () => {

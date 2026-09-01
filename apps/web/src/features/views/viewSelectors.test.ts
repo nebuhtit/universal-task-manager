@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
+import { ACTIVE_ITEM_VIEW_QUERY, createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
 import { boardSettingsFor, completionPhase, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold } from './viewSelectors';
 
@@ -31,6 +31,22 @@ describe('view selectors', () => {
     const today = view('state == "open" && role != "series_template" && isTemplate != true && scheduleInPeriod("today", "event_open", true, 7, "", "")');
     expect(selectViewItems(workspace, today, now).map((candidate) => candidate.title)).toEqual(['Oooo']);
     expect(selectViewItems(workspace, view('state == "open" && role != "series_template" && isTemplate != true'), now).map((candidate) => candidate.title)).toEqual(['Oooo']);
+  });
+
+  it('uses the series as a fallback before reconciliation and never duplicates its materialized occurrence', () => {
+    const now = new Date('2026-09-01T08:46:39.333Z');
+    const workspace = createWorkspace('Recurring fallback', now);
+    const item = createItem('Постричся', 'task', now);
+    item.schedule = { timezone: 'Europe/Moscow', dueAt: '2026-09-03T08:46:00.000Z', estimatedDuration: 'PT10M' };
+    const series = makeSeries(item, 'FREQ=WEEKLY;INTERVAL=3', { anchor: 'completion', activationOffset: 'P7D', autoRenew: true, closeAt: 'next_activation' });
+    workspace.items[series.id] = series;
+    const active = view(ACTIVE_ITEM_VIEW_QUERY);
+
+    expect(selectViewItems(workspace, active, now).map((candidate) => candidate.title)).toEqual(['Постричся']);
+    reconcileRecurrences(workspace, now);
+    const selected = selectViewItems(workspace, active, now);
+    expect(selected.map((candidate) => candidate.title)).toEqual(['Постричся']);
+    expect(selected[0]?.role).toBe('occurrence');
   });
 
   it('holds a completed item in its original views and sort position only until Undo exits', () => {

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { calculateItemSetMetrics, effectiveWorkspaceNow, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { ACTIVE_ITEM_VIEW_QUERY, calculateItemSetMetrics, effectiveWorkspaceNow, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { Button, Checkbox, Disclosure, Surface } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
@@ -13,7 +13,7 @@ import './all-items-settings.css';
 export const ALL_ITEMS_VIEW_ID = '__all_items__';
 
 export const allItemsViewFor = (workspace: WorkspaceDocument): SavedView => workspace.views[ALL_ITEMS_VIEW_ID] ?? {
-  id: ALL_ITEMS_VIEW_ID, name: 'All items', query: { source: 'role != "series_template" && isTemplate != true' }, renderer: 'list', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: [],
+  id: ALL_ITEMS_VIEW_ID, name: 'All items', query: { source: ACTIVE_ITEM_VIEW_QUERY }, renderer: 'list', sort: [{ field: 'updatedAt', direction: 'desc' }], fields: [],
 };
 
 function DeletedItemsList({ items, onRestore, onClear, onDelete }: { items: UniversalItem[]; onRestore: (item: UniversalItem) => void; onClear: () => void; onDelete: (item: UniversalItem) => void }) {

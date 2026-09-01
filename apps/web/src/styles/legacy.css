@@ -338,6 +338,7 @@ label.check input { width: 18px; height: 18px; }
 .item-scripts { display: grid; gap: 12px; }
 .item-scripts code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
 .item-script-row { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
+.item-script-expression { display: grid; gap: var(--space-2); font-size: var(--font-size-secondary); font-weight: var(--font-weight-medium); }
 .item-script-head { display: grid; grid-template-columns: minmax(140px, 1.4fr) minmax(120px, 1fr) minmax(110px, .8fr) auto; gap: 8px; align-items: end; }
 .item-script-head .icon-button { align-self: end; }
 .item-script-row .formula-output small { display: block; margin-bottom: 4px; color: var(--muted); font-family: inherit; }
@@ -355,11 +356,16 @@ label.check input { width: 18px; height: 18px; }
 .dialog.wide-dialog { width: min(760px, 100%); }
 .dialog h2 { margin: 0 0 20px; font-size: 20px; font-weight: 600; letter-spacing: -.015em; }
 .dialog footer { display: flex; gap: 10px; margin-top: 20px; }
+.automation-code-field { margin-bottom: var(--space-4); }
 .section-dot { display: inline-block; margin-left: 5px; color: var(--muted); font-size: 1.25em; line-height: 0; vertical-align: middle; }
 .code-area, code, .mono, .dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 .dsl-input { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important; font-size: 14px !important; font-weight: 400; line-height: 1.65; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; color: #1f1f1f; background: #f7f7f8; border-color: #d7d7d7; }
 .syntax-editor { position: relative; width: 100%; border: 1px solid #d7d7d7; border-radius: 10px; background: #f7f7f8; overflow: hidden; }
 .syntax-editor:focus-within { border-color: #8d8d8d; box-shadow: 0 0 0 3px rgba(13,13,13,.06); }
+.syntax-editor-toolbar { display: flex; justify-content: flex-end; min-height: var(--control-height-compact); padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--color-border); background: var(--color-surface-muted); }
+.syntax-editor-copy { min-width: 72px; color: var(--color-text-secondary); }
+.syntax-editor-copy:hover, .syntax-editor-copy:focus-visible { color: var(--color-text); }
+.syntax-editor-body { position: relative; width: 100%; }
 .syntax-editor pre, .syntax-editor textarea { width: 100%; min-height: 100%; margin: 0; border: 0; border-radius: 0; padding: 11px 12px; overflow: auto; white-space: pre; overflow-wrap: normal; font: 400 14px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; letter-spacing: 0; font-variant-ligatures: none; tab-size: 2; }
 .syntax-editor pre { position: absolute; inset: 0; pointer-events: none; color: #555; background: transparent; }
 .syntax-editor textarea { position: relative; z-index: 1; display: block; resize: vertical; color: transparent; -webkit-text-fill-color: transparent; caret-color: #050505; background: transparent; box-shadow: none; }

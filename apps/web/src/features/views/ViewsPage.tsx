@@ -316,7 +316,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
-  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && role != "series_template" && isTemplate != true' }, renderer: 'table', sort: [{ field: 'organizationOrder', direction: 'desc', nulls: 'last' }, { field: 'updatedAt', direction: 'desc', nulls: 'last' }], sortSource: 'organizationOrder desc nulls last\nupdatedAt desc nulls last', fields: [...VIEW_TEMPLATE_FIELDS] });
+  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && isTemplate != true' }, renderer: 'table', sort: [{ field: 'organizationOrder', direction: 'desc', nulls: 'last' }, { field: 'updatedAt', direction: 'desc', nulls: 'last' }], sortSource: 'organizationOrder desc nulls last\nupdatedAt desc nulls last', fields: [...VIEW_TEMPLATE_FIELDS] });
   useEffect(() => {
     if (createRequest === handledCreateRequest.current) return;
     handledCreateRequest.current = createRequest;
