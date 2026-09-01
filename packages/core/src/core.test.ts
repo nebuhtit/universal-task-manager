@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, SCHEMA_VERSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
-  compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, fromCanonicalJSON, fromICS, makeSeries,
+  compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
   packageToTabular, parseCsv, serializePortablePackage, serializeSortRules, tabularToPackage, toCsv, toICS, validateViewCreationDefaults, validateWorkspace,
@@ -199,6 +199,17 @@ describe('safe expression language', () => {
     expect(result.errors.unsafe).toContain('not allowed');
   });
 
+  it('evaluates reusable View scripts against each matching item', () => {
+    const item = createItem('View calculation');
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-01T12:30:00.000Z' };
+    const scripts = [
+      { id: 'view-script-1', key: 'minutes_left', label: 'Minutes left', source: 'minutesUntil(schedule.startAt)', resultKind: 'number' as const },
+      { id: 'view-script-2', key: 'double', label: 'Double', source: 'script.minutes_left * 2', resultKind: 'number' as const },
+    ];
+    expect(evaluateScriptsForItem(item, scripts, undefined, new Date('2026-09-01T12:00:00.000Z'))).toEqual({ values: { minutes_left: 30, double: 60 }, errors: {} });
+    expect(item.scripts).toBeUndefined();
+  });
+
   it('backfills legacy creation versions without changing existing values', () => {
     const workspace = createWorkspace();
     const legacy = createItem('Legacy');
@@ -216,10 +227,18 @@ describe('safe expression language', () => {
   });
 
   it('keeps saved-view creation defaults portable while rejecting system and relation fields', () => {
-    const view = migrateView({ id: 'view-defaults', name: 'Draft', query: { source: '' }, renderer: 'table', sort: [], fields: [], list: 'Health', creationDefaults: { priority: 3, tags: ['work'], location: 'Office', attachments: [{ id: 'brief', url: 'https://example.com/brief.pdf' }], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' }, statistics: { showTime: false, reservedItemIds: ['sleep-series'] } }).value;
+    const scripts = [{ id: 'view-script', key: 'minutes_left', label: 'Minutes left', source: 'minutesUntil(schedule.startAt)', resultKind: 'number' }];
+    const view = migrateView({ id: 'view-defaults', name: 'Draft', query: { source: '' }, renderer: 'table', sort: [], fields: ['view_script.minutes_left'], list: 'Health', creationDefaults: { priority: 3, tags: ['work'], location: 'Office', attachments: [{ id: 'brief', url: 'https://example.com/brief.pdf' }], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' }, statistics: { showTime: false, reservedItemIds: ['sleep-series'] }, scripts }).value;
     expect(view.list).toBe('Health');
     expect(view.creationDefaults).toEqual({ priority: 3, tags: ['work'], location: 'Office', attachments: [{ id: 'brief', url: 'https://example.com/brief.pdf' }], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' });
     expect(view.statistics).toEqual({ showTime: false, reservedItemIds: ['sleep-series'] });
+    expect(view.scripts).toEqual(scripts);
+    const portable = createPortablePackage(createWorkspace('View scripts'), { kind: 'views', views: [view] });
+    expect(parsePortablePackage(serializePortablePackage(portable)).package.views[0]?.scripts).toEqual(scripts);
+    const repaired = migrateView({ ...view, scripts: [...scripts, { id: 'broken', key: 'Not Valid', label: 'Broken', source: '1', resultKind: 'number' }] });
+    expect(repaired.value.scripts).toEqual(scripts);
+    expect(repaired.warnings).toContain('Normalized view scripts and retained their raw value');
+    expect(repaired.value.extensions?.quarantine).toMatchObject({ scriptsRaw: expect.any(Array) });
     expect(validateViewCreationDefaults({ createdAt: '2026-08-24T10:00:00.000Z' }).valid).toBe(false);
     expect(validateViewCreationDefaults({ relations: [] }).valid).toBe(false);
     expect(() => migrateView({ ...view, creationDefaults: { id: 'old-item' } })).toThrow('not an editable default');
@@ -232,7 +251,7 @@ describe('safe expression language', () => {
     const migrated = migrateItem({ ...item, schemaVersion: '1.18.0' }).value;
     expect(migrated.location).toBe('Room 204');
     expect(migrated.attachments).toEqual(item.attachments);
-    expect(migrated.schemaVersion).toBe('1.20.0');
+    expect(migrated.schemaVersion).toBe('1.21.0');
   });
 
   it('restores list membership hidden by the older strict schema', () => {

@@ -8,6 +8,7 @@ describe('ViewResults manual ordering controls', () => {
     expect(VIEW_LIVE_TICK_MS).toBe(1_000);
     expect(viewNeedsLiveClock({ fields: ['title', 'scripts'] })).toBe(true);
     expect(viewNeedsLiveClock({ fields: ['title', 'script.remaining'] })).toBe(true);
+    expect(viewNeedsLiveClock({ fields: ['title', 'view_script.remaining'], scripts: [] })).toBe(true);
     expect(viewNeedsLiveClock({ fields: ['title', 'schedule.dueAt'] })).toBe(false);
   });
 

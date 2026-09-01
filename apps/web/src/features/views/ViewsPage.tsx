@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  compileSort, createId, effectiveItemDurationMs, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, inferViewPeriod, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateViewCreationDefaults,
+  compileSort, createId, effectiveItemDurationMs, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, inferViewPeriod, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateScriptDefinitions, validateViewCreationDefaults,
   type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../components/ui/CodeEditor';
@@ -15,6 +15,7 @@ import { dateInput, fromDateInput } from '../../utils/dates';
 import { diagnosticFailureCode, recordDiagnostic } from '../../services/diagnostics';
 import { stateNames } from '../items';
 import { FieldIcon } from '../items/FieldIcon';
+import { ScriptsSection } from '../items/editor/sections/ScriptsSection';
 import { SavedViewSection } from './SavedViewSection';
 import { boardSettingsFor, defaultBoardStates, MANUAL_ORDER_EXTENSION, manualOrderFor, mergeManualOrder, type BoardSettings } from './viewSelectors';
 import { exampleViewFieldValue, viewFieldGroups, viewFieldLabel, viewFieldOptions } from './fieldCatalog';
@@ -278,6 +279,16 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setEditing({ ...editing, statistics: { showTime, reservedItemIds: [...new Set(reservedItemIds)] } });
   };
   const toggleReservedItem = (id: string, checked: boolean) => updateStatistics(statistics.showTime, checked ? [...statistics.reservedItemIds, id] : statistics.reservedItemIds.filter((candidate) => candidate !== id));
+  const scriptPreviewItem = Object.values(workspace.items).find((item) => !item.deletedAt);
+  const viewScriptResults = editing && scriptPreviewItem
+    ? evaluateScriptsForItem(scriptPreviewItem, editing.scripts ?? [], (id) => workspace.items[id], effectiveWorkspaceNow(workspace))
+    : { values: {}, errors: {} };
+  const updateViewScripts = (scripts: NonNullable<SavedView['scripts']>) => {
+    if (!editing) return;
+    const keys = new Set(scripts.map((script) => script.key));
+    const fields = editing.fields.filter((field) => !field.startsWith('view_script.') || keys.has(field.slice(12)));
+    setEditing(scripts.length ? { ...editing, scripts, fields } : (() => { const { scripts: _scripts, ...withoutScripts } = editing; return { ...withoutScripts, fields: fields.filter((field) => field !== 'view_scripts') }; })());
+  };
   const save = () => {
     if (!editing) return;
     const result = editing;
@@ -288,6 +299,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     });
     try {
       parseExpression(result.query.source.trim() || 'true');
+      validateScriptDefinitions(result.scripts ?? []);
       const defaultsValidation = validateViewCreationDefaults(result.creationDefaults);
       if (!defaultsValidation.valid) throw new Error(defaultsValidation.errors.join('; '));
       const parsedSort = parseSortSource(sortSource);
@@ -360,6 +372,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     if (!editing || !templateName.trim()) return;
     try {
       parseExpression(editing.query.source.trim() || 'true');
+      validateScriptDefinitions(editing.scripts ?? []);
       const parsedSort = parseSortSource(sortSource); compileSort(sortSource);
       const id = createId();
       const extensions: Record<string, unknown> = { ...editing.extensions, [VIEW_TEMPLATE_EXTENSION]: true };
@@ -419,6 +432,10 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         <datalist id="view-tag-values">{[...new Set(Object.values(workspace.items).flatMap((entry) => [...entry.tags, ...entry.contexts]))].sort().map((tag) => <option value={tag} key={tag} />)}</datalist>
         {visualDirty ? <p className="builder-status">This filter uses advanced code that cannot be shown as ordinary rows. Adding a visual rule replaces that code.</p> : <p className="builder-status">The visual rows and advanced filter code are synchronized.</p>}
         <div className="builder-actions"><Button size="compact" onClick={addSchedulePeriodRow}>+ Add time period</Button><Button size="compact" onClick={() => visualDirty ? startVisualRows() : addVisualRow('and')}>+ Add AND rule</Button><Button size="compact" onClick={() => visualDirty ? startVisualRows() : addVisualRow('or')}>+ Add OR rule</Button></div>
+      </fieldset></ViewEditorSection>
+      <ViewEditorSection sectionKey="scripts" title="Scripts"><fieldset className="view-scripts-settings">
+        <ScriptsSection embedded scope="view" scripts={editing.scripts ?? []} onChange={updateViewScripts} scriptResults={viewScriptResults} />
+        <small className="field-hint">Live result uses the first available workspace item as a preview. Select the generated View-script fields in “Show in results” to display them for every matching item.</small>
       </fieldset></ViewEditorSection>
       <ViewEditorSection sectionKey="show-in-results" title="Show in results"><DisplayedFieldsEditor workspace={workspace} view={editing} onChange={setEditing} /></ViewEditorSection>
       <ViewEditorSection sectionKey="statistics" title="Statistics"><fieldset className="view-statistics-settings">

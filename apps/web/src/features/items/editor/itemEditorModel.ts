@@ -1,4 +1,4 @@
-import { buildRecurrenceRule, makeSeries, parseExpression, removeDuplicateReminders, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { buildRecurrenceRule, makeSeries, removeDuplicateReminders, validateScriptDefinitions, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { inferredPreset } from '../fieldDisplay';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -22,13 +22,7 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   const { item, workspace, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays } = input;
   const now = input.now ?? new Date();
   if (!item.title.trim()) throw new Error('Add a title before saving.');
-  const scriptKeys = new Set<string>();
-  for (const script of item.scripts ?? []) {
-    if (!script.label.trim()) throw new Error('Every script needs a name.');
-    if (!/^[a-z][a-z0-9_]*$/.test(script.key)) throw new Error(`Script key “${script.key}” must start with a letter and use lowercase letters, numbers or underscores.`);
-    if (scriptKeys.has(script.key)) throw new Error(`Script key “${script.key}” is duplicated.`);
-    scriptKeys.add(script.key); parseExpression(script.source);
-  }
+  validateScriptDefinitions(item.scripts ?? []);
   let result = {
     ...clean(item), title: item.title.trim(), tags: commaList(input.tags), contexts: commaList(input.contexts),
     areas: [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])].map((value) => value.trim()).filter(Boolean))],

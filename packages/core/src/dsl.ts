@@ -486,13 +486,25 @@ export function evaluateFormulas(item: UniversalItem, definitions: CustomFieldDe
 
 export interface ItemScriptResult { values: Record<string, EvalValue>; errors: Record<string, string> }
 
-/** Evaluate item-local scripts with cycle detection and an optional workspace item resolver. */
-export function evaluateItemScripts(
+export function validateScriptDefinitions(definitions: readonly import('./types.js').ItemScriptField[]): void {
+  const keys = new Set<string>();
+  for (const script of definitions) {
+    if (!script.label.trim()) throw new Error('Every script needs a name.');
+    if (!/^[a-z][a-z0-9_]*$/.test(script.key)) throw new Error(`Script key “${script.key}” must start with a letter and use lowercase letters, numbers or underscores.`);
+    if (keys.has(script.key)) throw new Error(`Script key “${script.key}” is duplicated.`);
+    keys.add(script.key);
+    parseExpression(script.source);
+  }
+}
+
+/** Evaluate a set of safe computed fields against one item. */
+export function evaluateScriptsForItem(
   item: UniversalItem,
+  definitions: readonly import('./types.js').ItemScriptField[],
   resolveItem?: (id: string) => UniversalItem | undefined,
   now = new Date(),
 ): ItemScriptResult {
-  const scripts = new Map((item.scripts ?? []).map((script) => [script.key, script]));
+  const scripts = new Map(definitions.map((script) => [script.key, script]));
   const values: Record<string, EvalValue> = {};
   const errors: Record<string, string> = {};
   const visiting = new Set<string>();
@@ -525,4 +537,13 @@ export function evaluateItemScripts(
   };
   scripts.forEach((_script, key) => evaluate(key));
   return { values, errors };
+}
+
+/** Evaluate item-local scripts with cycle detection and an optional workspace item resolver. */
+export function evaluateItemScripts(
+  item: UniversalItem,
+  resolveItem?: (id: string) => UniversalItem | undefined,
+  now = new Date(),
+): ItemScriptResult {
+  return evaluateScriptsForItem(item, item.scripts ?? [], resolveItem, now);
 }

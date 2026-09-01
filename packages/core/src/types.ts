@@ -1,8 +1,8 @@
-export const SCHEMA_VERSION = '1.20.0';
+export const SCHEMA_VERSION = '1.21.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.95.4';
-export const APP_RELEASED_AT = '2026-09-01T16:08:03.738Z';
+export const APP_VERSION = '1.95.5';
+export const APP_RELEASED_AT = '2026-09-01T20:13:37.000Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -269,6 +269,8 @@ export interface SavedView {
   creationDefaults?: Record<string, unknown>;
   /** Optional presentation and capacity settings. Missing settings retain the legacy visible summary. */
   statistics?: ViewStatisticsSettings;
+  /** Safe computed columns evaluated against every item matched by this View. */
+  scripts?: ItemScriptField[];
   /** Namespaced data from a newer or foreign schema that this version cannot interpret. */
   extensions?: Record<string, unknown>;
 }

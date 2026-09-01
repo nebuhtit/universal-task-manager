@@ -3,6 +3,7 @@ import {
   dueDateBuckets,
   evaluateFormulas,
   evaluateItemScripts,
+  evaluateScriptsForItem,
   type ItemPreset,
   type ItemScriptField,
   type UniversalItem,
@@ -88,7 +89,7 @@ export function relationContext(workspace: WorkspaceDocument, item: UniversalIte
   return { isSubtask: parentDepth > 0, isParent: childDepth > 0, parentDepth, childDepth };
 }
 
-export const viewFieldOptions = (workspace: WorkspaceDocument): ViewFieldOption[] => {
+export const viewFieldOptions = (workspace: WorkspaceDocument, viewScripts: readonly ItemScriptField[] = []): ViewFieldOption[] => {
   const scriptFields = new Map<string, ViewFieldOption>();
   Object.values(workspace.items).flatMap((item) => item.scripts ?? []).forEach((script) => {
     if (!scriptFields.has(script.key)) scriptFields.set(script.key, { path: `script.${script.key}`, label: script.label, group: 'Scripts' });
@@ -97,15 +98,19 @@ export const viewFieldOptions = (workspace: WorkspaceDocument): ViewFieldOption[
     ...builtInViewFields,
     ...Object.values(workspace.customFields).map((field) => ({ path: `custom.${field.key}`, label: field.label, group: 'Custom fields' })),
     ...scriptFields.values(),
+    ...(viewScripts.length ? [{ path: 'view_scripts', label: 'View script results', group: 'View scripts' }] : []),
+    ...viewScripts.map((script) => ({ path: `view_script.${script.key}`, label: script.label, group: 'View scripts' })),
   ];
 };
 
-export const viewFieldLabel = (workspace: WorkspaceDocument, path: string) => viewFieldOptions(workspace).find((field) => field.path === path)?.label ?? path;
+export const viewFieldLabel = (workspace: WorkspaceDocument, path: string, viewScripts: readonly ItemScriptField[] = []) => viewFieldOptions(workspace, viewScripts).find((field) => field.path === path)?.label ?? path;
 
 export const exampleViewFieldValue = (path: string): string => {
   if (path.startsWith('custom.')) return 'Example value';
   if (path === 'scripts') return 'Remaining: 2h 14m · Finish: Aug 28, 18:00';
   if (path.startsWith('script.')) return '2h 14m';
+  if (path === 'view_scripts') return 'Capacity: 6h · Remaining: 45min';
+  if (path.startsWith('view_script.')) return '6h';
   return ({
     title: 'Prepare quarterly review', bodyMarkdown: 'Outline, research and final draft', state: 'Active', preset: 'Task', role: 'Standalone', priority: 'High',
     tags: 'work, writing', contexts: 'office, laptop', area: 'Work', project: 'Vehicle repair', list: 'This week', 'schedule.availableFrom': 'Aug 24, 09:00', 'schedule.startAt': 'Aug 24, 10:00',
@@ -138,7 +143,7 @@ export const formatComputedDuration = (milliseconds: number): string => {
 
 export const formatScriptResult = (value: unknown, kind: ItemScriptField['resultKind']): string => kind === 'duration' && typeof value === 'number' ? formatComputedDuration(value) : String(value ?? '—');
 
-export const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument, now = new Date()): unknown => {
+export const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument, now = new Date(), viewScripts: readonly ItemScriptField[] = []): unknown => {
   if (field === 'description') field = 'bodyMarkdown';
   if (field === 'area' || field === 'areas') return [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])])];
   if (field === 'project' || field === 'projects') return [...new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])])];
@@ -180,6 +185,20 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
     if (definition?.resultKind === 'duration' && typeof result === 'number') return formatComputedDuration(result);
     return result;
   }
+  if (field === 'view_scripts' && workspace) {
+    const result = evaluateScriptsForItem(item, viewScripts, (id) => workspace.items[id], now);
+    return viewScripts.map((script) => {
+      const value = result.errors[script.key] ?? formatScriptResult(result.values[script.key], script.resultKind);
+      return `${script.label}: ${value}`;
+    }).join(' · ');
+  }
+  if (field.startsWith('view_script.') && workspace) {
+    const key = field.slice(12);
+    const definition = viewScripts.find((script) => script.key === key);
+    const result = evaluateScriptsForItem(item, viewScripts, (id) => workspace.items[id], now).values[key];
+    if (definition?.resultKind === 'duration' && typeof result === 'number') return formatComputedDuration(result);
+    return result;
+  }
   return field.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, item);
 };
 
@@ -197,7 +216,7 @@ export const displayViewValue = (value: unknown, field: string, language?: Works
   if ((field.endsWith('At') || field.endsWith('Date') || field === 'createdAt' || field === 'updatedAt') && typeof value === 'string') {
     const date = new Date(value); if (!Number.isNaN(date.getTime())) return formatViewDate(date, true, language);
   }
-  if (field.startsWith('script.') && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+  if ((field.startsWith('script.') || field.startsWith('view_script.')) && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
     const date = new Date(value); if (!Number.isNaN(date.getTime())) return formatViewDate(date, true, language);
   }
   if (Array.isArray(value)) return value.length ? value.map((entry) => typeof entry === 'object' ? JSON.stringify(entry) : String(entry)).join(', ') : '';

@@ -58,6 +58,22 @@ describe('item field display helpers', () => {
     expect(readItemField(item, 'scripts', workspace, new Date('2026-08-26T12:00:01.000Z'))).toBe('Seconds remaining: 9');
   });
 
+  it('exposes and evaluates View scripts without changing the item', () => {
+    const workspace = createWorkspace('View script');
+    const item = createItem('Countdown');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:10.000Z' };
+    workspace.items[item.id] = item;
+    const scripts = [{ id: 'view-script', key: 'remaining', label: 'View remaining', source: 'secondsUntil(schedule.startAt)', resultKind: 'number' as const }];
+    expect(viewFieldOptions(workspace, scripts)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'view_scripts', group: 'View scripts' }),
+      expect.objectContaining({ path: 'view_script.remaining', label: 'View remaining' }),
+    ]));
+    expect(viewFieldLabel(workspace, 'view_script.remaining', scripts)).toBe('View remaining');
+    expect(readItemField(item, 'view_script.remaining', workspace, new Date('2026-08-26T12:00:00.000Z'), scripts)).toBe(10);
+    expect(readItemField(item, 'view_scripts', workspace, new Date('2026-08-26T12:00:00.000Z'), scripts)).toBe('View remaining: 10');
+    expect(item.scripts).toBeUndefined();
+  });
+
   it('keeps every user-meaningful item property represented in the View field catalog', () => {
     const workspace = createWorkspace('Catalog audit');
     workspace.customFields.score = { id: 'score', key: 'score', label: 'Score', kind: 'number', required: false };

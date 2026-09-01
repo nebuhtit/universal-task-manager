@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.95\.4 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.95\.5 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -121,7 +121,7 @@ test('shows the release version on registration, login and settings', async ({ p
 
   await goToSettings(page);
   await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
-  await expect(page.getByText('v1.95.4', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.95.5', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -573,23 +573,35 @@ test('item scripts can be selected in a view and update every second', async ({ 
 
   const allItems = page.locator('.view-section').filter({ hasText: 'All items' });
   await allItems.getByRole('button', { name: /^Edit / }).click();
+  const viewScripts = await openViewEditorSection(page, 'Scripts');
+  await viewScripts.getByRole('button', { name: '+ Add computed field' }).click();
+  await viewScripts.getByLabel('Name').fill('View countdown');
+  await viewScripts.getByLabel('Countdown format').selectOption('seconds');
   const displayed = await openViewEditorSection(page, 'Show in results');
   const scriptGroup = displayed.locator('details').filter({ hasText: 'Scripts' }).first();
   if (!await scriptGroup.evaluate((element) => (element as HTMLDetailsElement).open)) await scriptGroup.locator(':scope > summary').click();
   await expect(scriptGroup.getByRole('checkbox', { name: /Script results/ })).toBeVisible();
   await expect(scriptGroup.getByRole('checkbox', { name: /New calculation/ })).toBeVisible();
   await scriptGroup.getByRole('checkbox', { name: /Script results/ }).check();
+  const viewScriptGroup = displayed.locator('details').filter({ hasText: 'View scripts' }).first();
+  if (!await viewScriptGroup.evaluate((element) => (element as HTMLDetailsElement).open)) await viewScriptGroup.locator(':scope > summary').click();
+  await viewScriptGroup.getByRole('checkbox', { name: /View countdown/ }).check();
   await page.getByRole('button', { name: 'Save view' }).click();
 
   const result = page.locator('.view-section').filter({ hasText: 'All items' }).locator('[data-field="scripts"]');
   await expect(result).toContainText('New calculation:');
   const first = await result.textContent();
   await expect.poll(async () => result.textContent(), { timeout: 4_000 }).not.toBe(first);
+  const viewResult = page.locator('.view-section').filter({ hasText: 'All items' }).locator('[data-field="view_script.view_countdown"]');
+  await expect(viewResult).not.toBeEmpty();
+  const firstViewResult = await viewResult.textContent();
+  await expect.poll(async () => viewResult.textContent(), { timeout: 4_000 }).not.toBe(firstViewResult);
 
   await page.reload();
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.locator('.view-section').filter({ hasText: 'All items' }).locator('[data-field="scripts"]')).toContainText('New calculation:');
+  await expect(page.locator('.view-section').filter({ hasText: 'All items' }).locator('[data-field="view_script.view_countdown"]')).not.toBeEmpty();
 });
 
 test('visual view builder supports OR and inclusive comparison operators', async ({ page }) => {

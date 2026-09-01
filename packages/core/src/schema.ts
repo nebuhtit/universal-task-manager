@@ -7,10 +7,20 @@ import type { PortablePackage, SavedView, UniversalItem, WorkspaceDocument } fro
 const scalar = { type: ['string', 'number', 'boolean', 'null'] } as const;
 const stringArray = { type: 'array', items: { type: 'string' } } as const;
 const extensions = { type: 'object', additionalProperties: true } as const;
+const scriptFieldSchema = {
+  type: 'array', items: {
+    type: 'object', additionalProperties: false, required: ['id', 'key', 'label', 'source', 'resultKind'],
+    properties: {
+      id: { type: 'string', minLength: 1 }, key: { type: 'string', pattern: '^[a-z][a-z0-9_]*$' },
+      label: { type: 'string', minLength: 1 }, source: { type: 'string', minLength: 1 },
+      resultKind: { enum: ['text', 'number', 'boolean', 'datetime', 'duration'] },
+    },
+  },
+} as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.20.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.21.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -129,16 +139,7 @@ export const itemJsonSchema = {
       },
     },
     custom: { type: 'object', additionalProperties: { anyOf: [scalar, { type: 'array', items: scalar }] } },
-    scripts: {
-      type: 'array', items: {
-        type: 'object', additionalProperties: false, required: ['id', 'key', 'label', 'source', 'resultKind'],
-        properties: {
-          id: { type: 'string', minLength: 1 }, key: { type: 'string', pattern: '^[a-z][a-z0-9_]*$' },
-          label: { type: 'string', minLength: 1 }, source: { type: 'string', minLength: 1 },
-          resultKind: { enum: ['text', 'number', 'boolean', 'datetime', 'duration'] },
-        },
-      },
-    },
+    scripts: scriptFieldSchema,
     extensions,
   },
   allOf: [
@@ -149,7 +150,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.20.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.21.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -164,6 +165,7 @@ export const viewJsonSchema = {
       type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
       properties: { showTime: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
     },
+    scripts: scriptFieldSchema,
     extensions,
   },
 } as const;
@@ -208,7 +210,7 @@ const organizationPriorityEntrySchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.20.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.21.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -244,7 +246,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.20.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.21.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   // `viewOrder` was added after the schema version had already shipped. Keep it
   // optional at the validation boundary so an otherwise valid older workspace
@@ -463,6 +465,28 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
   const view = structuredClone(value) as Record<string, unknown>;
   const warnings = preserveUnknown(view, viewKeys, namespace).map((key) => `Moved unknown view field ${key} to extensions.${namespace}`);
   view.query ??= { source: '' }; view.sort ??= []; view.fields ??= [];
+  if (view.scripts !== undefined) {
+    const raw = structuredClone(view.scripts);
+    const usedKeys = new Set<string>();
+    const resultKinds = new Set(['text', 'number', 'boolean', 'datetime', 'duration']);
+    const scripts = Array.isArray(view.scripts) ? view.scripts.flatMap((candidate) => {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+      const script = candidate as Record<string, unknown>;
+      if (typeof script.id !== 'string' || !script.id || typeof script.key !== 'string' || !/^[a-z][a-z0-9_]*$/.test(script.key) || usedKeys.has(script.key)
+        || typeof script.label !== 'string' || !script.label || typeof script.source !== 'string' || !script.source || typeof script.resultKind !== 'string' || !resultKinds.has(script.resultKind)) return [];
+      usedKeys.add(script.key);
+      return [{ id: script.id, key: script.key, label: script.label, source: script.source, resultKind: script.resultKind }];
+    }) : [];
+    const lossy = !Array.isArray(view.scripts) || scripts.length !== view.scripts.length || JSON.stringify(scripts) !== JSON.stringify(view.scripts);
+    if (lossy) {
+      const target = (view.extensions && typeof view.extensions === 'object' && !Array.isArray(view.extensions) ? view.extensions : {}) as Record<string, unknown>;
+      target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), scriptsRaw: raw };
+      view.extensions = target;
+      warnings.push('Normalized view scripts and retained their raw value');
+    }
+    if (scripts.length) view.scripts = scripts;
+    else delete view.scripts;
+  }
   if (view.statistics !== undefined) {
     const raw = view.statistics;
     const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;

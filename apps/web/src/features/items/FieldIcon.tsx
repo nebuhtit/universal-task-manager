@@ -9,7 +9,7 @@ type FieldIconName =
 
 export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'custom' || path.startsWith('custom.')) return 'custom';
-  if (path === 'script' || path === 'scripts' || path.startsWith('script.')) return 'script';
+  if (path === 'script' || path === 'scripts' || path.startsWith('script.') || path === 'view_scripts' || path.startsWith('view_script.')) return 'script';
   if (path === 'title') return 'title';
   if (path === 'bodyMarkdown' || path === 'description') return 'description';
   if (path === 'state') return 'state';
