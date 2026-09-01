@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.95\.1 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.95\.2 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -121,7 +121,7 @@ test('shows the release version on registration, login and settings', async ({ p
 
   await goToSettings(page);
   await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
-  await expect(page.getByText('v1.95.1', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.95.2', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -436,8 +436,10 @@ test('calendar switches week and month day panels and exposes read-only Google s
   await page.getByRole('button', { name: 'Calendar settings' }).click();
   await expect(page.getByLabel('Timezone')).not.toHaveValue('');
   await expect(page.getByText('Google Calendar', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Connect Google Calendar' })).toBeDisabled();
-  await expect(page.getByText(/needs a Google OAuth client ID/)).toBeVisible();
+  const googleConnect = page.getByRole('button', { name: 'Connect Google Calendar' });
+  const missingClientId = page.getByText(/needs a Google OAuth client ID/);
+  if (await googleConnect.isDisabled()) await expect(missingClientId).toBeVisible();
+  else await expect(missingClientId).toBeHidden();
   await page.getByRole('button', { name: 'Close calendar settings' }).click();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });

@@ -28,10 +28,10 @@ export const parseSchedulePeriodValue = (value: string): SchedulePeriodValue => 
 };
 export const visualOptions: Record<string, string[]> = {
   state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'],
-  isHabit: ['true', 'false'], isTemplate: ['true', 'false'], isSubtask: ['true', 'false'], isParent: ['true', 'false'], activeRange: ['true', 'false'], activeDuration: ['true', 'false'], eventToday: ['true', 'false'], eventThisWeek: ['true', 'false'], dueTodayOrOverdue: ['true', 'false'], dueThisWeekOrOverdue: ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'], 'external.provider': ['google_calendar'],
+  isHabit: ['true', 'false'], isTemplate: ['true', 'false'], isSubtask: ['true', 'false'], isParent: ['true', 'false'], activeRange: ['true', 'false'], activeDuration: ['true', 'false'], eventToday: ['true', 'false'], eventThisWeek: ['true', 'false'], dueTodayOrOverdue: ['true', 'false'], dueThisWeekOrOverdue: ['true', 'false'], 'schedule.allDay': ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'], 'external.provider': ['google_calendar'],
 };
 export const visualFieldKinds: Record<string, 'enum' | 'boolean' | 'number' | 'date' | 'text' | 'multi'> = {
-  state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', isTemplate: 'boolean', isSubtask: 'boolean', isParent: 'boolean', activeRange: 'boolean', activeDuration: 'boolean', eventToday: 'boolean', eventThisWeek: 'boolean', dueTodayOrOverdue: 'boolean', dueThisWeekOrOverdue: 'boolean', priority: 'number', 'external.provider': 'enum',
+  state: 'enum', preset: 'enum', role: 'enum', isHabit: 'boolean', isTemplate: 'boolean', isSubtask: 'boolean', isParent: 'boolean', activeRange: 'boolean', activeDuration: 'boolean', eventToday: 'boolean', eventThisWeek: 'boolean', dueTodayOrOverdue: 'boolean', dueThisWeekOrOverdue: 'boolean', 'schedule.allDay': 'boolean', priority: 'number', 'external.provider': 'enum',
   'schedule.startAt': 'date', 'schedule.endAt': 'date', 'schedule.dueAt': 'date', 'schedule.availableFrom': 'date', title: 'text', description: 'text', area: 'text', project: 'text', list: 'text', tags: 'multi', contexts: 'multi', subtasks: 'multi', parent: 'text',
 };
 export const visualOperators = (field: string): string[] => {

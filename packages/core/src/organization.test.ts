@@ -23,7 +23,8 @@ describe('PARA organization', () => {
     const malformed = createItem('Malformed'); malformed.projects = ['Launch']; malformed.schedule = { timezone: 'UTC', estimatedDuration: 'not-a-duration', dueAt: '2026-08-30T09:00:00.000Z' };
     const cancelled = createItem('Cancelled'); cancelled.projects = ['Launch']; cancelled.state = 'cancelled'; cancelled.schedule = { timezone: 'UTC', estimatedDuration: 'PT9H' };
     const template = createItem('Template'); template.projects = ['Launch']; template.role = 'series_template'; template.schedule = { timezone: 'UTC', estimatedDuration: 'PT9H' };
-    workspace.items = Object.fromEntries([done, open, malformed, cancelled, template].map((item) => [item.id, item]));
+    const allDay = createItem('Conference'); allDay.projects = ['Launch']; allDay.schedule = { timezone: 'UTC', allDay: true, estimatedDuration: 'P1D' };
+    workspace.items = Object.fromEntries([done, open, malformed, cancelled, template, allDay].map((item) => [item.id, item]));
 
     expect(calculateProjectMetrics(workspace, new Date('2026-08-29T10:00:00.000Z'))).toMatchObject({
       Launch: { totalItems: 3, completedItems: 1, completionPercent: 33, totalDurationMs: 105 * 60_000, completedDurationMs: 30 * 60_000, nearestDeadline: '2026-08-29T09:00:00.000Z', deadlineOverdue: true },
@@ -40,8 +41,9 @@ describe('PARA organization', () => {
     const archived = createItem('Archived'); archived.state = 'archived';
     const deleted = createItem('Deleted'); deleted.deletedAt = '2026-08-30T12:00:00.000Z';
     const series = createItem('Series'); series.role = 'series_template';
+    const allDay = createItem('All day'); allDay.schedule = { timezone: 'UTC', allDay: true, estimatedDuration: 'P1D' };
 
-    expect(calculateItemSetMetrics([open, legacy, done, autoClosed, cancelled, archived, deleted, series, open])).toEqual({
+    expect(calculateItemSetMetrics([open, legacy, done, autoClosed, cancelled, archived, deleted, series, allDay, open])).toEqual({
       totalItems: 4,
       completedItems: 2,
       completionPercent: 65,

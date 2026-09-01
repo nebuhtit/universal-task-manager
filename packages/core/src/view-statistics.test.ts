@@ -57,6 +57,25 @@ describe('view time statistics', () => {
     expect(metrics).toMatchObject({ totalItems: 0, completionPercent: 0, remainingDurationMs: 0, freeDurationMs: 23 * 60 * 60_000 });
   });
 
+  it('does not include any all-day events in time statistics', () => {
+    const workspace = createWorkspace();
+    workspace.calendarPreferences.timezone = 'UTC';
+    const meeting = createItem('Timed Google meeting', 'event');
+    meeting.schedule = { timezone: 'UTC', startAt: '2026-08-31T10:00:00.000Z', endAt: '2026-08-31T11:00:00.000Z', estimatedDuration: 'PT1H' };
+    meeting.external = { provider: 'google_calendar', connectionId: 'connection', calendarId: 'primary', eventId: 'meeting', sourceUrl: 'https://calendar.google.com/', readOnly: true, transparency: 'opaque', syncedAt: '2026-08-31T09:00:00.000Z' };
+    const holiday = createItem('Google holiday', 'event');
+    holiday.schedule = { timezone: 'UTC', allDay: true, startAt: '2026-08-31T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z', estimatedDuration: 'P1D' };
+    holiday.external = { provider: 'google_calendar', connectionId: 'connection', calendarId: 'primary', eventId: 'holiday', sourceUrl: 'https://calendar.google.com/', readOnly: true, transparency: 'opaque', syncedAt: '2026-08-31T09:00:00.000Z' };
+    const localAllDay = createItem('Local all-day note', 'event');
+    localAllDay.schedule = { timezone: 'UTC', allDay: true, startAt: '2026-08-31T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z', estimatedDuration: 'P1D' };
+    workspace.items[meeting.id] = meeting;
+    workspace.items[holiday.id] = holiday;
+    workspace.items[localAllDay.id] = localAllDay;
+
+    const metrics = calculateViewTimeMetrics(workspace, periodView(), [meeting, holiday, localAllDay], new Date('2026-08-31T12:00:00.000Z'));
+    expect(metrics).toMatchObject({ totalItems: 0, remainingDurationMs: 0, freeDurationMs: 23 * 60 * 60_000 });
+  });
+
   it('keeps old views visible by default and quarantines malformed settings', () => {
     const base = { id: 'legacy', name: 'Legacy', query: { source: '' }, renderer: 'list', sort: [], fields: [] };
     expect(migrateView(base).value.statistics).toBeUndefined();

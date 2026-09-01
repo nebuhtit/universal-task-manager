@@ -23,6 +23,14 @@ describe('visual filter model', () => {
     expect(serializeVisualRows(rows!)).toBe(source);
   });
 
+  it('offers All day as a boolean visual filter', () => {
+    const source = 'schedule.allDay != true';
+    expect(visualOperators('schedule.allDay')).toEqual(expect.arrayContaining(['==', '!=']));
+    const rows = parseVisualRows(source);
+    expect(rows).toMatchObject([{ field: 'schedule.allDay', operator: '!=', value: 'true' }]);
+    expect(serializeVisualRows(rows!)).toBe(source);
+  });
+
   it('round-trips the reusable schedule period condition', () => {
     const value = { ...defaultSchedulePeriodValue(), period: 'tomorrow' as const, includeOverdue: true };
     const source = serializeVisualRows([{ id: 'period', join: 'and', field: schedulePeriodField, operator: 'matches', value: JSON.stringify(value) }]);

@@ -1,6 +1,6 @@
 import { schedulePeriodBounds, type QueryTemporalOptions, type SchedulePeriod } from './dsl.js';
 import { projectOccurrences } from './calendar.js';
-import { effectiveItemDurationMs, calculateItemSetMetrics, type ItemSetMetrics } from './organization.js';
+import { effectiveItemDurationMs, calculateItemSetMetrics, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
 import type { SavedView, UniversalItem, WorkspaceDocument } from './types.js';
 
 const DAY_MS = 86_400_000;
@@ -86,7 +86,12 @@ export function inferViewPeriod(view: Pick<SavedView, 'query'>, now: Date, optio
   };
 }
 
-const eligible = (item: UniversalItem) => !item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && item.external?.transparency !== 'transparent';
+const eligible = (item: UniversalItem) => !item.deletedAt
+  && item.role !== 'series_template'
+  && item.state !== 'cancelled'
+  && item.state !== 'archived'
+  && item.external?.transparency !== 'transparent'
+  && participatesInTimeStatistics(item);
 
 function durationInsidePeriod(item: UniversalItem, period: ViewPeriodBounds): number {
   const duration = effectiveItemDurationMs(item);
