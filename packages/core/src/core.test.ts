@@ -396,6 +396,45 @@ describe('recurrence and auto-renew', () => {
     expect(workspace.items[occurrence.id]!.closure?.at).toBe('2026-08-20T16:30:00.000Z');
   });
 
+  it('moves a due-only completion-anchored series from the actual completion time', () => {
+    const workspace = createWorkspace('Due completion anchor');
+    const item = createItem('Get a haircut');
+    item.schedule = { timezone: 'Europe/Moscow', dueAt: '2026-09-03T08:46:00.000Z', estimatedDuration: 'PT10M' };
+    const series = makeSeries(item, 'FREQ=WEEKLY;INTERVAL=3', { anchor: 'completion', activationOffset: 'P7D' });
+    workspace.items[series.id] = series;
+    const occurrence = createOccurrence(series, new Date('2026-09-03T08:46:00.000Z'), 0);
+    occurrence.state = 'done';
+    occurrence.closure = { at: '2026-09-01T08:46:00.000Z', actor: 'user', reason: 'manual' };
+    workspace.items[occurrence.id] = occurrence;
+
+    expect(advanceCompletionAnchoredSeries(workspace, occurrence, occurrence.closure.at)).toBe(true);
+    expect(workspace.items[series.id]!.schedule).toMatchObject({
+      dueAt: '2026-09-22T08:46:00.000Z',
+      estimatedDuration: 'PT10M',
+      timezone: 'Europe/Moscow',
+    });
+    expect(workspace.items[series.id]!.schedule?.startAt).toBeUndefined();
+  });
+
+  it('repairs a previously completed due-only series that was not advanced', () => {
+    const workspace = createWorkspace('Repair completion anchor');
+    const item = createItem('Get a haircut');
+    item.schedule = { timezone: 'Europe/Moscow', dueAt: '2026-09-03T08:46:00.000Z', estimatedDuration: 'PT10M' };
+    const series = makeSeries(item, 'FREQ=WEEKLY;INTERVAL=3', { anchor: 'completion', activationOffset: 'P7D' });
+    workspace.items[series.id] = series;
+    const occurrence = createOccurrence(series, new Date('2026-09-03T08:46:00.000Z'), 0);
+    occurrence.state = 'done';
+    occurrence.closure = { at: '2026-09-01T08:46:00.000Z', actor: 'user', reason: 'manual' };
+    workspace.items[occurrence.id] = occurrence;
+
+    const first = reconcileRecurrences(workspace, new Date('2026-09-01T09:00:00.000Z'));
+    expect(workspace.items[series.id]!.schedule?.dueAt).toBe('2026-09-22T08:46:00.000Z');
+    expect(first.updated).toContain(workspace.items[series.id]);
+
+    reconcileRecurrences(workspace, new Date('2026-09-01T10:00:00.000Z'));
+    expect(workspace.items[series.id]!.schedule?.dueAt).toBe('2026-09-22T08:46:00.000Z');
+  });
+
   it('keeps one rolling weekly item and records missed cycles inside it', () => {
     const workspace = createWorkspace('Test', new Date('2026-07-01T00:00:00.000Z'));
     const base = createItem('Prepare material by Thursday', 'task', new Date('2026-07-01T00:00:00.000Z'));

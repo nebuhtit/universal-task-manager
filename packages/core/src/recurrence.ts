@@ -146,23 +146,26 @@ export function advanceCompletionAnchoredSeries(workspace: WorkspaceDocument, oc
   const seriesId = occurrence.occurrence?.seriesId;
   if (!seriesId) return false;
   const series = workspace.items[seriesId];
-  if (!series?.recurrence || series.recurrence.anchor !== 'completion' || !series.schedule?.startAt) return false;
+  if (!series?.recurrence || series.recurrence.anchor !== 'completion' || (!series.schedule?.startAt && !series.schedule?.dueAt)) return false;
   const closed = new Date(closedAt);
   if (Number.isNaN(closed.getTime())) return false;
 
   const probe = JSON.parse(JSON.stringify(series)) as UniversalItem;
-  probe.schedule!.startAt = closed.toISOString();
+  const anchorsFromStart = Boolean(series.schedule?.startAt);
+  if (anchorsFromStart) probe.schedule!.startAt = closed.toISOString();
+  else probe.schedule!.dueAt = closed.toISOString();
   const next = buildRecurrenceRule(probe).after(closed, false);
   if (!next) return false;
 
-  const delta = next.getTime() - new Date(series.schedule.startAt).getTime();
+  const originalAnchor = series.schedule.startAt ?? series.schedule.dueAt!;
+  const delta = next.getTime() - new Date(originalAnchor).getTime();
   const availableFrom = shiftIso(series.schedule.availableFrom, delta);
   const endAt = shiftIso(series.schedule.endAt, delta);
   const dueAt = shiftIso(series.schedule.dueAt, delta);
   series.schedule = {
     ...series.schedule,
     ...(availableFrom ? { availableFrom } : {}),
-    startAt: next.toISOString(),
+    ...(anchorsFromStart ? { startAt: next.toISOString() } : {}),
     ...(endAt ? { endAt } : {}),
     ...(dueAt ? { dueAt } : {}),
   };
@@ -400,6 +403,14 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
       untouched += 1;
       continue;
     }
+    const currentTemplateAnchor = series.schedule?.startAt ?? series.schedule?.dueAt;
+    const pendingCompletion = series.recurrence?.anchor === 'completion' && currentTemplateAnchor
+      ? Object.values(workspace.items).find((item) => item.occurrence?.seriesId === series.id
+        && item.occurrence.recurrenceId === currentTemplateAnchor
+        && (item.state === 'done' || item.state === 'cancelled' || item.state === 'auto_closed')
+        && Boolean(item.closure?.at))
+      : undefined;
+    if (pendingCompletion?.closure?.at && advanceCompletionAnchoredSeries(workspace, pendingCompletion, pendingCompletion.closure.at)) updated.push(series);
     const rule = buildRecurrenceRule(series);
     const recurrence = series.recurrence!;
     const start = new Date(series.schedule!.startAt ?? series.schedule!.dueAt!);

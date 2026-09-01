@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.95\.2 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.95\.3 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -121,7 +121,7 @@ test('shows the release version on registration, login and settings', async ({ p
 
   await goToSettings(page);
   await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
-  await expect(page.getByText('v1.95.2', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.95.3', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -1037,6 +1037,20 @@ test('active window reuses recurrence fields without duplicating controls', asyn
   await page.locator('input[aria-label="Due / Active range ends"]').fill(dates.closes);
   await openEditorSection(page, 'Recurrence & auto-renew');
   await page.getByLabel('Make this a recurring series').check();
+  const completionCopy = page.locator('.completion-anchor-toggle > span');
+  const completionSpacing = await completionCopy.evaluate((element) => {
+    const title = element.querySelector('strong')!.getBoundingClientRect();
+    const description = element.querySelector('small')!.getBoundingClientRect();
+    return { titleBottom: title.bottom, descriptionTop: description.top };
+  });
+  expect(completionSpacing.descriptionTop - completionSpacing.titleBottom).toBeGreaterThanOrEqual(3);
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  const activeWindowColors = await page.locator('.active-window-toggle').evaluate((element) => ({
+    surface: getComputedStyle(element).backgroundColor,
+    title: getComputedStyle(element.querySelector('strong')!).color,
+    description: getComputedStyle(element.querySelector('small')!).color,
+  }));
+  expect(activeWindowColors).toEqual({ surface: 'rgb(8, 8, 8)', title: 'rgb(241, 241, 241)', description: 'rgb(167, 167, 167)' });
   await page.getByLabel('Only show during the active range').check();
   await expect(page.locator('.active-window-summary').getByText('Event opens', { exact: true })).toBeVisible();
   await expect(page.locator('.active-window-summary').getByText('Active range ends', { exact: true })).toBeVisible();
