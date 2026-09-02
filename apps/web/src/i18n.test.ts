@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { translateInterfaceText } from './i18n';
+import { release1961TranslationKeys } from './i18n-release-1961';
 
 describe('Russian interface translation', () => {
   it('covers the newer workspace, recovery, organization and view controls', () => {
@@ -31,5 +32,11 @@ describe('Russian interface translation', () => {
     expect(translateInterfaceText('Match any selected condition (OR)', 'de')).toBe('Eine beliebige ausgewählte Bedingung erfüllen (ODER)');
     expect(translateInterfaceText('Match any selected condition (OR)', 'fr')).toBe('Correspond à l’une des conditions sélectionnées (OU)');
     expect(translateInterfaceText('Match any selected condition (OR)', 'ko')).toBe('선택한 조건 중 하나와 일치 (OR)');
+  });
+
+  it('does not fall back to English for Calendar Day View and reminder controls', () => {
+    for (const language of ['ru', 'es', 'de', 'fr', 'ko'] as const) {
+      for (const key of release1961TranslationKeys) expect(translateInterfaceText(key, language), `${language}: ${key}`).not.toBe(key);
+    }
   });
 });

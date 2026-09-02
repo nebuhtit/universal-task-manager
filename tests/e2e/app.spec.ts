@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.96\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.96\.1 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -121,7 +121,7 @@ test('shows the release version on registration, login and settings', async ({ p
 
   await goToSettings(page);
   await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
-  await expect(page.getByText('v1.96.0', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.96.1', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -437,7 +437,9 @@ test('calendar switches periods and edits the fixed day view', async ({ page }) 
   await expect(editor.getByText('Sorting', { exact: true })).toBeVisible();
   await editor.getByRole('button', { name: 'Save view' }).click();
   await expect(editor).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Edit calendar day view' })).toBeFocused();
+  const calendarEditTrigger = page.getByRole('button', { name: 'Edit calendar day view' });
+  if ((page.viewportSize()?.width ?? 0) > 620) await expect(calendarEditTrigger).toBeFocused();
+  else await expect(calendarEditTrigger).not.toBeFocused();
 
   await goToSettings(page);
   const calendarSettings = page.locator('details.settings-disclosure').filter({ hasText: 'Calendar and Google Calendar' });

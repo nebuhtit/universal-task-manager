@@ -6,6 +6,8 @@ Universal Task Manager (UTM) is an installable React PWA built around one flexib
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
+Current release: **v1.96.1** · workspace schema: **1.22.0**
+
 > [!IMPORTANT]
 > UTM is currently **beta software**. Your workspace is stored on your device, not in a hosted account. Create encrypted `.utmb` backups regularly. Clearing browser/PWA storage or removing an installed web app can erase its local workspace.
 
@@ -94,6 +96,8 @@ Presets such as **Task**, **Event**, and **Habit** only prefill useful propertie
 - Repeat a reminder at a selected interval until it is acknowledged.
 - Detect and remove semantically duplicated reminders.
 - Dismiss reminders without deleting the item.
+- Filter Views by any reminder, unacknowledged active reminders, a calculable next active reminder, or whether that next reminder falls before, inside, or after Today, Tomorrow, This week, Next week, Next N days, or a custom period.
+- Optionally show active reminders, the active-reminder boolean, and the next calculable active reminder as separate View fields. Hiding these fields does not disable or delete reminders.
 - Use local device notifications without connecting a background service.
 - Optionally enable background Web Push for an installed iPhone PWA. Detailed content is opt-in; generic notifications can avoid sending item titles.
 
@@ -104,7 +108,7 @@ Background delivery is intentionally approximate. On the free service reminders 
 Saved Views are reusable queries over the same item database — not separate copies of data.
 
 - Build filters visually or edit the synchronized safe DSL representation.
-- Filter on normal item properties, computed conditions, field presence, active range, templates, habits, subtasks, parents, tags, lists, custom fields, and system metadata.
+- Filter on normal item properties, computed conditions, field presence, active range, reminders and reminder periods, schedule periods, templates, habits, subtasks, parents, tags, lists, custom fields, and system metadata.
 - Use type-aware controls: boolean values, numeric comparisons, dates, enum choices, searchable tags, and multi-value inputs.
 - Sort by one or more safe expressions with ascending/descending direction and explicit null placement.
 - Choose exactly which item fields appear and reorder the displayed columns.
@@ -130,12 +134,14 @@ The query and formula language is parsed by UTM's allowlisted DSL. It does not u
 
 ### Calendar
 
-The calendar is a responsive one-day list over the same universal items and Saved Views.
+The calendar is a responsive one-day list over the same universal items.
 
 - Week and Month navigator panels; only the selected day is rendered as a normal item list.
 - Duration-weighted completion and free-time statistics for every day.
-- Configurable week start, timezone, item states, and optional Saved View filter.
-- Filter by a Saved View and by item state.
+- One persistent **Calendar Day View** controls additional visual filters, displayed fields, and sorting for every selected date.
+- The selected day is a mandatory one-day boundary. Additional filters are joined with it using `AND` and cannot bypass it.
+- Choose which schedule relationships count for the day: Event opens, Event opens → Event ends overlap, Event opens → Due overlap, and Due. Enabled relationships are combined with `OR`.
+- Configure week start, timezone, and Google Calendar synchronization from the collapsed Calendar settings section.
 - Show scheduled items, deadlines, and projected recurring occurrences.
 - Mirror selected Google calendars into the encrypted workspace with read-only provenance; source events open in Google Calendar.
 - Keep Google OAuth access tokens in memory only. Incremental sync tokens contain no account access credential and may be stored in the workspace.
@@ -211,6 +217,7 @@ Readable JSON, CSV, Excel, and iCalendar files are plaintext. Use `.utmb` when t
 - Reduced-motion support.
 - Persisted open/closed state for major disclosure sections.
 - Interface languages: English, Russian, Spanish, German, French, and Korean.
+- Calendar Day View, reminder filters, reminder display fields, and their inclusion/hiding explanations are localized in all six interface languages.
 - Item titles and user content are never automatically translated.
 - Optional accelerated test clock, for example one simulated day every 30 real seconds, for testing recurrence and active-range behavior.
 

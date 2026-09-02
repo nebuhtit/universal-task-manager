@@ -1,4 +1,5 @@
 import type { WorkspaceLanguage } from '@utm/core';
+import { release1961Translations } from './i18n-release-1961';
 
 export const interfaceLanguages: Array<{ value: WorkspaceLanguage; label: string }> = [
   { value: 'en', label: 'English' },
@@ -412,6 +413,10 @@ Object.assign(extraTranslations.ko, {
   'Interface sounds': '인터페이스 소리', 'Play calm sounds for buttons and controls': '버튼과 컨트롤에 잔잔한 소리 재생',
   Theme: '테마', 'Choose a light, dark or system theme. Scheduled mode switches automatically using the times below.': '밝은 테마, 어두운 테마 또는 시스템 테마를 선택하세요. 예약 모드는 아래 시간에 자동으로 전환됩니다.', System: '시스템', Light: '밝게', Dark: '어둡게', Scheduled: '예약됨', 'Completion sound': '완료 소리', 'Play a short sound when an item is completed': '항목을 완료할 때 짧은 소리 재생', 'Accelerated day': '가속된 하루', 'Enable accelerated test clock': '가속 테스트 시계 사용', 'Seconds per simulated day': '시뮬레이션 하루당 초', 'Defaults for new items': '새 항목 기본값', 'Pinned values are copied only when this view creates a new item. They never change the filter or existing items.': '고정된 값은 이 보기에서 새 항목을 만들 때만 복사됩니다. 필터나 기존 항목은 변경하지 않습니다.', 'SQL-like filter': 'SQL형 필터', Where: '조건', Join: '연결', 'First rule': '첫 규칙', Property: '속성', 'No value needed': '값이 필요하지 않음', 'The visual rules and SQL-like filter are synchronized.': '시각 규칙과 SQL형 필터가 동기화됩니다.', 'Enabled for this encrypted workspace copy.': '이 암호화된 작업 공간 복사본에서 사용 설정됨.', 'Allow local notifications': '로컬 알림 허용', 'Lock-screen content': '잠금 화면 내용', 'Generic — no task title leaves this device': '일반 — 작업 제목이 이 기기를 벗어나지 않음', 'Show task title and urgency': '작업 제목과 긴급도 표시', 'Backup reminders': '백업 알림', 'Create encrypted backup now': '지금 암호화 백업 만들기', 'Last backup:': '마지막 백업:',
 });
+
+for (const language of ['ru', 'es', 'de', 'fr', 'ko'] as const) {
+  Object.assign(extraTranslations[language], release1961Translations[language]);
+}
 
 type LocalizedValue = { source: string; applied: string };
 const localizedTexts = new WeakMap<Text, LocalizedValue>();

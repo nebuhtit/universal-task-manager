@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.96.0';
-export const APP_RELEASED_AT = '2026-09-01T20:48:59.716Z';
+export const APP_VERSION = '1.96.1';
+export const APP_RELEASED_AT = '2026-09-02T14:38:16.988Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';

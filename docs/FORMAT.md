@@ -1,6 +1,6 @@
 # Universal Task Manager workspace format
 
-Current application: `v1.96.0`. Current workspace schema: `1.22.0`.
+Current application: `v1.96.1`. Current workspace schema: `1.22.0`.
 
 This document is intentionally written for people, migration authors and AI
 tools that do not have Universal Task Manager installed. A decrypted recovery

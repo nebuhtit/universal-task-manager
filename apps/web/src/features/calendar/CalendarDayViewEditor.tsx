@@ -13,7 +13,7 @@ import { ViewEditorSection } from '../views/ViewEditorSection';
 import { ViewSortingEditor } from '../views/ViewSortingEditor';
 import { viewFieldOptions } from '../views/fieldCatalog';
 import {
-  defaultReminderPeriodValue, parseVisualRows, reminderPeriodField, serializeVisualRows, visualFieldKinds, visualOperators, visualOptions,
+  defaultReminderPeriodValue, isReminderVisualField, parseVisualRows, reminderPeriodField, serializeVisualRows, visualFieldKinds, visualFilterFieldLabel, visualOperators, visualOptions,
   type VisualConditionRow,
 } from '../views/visualFilterModel';
 
@@ -92,9 +92,10 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
     </ViewEditorSection>
     <ViewEditorSection sectionKey="calendar-day-filter" title="Filter items">
       <fieldset className="query-builder visual-query-builder">
+        {rows.some((row) => isReminderVisualField(row.field)) && <p className="builder-status">Reminder filters: Any reminders includes acknowledged reminders; Has active reminders uses unacknowledged reminders; Next resolved active reminder ignores active reminders whose date cannot be calculated.</p>}
         {rows.map((row, index) => <div className="visual-condition-row" key={row.id}>
           <Field className="condition-join" label={index === 0 ? 'Where' : 'Join'}>{index === 0 ? <span className="field-hint">First rule</span> : <Select value={row.join} onChange={(event) => updateRow(row.id, { join: event.target.value as 'and' | 'or' })}><option value="and">AND</option><option value="or">OR</option></Select>}</Field>
-          <Field label="Property"><Select value={row.field} onChange={(event) => updateRow(row.id, { field: event.target.value })}><optgroup label="Time periods"><option value={reminderPeriodField}>Next reminder relative to period</option></optgroup>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{field.label}</option>)}</optgroup>)}</Select></Field>
+          <Field label="Property"><Select value={row.field} onChange={(event) => updateRow(row.id, { field: event.target.value })}><optgroup label="Time periods"><option value={reminderPeriodField}>Next reminder relative to period</option></optgroup>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{visualFilterFieldLabel(field.path, field.label)}</option>)}</optgroup>)}</Select></Field>
           {row.field === reminderPeriodField ? <Field className="schedule-period-condition" label="Nearest active reminder"><ReminderPeriodEditor value={row.value} onChange={(value) => updateRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateRow(row.id, { operator: event.target.value })}>{visualOperators(row.field).map((operator) => <option key={operator}>{operator}</option>)}</Select></Field>
           <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptions[row.field] ? <Select value={row.value} onChange={(event) => updateRow(row.id, { value: event.target.value })}>{visualOptions[row.field]!.map((value) => <option key={value}>{value}</option>)}</Select> : <Input type={visualFieldKinds[row.field] === 'date' ? 'datetime-local' : 'text'} value={row.value} onChange={(event) => updateRow(row.id, { value: event.target.value })} />}</Field></>}
           <IconButton size="compact" variant="ghost" aria-label={`Remove filter rule ${index + 1}`} onClick={() => syncRows(rows.filter((candidate) => candidate.id !== row.id))}><CloseIcon /></IconButton>

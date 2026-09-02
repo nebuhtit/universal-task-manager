@@ -66,6 +66,15 @@ export const visualOperators = (field: string): string[] => {
   if (kind === 'multi') return [...presence, 'has any', 'has all', 'has none'];
   return [...presence, '==', '!=', 'contains'];
 };
+
+export const visualFilterFieldLabel = (field: string, fallback: string): string => {
+  if (field === 'reminders') return 'Any reminders';
+  if (field === 'nextReminderAt') return 'Next resolved active reminder';
+  return fallback;
+};
+
+export const isReminderVisualField = (field: string): boolean =>
+  field === 'reminders' || field === 'hasActiveReminders' || field === 'nextReminderAt' || field === reminderPeriodField;
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
 const literal = (value: string) => ['true', 'false', 'null'].includes(value) || (!Number.isNaN(Number(value)) && value.trim() !== '') ? value : JSON.stringify(value);
 const visualClause = (row: Pick<VisualConditionRow, 'field' | 'operator' | 'value'>) => {

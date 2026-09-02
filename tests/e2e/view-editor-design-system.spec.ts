@@ -120,6 +120,26 @@ test('shows the existing Today preset as editable visual conditions', async ({ p
   await expect(period.getByRole('checkbox', { name: 'Include overdue' })).toBeChecked();
 });
 
+test('explains reminder filtering separately from reminder field visibility', async ({ page }) => {
+  await createWorkspace(page);
+  await page.getByRole('button', { name: 'New view' }).click();
+  const visual = await openSection(page, 'Visual setup');
+  const row = visual.locator('.visual-condition-row').first();
+  await row.getByRole('combobox', { name: 'Property' }).selectOption('reminders');
+  await expect(row.getByRole('combobox', { name: 'Property' }).locator('option:checked')).toHaveText('Any reminders');
+  const filterExplanation = visual.getByText(/Any reminders includes acknowledged reminders/);
+  await expect(filterExplanation).toBeHidden();
+  await page.evaluate(() => { document.documentElement.dataset.explanations = 'on'; });
+  await expect(filterExplanation).toBeVisible();
+
+  const displayed = await openSection(page, 'Show in results');
+  const reminders = displayed.locator('.field-groups details').filter({ has: page.getByText('Reminders', { exact: true }) });
+  if (!await reminders.evaluate((element) => (element as HTMLDetailsElement).open)) await reminders.locator(':scope > summary').click();
+  await expect(reminders.getByText(/Turning it off only hides the field/)).toBeVisible();
+  await expect(reminders.getByRole('checkbox', { name: /^Active reminders/ })).toBeVisible();
+  await expect(reminders.getByRole('checkbox', { name: /^Next resolved active reminder/ })).toBeVisible();
+});
+
 test('saving a view does not restore mobile focus to quick capture', async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 0) > 620, 'Mobile focus behavior');
   await createWorkspace(page);

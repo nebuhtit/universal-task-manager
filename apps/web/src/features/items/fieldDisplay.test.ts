@@ -31,6 +31,8 @@ describe('item field display helpers', () => {
     expect(displayViewValue(reminders, 'reminders')).not.toContain('{');
     expect(viewFieldOptions(workspace).filter((field) => ['reminders', 'hasActiveReminders', 'nextReminderAt'].includes(field.path)).map((field) => field.group))
       .toEqual(['Reminders', 'Reminders', 'Reminders']);
+    expect(viewFieldOptions(workspace).filter((field) => ['reminders', 'hasActiveReminders', 'nextReminderAt'].includes(field.path)).map((field) => field.label))
+      .toEqual(['Active reminders', 'Has active reminders', 'Next resolved active reminder']);
   });
 
   it('resolves parent and child fields from the universal relation model', () => {
