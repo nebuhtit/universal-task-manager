@@ -451,7 +451,7 @@ export function translateInterfaceText(value: string, language: WorkspaceLanguag
 
 function shouldSkip(node: Text) {
   const parent = node.parentElement;
-  return !parent || Boolean(parent.closest('code, pre, textarea, input, output, .rendered-markdown')
+  return !parent || Boolean(parent.closest('[translate="no"], [data-utm-user-data], code, pre, textarea, input, output, .rendered-markdown')
     || (parent.closest('.syntax-editor') && !parent.closest('.syntax-editor-toolbar')));
 }
 
@@ -476,6 +476,7 @@ export function localizeDom(root: ParentNode, language: WorkspaceLanguage) {
     if (current !== applied) node.nodeValue = applied;
   }
   for (const element of Array.from((root as Document | Element).querySelectorAll?.('[aria-label], [placeholder], [title]') ?? [])) {
+    if (element.closest('[translate="no"], [data-utm-user-data]')) continue;
     const seen = localizedAttributes.get(element) ?? new Map<string, LocalizedValue>();
     localizedAttributes.set(element, seen);
     for (const attribute of translatableAttributes) {

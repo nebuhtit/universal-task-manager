@@ -870,6 +870,36 @@ describe('interoperability', () => {
     expect(migrated.views.calendar?.sortSource).toBe(LEGACY_STANDARD_VIEW_SORT_SOURCE);
   });
 
+  it('repairs same-schema starter Views that still use the older chronological defaults', () => {
+    const old = createWorkspace('Same-schema starter sorting');
+    const today = Object.values(old.views).find((view) => view.name === 'Today')!;
+    const week = Object.values(old.views).find((view) => view.name === 'This week')!;
+    today.query.source = '((state == "open" && isTemplate != true) && scheduleInPeriod("today", "active,due,event,event_open", true, 7, "", ""))';
+    week.query.source = '((state == "open" && isTemplate != true) && scheduleInPeriod("this_week", "event,due", true, 7, "", ""))';
+    for (const view of [today, week]) {
+      view.sortSource = 'schedule.startAt asc nulls last\nschedule.endAt asc nulls last';
+      view.sort = [
+        { field: 'schedule.startAt', direction: 'asc', nulls: 'last' },
+        { field: 'schedule.endAt', direction: 'asc', nulls: 'last' },
+      ];
+    }
+    old.views.__all_items__!.sortSource = 'schedule.dueAt asc nulls last';
+    old.views.__all_items__!.sort = [{ field: 'schedule.dueAt', direction: 'asc', nulls: 'last' }];
+    old.views.custom = { ...structuredClone(today), id: 'custom', name: 'Custom focus' };
+    old.views.manual = { ...structuredClone(today), id: 'manual', extensions: { 'utm:manualOrder': ['item-1'] } };
+    old.views.calendar = { ...structuredClone(today), id: 'calendar', renderer: 'calendar' };
+
+    const migrated = migrateWorkspace(old);
+    expect(migrated.value.views[today.id]?.sortSource).toBe(STANDARD_ATTENTION_VIEW_SORT_SOURCE);
+    expect(migrated.value.views[week.id]?.sortSource).toBe(STANDARD_ATTENTION_VIEW_SORT_SOURCE);
+    expect(migrated.value.views.__all_items__?.sortSource).toBe(STANDARD_ATTENTION_VIEW_SORT_SOURCE);
+    expect(migrated.value.views.custom?.sortSource).toBe('schedule.startAt asc nulls last\nschedule.endAt asc nulls last');
+    expect(migrated.value.views.manual?.sortSource).toBe('schedule.startAt asc nulls last\nschedule.endAt asc nulls last');
+    expect(migrated.value.views.calendar?.sortSource).toBe('schedule.startAt asc nulls last\nschedule.endAt asc nulls last');
+    expect(migrated.warnings).toContain(`Updated untouched standard sorting for View ${today.id}`);
+    expect(validateWorkspace(migrated.value).valid).toBe(true);
+  });
+
   it('migrates legacy Calendar filters into one persistent Calendar day view', () => {
     const old = createWorkspace('Legacy Calendar') as WorkspaceDocument & {
       calendarPreferences: WorkspaceDocument['calendarPreferences'] & { selectedViewId?: string; includeStates?: string[]; dayView?: unknown };

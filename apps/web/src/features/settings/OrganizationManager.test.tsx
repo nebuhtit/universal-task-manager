@@ -43,8 +43,19 @@ describe('OrganizationManager', () => {
     const markup = renderToStaticMarkup(<OrganizationManager workspace={workspace} commit={vi.fn()} />);
     expect(markup).toContain('aria-label="Reorder Project Shared in Work"');
     expect(markup).toContain('aria-label="Reorder Project Shared in Personal"');
-    expect(markup).toContain('In Work');
-    expect(markup).toContain('In Personal');
+    expect(markup).toContain('>In <span translate="no" data-utm-user-data="true">Work</span>');
+    expect(markup).toContain('>In <span translate="no" data-utm-user-data="true">Personal</span>');
+  });
+
+  it('marks Area, Project and Tag names as user data even when they match interface words', () => {
+    const workspace = createWorkspace('Translation boundary');
+    ensureAreaDefinition(workspace, 'Home');
+    ensureProjectDefinition(workspace, 'Settings', { areas: ['Home'] });
+    ensureTagDefinition(workspace, 'Today');
+    const markup = renderToStaticMarkup(<OrganizationManager workspace={workspace} commit={vi.fn()} />);
+    for (const name of ['Home', 'Settings', 'Today']) {
+      expect(markup).toContain(`<span translate="no" data-utm-user-data="true">${name}</span>`);
+    }
   });
 
   it('renders the same compact metrics in every Area occurrence but not Unified priority', () => {

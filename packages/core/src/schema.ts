@@ -589,7 +589,17 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     ['title', 'schedule.dueAt', 'bodyMarkdown', 'list', 'tags'],
     ['title', 'schedule.startAt', 'schedule.endAt', 'bodyMarkdown', 'list', 'tags'],
   ];
+  const legacyChronologicalSort = 'schedule.startAt asc nulls last\nschedule.endAt asc nulls last';
+  const legacyDueOnlySort = 'schedule.dueAt asc nulls last';
   const hasLegacyStarterFields = (fields: string[]) => legacyStarterFields.some((legacy) => JSON.stringify(fields) === JSON.stringify(legacy));
+  const isLegacyStarterView = (key: string, view: SavedView) => {
+    if (key === '__all_items__') return true;
+    if (view.extensions?.['utm:para-view'] === true) return true;
+    const source = view.query.source;
+    return view.name === 'Today' && (source.includes('scheduleInPeriod("today"') || source.includes('eventToday') || source.includes('dueTodayOrOverdue'))
+      || view.name === 'Tomorrow' && source.includes('scheduleInPeriod("tomorrow"')
+      || view.name === 'This week' && (source.includes('scheduleInPeriod("this_week"') || source.includes('eventThisWeek') || source.includes('dueThisWeekOrOverdue'));
+  };
   source.views = Object.fromEntries(Object.entries(source.views as Record<string, unknown>).map(([key, view]) => {
     try {
       const migrated = migrateView(view, `schema:${previous}`); warnings.push(...migrated.warnings);
@@ -617,10 +627,12 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
           const canonicalSort = migrated.value.sortSource
             ? serializeSortRules(parseSortSource(migrated.value.sortSource))
             : serializeSortRules(migrated.value.sort.map((rule) => ({ expression: rule.field, direction: rule.direction, nulls: rule.nulls ?? 'last' })));
-          const legacyDefaults = new Set([LEGACY_STANDARD_VIEW_SORT_SOURCE]);
-          if (legacyDefaults.has(canonicalSort)) {
+          const legacyDefault = canonicalSort === LEGACY_STANDARD_VIEW_SORT_SOURCE
+            || isLegacyStarterView(key, migrated.value) && (canonicalSort === legacyChronologicalSort || canonicalSort === legacyDueOnlySort);
+          if (legacyDefault) {
             migrated.value.sort = standardAttentionViewSort();
             migrated.value.sortSource = STANDARD_ATTENTION_VIEW_SORT_SOURCE;
+            warnings.push(`Updated untouched standard sorting for View ${key}`);
           }
         } catch { /* Keep a custom damaged sort available for manual repair. */ }
       }
