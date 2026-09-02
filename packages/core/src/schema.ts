@@ -1,8 +1,9 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, SCHEMA_VERSION } from './types.js';
+import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort } from './types.js';
 import { normalizedOrganizationPriorityOrder } from './organization.js';
-import type { PortablePackage, SavedView, UniversalItem, WorkspaceDocument } from './types.js';
+import { parseSortSource, serializeSortRules } from './dsl.js';
+import type { PortablePackage, SavedView, UniversalItem, ViewSortRule, WorkspaceDocument } from './types.js';
 
 const scalar = { type: ['string', 'number', 'boolean', 'null'] } as const;
 const stringArray = { type: 'array', items: { type: 'string' } } as const;
@@ -20,7 +21,7 @@ const scriptFieldSchema = {
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.21.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.22.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -150,7 +151,7 @@ export const itemJsonSchema = {
 
 export const viewJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/view-1.21.0.json',
+  $id: 'https://universal-task-manager.dev/schema/view-1.22.0.json',
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
@@ -210,7 +211,7 @@ const organizationPriorityEntrySchema = {
 
 export const portablePackageJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/portable-package-1.21.0.json',
+  $id: 'https://universal-task-manager.dev/schema/portable-package-1.22.0.json',
   title: 'Universal Task Manager portable package', type: 'object', additionalProperties: false,
   required: ['format', 'formatVersion', 'kind', 'schemaVersion', 'exportedAt', 'source', 'customFields', 'items', 'views', 'dependencyItemIds'],
   properties: {
@@ -246,7 +247,7 @@ export const portablePackageJsonSchema = {
 
 export const workspaceJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/workspace-1.21.0.json',
+  $id: 'https://universal-task-manager.dev/schema/workspace-1.22.0.json',
   title: 'Universal Task Manager workspace', type: 'object', additionalProperties: false,
   // `viewOrder` was added after the schema version had already shipped. Keep it
   // optional at the validation boundary so an otherwise valid older workspace
@@ -277,15 +278,24 @@ export const workspaceJsonSchema = {
     tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
     calendarPreferences: {
       type: 'object', additionalProperties: false,
-      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'includeStates', 'diagnosticsEnabled', 'showExplanations'],
+      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'dayView', 'diagnosticsEnabled', 'showExplanations'],
       properties: {
         timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
         workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
         sleepSchedule: { type: 'object', additionalProperties: false, required: ['wake', 'sleep'], properties: { wake: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, sleep: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' } } },
         weekends: { type: 'boolean' }, snapMinutes: { type: 'integer', minimum: 1 }, defaultDurationMinutes: { type: 'integer', minimum: 1 },
-        timeFormat: { const: '24h' }, language: { enum: ['en', 'ru', 'es', 'de', 'fr', 'ko'] }, selectedViewId: { type: 'string' },
+        timeFormat: { const: '24h' }, language: { enum: ['en', 'ru', 'es', 'de', 'fr', 'ko'] },
         appearance: { type: 'object', additionalProperties: false, required: ['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound'], properties: { mode: { enum: ['system', 'light', 'dark', 'scheduled'] }, lightAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, darkAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, tickSound: { type: 'boolean' }, uiSound: { type: 'boolean' }, soundDefaultsVersion: { const: 1 } } },
-        includeStates: { type: 'array', items: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] } },
+        dayView: {
+          type: 'object', additionalProperties: false, required: ['filter', 'scheduleSources', 'fields', 'sort'],
+          properties: {
+            filter: { type: 'object', additionalProperties: false, required: ['source'], properties: { source: { type: 'string' } } },
+            scheduleSources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['event_open', 'event', 'active', 'due'] } },
+            fields: stringArray,
+            sort: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['expression', 'direction', 'nulls'], properties: { expression: { type: 'string' }, direction: { enum: ['asc', 'desc'] }, nulls: { enum: ['first', 'last'] } } } },
+            sortSource: { type: 'string' },
+          },
+        },
         diagnosticsEnabled: { type: 'boolean' },
         showExplanations: { type: 'boolean' },
         testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
@@ -601,6 +611,19 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       else if (migrated.value.extensions?.['utm:para-view'] === true && (source === LEGACY_ACTIVE_ITEM_VIEW_QUERY || source.startsWith(`${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && `))) {
         migrated.value.query.source = `${ACTIVE_ITEM_VIEW_QUERY}${source.slice(LEGACY_ACTIVE_ITEM_VIEW_QUERY.length)}`;
       }
+      const manualOrder = migrated.value.extensions?.['utm:manualOrder'];
+      if (migrated.value.renderer !== 'calendar' && !(Array.isArray(manualOrder) && manualOrder.length)) {
+        try {
+          const canonicalSort = migrated.value.sortSource
+            ? serializeSortRules(parseSortSource(migrated.value.sortSource))
+            : serializeSortRules(migrated.value.sort.map((rule) => ({ expression: rule.field, direction: rule.direction, nulls: rule.nulls ?? 'last' })));
+          const legacyDefaults = new Set([LEGACY_STANDARD_VIEW_SORT_SOURCE]);
+          if (legacyDefaults.has(canonicalSort)) {
+            migrated.value.sort = standardAttentionViewSort();
+            migrated.value.sortSource = STANDARD_ATTENTION_VIEW_SORT_SOURCE;
+          }
+        } catch { /* Keep a custom damaged sort available for manual repair. */ }
+      }
       return [key, migrated.value];
     }
     catch (reason) {
@@ -783,7 +806,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.calendarPreferences ??= {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, weekends: true,
-    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 }, includeStates: ['open', 'done'], diagnosticsEnabled: true, showExplanations: false,
+    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 }, diagnosticsEnabled: true, showExplanations: false,
   };
   const calendarPreferences = source.calendarPreferences as Record<string, unknown>;
   // Preferences are persisted locally and evolve faster than the workspace
@@ -792,12 +815,47 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const allowedCalendarPreferenceKeys = new Set([
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
-    'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
+    'dayView', 'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
     'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'googleCalendar',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
   });
+  if (!calendarPreferences.dayView || typeof calendarPreferences.dayView !== 'object' || Array.isArray(calendarPreferences.dayView)) {
+    const selectedView = typeof calendarPreferences.selectedViewId === 'string' ? migratedViews[calendarPreferences.selectedViewId] : undefined;
+    const legacyStates = Array.isArray(calendarPreferences.includeStates)
+      ? calendarPreferences.includeStates.filter((state): state is string => ['open', 'done', 'cancelled', 'auto_closed', 'archived'].includes(String(state)))
+      : ['open', 'done'];
+    const stateFilter = legacyStates.length
+      ? legacyStates.map((state) => `state == ${JSON.stringify(state)}`).join(' || ')
+      : 'false';
+    const fallbackSort: ViewSortRule[] = [
+      { expression: 'schedule.startAt', direction: 'asc', nulls: 'first' },
+      { expression: 'schedule.dueAt', direction: 'asc', nulls: 'first' },
+    ];
+    let migratedSort = fallbackSort;
+    if (selectedView) {
+      try {
+        migratedSort = selectedView.sortSource
+          ? parseSortSource(selectedView.sortSource)
+          : selectedView.sort.map((rule) => ({ expression: rule.field, direction: rule.direction, nulls: rule.nulls ?? 'last' }));
+      } catch {
+        // A damaged legacy sort must not prevent the encrypted workspace from
+        // opening. Calendar falls back to chronological order while the
+        // original Saved View remains available for manual repair.
+        migratedSort = fallbackSort;
+      }
+    }
+    calendarPreferences.dayView = {
+      filter: { source: selectedView?.query.source || stateFilter },
+      scheduleSources: ['event_open', 'event', 'active', 'due'],
+      fields: selectedView?.fields?.length ? [...selectedView.fields] : [...starterFields, 'schedule.estimatedDuration', 'external.provider'],
+      sort: migratedSort,
+      sortSource: serializeSortRules(migratedSort),
+    };
+  }
+  delete calendarPreferences.selectedViewId;
+  delete calendarPreferences.includeStates;
   const legacyWorkingHours = calendarPreferences.workingHours as { start?: string; end?: string } | undefined;
   calendarPreferences.sleepSchedule ??= { wake: legacyWorkingHours?.start ?? '08:00', sleep: legacyWorkingHours?.end ?? '22:00' };
   if (!['en', 'ru', 'es', 'de', 'fr', 'ko'].includes(String(calendarPreferences.language))) calendarPreferences.language = 'en';

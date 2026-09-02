@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import * as Automerge from '@automerge/automerge';
 import {
-  backfillItemCreationVersions, collectScheduledEvents, consolidateHabitOccurrences, createId, effectiveWorkspaceNow,
+  backfillItemCreationVersions, collectScheduledEvents, consolidateHabitOccurrences, createId, effectiveWorkspaceNow, reminderTime,
   migrateWorkspace, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, validateWorkspace,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import { localWorkspaceMode, lock, saveLocalWorkspace, saveMigratedLocalWorkspace, unlockUnencryptedLocalWorkspace, type UnlockedWorkspace } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
-import { reminderTime } from '../push';
 import { diagnosticFailureCode, recordDiagnostic } from '../services/diagnostics';
 import { applyReconciliationResult, commitWorkspaceDocument } from '../services/workspaceLifecycle';
 

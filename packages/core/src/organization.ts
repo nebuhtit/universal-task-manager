@@ -1,5 +1,4 @@
-import type { AreaDefinition, OrganizationPreferences, OrganizationPriorityEntry, ProjectDefinition, UniversalItem, WorkspaceDocument } from './types.js';
-import { durationToMs } from './dsl.js';
+import { durationToMs, type AreaDefinition, type OrganizationPreferences, type OrganizationPriorityEntry, type ProjectDefinition, type UniversalItem, type WorkspaceDocument } from './types.js';
 
 export type OrganizationKind = 'area' | 'project';
 export type OrganizationAccentKind = OrganizationKind | 'tag';

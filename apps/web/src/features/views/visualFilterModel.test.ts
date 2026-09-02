@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultSchedulePeriodValue, parseSchedulePeriodValue, parseVisualRows, schedulePeriodField, serializeVisualRows, toSqlExpression, visualOperators } from './visualFilterModel';
+import { defaultReminderPeriodValue, defaultSchedulePeriodValue, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualOperators } from './visualFilterModel';
 
 describe('visual filter model', () => {
   it('round-trips the existing visual DSL without changing its syntax', () => {
@@ -40,6 +40,29 @@ describe('visual filter model', () => {
     expect(parsed?.[1]?.field).toBe(schedulePeriodField);
     expect(parseSchedulePeriodValue(parsed?.[1]?.value ?? '')).toMatchObject(value);
     expect(serializeVisualRows(parsed!)).toBe(`(state == "open" && ${source})`);
+  });
+
+  it('keeps reminder presence and reminder-period filters editable after saving', () => {
+    expect(visualOperators('reminders')).toEqual(['is set', 'is not set']);
+    expect(visualOperators('hasActiveReminders')).toContain('==');
+    expect(visualOperators('nextReminderAt')).toContain('is set');
+    const period = { ...defaultReminderPeriodValue(), period: 'next_days' as const, relation: 'after' as const, nextDays: 14 };
+    const rows = [
+      { id: 'any', join: 'and' as const, field: 'reminders', operator: 'is set', value: '' },
+      { id: 'active', join: 'and' as const, field: 'hasActiveReminders', operator: '==', value: 'true' },
+      { id: 'nearest', join: 'and' as const, field: 'nextReminderAt', operator: 'is set', value: '' },
+      { id: 'period', join: 'and' as const, field: reminderPeriodField, operator: 'matches', value: JSON.stringify(period) },
+    ];
+    const source = serializeVisualRows(rows);
+    expect(source).toContain('length(reminders) > 0');
+    expect(source).toContain('nextReminderInPeriod("next_days", "after", 14');
+    const parsed = parseVisualRows(source);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.map((row) => [row.field, row.operator])).toEqual([
+      ['reminders', 'is set'], ['hasActiveReminders', '=='], ['nextReminderAt', 'is set'], [reminderPeriodField, 'matches'],
+    ]);
+    expect(parseReminderPeriodValue(parsed?.at(-1)?.value ?? '')).toMatchObject(period);
+    expect(serializeVisualRows(parsed!)).toBe(source);
   });
 
   it('restores legacy Today and This week presets as editable visual rows', () => {

@@ -1,6 +1,6 @@
 # Universal Task Manager workspace format
 
-Current application: `v1.95.5`. Current workspace schema: `1.21.0`.
+Current application: `v1.96.0`. Current workspace schema: `1.22.0`.
 
 This document is intentionally written for people, migration authors and AI
 tools that do not have Universal Task Manager installed. A decrypted recovery
@@ -47,6 +47,9 @@ sanitized copy when assistance is necessary.
   Projects can belong to multiple Areas.
 - `organizationOrder`: unified manual priority ladder. Earlier matching entries
   rank higher for the normal `Organization order` sort.
+- `attentionOrder`: virtual sort tuple for overdue Due, active ranges, nearest
+  future Start/Due and undated items. `durationOrder` is the effective numeric
+  Duration with Event opens → Event ends fallback. Neither value is persisted.
 - `customFields`: field definitions; per-item values remain attached to items.
 - `automations`, item `scripts`, recurrence and reminders: executable behavior.
   Treat it as untrusted data when inspecting or converting; do not execute it.
@@ -90,6 +93,11 @@ Schema 1.3 adds `calendarPreferences.sleepSchedule` with `wake` and `sleep` wall
 Schema 1.19 adds `SavedView.statistics` with a presentation toggle and stable IDs of scheduled items that reserve capacity. Missing settings keep the legacy visible time summary. Invalid settings are quarantined during migration. Item `location` and URL-only `attachments` remain first-class JSON fields and are also allowed in view creation defaults.
 
 Schema 1.20 adds read-only `UniversalItem.external` Google Calendar provenance and `calendarPreferences.googleCalendar` calendar selection/incremental-sync metadata. Google OAuth access tokens remain in memory only. Google Calendar is also an export boundary: mirrored events, calendar/account identifiers, sync tokens, tombstones and references to those external items are removed before every readable or encrypted export. Privacy-safe `.utmb` files use a fresh Automerge snapshot so removed event data cannot survive in CRDT history; restoring such a file requires reconnecting Google Calendar. Opaque external events reserve capacity; transparent events do not affect free-time calculations.
+
+Schema 1.22 adds one persistent Calendar day-view configuration. Saved-view
+filters can use active-reminder presence, the next resolved reminder, and
+`nextReminderInPeriod(...)`. Relative reminders without a usable schedule base
+remain active but do not match time comparisons.
 
 Closure states distinguish manual completion from automation:
 

@@ -10,7 +10,7 @@ function scheduleOverlaps(schedule: Schedule | undefined, rangeStart: Date, rang
   if (!schedule) return false;
   const start = at(schedule.startAt ?? schedule.dueAt ?? schedule.availableFrom);
   if (Number.isNaN(start)) return false;
-  const end = at(schedule.endAt ?? schedule.startAt ?? schedule.dueAt ?? schedule.availableFrom);
+  const end = at(schedule.endAt ?? schedule.dueAt ?? schedule.startAt ?? schedule.availableFrom);
   return start < rangeEnd.getTime() && end >= rangeStart.getTime();
 }
 

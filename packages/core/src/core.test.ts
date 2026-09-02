@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, SCHEMA_VERSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
-  projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
+  projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, reminderTime, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
   packageToTabular, parseCsv, serializePortablePackage, serializeSortRules, tabularToPackage, toCsv, toICS, validateViewCreationDefaults, validateWorkspace,
   updateRecurrenceCompletionTime,
 } from './index.js';
-import type { AutomationRule, DomainEvent, UniversalItem } from './types.js';
+import type { AutomationRule, DomainEvent, UniversalItem, WorkspaceDocument } from './types.js';
 
 describe('safe expression language', () => {
   it('filters items without evaluating JavaScript', () => {
@@ -100,6 +100,27 @@ describe('safe expression language', () => {
     expect(query('scheduleInPeriod("tomorrow", "due", true, 7, "", "")')(overdue, now)).toBe(true);
     overdue.state = 'done';
     expect(query('scheduleInPeriod("tomorrow", "due", true, 7, "", "")')(overdue, now)).toBe(false);
+  });
+
+  it('resolves active absolute and relative reminders and filters the nearest one by period', () => {
+    const now = new Date('2026-09-02T10:00:00.000Z');
+    const item = createItem('Reminder filters');
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-03T10:00:00.000Z', dueAt: '2026-09-03T12:00:00.000Z' };
+    item.reminders = [
+      { id: 'ack', mode: 'absolute', at: '2026-09-01T09:00:00.000Z', urgency: 'normal', repeatUntilAcknowledged: false, acknowledgedAt: '2026-09-01T09:01:00.000Z' },
+      { id: 'relative', mode: 'relative', relativeTo: 'start', offset: '-PT30M', urgency: 'urgent', repeatUntilAcknowledged: false },
+      { id: 'unresolved', mode: 'relative', relativeTo: 'end', offset: '-PT5M', urgency: 'normal', repeatUntilAcknowledged: false },
+    ];
+    expect(reminderTime(item, item.reminders[1]!)).toBe('2026-09-03T09:30:00.000Z');
+    expect(reminderTime(item, item.reminders[2]!)).toBeUndefined();
+    expect(compileQuery('length(reminders) > 0')(item, now)).toBe(true);
+    expect(compileQuery('hasActiveReminders == true')(item, now)).toBe(true);
+    expect(compileQuery('nextReminderAt != null')(item, now)).toBe(true);
+    const query = (source: string) => compileQuery(source, undefined, { timeZone: 'UTC', weekStartsOn: 1 })(item, now);
+    expect(query('nextReminderInPeriod("tomorrow", "in", 7, "", "")')).toBe(true);
+    expect(query('nextReminderInPeriod("today", "after", 7, "", "")')).toBe(true);
+    expect(query('nextReminderInPeriod("custom", "before", 7, "2026-09-04", "2026-09-05")')).toBe(true);
+    expect(query('nextReminderInPeriod("tomorrow", "before", 7, "", "")')).toBe(false);
   });
 
   it('modernizes legacy starter view labels, filters and order without touching custom views', () => {
@@ -251,7 +272,7 @@ describe('safe expression language', () => {
     const migrated = migrateItem({ ...item, schemaVersion: '1.18.0' }).value;
     expect(migrated.location).toBe('Room 204');
     expect(migrated.attachments).toEqual(item.attachments);
-    expect(migrated.schemaVersion).toBe('1.21.0');
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it('restores list membership hidden by the older strict schema', () => {
@@ -695,6 +716,14 @@ describe('recurrence and auto-renew', () => {
 });
 
 describe('calendar projection and mutations', () => {
+  it('projects an Event opens to Due active range across the visible calendar range', () => {
+    const workspace = createWorkspace();
+    const item = createItem('Active range');
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-25T08:00:00.000Z', dueAt: '2026-08-27T18:00:00.000Z' };
+    workspace.items[item.id] = item;
+    expect(projectOccurrences(workspace, new Date('2026-08-26T00:00:00.000Z'), new Date('2026-08-27T00:00:00.000Z')).map((row) => row.id)).toContain(item.id);
+  });
+
   it('projects future recurrence without creating workspace items, then materializes on interaction', () => {
     const workspace = createWorkspace(); const item = createItem('Weekly');
     item.schedule = { timezone: 'Europe/Moscow', startAt: '2026-10-20T07:00:00.000Z', endAt: '2026-10-20T08:00:00.000Z' };
@@ -822,6 +851,41 @@ describe('interoperability', () => {
     expect(validateWorkspace(old).valid).toBe(true);
     const migrated = migrateWorkspace(old).value;
     expect(migrated.viewOrder.map((id) => migrated.views[id]?.name)).toEqual(['Today', 'This week', 'All items']);
+    expect(validateWorkspace(migrated).valid).toBe(true);
+  });
+
+  it('upgrades only untouched standard View sorts and preserves custom, manual and calendar sorts', () => {
+    const old = createWorkspace('Legacy sorting');
+    old.schemaVersion = '1.21.0';
+    const standard = old.views.__all_items__!;
+    standard.sortSource = LEGACY_STANDARD_VIEW_SORT_SOURCE;
+    standard.sort = parseSortSource(LEGACY_STANDARD_VIEW_SORT_SOURCE).map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls }));
+    old.views.custom = { ...standard, id: 'custom', name: 'Custom', sortSource: 'priority desc nulls last', sort: [{ field: 'priority', direction: 'desc', nulls: 'last' }] };
+    old.views.manual = { ...standard, id: 'manual', name: 'Manual', extensions: { 'utm:manualOrder': ['item-1'] } };
+    old.views.calendar = { ...standard, id: 'calendar', name: 'Calendar', renderer: 'calendar' };
+    const migrated = migrateWorkspace(old).value;
+    expect(migrated.views.__all_items__?.sortSource).toBe(STANDARD_ATTENTION_VIEW_SORT_SOURCE);
+    expect(migrated.views.custom?.sortSource).toBe('priority desc nulls last');
+    expect(migrated.views.manual?.sortSource).toBe(LEGACY_STANDARD_VIEW_SORT_SOURCE);
+    expect(migrated.views.calendar?.sortSource).toBe(LEGACY_STANDARD_VIEW_SORT_SOURCE);
+  });
+
+  it('migrates legacy Calendar filters into one persistent Calendar day view', () => {
+    const old = createWorkspace('Legacy Calendar') as WorkspaceDocument & {
+      calendarPreferences: WorkspaceDocument['calendarPreferences'] & { selectedViewId?: string; includeStates?: string[]; dayView?: unknown };
+    };
+    old.schemaVersion = '1.21.0';
+    const selected = Object.values(old.views).find((view) => view.name === 'This week')!;
+    old.calendarPreferences.selectedViewId = selected.id;
+    old.calendarPreferences.includeStates = ['open', 'done'];
+    delete old.calendarPreferences.dayView;
+    const migrated = migrateWorkspace(old).value;
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(migrated.calendarPreferences.dayView.filter.source).toBe(selected.query.source);
+    expect(migrated.calendarPreferences.dayView.scheduleSources).toEqual(['event_open', 'event', 'active', 'due']);
+    expect(migrated.calendarPreferences.dayView.fields).toEqual(selected.fields);
+    expect(migrated.calendarPreferences).not.toHaveProperty('selectedViewId');
+    expect(migrated.calendarPreferences).not.toHaveProperty('includeStates');
     expect(validateWorkspace(migrated).valid).toBe(true);
   });
 

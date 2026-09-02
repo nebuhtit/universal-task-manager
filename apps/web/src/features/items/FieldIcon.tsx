@@ -33,7 +33,7 @@ export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'recurrence.anchor') return 'start';
   if (path.startsWith('recurrence.')) return 'repeat';
   if (path.startsWith('progress.')) return 'progress';
-  if (path === 'reminders') return 'bell';
+  if (path === 'reminders' || path === 'hasActiveReminders' || path === 'nextReminderAt') return 'bell';
   if (path === 'attachments') return 'attachment';
   if (['relations', 'subtasks', 'parent', 'isSubtask', 'isParent', 'parentDepth', 'childDepth'].includes(path)) return 'branch';
   if (path === 'closure.actor' || path === 'createdWithAppName') return 'user';

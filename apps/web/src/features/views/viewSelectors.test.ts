@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ACTIVE_ITEM_VIEW_QUERY, createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
+import { ACTIVE_ITEM_VIEW_QUERY, STANDARD_ATTENTION_VIEW_SORT_SOURCE, createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
 import { boardSettingsFor, completionPhase, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold } from './viewSelectors';
 
@@ -162,6 +162,20 @@ describe('view selectors', () => {
     ]);
     expect(selectViewItems(workspace, { ...view(), sortSource: 'organizationOrder desc' }).map((item) => item.title)).toEqual(['Urgent exception', 'Work item', 'No organization']);
     expect(selectViewItems(workspace, { ...view(), sortSource: 'organizationOrder asc' }).map((item) => item.title)).toEqual(['No organization', 'Work item', 'Urgent exception']);
+  });
+
+  it('uses unified priority before smart time attention, duration and creation time', () => {
+    const now = new Date('2026-09-02T12:00:00.000Z');
+    const workspace = createWorkspace('Standard attention sort', now);
+    const highFuture = createItem('High future', 'task', new Date('2026-09-02T08:00:00.000Z')); highFuture.tags = ['urgent']; highFuture.schedule = { timezone: 'UTC', dueAt: '2026-09-10T12:00:00.000Z', estimatedDuration: 'PT10M' };
+    const lowOverdue = createItem('Low overdue', 'task', new Date('2026-09-02T11:00:00.000Z')); lowOverdue.areas = ['Someday']; lowOverdue.schedule = { timezone: 'UTC', dueAt: '2026-09-01T12:00:00.000Z', estimatedDuration: 'PT4H' };
+    const long = createItem('Long', 'task', new Date('2026-09-02T09:00:00.000Z')); long.tags = ['urgent']; long.schedule = { timezone: 'UTC', startAt: '2026-09-03T12:00:00.000Z', estimatedDuration: 'PT2H' };
+    const shortNew = createItem('Short new', 'task', new Date('2026-09-02T11:30:00.000Z')); shortNew.tags = ['urgent']; shortNew.schedule = { timezone: 'UTC', startAt: '2026-09-03T12:00:00.000Z', estimatedDuration: 'PT10M' };
+    [highFuture, lowOverdue, long, shortNew].forEach((item) => { workspace.items[item.id] = item; });
+    ensureAreaDefinition(workspace, 'Someday');
+    reorderOrganizationPriority(workspace, [{ kind: 'tag', name: 'urgent' }, { kind: 'area', name: 'Someday' }, { kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null }]);
+    expect(selectViewItems(workspace, { ...view(), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE }, now).map((item) => item.title))
+      .toEqual(['Long', 'Short new', 'High future', 'Low overdue']);
   });
 
   it('keeps organization sorting usable before an in-memory legacy workspace is migrated', () => {

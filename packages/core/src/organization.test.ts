@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPortableImport, buildPortableImportPreview, calculateItemSetMetrics, calculateProjectMetrics, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationAccentFor, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, serializePortablePackage } from './index.js';
+import { applyPortableImport, buildPortableImportPreview, calculateItemSetMetrics, calculateProjectMetrics, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationAccentFor, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, SCHEMA_VERSION, serializePortablePackage } from './index.js';
 
 describe('PARA organization', () => {
   it('uses the theme text color until a custom accent is stored', () => {
@@ -282,7 +282,7 @@ describe('PARA organization', () => {
     };
 
     const migrated = migrateWorkspace(legacy).value;
-    expect(migrated.schemaVersion).toBe('1.21.0');
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     expect(migrated.organizationPreferences.priorityOrder.slice(0, 2)).toEqual([
       { kind: 'project', name: 'Shared', area: 'Work' },
       { kind: 'project', name: 'Shared', area: 'Personal' },

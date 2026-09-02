@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import {
-  ACTIVE_ITEM_VIEW_QUERY, calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, effectiveWorkspaceNow, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries,
+  ACTIVE_ITEM_VIEW_QUERY, calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, effectiveWorkspaceNow, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort,
   orderedTagEntries, organizationAccentFor, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset,
   type OrganizationPreferences, type OrganizationPriorityEntry, type ProjectMetrics, type SavedView, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
@@ -19,7 +19,6 @@ type Route = { kind: 'overview' } | { kind: 'area'; area?: string } | { kind: 'p
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const priorityKey = (entry: OrganizationPriorityEntry) => JSON.stringify([entry.kind, entry.name, entry.kind === 'project' && entry.name !== null ? entry.area ?? null : undefined]);
 const activeQuery = ACTIVE_ITEM_VIEW_QUERY;
-const defaultSort = 'schedule.dueAt asc nulls last\nschedule.startAt asc nulls last\norganizationOrder asc nulls last';
 const PARA_VIEW_EXTENSION = 'utm:para-view';
 const PARA_SCOPE_EXTENSION = 'utm:para-scope';
 
@@ -31,12 +30,8 @@ const scopedView = ({ area, project, noProject = false, globalProject = false }:
   return {
     id: `para:${globalProject ? 'project' : area ?? 'no-area'}:${project ?? 'no-project'}`,
     name: project ?? 'No Project', query: { source }, renderer: 'list',
-    sort: [
-      { field: 'schedule.dueAt', direction: 'asc', nulls: 'last' },
-      { field: 'schedule.startAt', direction: 'asc', nulls: 'last' },
-      { field: 'organizationOrder', direction: 'asc', nulls: 'last' },
-    ],
-    sortSource: defaultSort, fields: [...VIEW_TEMPLATE_FIELDS],
+    sort: standardAttentionViewSort(),
+    sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...VIEW_TEMPLATE_FIELDS],
     ...(area ? { area } : {}), ...(project ? { project } : {}),
     extensions: { [PARA_VIEW_EXTENSION]: true, [PARA_SCOPE_EXTENSION]: paraScopeKey({ ...(area ? { area } : {}), ...(project ? { project } : {}), noProject, globalProject }) },
   };
@@ -55,12 +50,8 @@ export const paraTagView = (tag?: string): SavedView => ({
   name: tag ? `#${tag}` : 'No Tags',
   query: { source: `${activeQuery} && ${tag ? `includes(tags, ${JSON.stringify(tag)})` : 'length(tags) == 0'}` },
   renderer: 'list',
-  sort: [
-    { field: 'schedule.dueAt', direction: 'asc', nulls: 'last' },
-    { field: 'schedule.startAt', direction: 'asc', nulls: 'last' },
-    { field: 'organizationOrder', direction: 'asc', nulls: 'last' },
-  ],
-  sortSource: defaultSort,
+  sort: standardAttentionViewSort(),
+  sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
   fields: [...VIEW_TEMPLATE_FIELDS],
   creationDefaults: { tags: tag ? [tag] : [] },
   extensions: { [PARA_VIEW_EXTENSION]: true, [PARA_SCOPE_EXTENSION]: paraScopeKey({ tag: tag ?? null }) },

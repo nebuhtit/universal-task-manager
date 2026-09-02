@@ -10,6 +10,29 @@ describe('item field display helpers', () => {
     expect(displayViewValue('PT90M', 'schedule.estimatedDuration')).toBe('1 h 30 min');
   });
 
+  it('shows every active reminder compactly, with resolved reminders first and no raw JSON', () => {
+    const workspace = createWorkspace('Reminders');
+    workspace.calendarPreferences.language = 'en';
+    const item = createItem('Reminder item');
+    item.schedule = { timezone: 'UTC', dueAt: '2026-09-03T12:00:00.000Z' };
+    item.reminders = [
+      { id: 'later', mode: 'absolute', at: '2026-09-03T11:00:00.000Z', urgency: 'normal', repeatUntilAcknowledged: false },
+      { id: 'earlier', mode: 'relative', relativeTo: 'due', offset: '-PT2H', urgency: 'critical', repeatUntilAcknowledged: false },
+      { id: 'unresolved', mode: 'relative', relativeTo: 'start', offset: '-PT15M', urgency: 'urgent', repeatUntilAcknowledged: false },
+      { id: 'ack', mode: 'absolute', at: '2026-09-03T09:00:00.000Z', urgency: 'normal', repeatUntilAcknowledged: false, acknowledgedAt: '2026-09-03T09:01:00.000Z' },
+    ];
+    expect(readItemField(item, 'hasActiveReminders', workspace)).toBe(true);
+    expect(readItemField(item, 'nextReminderAt', workspace)).toBe('2026-09-03T10:00:00.000Z');
+    const reminders = readItemField(item, 'reminders', workspace) as string[];
+    expect(reminders).toHaveLength(3);
+    expect(reminders[0]).toContain('critical');
+    expect(reminders[1]).toContain('normal');
+    expect(reminders[2]).toBe('15min before Event opens · urgent');
+    expect(displayViewValue(reminders, 'reminders')).not.toContain('{');
+    expect(viewFieldOptions(workspace).filter((field) => ['reminders', 'hasActiveReminders', 'nextReminderAt'].includes(field.path)).map((field) => field.group))
+      .toEqual(['Reminders', 'Reminders', 'Reminders']);
+  });
+
   it('resolves parent and child fields from the universal relation model', () => {
     const workspace = createWorkspace('Relations');
     const parent = createItem('Parent');

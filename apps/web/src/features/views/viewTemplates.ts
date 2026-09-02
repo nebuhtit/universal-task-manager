@@ -1,23 +1,17 @@
-import { ACTIVE_ITEM_VIEW_QUERY, type SavedView } from '@utm/core';
+import { ACTIVE_ITEM_VIEW_QUERY, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort, type SavedView } from '@utm/core';
 
 export const VIEW_TEMPLATE_EXTENSION = 'utm:view-template';
 export const VIEW_TEMPLATE_FIELDS = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
 
 const active = ACTIVE_ITEM_VIEW_QUERY;
-const defaultSort = 'schedule.dueAt asc nulls last\nschedule.startAt asc nulls last\norganizationOrder asc nulls last';
-
 const template = (id: string, name: string, source: string, accent: string): SavedView => ({
   id: `builtin:${id}`,
   name,
   accent,
   query: { source },
   renderer: 'table',
-  sort: [
-    { field: 'schedule.dueAt', direction: 'asc', nulls: 'last' },
-    { field: 'schedule.startAt', direction: 'asc', nulls: 'last' },
-    { field: 'organizationOrder', direction: 'asc', nulls: 'last' },
-  ],
-  sortSource: defaultSort,
+  sort: standardAttentionViewSort(),
+  sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
   fields: [...VIEW_TEMPLATE_FIELDS],
   extensions: { [VIEW_TEMPLATE_EXTENSION]: true },
 });

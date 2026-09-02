@@ -1,4 +1,6 @@
-import { createId, createOccurrence, durationToMs, projectOccurrences, type Reminder, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { createId, createOccurrence, projectOccurrences, reminderTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+
+export { reminderTime };
 
 /** The public Worker endpoint. It contains no workspace password or decryption key. */
 export const PUSH_SERVICE_URL = (import.meta.env.VITE_PUSH_SERVICE_URL || 'https://universal-task-manager-push.const-perfect.workers.dev').replace(/\/$/, '');
@@ -48,17 +50,6 @@ export async function subscribeBackgroundPush(workspace: WorkspaceDocument, acce
   });
   if (!response.ok) return responseError(response);
   return await response.json() as BackgroundPushStatus;
-}
-
-export function reminderTime(item: UniversalItem, reminder: Reminder): string | undefined {
-  if (reminder.acknowledgedAt) return undefined;
-  if (reminder.mode === 'absolute') return reminder.at;
-  const base = reminder.relativeTo === 'available' ? item.schedule?.availableFrom
-    : reminder.relativeTo === 'start' ? item.schedule?.startAt
-      : reminder.relativeTo === 'end' ? item.schedule?.endAt : item.schedule?.dueAt;
-  if (!base) return undefined;
-  const delta = reminder.offset ? durationToMs(reminder.offset) : 0;
-  return new Date(new Date(base).getTime() + delta).toISOString();
 }
 
 function jobItems(workspace: WorkspaceDocument, until: Date): UniversalItem[] {

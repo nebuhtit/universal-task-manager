@@ -1,4 +1,4 @@
-import { compileQuery, compileSort, effectiveWorkspaceNow, itemAreas, itemProjects, listDefinitionFor, orderedOrganizationEntries, orderedTagEntries, organizationPriorityRank, parseSortSource, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { compileQuery, compileSort, effectiveItemDurationMs, effectiveWorkspaceNow, itemAreas, itemProjects, listDefinitionFor, orderedOrganizationEntries, orderedTagEntries, organizationPriorityRank, parseSortSource, participatesInTimeStatistics, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { isItemTemplate, relationContext } from '../items/fieldDisplay';
 
 export const COMPLETION_EXIT_MS = 200;
@@ -44,6 +44,27 @@ export function completionPhase(itemId: string, at = Date.now()): 'held' | 'exit
   const hold = completionHoldFor(itemId, at);
   if (!hold) return undefined;
   return at < hold.undoUntil ? 'held' : 'exiting';
+}
+
+export type AttentionSortValues = { bucket: number; at?: number; durationMs: number };
+
+/** Stable time-attention tuple used by standard Views. Lower buckets are more urgent. */
+export function attentionSortValues(item: UniversalItem, now = new Date()): AttentionSortValues {
+  const current = now.getTime();
+  const timestamp = (value?: string) => value ? Date.parse(value) : Number.NaN;
+  const start = timestamp(item.schedule?.startAt);
+  const end = timestamp(item.schedule?.endAt);
+  const due = timestamp(item.schedule?.dueAt);
+  const durationMs = participatesInTimeStatistics(item) ? effectiveItemDurationMs(item) : 0;
+  if (item.state !== 'open') return { bucket: 4, durationMs };
+  if (Number.isFinite(due) && due < current) return { bucket: 0, at: due, durationMs };
+  if (Number.isFinite(start) && start <= current) {
+    const closing = [end, due].filter((value) => Number.isFinite(value) && value >= current);
+    if (closing.length) return { bucket: 1, at: Math.min(...closing), durationMs };
+  }
+  const upcoming = [start, due].filter((value) => Number.isFinite(value) && value >= current);
+  if (upcoming.length) return { bucket: 2, at: Math.min(...upcoming), durationMs };
+  return { bucket: 3, durationMs };
 }
 
 export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
@@ -100,15 +121,20 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
   const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
   if (sortSource.trim()) {
     const rules = parseSortSource(sortSource);
-    const organizationSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'organizationOrder', 'areaOrder', 'projectOrder', 'tagOrder'].includes(expression)));
-    if (!organizationSorts.size) {
+    const virtualSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'organizationOrder', 'areaOrder', 'projectOrder', 'tagOrder', 'attentionOrder', 'durationOrder'].includes(expression)));
+    if (!virtualSorts.size) {
       const comparator = compileSort(sortSource);
       items.sort((left, right) => comparator(selectionSource(left), selectionSource(right), now));
     }
     else {
       const expanded = serializeSortRules(rules.flatMap((rule) => {
-        if (!organizationSorts.has(rule.expression)) return [rule];
+        if (!virtualSorts.has(rule.expression)) return [rule];
         if (rule.expression === 'organizationOrder') return [{ ...rule, expression: 'custom.__utm_organization_order' }];
+        if (rule.expression === 'attentionOrder') return [
+          { ...rule, expression: 'custom.__utm_attention_bucket' },
+          { ...rule, expression: 'custom.__utm_attention_at' },
+        ];
+        if (rule.expression === 'durationOrder') return [{ ...rule, expression: 'custom.__utm_duration_order' }];
         const prefix = rule.expression === 'listOrder' ? 'list' : rule.expression === 'areaOrder' ? 'area' : rule.expression === 'projectOrder' ? 'project' : 'tag';
         if (prefix === 'tag') return [{ ...rule, expression: 'custom.__utm_tag_order' }];
         if (prefix === 'area' || prefix === 'project') return [{ ...rule, expression: `custom.__utm_${prefix}_order` }];
@@ -129,10 +155,14 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
       const sortable = (item: UniversalItem): UniversalItem => {
         const list = listDefinitionFor(workspace, item.list, now);
         const tagRank = item.tags.length ? Math.max(...item.tags.map((tag) => rank(tagOrder, tag))) : rank(tagOrder, null);
+        const attention = attentionSortValues(item, now);
         return { ...item, custom: {
           ...item.custom,
           ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
           __utm_organization_order: organizationPriorityRank(workspace, item),
+          __utm_attention_bucket: attention.bucket,
+          __utm_attention_at: attention.at ?? null,
+          __utm_duration_order: attention.durationMs,
           __utm_area_order: itemAreas(item).length ? Math.max(...itemAreas(item).map((area) => rank(areaOrder, area))) : rank(areaOrder, null),
           __utm_project_order: itemProjects(item).length ? Math.max(...itemProjects(item).map((project) => rank(projectOrder, project))) : rank(projectOrder, null),
           __utm_tag_order: tagRank,

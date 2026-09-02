@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileQuery, createItem } from '@utm/core';
+import { STANDARD_ATTENTION_VIEW_SORT_SOURCE, compileQuery, createItem } from '@utm/core';
 import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
 
 describe('view templates', () => {
@@ -10,6 +10,7 @@ describe('view templates', () => {
     expect(BUILT_IN_VIEW_TEMPLATES[3]?.fields).toEqual(BUILT_IN_VIEW_TEMPLATES[2]?.fields);
     expect(BUILT_IN_VIEW_TEMPLATES.every(isViewTemplate)).toBe(true);
     expect(BUILT_IN_VIEW_TEMPLATES.every((view) => JSON.stringify(view.fields) === JSON.stringify(VIEW_TEMPLATE_FIELDS))).toBe(true);
+    expect(BUILT_IN_VIEW_TEMPLATES.every((view) => view.sortSource === STANDARD_ATTENTION_VIEW_SORT_SOURCE)).toBe(true);
     BUILT_IN_VIEW_TEMPLATES.forEach((view) => expect(() => compileQuery(view.query.source)).not.toThrow());
   });
 

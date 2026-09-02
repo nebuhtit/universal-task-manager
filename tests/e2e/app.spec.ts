@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.95\.5 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.96\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -121,7 +121,7 @@ test('shows the release version on registration, login and settings', async ({ p
 
   await goToSettings(page);
   await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
-  await expect(page.getByText('v1.95.5', { exact: true })).toBeVisible();
+  await expect(page.getByText('v1.96.0', { exact: true })).toBeVisible();
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -394,11 +394,11 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await goToSettings(page);
 
   const sections = page.locator('.settings-page-shell details.settings-disclosure');
-  await expect(sections).toHaveCount(7);
+  await expect(sections).toHaveCount(8);
   expect(await sections.evaluateAll((elements) => elements.every((element) => !(element as HTMLDetailsElement).open))).toBe(true);
   await sections.evaluateAll((elements) => elements.forEach((element) => { (element as HTMLDetailsElement).open = true; }));
   const cards = page.locator('.settings-page-shell .settings-card');
-  await expect(cards).toHaveCount(7);
+  await expect(cards).toHaveCount(8);
   const boxes = await cards.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { left: box.left, right: box.right };
@@ -408,7 +408,7 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
-test('calendar switches week and month day panels and exposes read-only Google setup', async ({ page }) => {
+test('calendar switches periods and edits the fixed day view', async ({ page }) => {
   await page.getByLabel('Workspace name').fill('Calendar workspace');
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
@@ -420,27 +420,35 @@ test('calendar switches week and month day panels and exposes read-only Google s
   await expect.poll(() => page.locator('.calendar-day-panel.is-month .calendar-day-choice').count()).toBeGreaterThanOrEqual(28);
   expect(await page.locator('.calendar-day-panel.is-month .calendar-day-choice').count()).toBeLessThanOrEqual(31);
   await page.getByRole('button', { name: 'Week', exact: true }).click();
-  const calendarList = page.locator('.calendar-day-list');
-  const listTopBeforePicker = await calendarList.evaluate((element) => element.getBoundingClientRect().top);
-  await page.locator('.calendar-view-picker > summary').click();
-  await expect(page.locator('.calendar-view-picker')).toHaveAttribute('open', '');
-  const listTopWithPicker = await calendarList.evaluate((element) => element.getBoundingClientRect().top);
-  expect(Math.abs(listTopWithPicker - listTopBeforePicker)).toBeLessThanOrEqual(1);
-  const pickerBorders = await page.locator('.calendar-view-picker').evaluate((element) => {
-    const details = getComputedStyle(element);
-    const popup = getComputedStyle(element.querySelector('.ui-disclosure-content')!);
-    return { detailsTop: details.borderTopWidth, detailsBottom: details.borderBottomWidth, popupTop: popup.borderTopWidth, popupBottom: popup.borderBottomWidth };
-  });
-  expect(pickerBorders).toEqual({ detailsTop: '0px', detailsBottom: '0px', popupTop: '0px', popupBottom: '0px' });
-  await page.locator('.calendar-view-picker > summary').click();
-  await page.getByRole('button', { name: 'Calendar settings' }).click();
+  await expect(page.locator('.calendar-view-picker')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit calendar day view' }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit calendar day view' });
+  await expect(editor).toBeVisible();
+  await editor.getByText('Selected day', { exact: true }).click();
+  for (const label of [
+    'Event opens in day',
+    'Event opens → Event ends overlaps day',
+    'Event opens → Due overlaps day',
+    'Due in day',
+  ]) await expect(editor.getByRole('checkbox', { name: label })).toBeChecked();
+  await expect(editor.getByText('Include overdue', { exact: true })).toHaveCount(0);
+  await expect(editor.getByText('Filter items', { exact: true })).toBeVisible();
+  await expect(editor.getByText('Show in results', { exact: true })).toBeVisible();
+  await expect(editor.getByText('Sorting', { exact: true })).toBeVisible();
+  await editor.getByRole('button', { name: 'Save view' }).click();
+  await expect(editor).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Edit calendar day view' })).toBeFocused();
+
+  await goToSettings(page);
+  const calendarSettings = page.locator('details.settings-disclosure').filter({ hasText: 'Calendar and Google Calendar' });
+  await expect(calendarSettings).not.toHaveAttribute('open', '');
+  await calendarSettings.getByText('Calendar and Google Calendar', { exact: true }).click();
   await expect(page.getByLabel('Timezone')).not.toHaveValue('');
   await expect(page.getByText('Google Calendar', { exact: true })).toBeVisible();
   const googleConnect = page.getByRole('button', { name: 'Connect Google Calendar' });
   const missingClientId = page.getByText(/needs a Google OAuth client ID/);
   if (await googleConnect.isDisabled()) await expect(missingClientId).toBeVisible();
   else await expect(missingClientId).toBeHidden();
-  await page.getByRole('button', { name: 'Close calendar settings' }).click();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -551,6 +559,31 @@ test('edited view parameters change results and survive reload', async ({ page }
   view = page.locator('.view-section').filter({ hasText: 'Done only' });
   await expect(view.getByRole('heading', { name: 'Done only' })).toBeVisible();
   await expect(view.getByText('Visible open item', { exact: true })).toBeHidden();
+});
+
+test('reminder period filters stay editable in the View editor', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Reminder filters');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  const view = page.locator('.view-section').filter({ hasText: 'All items' });
+  await view.getByRole('button', { name: /^Edit / }).click();
+  await openViewEditorSection(page, 'Visual setup');
+  while (await page.locator('.visual-condition-row').count() > 1) await page.getByRole('button', { name: /Remove filter rule/ }).last().click();
+  const row = page.locator('.visual-condition-row').first();
+  await row.getByRole('combobox', { name: 'Property' }).selectOption('reminderPeriod');
+  await row.getByLabel('Reminder position relative to period').selectOption('after');
+  await row.getByLabel('Reminder comparison period').selectOption('next_days');
+  await row.getByLabel('Number of days').fill('14');
+  await page.getByRole('button', { name: 'Save view' }).click();
+
+  await view.getByRole('button', { name: /^Edit / }).click();
+  await openViewEditorSection(page, 'Visual setup');
+  const restored = page.locator('.visual-condition-row').first();
+  await expect(restored.getByRole('combobox', { name: 'Property' })).toHaveValue('reminderPeriod');
+  await expect(restored.getByLabel('Reminder position relative to period')).toHaveValue('after');
+  await expect(restored.getByLabel('Reminder comparison period')).toHaveValue('next_days');
+  await expect(restored.getByLabel('Number of days')).toHaveValue('14');
 });
 
 test('item scripts can be selected in a view and update every second', async ({ page }) => {

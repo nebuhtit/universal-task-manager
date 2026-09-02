@@ -1,4 +1,6 @@
-import { ACTIVE_ITEM_VIEW_QUERY, LEGACY_ACTIVE_ITEM_VIEW_QUERY, type CustomFieldDefinition, type CustomValue, type Expression, type Scalar, type UniversalItem, type ViewSortRule } from './types.js';
+import { ACTIVE_ITEM_VIEW_QUERY, LEGACY_ACTIVE_ITEM_VIEW_QUERY, activeReminders, durationToMs, nextActiveReminderAt, type CustomFieldDefinition, type CustomValue, type Expression, type Scalar, type UniversalItem, type ViewSortRule } from './types.js';
+
+export { durationToMs } from './types.js';
 
 type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'paren' | 'comma' | 'eof';
 interface Token { kind: TokenKind; value: string; at: number }
@@ -142,6 +144,7 @@ export interface DueDateBuckets {
 export interface QueryTemporalOptions { timeZone?: string | undefined; weekStartsOn?: 0 | 1 | undefined }
 
 export type SchedulePeriod = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'next_days' | 'custom';
+export type ReminderPeriodRelation = 'before' | 'in' | 'after';
 
 function calendarDateKey(value: Date, timeZone?: string): string {
   try {
@@ -203,6 +206,18 @@ function scheduleMatchesPeriod(item: UniversalItem, now: Date, options: QueryTem
   return Number.isFinite(due) && due < now.getTime();
 }
 
+function nextReminderMatchesPeriod(item: UniversalItem, now: Date, options: QueryTemporalOptions, period: SchedulePeriod, relation: ReminderPeriodRelation, nextDays: number, customStart: string, customEnd: string): boolean {
+  const reminderAt = nextActiveReminderAt(item);
+  const bounds = schedulePeriodBounds(period, now, options, nextDays, customStart, customEnd);
+  if (!reminderAt || !bounds) return false;
+  const date = new Date(reminderAt);
+  if (!Number.isFinite(date.getTime())) return false;
+  const key = calendarDateKey(date, options.timeZone);
+  if (relation === 'before') return key < bounds.start;
+  if (relation === 'after') return key > bounds.end;
+  return key >= bounds.start && key <= bounds.end;
+}
+
 /** Calendar buckets used by saved Views, evaluated in the workspace timezone. */
 export function dueDateBuckets(item: UniversalItem, now = new Date(), options: QueryTemporalOptions = {}): DueDateBuckets {
   const due = item.schedule?.dueAt ? new Date(item.schedule.dueAt) : undefined;
@@ -253,14 +268,6 @@ function scalar(value: EvalValue): Scalar {
 }
 
 const durationUnits: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000, M: 2_592_000_000, Y: 31_536_000_000 };
-export function durationToMs(value: string): number {
-  const sign = value.startsWith('-') ? -1 : 1; const normalized = value.replace(/^-/, '');
-  const short = /^(\d+(?:\.\d+)?)([smhdw])$/.exec(normalized);
-  if (short) return sign * Number(short[1]) * durationUnits[short[2]!]!;
-  const iso = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(normalized);
-  if (!iso) throw new TypeError(`Unsupported duration: ${value}`);
-  return sign * (Number(iso[1] ?? 0) * durationUnits.Y! + Number(iso[2] ?? 0) * durationUnits.M! + Number(iso[3] ?? 0) * 86_400_000 + Number(iso[4] ?? 0) * 3_600_000 + Number(iso[5] ?? 0) * 60_000 + Number(iso[6] ?? 0) * 1_000);
-}
 
 function readableTimeDistance(milliseconds: number): string {
   if (!Number.isFinite(milliseconds)) throw new TypeError('Expected a valid date');
@@ -356,6 +363,16 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
           String(args[4] ?? ''),
           String(args[5] ?? ''),
         );
+        case 'nextReminderInPeriod': return nextReminderMatchesPeriod(
+          context.item,
+          now,
+          context.temporalOptions ?? {},
+          String(args[0] ?? 'today') as SchedulePeriod,
+          String(args[1] ?? 'in') as ReminderPeriodRelation,
+          Number(args[2] ?? 7),
+          String(args[3] ?? ''),
+          String(args[4] ?? ''),
+        );
         case 'item': {
           const target = context.resolveItem?.(String(args[0] ?? ''));
           return target ? getPath(target, String(args[1] ?? '')) : undefined;
@@ -396,7 +413,8 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     try {
       const relations = relationContext?.(item) ?? {};
       const dueBuckets = dueDateBuckets(item, current, temporalOptions);
-      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
+      const activeReminderList = activeReminders(item);
+      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, hasActiveReminders: activeReminderList.length > 0, nextReminderAt: nextActiveReminderAt(item), ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

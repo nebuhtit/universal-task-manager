@@ -36,14 +36,25 @@ describe('CalendarPage daily-list contract', () => {
     expect(markup).not.toContain('Unscheduled');
   });
 
-  it('offers week/month navigation, a Saved view filter and daily time metrics', () => {
+  it('offers week/month navigation, day-view editing and daily time metrics', () => {
     const markup = renderCalendar(true);
     expect(markup).toContain('Week');
     expect(markup).toContain('Month');
-    expect(markup).toContain('All scheduled items');
+    expect(markup).not.toContain('All scheduled items');
     expect(markup).toContain('30min');
     expect(markup).toContain('free 23h 30min');
-    expect(markup).toContain('Calendar settings');
+    expect(markup).toContain('Edit calendar day view');
+  });
+
+  it('shows an active Event opens to Due range on every intersected day', () => {
+    const now = new Date('2026-08-26T10:00:00.000Z');
+    const workspace = createWorkspace('Calendar', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    const item = createItem('Spanning active range', 'task', now);
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-25T08:00:00.000Z', dueAt: '2026-08-27T18:00:00.000Z', estimatedDuration: 'PT1H' };
+    workspace.items[item.id] = item;
+    const markup = renderToStaticMarkup(<CalendarPage workspace={workspace} now={now} commit={vi.fn()} onEditItem={vi.fn()} onState={vi.fn()} createUiItem={(title, preset, createdAt) => createItem(title ?? '', preset, createdAt)} />);
+    expect(markup).toContain('Spanning active range');
   });
 
   it('uses semantic tokens and mobile horizontal week navigation', () => {

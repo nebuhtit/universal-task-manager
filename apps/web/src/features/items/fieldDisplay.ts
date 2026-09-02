@@ -1,9 +1,11 @@
 import {
   APP_VERSION,
+  activeReminders,
   dueDateBuckets,
   evaluateFormulas,
   evaluateItemScripts,
   evaluateScriptsForItem,
+  reminderTime,
   type ItemPreset,
   type ItemScriptField,
   type UniversalItem,
@@ -43,7 +45,8 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'progress.target', label: 'Progress target', group: 'Progress & habit' }, { path: 'progress.unit', label: 'Progress unit', group: 'Progress & habit' },
   { path: 'habit.target', label: 'Habit target', group: 'Progress & habit' }, { path: 'habit.unit', label: 'Habit unit', group: 'Progress & habit' },
   { path: 'habit.streakMode', label: 'Habit streak mode', group: 'Progress & habit' }, { path: 'habit.completedDates', label: 'Habit completed dates', group: 'Progress & habit' },
-  { path: 'reminders', label: 'Reminders', group: 'Connections' }, { path: 'relations', label: 'Relations', group: 'Connections' },
+  { path: 'reminders', label: 'Reminders', group: 'Reminders' }, { path: 'hasActiveReminders', label: 'Has active reminders', group: 'Reminders' },
+  { path: 'nextReminderAt', label: 'Next active reminder', group: 'Reminders' }, { path: 'relations', label: 'Relations', group: 'Connections' },
   { path: 'subtasks', label: 'Subtasks', group: 'Connections' }, { path: 'parent', label: 'Parent item', group: 'Connections' },
   { path: 'isSubtask', label: 'Subtask', group: 'Connections' }, { path: 'isParent', label: 'Parent item', group: 'Connections' },
   { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
@@ -121,7 +124,7 @@ export const exampleViewFieldValue = (path: string): string => {
     'recurrence.closeAt': 'Next activation', 'recurrence.anchor': 'Scheduled time', 'recurrence.autoRenew': 'Yes',
     'progress.mode': 'Counter', 'progress.current': '2', 'progress.target': '4', 'progress.unit': 'chapters',
     'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
-    reminders: 'Mon 09:00 · Thu 17:00', relations: 'Related: Project brief', attachments: 'Research link', 'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar',
+    reminders: 'Mon 09:00 · normal, Thu 17:00 · urgent', hasActiveReminders: 'Yes', nextReminderAt: 'Mon 09:00', relations: 'Related: Project brief', attachments: 'Research link', 'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar',
     'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
     'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', cycleHistory: '4 finished cycles', subtasks: 'Draft outline, Review notes', parent: 'Quarterly review',
     isSubtask: 'Yes', isParent: 'Yes', parentDepth: '1', childDepth: '2', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
@@ -143,6 +146,15 @@ export const formatComputedDuration = (milliseconds: number): string => {
 
 export const formatScriptResult = (value: unknown, kind: ItemScriptField['resultKind']): string => kind === 'duration' && typeof value === 'number' ? formatComputedDuration(value) : String(value ?? '—');
 
+const reminderLabels = (language: WorkspaceLanguage = 'en') => ({
+  en: { available: 'Available from', start: 'Event opens', due: 'Due', end: 'Event ends', before: 'before', after: 'after', at: 'At', unresolved: 'Unresolved time', normal: 'normal', urgent: 'urgent', critical: 'critical' },
+  ru: { available: 'Доступно с', start: 'Начало события', due: 'Срок', end: 'Конец события', before: 'до', after: 'после', at: 'В', unresolved: 'Время не определено', normal: 'обычное', urgent: 'срочное', critical: 'критическое' },
+  es: { available: 'Disponible desde', start: 'Inicio del evento', due: 'Fecha límite', end: 'Fin del evento', before: 'antes de', after: 'después de', at: 'En', unresolved: 'Hora sin resolver', normal: 'normal', urgent: 'urgente', critical: 'crítico' },
+  de: { available: 'Verfügbar ab', start: 'Ereignisbeginn', due: 'Fällig', end: 'Ereignisende', before: 'vor', after: 'nach', at: 'Um', unresolved: 'Zeit nicht bestimmbar', normal: 'normal', urgent: 'dringend', critical: 'kritisch' },
+  fr: { available: 'Disponible à partir de', start: 'Début de l’événement', due: 'Échéance', end: 'Fin de l’événement', before: 'avant', after: 'après', at: 'À', unresolved: 'Heure non résolue', normal: 'normal', urgent: 'urgent', critical: 'critique' },
+  ko: { available: '사용 가능', start: '이벤트 시작', due: '마감', end: '이벤트 종료', before: '전', after: '후', at: '시간', unresolved: '시간 미확정', normal: '일반', urgent: '긴급', critical: '매우 긴급' },
+}[language]);
+
 export const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument, now = new Date(), viewScripts: readonly ItemScriptField[] = []): unknown => {
   if (field === 'description') field = 'bodyMarkdown';
   if (field === 'area' || field === 'areas') return [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])])];
@@ -155,6 +167,26 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
       if (Number.isFinite(milliseconds) && milliseconds >= 0) return toIsoDuration(milliseconds / 60_000, 'minutes');
     }
     return undefined;
+  }
+  if (field === 'hasActiveReminders') return activeReminders(item).length > 0;
+  if (field === 'nextReminderAt') return activeReminders(item).map((reminder) => reminderTime(item, reminder)).filter((value): value is string => Boolean(value)).sort((left, right) => Date.parse(left) - Date.parse(right))[0];
+  if (field === 'reminders') {
+    const labels = reminderLabels(workspace?.calendarPreferences.language);
+    const unitLabels = { seconds: 'sec', minutes: 'min', hours: 'h', days: 'd', weeks: 'wk', months: 'mo', years: 'y' } as const;
+    return activeReminders(item).map((reminder) => {
+      const resolved = reminderTime(item, reminder);
+      if (resolved) return { reminder, resolved, label: `${formatViewDate(resolved, true, workspace?.calendarPreferences.language)} · ${labels[reminder.urgency]}` };
+      if (reminder.mode === 'absolute') return { reminder, label: `${labels.unresolved} · ${labels[reminder.urgency]}` };
+      const before = reminder.offset?.startsWith('-') === true;
+      const normalized = reminder.offset?.replace(/^-/, '');
+      const match = /^(?:P(\d+)([DWMY])|PT(\d+)([HMS]))$/.exec(normalized ?? '');
+      const amount = Number(match?.[1] ?? match?.[3] ?? 0);
+      const code = match?.[2] ?? match?.[4];
+      const unit = code === 'S' ? 'seconds' : code === 'M' ? (match?.[3] ? 'minutes' : 'months') : code === 'H' ? 'hours' : code === 'W' ? 'weeks' : code === 'Y' ? 'years' : 'days';
+      const relation = reminder.relativeTo ?? 'due';
+      const timing = amount ? `${amount}${unitLabels[unit]} ${before ? labels.before : labels.after} ${labels[relation]}` : `${labels.at} ${labels[relation]}`;
+      return { reminder, label: `${timing} · ${labels[reminder.urgency]}` };
+    }).sort((left, right) => left.resolved && right.resolved ? Date.parse(left.resolved) - Date.parse(right.resolved) : left.resolved ? -1 : right.resolved ? 1 : 0).map((entry) => entry.label);
   }
   if (workspace && field === 'subtasks') return item.relations.filter((relation) => relation.type === 'parent').map((relation) => workspace.items[relation.targetId]?.title ?? relation.targetId);
   if (workspace && field === 'parent') {

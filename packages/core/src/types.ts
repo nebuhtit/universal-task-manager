@@ -1,11 +1,20 @@
-export const SCHEMA_VERSION = '1.21.0';
+export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.95.5';
-export const APP_RELEASED_AT = '2026-09-01T20:13:37.000Z';
+export const APP_VERSION = '1.96.0';
+export const APP_RELEASED_AT = '2026-09-01T20:48:59.716Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
+export const LEGACY_STANDARD_VIEW_SORT_SOURCE = 'schedule.dueAt asc nulls last\nschedule.startAt asc nulls last\norganizationOrder asc nulls last';
+export const STANDARD_ATTENTION_VIEW_SORT_SOURCE = 'organizationOrder desc nulls last\nattentionOrder asc nulls last\ndurationOrder desc nulls last\ncreatedAt desc nulls last';
+
+export const standardAttentionViewSort = () => [
+  { field: 'organizationOrder', direction: 'desc' as const, nulls: 'last' as const },
+  { field: 'attentionOrder', direction: 'asc' as const, nulls: 'last' as const },
+  { field: 'durationOrder', direction: 'desc' as const, nulls: 'last' as const },
+  { field: 'createdAt', direction: 'desc' as const, nulls: 'last' as const },
+];
 
 export type ItemState = 'open' | 'done' | 'cancelled' | 'auto_closed' | 'archived';
 export type ItemPreset = 'task' | 'event' | 'habit' | 'blank';
@@ -99,6 +108,44 @@ export interface Reminder {
   repeatEvery?: ISODuration;
   repeatUntilAcknowledged: boolean;
   acknowledgedAt?: ISODateTime;
+}
+
+const durationUnits: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000, M: 2_592_000_000, Y: 31_536_000_000 };
+
+export function durationToMs(value: string): number {
+  const sign = value.startsWith('-') ? -1 : 1; const normalized = value.replace(/^-/, '');
+  const short = /^(\d+(?:\.\d+)?)([smhdw])$/.exec(normalized);
+  if (short) return sign * Number(short[1]) * durationUnits[short[2]!]!;
+  const iso = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(normalized);
+  if (!iso) throw new TypeError(`Unsupported duration: ${value}`);
+  return sign * (Number(iso[1] ?? 0) * durationUnits.Y! + Number(iso[2] ?? 0) * durationUnits.M! + Number(iso[3] ?? 0) * 86_400_000 + Number(iso[4] ?? 0) * 3_600_000 + Number(iso[5] ?? 0) * 60_000 + Number(iso[6] ?? 0) * 1_000);
+}
+
+/** Resolves absolute and relative reminders without mutating the item. Invalid or incomplete reminders stay unresolved. */
+export function reminderTime(item: UniversalItem, reminder: Reminder): string | undefined {
+  if (reminder.acknowledgedAt) return undefined;
+  if (reminder.mode === 'absolute') {
+    const timestamp = reminder.at ? Date.parse(reminder.at) : Number.NaN;
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+  }
+  const base = reminder.relativeTo === 'available' ? item.schedule?.availableFrom
+    : reminder.relativeTo === 'start' ? item.schedule?.startAt
+      : reminder.relativeTo === 'end' ? item.schedule?.endAt : item.schedule?.dueAt;
+  const baseTime = base ? Date.parse(base) : Number.NaN;
+  if (!Number.isFinite(baseTime)) return undefined;
+  try {
+    const timestamp = baseTime + (reminder.offset ? durationToMs(reminder.offset) : 0);
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+  } catch { return undefined; }
+}
+
+export function activeReminders(item: UniversalItem): Reminder[] {
+  return item.reminders.filter((reminder) => !reminder.acknowledgedAt);
+}
+
+export function nextActiveReminderAt(item: UniversalItem): string | undefined {
+  return activeReminders(item).map((reminder) => reminderTime(item, reminder)).filter((value): value is string => Boolean(value))
+    .sort((left, right) => Date.parse(left) - Date.parse(right))[0];
 }
 
 function reminderMoment(value?: ISODateTime): string {
@@ -483,6 +530,16 @@ export interface GoogleCalendarPreferences {
   lastSyncedAt?: ISODateTime;
   lastError?: string;
 }
+export type CalendarScheduleSource = 'event_open' | 'event' | 'active' | 'due';
+export interface CalendarDayViewPreferences {
+  /** Additional filter applied inside the selected day boundary. */
+  filter: QuerySpec;
+  /** Schedule relationships matched with OR inside the fixed selected day. */
+  scheduleSources: CalendarScheduleSource[];
+  fields: string[];
+  sort: ViewSortRule[];
+  sortSource?: string;
+}
 export interface CalendarPreferences {
   timezone: string;
   lastMode: CalendarViewMode;
@@ -495,8 +552,7 @@ export interface CalendarPreferences {
   timeFormat: '24h';
   language: WorkspaceLanguage;
   appearance: { mode: 'system' | 'light' | 'dark' | 'scheduled'; lightAt: string; darkAt: string; tickSound: boolean; uiSound: boolean; /** Records the one-time upgrade that enabled calm sounds by default. */ soundDefaultsVersion?: 1 };
-  selectedViewId?: string;
-  includeStates: ItemState[];
+  dayView: CalendarDayViewPreferences;
   /** Opt-in local operation logs used for troubleshooting; never uploaded automatically. */
   diagnosticsEnabled: boolean;
   /** Optional inline guides and explanatory copy; disabled by default for a compact interface. */
@@ -587,8 +643,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
   const dashboardId = createId();
   const activeQuery = ACTIVE_ITEM_VIEW_QUERY;
   const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
-  const defaultSort = [{ field: 'schedule.dueAt', direction: 'asc' as const, nulls: 'last' as const }];
-  const eventSort = [{ field: 'schedule.startAt', direction: 'asc' as const, nulls: 'last' as const }, { field: 'schedule.endAt', direction: 'asc' as const, nulls: 'last' as const }];
+  const defaultSort = standardAttentionViewSort();
   return {
     schemaVersion: SCHEMA_VERSION,
     workspaceId: createId(),
@@ -611,6 +666,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         query: { source: activeQuery },
         renderer: 'list',
         sort: defaultSort.map((rule) => ({ ...rule })),
+        sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
         fields: [...defaultFields],
       },
       [todayId]: {
@@ -618,7 +674,8 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         name: 'Today',
         query: { source: `${activeQuery} && (eventToday == true || dueTodayOrOverdue == true)` },
         renderer: 'list',
-        sort: eventSort.map((rule) => ({ ...rule })),
+        sort: defaultSort.map((rule) => ({ ...rule })),
+        sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
         fields: [...defaultFields],
       },
       [weekId]: {
@@ -626,7 +683,8 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         name: 'This week',
         query: { source: `${activeQuery} && (eventThisWeek == true || dueThisWeekOrOverdue == true)` },
         renderer: 'list',
-        sort: eventSort.map((rule) => ({ ...rule })),
+        sort: defaultSort.map((rule) => ({ ...rule })),
+        sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
         fields: [...defaultFields],
       },
     },
@@ -650,7 +708,16 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, sleepSchedule: { wake: '08:00', sleep: '22:00' },
       weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 },
-      includeStates: ['open', 'done'],
+      dayView: {
+        filter: { source: 'state == "open" || state == "done"' },
+        scheduleSources: ['event_open', 'event', 'active', 'due'],
+        fields: [...defaultFields, 'schedule.estimatedDuration', 'external.provider'],
+        sort: [
+          { expression: 'schedule.startAt', direction: 'asc', nulls: 'first' },
+          { expression: 'schedule.dueAt', direction: 'asc', nulls: 'first' },
+        ],
+        sortSource: 'schedule.startAt asc nulls first\nschedule.dueAt asc nulls first',
+      },
       diagnosticsEnabled: true,
       showExplanations: false,
       testClock: { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours', startedAt: now.toISOString(), virtualAt: now.toISOString() },
