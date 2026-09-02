@@ -24,6 +24,18 @@ export interface ItemSetMetrics {
   remainingDurationMs: number;
 }
 
+export type OrganizationDeletionKind = 'area' | 'project' | 'tag';
+
+export interface OrganizationDeletionImpact {
+  kind: OrganizationDeletionKind;
+  name: string;
+  itemCount: number;
+  projectLinkCount: number;
+  savedViewCount: number;
+  viewDefaultCount: number;
+  filterReferenceCount: number;
+}
+
 const validDate = (value: string | undefined, fallback: string) => value && Number.isFinite(Date.parse(value)) ? value : fallback;
 const uniqueNames = (values: Array<string | undefined>) => [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 const itemAreas = (item: Pick<UniversalItem, 'areas' | 'area'>) => uniqueNames([...(item.areas ?? []), item.area]);
@@ -236,6 +248,104 @@ const replaceQuotedName = (source: string | undefined, from: string, to: string)
   const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return source.replace(new RegExp(`(["'])${escaped}\\1`, 'g'), (match, quote: string) => `${quote}${to}${quote}`);
 };
+const referencesQuotedName = (source: string | undefined, name: string) => replaceQuotedName(source, name, '__utm_deleted_reference__') !== source;
+const normalizedDeletionName = (kind: OrganizationDeletionKind, name: string) => kind === 'tag' ? name.trim().replace(/^#+/, '') : name.trim();
+const paraScope = (view: WorkspaceDocument['views'][string]): { kind?: string; area?: string | null; project?: string | null; tag?: string | null } | undefined => {
+  const raw = view.extensions?.['utm:para-scope'];
+  if (typeof raw !== 'string') return undefined;
+  try { return JSON.parse(raw) as { kind?: string; area?: string | null; project?: string | null; tag?: string | null }; }
+  catch { return undefined; }
+};
+const viewDependsOnOrganization = (view: WorkspaceDocument['views'][string], kind: OrganizationDeletionKind, name: string) => {
+  const scope = paraScope(view);
+  if (kind === 'area') return view.area === name || scope?.area === name;
+  if (kind === 'project') return view.project === name || scope?.project === name;
+  return scope?.kind === 'tag' && scope.tag === name;
+};
+const defaultReferencesOrganization = (view: WorkspaceDocument['views'][string], kind: OrganizationDeletionKind, name: string) => {
+  const defaults = view.creationDefaults;
+  if (!defaults) return false;
+  if (kind === 'tag') return Array.isArray(defaults.tags) && defaults.tags.includes(name);
+  const singular = kind; const plural = `${kind}s`;
+  return defaults[singular] === name || Array.isArray(defaults[plural]) && defaults[plural].includes(name);
+};
+
+/** Counts every structured mutation before an Area, Project or Tag is deleted. */
+export function organizationDeletionImpact(workspace: WorkspaceDocument, kind: OrganizationDeletionKind, rawName: string): OrganizationDeletionImpact {
+  const name = normalizedDeletionName(kind, rawName);
+  const itemCount = Object.values(workspace.items).filter((item) => kind === 'area'
+    ? itemAreas(item).includes(name)
+    : kind === 'project' ? itemProjects(item).includes(name) : item.tags.includes(name)).length;
+  const projectLinkCount = kind === 'area' ? Object.values(workspace.projectDefinitions).filter((project) => uniqueNames([...(project.areas ?? []), project.area]).includes(name)).length : 0;
+  const views = Object.values(workspace.views);
+  const savedViewCount = views.filter((view) => viewDependsOnOrganization(view, kind, name)).length;
+  const retainedViews = views.filter((view) => !viewDependsOnOrganization(view, kind, name));
+  const viewDefaultCount = retainedViews.filter((view) => defaultReferencesOrganization(view, kind, name)).length;
+  const filterReferenceCount = retainedViews.filter((view) => referencesQuotedName(view.query.source, name) || referencesQuotedName(view.sortSource, name)).length;
+  return { kind, name, itemCount, projectLinkCount, savedViewCount, viewDefaultCount, filterReferenceCount };
+}
+
+/**
+ * Deletes an organization entity and all structured references in one mutation.
+ * Free-form DSL and scripts are deliberately left untouched because guessing at
+ * executable user text can broaden a View or change its meaning.
+ */
+export function deleteOrganizationDefinition(workspace: WorkspaceDocument, kind: OrganizationDeletionKind, rawName: string, now = new Date()): OrganizationDeletionImpact {
+  const impact = organizationDeletionImpact(workspace, kind, rawName);
+  const { name } = impact;
+  const timestamp = now.toISOString();
+  const remove = (values: string[] | undefined) => uniqueNames(values ?? []).filter((value) => value !== name);
+  for (const item of Object.values(workspace.items)) {
+    const matched = kind === 'area' ? itemAreas(item).includes(name) : kind === 'project' ? itemProjects(item).includes(name) : item.tags.includes(name);
+    if (!matched) continue;
+    if (kind === 'area') { item.areas = remove(item.areas); if (item.area === name) delete item.area; }
+    else if (kind === 'project') { item.projects = remove(item.projects); if (item.project === name) delete item.project; }
+    else item.tags = remove(item.tags);
+    item.updatedAt = timestamp; item.revision += 1;
+  }
+  if (kind === 'area') {
+    delete workspace.areaDefinitions[name];
+    for (const project of Object.values(workspace.projectDefinitions)) {
+      const before = uniqueNames([...(project.areas ?? []), project.area]);
+      if (!before.includes(name)) continue;
+      project.areas = before.filter((area) => area !== name); delete project.area; project.updatedAt = timestamp;
+    }
+  } else if (kind === 'project') delete workspace.projectDefinitions[name];
+
+  const removedViewIds = new Set(Object.values(workspace.views).filter((view) => viewDependsOnOrganization(view, kind, name)).map((view) => view.id));
+  for (const viewId of removedViewIds) delete workspace.views[viewId];
+  workspace.viewOrder = workspace.viewOrder.filter((viewId) => !removedViewIds.has(viewId));
+  for (const dashboard of Object.values(workspace.dashboards)) {
+    for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) {
+      const viewId = dashboard.widgets[index]?.viewId;
+      if (viewId && removedViewIds.has(viewId)) dashboard.widgets.splice(index, 1);
+    }
+  }
+  for (const view of Object.values(workspace.views)) {
+    const defaults = view.creationDefaults;
+    if (!defaults) continue;
+    if (kind === 'tag') {
+      if (Array.isArray(defaults.tags)) defaults.tags = remove(defaults.tags as string[]);
+    } else {
+      if (defaults[kind] === name) delete defaults[kind];
+      const plural = `${kind}s`;
+      if (Array.isArray(defaults[plural])) defaults[plural] = remove(defaults[plural] as string[]);
+    }
+  }
+  const preferences = workspace.organizationPreferences ??= defaultOrganizationPreferences();
+  if (kind === 'tag') {
+    const remainingTags = [...new Set([
+      ...preferences.tagOrder.filter((tag): tag is string => tag !== null && tag !== name),
+      ...Object.values(workspace.items).flatMap((item) => item.tags).filter((tag) => tag !== name),
+    ])];
+    preferences.tagOrder = normalizedOrder(preferences.tagOrder.filter((tag) => tag !== name), remainingTags);
+    if (preferences.tagAccents) delete preferences.tagAccents[name];
+  } else if (kind === 'area') preferences.areaOrder = normalizedOrder(preferences.areaOrder.filter((area) => area !== name), Object.keys(workspace.areaDefinitions));
+  else preferences.projectOrder = normalizedOrder(preferences.projectOrder.filter((project) => project !== name), Object.keys(workspace.projectDefinitions));
+  preferences.priorityOrder = normalizedOrganizationPriorityOrder(preferences.priorityOrder.filter((entry) => entry.name !== name || entry.kind !== kind), workspace);
+  workspace.updatedAt = timestamp;
+  return impact;
+}
 
 /** Rename an Area and every structured reference to it. Returns false on invalid or conflicting names. */
 export function renameAreaDefinition(workspace: WorkspaceDocument, rawFrom: string, rawTo: string, now = new Date()): boolean {
@@ -499,9 +609,8 @@ export function reorderTagSubset(workspace: WorkspaceDocument, orderedTags: Arra
 export function organizationPriorityRank(workspace: WorkspaceDocument, item: UniversalItem): number {
   const areas = itemAreas(item); const projects = itemProjects(item); const tags = uniqueNames(item.tags);
   const order = orderedOrganizationPriorityEntries(workspace);
-  const projectBelongsTo = (area: string | null) => projects.some((project) => projectScopes(workspace, project).includes(area));
   const matches = (entry: OrganizationPriorityEntry) => entry.kind === 'area'
-    ? (entry.name === null ? areas.length === 0 : areas.includes(entry.name)) && !projectBelongsTo(entry.name)
+    ? entry.name === null ? areas.length === 0 : areas.includes(entry.name)
     : entry.kind === 'project'
       ? entry.name === null ? projects.length === 0 : projects.includes(entry.name)
       : entry.name === null ? tags.length === 0 : tags.includes(entry.name);

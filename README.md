@@ -6,7 +6,7 @@ Universal Task Manager (UTM) is an installable React PWA built around one flexib
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v1.96.1** · workspace schema: **1.22.0**
+Current release: **v1.96.3** · workspace schema: **1.22.0**
 
 > [!IMPORTANT]
 > UTM is currently **beta software**. Your workspace is stored on your device, not in a hosted account. Create encrypted `.utmb` backups regularly. Clearing browser/PWA storage or removing an installed web app can erase its local workspace.
@@ -123,6 +123,15 @@ Saved Views are reusable queries over the same item database — not separate co
 
 The query and formula language is parsed by UTM's allowlisted DSL. It does not use JavaScript `eval`.
 
+### Areas, Projects, Tags, and Unified priority
+
+- Manage Areas, Projects, and Tags from the PARA page, including names, colors, Home pins, and one mixed drag-and-drop priority ladder.
+- Rank an item by its highest matching Area, Project, or Tag in **Unified priority**. No relationship type receives an implicit preference.
+- Delete an Area, Project, or Tag only after reviewing exact impact counts and typing its name. Structured item links and defaults are cleaned atomically; Projects survive Area deletion and are detached from it.
+- Remove scoped PARA Views and their dashboard widgets when their organization entity is deleted.
+- Leave free-form View DSL and sort expressions untouched rather than guessing at executable user text; the confirmation warns when those expressions mention the deleted name.
+- Create an encrypted backup before a large organization edit if the removed relationships may be needed later.
+
 ### All Items and trash
 
 - Browse active, done, auto-closed, cancelled, and archived items in persisted collapsible sections.
@@ -221,6 +230,8 @@ Readable JSON, CSV, Excel, and iCalendar files are plaintext. Use `.utmb` when t
 - Item titles and user content are never automatically translated.
 - Optional accelerated test clock, for example one simulated day every 30 real seconds, for testing recurrence and active-range behavior.
 
+Settings show the exact application version and short build commit at the top. The collapsed **Guide → Presets** section is generated from the same defaults used for a new workspace, so current starter Views, Calendar Day View behavior, and workspace defaults remain inspectable without duplicating a separate manual list.
+
 ## Security and privacy
 
 UTM is local-first by default:
@@ -229,7 +240,10 @@ UTM is local-first by default:
 - The local data key is random.
 - A password derives a wrapping key through Argon2id with a minimum of 19 MiB memory and two operations.
 - Workspace blocks use authenticated XChaCha20-Poly1305 encryption with unique nonces and associated data.
-- The password and unwrapped data key stay in memory only. Locking the app clears the in-memory key; a full restart requires the password again.
+- By default, the password and unwrapped data key stay in memory only. Locking the app clears the in-memory key; a full restart requires the password again.
+- Password protection can be disabled for one browser profile only after the current password is verified. The workspace block remains encrypted, but the local unlock key is then stored in that profile, so anyone with profile access can open it.
+- Changing the password rewraps the same random data key and updates current verified browser mirrors without rewriting workspace data. Previously downloaded backups and saved pre-migration versions retain their old passwords.
+- A valid old `.utmb` backup can be opened with its old password, re-encrypted with a new password, and verified before a new file is downloaded. The original file is never overwritten, and damaged input is rejected.
 - Encrypted `.utmb` files contain the complete workspace, including items, settings, Views, automations, logs, tombstones, and merge history.
 - Automerge history inside `.utmb` supports deterministic manual merge between devices.
 - GitHub Pages serves static application files. It does not receive the local workspace.

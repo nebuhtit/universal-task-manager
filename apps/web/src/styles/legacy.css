@@ -317,7 +317,7 @@ html[data-explanations='off'] .display-fields-help,
 html[data-explanations='off'] .all-items-settings-note,
 html[data-explanations='off'] .json-editor > .hint,
 html[data-explanations='off'] .organization-explanation,
-html[data-explanations='off'] .settings-card > p:not(.eyebrow):not(.error):not(.empty),
+html[data-explanations='off'] .settings-card > p:not(.eyebrow):not(.error):not(.empty):not([role='status']),
 html[data-explanations='off'] .settings-card .hint,
 html[data-explanations='off'] .page-title > div > p:not(.eyebrow),
 html[data-explanations='off'] .backup-notice > span {
@@ -532,6 +532,18 @@ label.check input { width: 18px; height: 18px; }
 .settings-page-shell > *,
 .settings-page > * { width: 100%; max-width: 100%; min-width: 0; }
 .settings-page .page-title { margin-bottom: 0; }
+.settings-release-info { font-size: var(--font-size-caption); opacity: .72; }
+.settings-guide { display: grid; gap: var(--space-3); }
+.settings-guide-section { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.settings-guide-section > summary { padding: var(--space-3); cursor: pointer; font-weight: var(--font-weight-semibold); }
+.settings-guide-section > div { display: grid; gap: var(--space-4); padding: 0 var(--space-3) var(--space-3); }
+.settings-guide-section h3,
+.settings-guide-section p,
+.settings-guide-section ul,
+.settings-guide-section dl { margin: 0; }
+.settings-guide-section ul { display: grid; gap: var(--space-2); padding-inline-start: var(--space-5); }
+.settings-guide-section li small { display: block; margin-top: var(--space-1); color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.settings-guide-section dd { white-space: pre-line; overflow-wrap: anywhere; }
 .backup-controls { margin-bottom: 0; }
 .backup-controls > button { display: block; width: 100%; }
 .backup-controls > button + button { margin-top: var(--space-2); }
@@ -560,6 +572,7 @@ label.check input { width: 18px; height: 18px; }
 .settings-card hr { border: 0; border-top: 1px solid var(--line); margin: 25px 0; }
 .settings-actions { display: grid; gap: 7px; }
 .settings-actions .secondary { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.password-protection-settings [role='status'] { color: var(--color-success); }
 .background-push { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 13px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
 .background-push strong, .background-push small { display: block; }
 .background-push small, .push-privacy + .hint { color: var(--muted); font-size: 11px; margin-top: 3px; }

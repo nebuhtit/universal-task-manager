@@ -1,5 +1,7 @@
 import type { WorkspaceLanguage } from '@utm/core';
 import { release1961Translations } from './i18n-release-1961';
+import { release1962Translations } from './i18n-release-1962';
+import { release1963Translations } from './i18n-release-1963';
 
 export const interfaceLanguages: Array<{ value: WorkspaceLanguage; label: string }> = [
   { value: 'en', label: 'English' },
@@ -416,6 +418,8 @@ Object.assign(extraTranslations.ko, {
 
 for (const language of ['ru', 'es', 'de', 'fr', 'ko'] as const) {
   Object.assign(extraTranslations[language], release1961Translations[language]);
+  Object.assign(extraTranslations[language], release1962Translations[language]);
+  Object.assign(extraTranslations[language], release1963Translations[language]);
 }
 
 type LocalizedValue = { source: string; applied: string };

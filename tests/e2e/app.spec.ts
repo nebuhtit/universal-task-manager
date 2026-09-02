@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.96\.1 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.96\.3 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -120,12 +120,61 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).locator(':scope > summary').click();
-  await expect(page.getByText('v1.96.1', { exact: true })).toBeVisible();
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v1\.96\.3 · build [0-9a-f]{7}(?: · local changes)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
+});
+
+test('changes the password and toggles the password prompt only after current-password verification', async ({ page }) => {
+  test.setTimeout(60_000);
+  const oldPassword = 'correct horse battery staple';
+  const newPassword = 'new correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('Password controls');
+  await page.getByLabel('Password', { exact: true }).fill(oldPassword);
+  await page.getByLabel('Confirm password').fill(oldPassword);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+
+  await goToSettings(page);
+  const protection = page.locator('details.settings-disclosure').filter({ hasText: 'Password protection' }).first();
+  await protection.locator(':scope > summary').click();
+  await protection.getByLabel('Current password').fill(oldPassword);
+  await protection.getByLabel('New password', { exact: true }).fill(newPassword);
+  await protection.getByLabel('Confirm new password', { exact: true }).fill(newPassword);
+  await protection.getByRole('button', { name: 'Change password' }).click();
+  await expect(protection.getByText(/Password changed/)).toBeVisible();
+
+  await lockWorkspace(page);
+  await page.getByLabel('Password').fill(oldPassword);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await page.getByLabel('Password').fill(newPassword);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+
+  await goToSettings(page);
+  const openedProtection = page.locator('details.settings-disclosure').filter({ hasText: 'Password protection' }).first();
+  await openedProtection.locator(':scope > summary').click();
+  await openedProtection.getByLabel('Current password').fill('wrong current password');
+  await openedProtection.getByRole('button', { name: 'Disable password on this device' }).click();
+  await expect(openedProtection.getByRole('alert')).toHaveText('Current password is incorrect');
+  await expect(openedProtection.getByText('Required', { exact: true })).toBeVisible();
+  await openedProtection.getByLabel('Current password').fill(newPassword);
+  await openedProtection.getByRole('button', { name: 'Disable password on this device' }).click();
+  await expect(openedProtection.getByText('Disabled on this device', { exact: true })).toBeVisible();
+  await page.reload();
+  if ((page.viewportSize()?.width ?? 0) > 620) await expect(page.locator('.sidebar').getByRole('button', { name: 'Settings' })).toBeVisible();
+  else await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible();
+
+  await goToSettings(page);
+  const disabledProtection = page.locator('details.settings-disclosure').filter({ hasText: 'Password protection' }).first();
+  await disabledProtection.locator(':scope > summary').click();
+  await disabledProtection.getByLabel('Current password').fill(newPassword);
+  await disabledProtection.getByRole('button', { name: 'Require password on startup' }).click();
+  await expect(disabledProtection.getByText('Required', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
 });
 
 test('shows the rebuilt Calendar without reviving Automations or beta labels', async ({ page }) => {
@@ -184,6 +233,32 @@ test('creates and manually orders reusable tags from PARA', async ({ page }) => 
 
   await goHome(page);
   await expect(page.locator('.views-stack').getByRole('heading', { name: '#focus', exact: true })).toBeVisible();
+});
+
+test('deletes an organization entity only after an impact warning and exact-name confirmation', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Organization deletion');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await goToPara(page);
+  await page.getByLabel('New Area').fill('Work');
+  await page.getByRole('button', { name: 'Add Area' }).click();
+  await page.locator('.organization-area-groups').getByRole('button', { name: 'Work', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete Area' }).click();
+
+  const dialog = page.getByRole('dialog', { name: /Delete Area/ });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAccessibleDescription('This operation can change many workspace records.');
+  await expect(dialog.getByText(/scoped saved views/)).toBeVisible();
+  const confirmDelete = dialog.getByRole('button', { name: 'Delete permanently' });
+  await expect(confirmDelete).toBeDisabled();
+  await dialog.getByLabel('Deletion confirmation').fill('work');
+  await expect(confirmDelete).toBeDisabled();
+  await dialog.getByLabel('Deletion confirmation').fill('Work');
+  await confirmDelete.click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.organization-area-groups').getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
 });
 
 test('quick-captures from PARA and toggles the Project view on Home', async ({ page }) => {
@@ -365,9 +440,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(page.locator('.expanded-views-stack').locator('.view-section').filter({ hasText: 'All items' })).toBeVisible();
 
   await goToSettings(page);
-  await page.getByText('Data, notifications and application', { exact: true }).click();
-  await expect(page.getByText(/^v\d+\.\d+\.\d+$/, { exact: true })).toBeVisible();
-  await expect(page.getByText('Released', { exact: true })).toBeVisible();
+  await expect(page.locator('.settings-release-info')).toContainText(/^Universal Task Manager · v\d+\.\d+\.\d+ · build /);
 });
 
 test('mobile shell stays usable at phone width', async ({ page }) => {
@@ -394,11 +467,11 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await goToSettings(page);
 
   const sections = page.locator('.settings-page-shell details.settings-disclosure');
-  await expect(sections).toHaveCount(8);
+  await expect(sections).toHaveCount(10);
   expect(await sections.evaluateAll((elements) => elements.every((element) => !(element as HTMLDetailsElement).open))).toBe(true);
   await sections.evaluateAll((elements) => elements.forEach((element) => { (element as HTMLDetailsElement).open = true; }));
   const cards = page.locator('.settings-page-shell .settings-card');
-  await expect(cards).toHaveCount(8);
+  await expect(cards).toHaveCount(10);
   const boxes = await cards.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { left: box.left, right: box.right };
@@ -535,7 +608,7 @@ test('edited view parameters change results and survive reload', async ({ page }
   await openViewEditorSection(page, 'Visual setup');
   await expect(page.locator('.visual-query-builder').getByText('1. Filter items', { exact: true })).toBeVisible();
   await expect(page.locator('.visual-query-builder').getByText('Show in results', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.view-editor details.view-editor-section').filter({ hasText: 'Show in results' })).toHaveCount(1);
+  await expect(page.locator('.view-editor details.view-editor-section > summary').filter({ hasText: 'Show in results' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Definition JSON', exact: true })).toBeHidden();
   await page.getByText('Export view', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Definition JSON', exact: true })).toBeVisible();
@@ -760,7 +833,7 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   const sortField = page.getByRole('combobox', { name: 'Sort field 1' });
   await expect(sortField.locator('option[value="priority"]')).toHaveCount(1);
   await sortField.selectOption('priority');
-  await expect(page.getByLabel('SQL-like sorting')).toHaveValue('priority asc nulls last');
+  await expect(page.getByLabel('SQL-like sorting')).toHaveValue('priority desc nulls last\nattentionOrder asc nulls last\ndurationOrder desc nulls last\ncreatedAt desc nulls last');
   await openViewEditorSection(page, 'Visual setup');
   await openViewEditorSection(page, 'Show in results');
   await page.getByRole('button', { name: 'Hide all' }).click();

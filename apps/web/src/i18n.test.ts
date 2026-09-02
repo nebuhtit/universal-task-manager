@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { translateInterfaceText } from './i18n';
 import { release1961TranslationKeys } from './i18n-release-1961';
+import { release1962TranslationKeys } from './i18n-release-1962';
+import { release1963TranslationKeys } from './i18n-release-1963';
 
 describe('Russian interface translation', () => {
   it('covers the newer workspace, recovery, organization and view controls', () => {
@@ -37,6 +39,18 @@ describe('Russian interface translation', () => {
   it('does not fall back to English for Calendar Day View and reminder controls', () => {
     for (const language of ['ru', 'es', 'de', 'fr', 'ko'] as const) {
       for (const key of release1961TranslationKeys) expect(translateInterfaceText(key, language), `${language}: ${key}`).not.toBe(key);
+    }
+  });
+
+  it('does not fall back to English for password protection and backup rotation', () => {
+    for (const language of ['ru', 'es', 'de', 'fr', 'ko'] as const) {
+      for (const key of release1962TranslationKeys) expect(translateInterfaceText(key, language), `${language}: ${key}`).not.toBe(key);
+    }
+  });
+
+  it('does not fall back to English for organization deletion and the presets guide', () => {
+    for (const language of ['ru', 'es', 'de', 'fr', 'ko'] as const) {
+      for (const key of release1963TranslationKeys) expect(translateInterfaceText(key, language), `${language}: ${key}`).not.toBe(key);
     }
   });
 });

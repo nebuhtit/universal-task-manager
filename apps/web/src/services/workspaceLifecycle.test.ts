@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as Automerge from '@automerge/automerge';
-import { createItem, createOccurrence, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileRecurrences, renameProjectDefinition, reorderTagSubset, type WorkspaceDocument } from '@utm/core';
+import { advanceCompletionAnchoredSeries, createItem, createOccurrence, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileRecurrences, recurrenceCompletionHistory, renameProjectDefinition, reorderTagSubset, updateRecurrenceCompletionTime, type WorkspaceDocument } from '@utm/core';
 import { applyReconciliationResult, commitWorkspaceDocument } from './workspaceLifecycle';
 
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
@@ -67,6 +67,28 @@ describe('workspace lifecycle integration', () => {
     expect(saved.items[occurrence.id]?.occurrence?.templateRevision).toBe(saved.items[series.id]?.revision);
   });
 
+  it('updates completion history and reconciles recurrence inside an Automerge transaction', () => {
+    const workspace = createWorkspace('Completion history integration');
+    const source = createItem('Get a haircut');
+    source.schedule = { timezone: 'UTC', dueAt: '2026-09-03T08:46:00.000Z', estimatedDuration: 'PT10M' };
+    const series = makeSeries(source, 'FREQ=WEEKLY;INTERVAL=3', { anchor: 'completion', activationOffset: 'P7D', autoRenew: true });
+    const occurrence = createOccurrence(series, new Date('2026-09-03T08:46:00.000Z'), 0);
+    occurrence.state = 'done';
+    occurrence.closure = { at: '2026-09-01T08:46:00.000Z', actor: 'user', reason: 'manual' };
+    workspace.items[series.id] = series; workspace.items[occurrence.id] = occurrence;
+    advanceCompletionAnchoredSeries(workspace, occurrence, occurrence.closure.at);
+    const record = recurrenceCompletionHistory(workspace, series.id)[0]!;
+    const original = Automerge.from(workspace as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
+
+    const saved = commitWorkspaceDocument(original, 'Change recurring completion time', (draft) => {
+      expect(updateRecurrenceCompletionTime(draft, record, '2026-09-02T10:15:00.000Z', new Date('2026-09-02T10:16:00.000Z'))).toEqual({ changed: true, rescheduled: true });
+      reconcileRecurrences(draft, new Date('2026-09-02T10:16:00.000Z'));
+    }, new Date('2026-09-02T10:16:00.000Z'));
+
+    expect(recurrenceCompletionHistory(saved, series.id)[0]?.completedAt).toBe('2026-09-02T10:15:00.000Z');
+    expect(saved.items[series.id]?.schedule?.dueAt).toBe('2026-09-23T10:15:00.000Z');
+  });
+
   it('renames a Project inside an Automerge transaction', () => {
     const base = createWorkspace('Rename integration');
     ensureAreaDefinition(base, 'Work'); ensureProjectDefinition(base, 'Launch', { areas: ['Work'] });
@@ -83,5 +105,15 @@ describe('workspace lifecycle integration', () => {
     const next = commitWorkspaceDocument(source, 'Reorder Tags', (draft) => { reorderTagSubset(draft, ['b', 'a']); });
     expect(next.organizationPreferences.tagOrder.filter(Boolean)).toEqual(['b', 'a']);
     expect(next.organizationPreferences.priorityOrder.filter((entry) => entry.kind === 'tag' && entry.name !== null).map((entry) => entry.name)).toEqual(['b', 'a']);
+  });
+
+  it('deletes an Area and its priority rows inside an Automerge transaction', () => {
+    const base = createWorkspace('Delete Area integration');
+    ensureAreaDefinition(base, 'Work');
+    const source = Automerge.from(base as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
+    const next = commitWorkspaceDocument(source, 'Delete Area', (draft) => { deleteOrganizationDefinition(draft, 'area', 'Work'); });
+    expect(next.areaDefinitions.Work).toBeUndefined();
+    expect(next.organizationPreferences.areaOrder).not.toContain('Work');
+    expect(next.organizationPreferences.priorityOrder).not.toContainEqual({ kind: 'area', name: 'Work' });
   });
 });

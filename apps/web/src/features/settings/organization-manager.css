@@ -76,6 +76,11 @@
 .organization-detail-header .organization-entity-controls { justify-self: end; }
 .organization-entity-controls { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .organization-entity-controls .organization-inline-rename { min-width: min(26rem, 60vw); }
+.organization-delete-warning { display: grid; gap: var(--space-3); }
+.organization-delete-warning p,
+.organization-delete-warning ul { margin: 0; }
+.organization-delete-warning ul { display: grid; gap: var(--space-1); padding-inline-start: var(--space-5); color: var(--color-text-secondary); }
+.organization-delete-filter-warning { padding: var(--space-3); border: 1px solid var(--color-warning); border-radius: var(--radius-md); background: var(--color-surface-muted); color: var(--color-text); }
 .organization-detail-views { display: grid; gap: var(--space-5); }
 .organization-scoped-view { min-width: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
 .organization-scoped-project-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-border); }

@@ -5,7 +5,11 @@ import {
   migrateWorkspace, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, validateWorkspace,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
-import { localWorkspaceMode, lock, saveLocalWorkspace, saveMigratedLocalWorkspace, unlockUnencryptedLocalWorkspace, type UnlockedWorkspace } from '@utm/sdk';
+import {
+  localWorkspaceMode, lock, passwordProtectionStatus, saveLocalWorkspace, saveMigratedLocalWorkspace,
+  unlockLocalWorkspaceWithoutPassword, unlockUnencryptedLocalWorkspace,
+  type PasswordProtectionStatus, type UnlockedWorkspace,
+} from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
 import { diagnosticFailureCode, recordDiagnostic } from '../services/diagnostics';
 import { applyReconciliationResult, commitWorkspaceDocument } from '../services/workspaceLifecycle';
@@ -27,6 +31,7 @@ type Options = { onToast: (message: string) => void; setNotices: Dispatch<SetSta
 
 export function useWorkspaceController({ onToast, setNotices }: Options) {
   const [boot, setBoot] = useState<'checking' | 'empty' | 'locked' | 'ready'>('checking');
+  const [passwordProtection, setPasswordProtection] = useState<PasswordProtectionStatus | 'checking'>('checking');
   const [session, setSession] = useState<UnlockedWorkspace | null>(null);
   const sessionRef = useRef<UnlockedWorkspace | null>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -37,6 +42,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     void localWorkspaceMode().then(async (mode) => {
       if (!mode) { setBoot('empty'); return; }
       if (mode === 'plaintext') {
+        setPasswordProtection('plaintext');
         try { await activate(await unlockUnencryptedLocalWorkspace()); }
         catch (reason) {
           recordDiagnostic({ kind: 'error', message: 'Automatic test workspace entry failed', operation: 'Unlock unencrypted test workspace', outcome: 'failed', details: diagnosticFailureCode(reason) });
@@ -44,7 +50,15 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
         }
         return;
       }
-      setBoot('locked');
+      const protection = await passwordProtectionStatus();
+      setPasswordProtection(protection);
+      if (protection === 'disabled') {
+        try { await activate(await unlockLocalWorkspaceWithoutPassword()); }
+        catch (reason) {
+          recordDiagnostic({ kind: 'error', message: 'Saved device unlock failed', operation: 'Unlock without password', outcome: 'failed', details: diagnosticFailureCode(reason) });
+          setBoot('locked');
+        }
+      } else setBoot('locked');
     });
   }, []);
 
@@ -118,12 +132,14 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     if (sourceVersion !== migration.value.schemaVersion) await saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`);
     else await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode);
     finishActivationStage('persistence');
-    const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated); setBoot('ready');
+    const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated);
+    setPasswordProtection(unlocked.storageMode === 'plaintext' ? 'plaintext' : await passwordProtectionStatus());
+    setBoot('ready');
     const activationDurationMs = Math.round(performance.now() - activationStartedAt);
     if (warning || activationDurationMs >= 1_500) recordDiagnostic({ kind: 'result', message: warning ? 'Workspace activation completed with a recurrence warning' : 'Workspace activation was slow', operation: 'Activate workspace', outcome: 'succeeded', durationMs: activationDurationMs, details: JSON.stringify({ stages: activationStages, recurrenceWarning: Boolean(warning), created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
     if (warning && !/timed out/i.test(warning)) onToast(`Workspace opened. Recurrence sync will retry in the background (${warning}).`);
     setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
-      if (Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
+      if ('Notification' in window && Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
     } catch (reason) {
       recordDiagnostic({ kind: 'error', message: 'Workspace activation failed', operation: 'Activate workspace', outcome: 'failed', durationMs: Math.round(performance.now() - activationStartedAt), details: diagnosticFailureCode(reason) });
       throw reason;
@@ -168,10 +184,16 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const timer = window.setInterval(tick, 1_000); return () => { cancelled = true; window.clearInterval(timer); };
   }, [workspace?.updatedAt, workspace?.calendarPreferences.testClock?.enabled]);
 
+  const refreshPasswordProtection = async () => {
+    const status = await passwordProtectionStatus();
+    setPasswordProtection(status);
+    return status;
+  };
   const lockWorkspace = () => {
     if (session?.storageMode === 'plaintext') { onToast('An unencrypted test workspace cannot be locked. Create an encrypted workspace to use password lock.'); return; }
+    if (passwordProtection === 'disabled') { onToast('Password protection is disabled on this device. Require the password in Settings before locking.'); return; }
     if (session) lock(session); deliveredReminderIds.current.clear(); sessionRef.current = null; setSession(null); setBoot('locked');
   };
-  const adoptSession = (next: UnlockedWorkspace, lockCurrent = false) => { if (lockCurrent && session) lock(session); deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); };
-  return { boot, session, workspace, activate, commit, lockWorkspace, adoptSession };
+  const adoptSession = (next: UnlockedWorkspace, lockCurrent = false) => { if (lockCurrent && session) lock(session); deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); void refreshPasswordProtection(); };
+  return { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, lockWorkspace, adoptSession };
 }

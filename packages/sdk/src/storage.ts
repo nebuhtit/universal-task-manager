@@ -1,11 +1,11 @@
 import * as Automerge from '@automerge/automerge';
-import { createWorkspace, workspaceForExport, WORKSPACE_FORMAT_GUIDE } from '@utm/core';
+import { createWorkspace, migrateWorkspace, workspaceForExport, WORKSPACE_FORMAT_GUIDE } from '@utm/core';
 import type { WorkspaceDocument, WorkspaceLanguage } from '@utm/core';
 import {
   decryptBytes, decryptWithKey, encryptWithKey, fromBase64, randomKey, ready, toBase64, unwrapKey, wrapKey,
   type EncryptedEnvelope,
 } from './crypto.js';
-import { createAutomergeDocument, merge, requiresPrivacySafeSnapshot, unlock } from './container.js';
+import { createAutomergeDocument, exportContainer, merge, requiresPrivacySafeSnapshot, unlock } from './container.js';
 
 interface EncryptedLocalMetadata { version: 1; wrappedKey: EncryptedEnvelope; createdAt: string; mode?: 'encrypted' }
 interface PlaintextLocalMetadata { version: 1; mode: 'plaintext'; createdAt: string }
@@ -32,6 +32,7 @@ const EXPORT_SAFE_BLOCK_KEY = 'workspace-export-safe';
 const SNAPSHOT_KEYS = ['workspace-snapshot-1', 'workspace-snapshot-2'] as const;
 const MIRROR_KEYS = ['workspace-verified-mirror-1', 'workspace-verified-mirror-2'] as const;
 const FACE_ID_KEY = 'face-id-unlock-v1';
+const PASSWORD_BYPASS_KEY = 'password-bypass-v1';
 const BLOCK_AAD = 'utm:local:workspace:v1';
 const FACE_ID_AAD = 'utm:face-id:data-key:v1';
 // Previous encrypted container revisions used these authenticated labels.
@@ -82,7 +83,9 @@ export interface LocalWorkspaceSnapshotInfo { id: string; createdAt: string; sch
 interface LocalWorkspaceSnapshot extends LocalWorkspaceSnapshotInfo { metadata: LocalMetadata; workspace: LocalBlock }
 interface VerifiedWorkspaceMirror { savedAt: string; metadata: EncryptedLocalMetadata; workspace: EncryptedLocalBlock }
 interface FaceIdUnlockRecord { version: 1; credentialId: string; salt: string; wrappedDataKey: { nonce: string; ciphertext: string }; createdAt: string }
+interface PasswordBypassRecord { version: 1; dataKey: string; enabledAt: string }
 export interface LocalProtectionStatus { verifiedMirrors: number; latestVerifiedAt?: string }
+export type PasswordProtectionStatus = 'required' | 'disabled' | 'plaintext';
 
 const isPlaintextBlock = (block: LocalBlock): block is PlaintextLocalBlock => block.mode === 'plaintext';
 
@@ -228,6 +231,14 @@ export async function localWorkspaceMode(): Promise<'encrypted' | 'plaintext' | 
   return metadata.mode === 'plaintext' ? 'plaintext' : 'encrypted';
 }
 
+/** Whether this browser must ask for the workspace password during startup. */
+export async function passwordProtectionStatus(): Promise<PasswordProtectionStatus> {
+  const metadata = await getRecord<LocalMetadata>(META_KEY) ?? (await latestVerifiedMirror())?.metadata;
+  if (!metadata) throw new Error('No local workspace exists');
+  if (metadata.mode === 'plaintext') return 'plaintext';
+  return await getRecord<PasswordBypassRecord>(PASSWORD_BYPASS_KEY) ? 'disabled' : 'required';
+}
+
 export async function createLocalWorkspace(password: string, name = 'My workspace', language: WorkspaceLanguage = 'en'): Promise<UnlockedWorkspace> {
   if (await hasLocalWorkspace()) throw new Error('A local workspace already exists');
   const dataKey = await randomKey();
@@ -275,6 +286,25 @@ export async function unlockLocalWorkspace(password: string): Promise<UnlockedWo
     } catch (reason) { if (dataKey) dataKey.fill(0); lastError = reason; }
   }
   throw lastError instanceof Error ? lastError : new Error('Encrypted local workspace could not be opened');
+}
+
+/** Opens an encrypted workspace only after this device was explicitly allowed to bypass the password prompt. */
+export async function unlockLocalWorkspaceWithoutPassword(): Promise<UnlockedWorkspace> {
+  const metadata = await getRecord<LocalMetadata>(META_KEY);
+  const block = await getRecord<LocalBlock>(BLOCK_KEY);
+  const bypass = await getRecord<PasswordBypassRecord>(PASSWORD_BYPASS_KEY);
+  if (!metadata || !block) throw new Error('No local workspace exists');
+  if (metadata.mode === 'plaintext' || isPlaintextBlock(block)) throw new Error('This local workspace is configured without encryption');
+  if (!bypass) throw new Error('This workspace requires its password');
+  const dataKey = fromBase64(bypass.dataKey);
+  try {
+    const document = Automerge.load<WorkspaceDocument>(await decryptLocalBlock(block, dataKey));
+    await putRecords([[EXPORT_SAFE_BLOCK_KEY, await createExportSafeBlock(document, dataKey, block)]]);
+    return { document, dataKey, storageMode: 'encrypted' };
+  } catch (reason) {
+    dataKey.fill(0);
+    throw reason instanceof Error ? reason : new Error('Saved device unlock is unavailable. Use the workspace password instead.');
+  }
 }
 
 export async function unlockUnencryptedLocalWorkspace(): Promise<UnlockedWorkspace> {
@@ -373,7 +403,7 @@ export async function importAsLocalWorkspace(source: string, password: string): 
     try { document = Automerge.load<WorkspaceDocument>(binary); }
     catch { throw new Error('Decrypted recovery copy is damaged'); }
     const exportSafeBlock = await createExportSafeBlock(document, dataKey, block);
-    await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]], [FACE_ID_KEY]);
+    await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]], [FACE_ID_KEY, PASSWORD_BYPASS_KEY]);
     await saveVerifiedMirror(metadata, block);
     return { document, dataKey, storageMode: 'encrypted' };
   }
@@ -384,7 +414,7 @@ export async function importAsLocalWorkspace(source: string, password: string): 
   await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
   const exportSafeBlock = await createExportSafeBlock(incoming.document, dataKey, block);
-  await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]], [FACE_ID_KEY]);
+  await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]], [FACE_ID_KEY, PASSWORD_BYPASS_KEY]);
   await saveVerifiedMirror(metadata, block);
   return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
@@ -423,6 +453,30 @@ export async function decryptWorkspaceFile(source: string, password: string): Pr
 }
 
 /**
+ * Re-encrypts a fully verified backup without touching the local workspace.
+ * Legacy local recovery copies are normalized into the public .utmb container
+ * format; the newly encrypted output is opened once more before it is returned.
+ */
+export async function reencryptWorkspaceFile(
+  source: string,
+  oldPassword: string,
+  newPassword: string,
+): Promise<{ source: string; workspaceId: string; itemCount: number }> {
+  let parsed: { magic?: string } | undefined;
+  try { parsed = JSON.parse(source) as { magic?: string }; } catch { /* unlock() supplies the supported-file error below. */ }
+  let document: Automerge.Doc<WorkspaceDocument>;
+  if (parsed?.magic === 'UTM-LOCAL-ENCRYPTED') {
+    const readable = await decryptWorkspaceFile(source, oldPassword);
+    document = createAutomergeDocument(migrateWorkspace(readable.workspace).value);
+  } else document = (await unlock(source, oldPassword)).document;
+  const encrypted = await exportContainer(document, newPassword);
+  const verified = await unlock(encrypted, newPassword);
+  const itemCount = Object.keys(verified.payload.snapshot.items).length;
+  if (verified.payload.workspaceId !== document.workspaceId) throw new Error('Re-encrypted backup verification failed');
+  return { source: encrypted, workspaceId: verified.payload.workspaceId, itemCount };
+}
+
+/**
  * Restores an encrypted container over the local browser copy.  This is
  * intentionally separate from merge: a backup made by another workspace
  * cannot be merged, but it can be used to recover a new device after the
@@ -439,7 +493,7 @@ export async function restoreLocalWorkspace(source: string, password: string): P
   await verifyEncryptedDocument({ version: 1, ...encrypted }, dataKey);
   const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
   const exportSafeBlock = await createExportSafeBlock(incoming.document, dataKey, block);
-  await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]], [FACE_ID_KEY]);
+  await transactRecords([[META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]], [FACE_ID_KEY, PASSWORD_BYPASS_KEY]);
   await saveVerifiedMirror(metadata, block);
   return { document: incoming.document, dataKey, storageMode: 'encrypted' };
 }
@@ -455,13 +509,47 @@ export async function mergeIntoLocalWorkspace(
   return { unlocked: { document: merged.document, dataKey: current.dataKey, storageMode }, changedItems: merged.changedItems };
 }
 
-export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+async function verifiedCurrentPassword(password: string): Promise<{ metadata: EncryptedLocalMetadata; block: EncryptedLocalBlock; dataKey: Uint8Array }> {
   const metadata = await getRecord<LocalMetadata>(META_KEY);
   if (!metadata) throw new Error('No local workspace exists');
   if (metadata.mode === 'plaintext') throw new Error('This local workspace has no password');
-  const key = await unwrapKey(metadata.wrappedKey, oldPassword);
-  try { await putRecords([[META_KEY, { ...metadata, wrappedKey: await wrapKey(key, newPassword) } satisfies LocalMetadata]]); }
-  finally { await ready(); key.fill(0); }
+  const block = await getRecord<LocalBlock>(BLOCK_KEY);
+  if (!block || isPlaintextBlock(block)) throw new Error('Encrypted workspace data is missing');
+  let dataKey: Uint8Array | undefined;
+  try {
+    dataKey = await unwrapLocalKey(metadata.wrappedKey, password);
+    Automerge.load<WorkspaceDocument>(await decryptLocalBlock(block, dataKey));
+    return { metadata, block, dataKey };
+  } catch {
+    dataKey?.fill(0);
+    throw new Error('Current password is incorrect');
+  }
+}
+
+export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  const { metadata, block, dataKey } = await verifiedCurrentPassword(oldPassword);
+  try {
+    const nextMetadata = { ...metadata, wrappedKey: await wrapKey(dataKey, newPassword) } satisfies EncryptedLocalMetadata;
+    const mirror = { savedAt: new Date().toISOString(), metadata: nextMetadata, workspace: block } satisfies VerifiedWorkspaceMirror;
+    // Replace the fallback mirrors as one unit so an old password cannot keep
+    // opening a stale browser copy after the active password has changed.
+    await transactRecords([[META_KEY, nextMetadata], [MIRROR_KEYS[0], mirror]], [MIRROR_KEYS[1]]);
+  } finally { await ready(); dataKey.fill(0); }
+}
+
+/** Allows this browser profile to open the encrypted block without prompting. */
+export async function disablePasswordRequirement(currentPassword: string): Promise<void> {
+  const { dataKey } = await verifiedCurrentPassword(currentPassword);
+  try {
+    await putRecords([[PASSWORD_BYPASS_KEY, { version: 1, dataKey: toBase64(dataKey), enabledAt: new Date().toISOString() } satisfies PasswordBypassRecord]]);
+  } finally { dataKey.fill(0); }
+}
+
+/** Removes the local bypass only after proving that the recovery password is known. */
+export async function enablePasswordRequirement(currentPassword: string): Promise<void> {
+  const { dataKey } = await verifiedCurrentPassword(currentPassword);
+  try { await transactRecords([], [PASSWORD_BYPASS_KEY]); }
+  finally { dataKey.fill(0); }
 }
 
 export async function clearLocalWorkspace(): Promise<void> {
@@ -491,4 +579,4 @@ export async function exportEncryptedLocalBackup(): Promise<string> {
 
 export function lock(unlocked: UnlockedWorkspace): void { unlocked.dataKey.fill(0); }
 
-export const __testing = { DB_NAME, STORE, META_KEY, BLOCK_KEY, EXPORT_SAFE_BLOCK_KEY, toBase64, fromBase64 };
+export const __testing = { DB_NAME, STORE, META_KEY, BLOCK_KEY, EXPORT_SAFE_BLOCK_KEY, PASSWORD_BYPASS_KEY, toBase64, fromBase64 };

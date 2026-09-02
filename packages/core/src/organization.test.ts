@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPortableImport, buildPortableImportPreview, calculateItemSetMetrics, calculateProjectMetrics, createItem, createPortablePackage, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationAccentFor, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, SCHEMA_VERSION, serializePortablePackage } from './index.js';
+import { applyPortableImport, buildPortableImportPreview, calculateItemSetMetrics, calculateProjectMetrics, createItem, createPortablePackage, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationAccentFor, organizationDeletionImpact, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, SCHEMA_VERSION, serializePortablePackage } from './index.js';
 
 describe('PARA organization', () => {
   it('uses the theme text color until a custom accent is stored', () => {
@@ -141,6 +141,37 @@ describe('PARA organization', () => {
     const unassigned = createItem('Unassigned');
     expect(organizationPriorityRank(workspace, tagged)).toBeGreaterThan(organizationPriorityRank(workspace, work));
     expect(organizationPriorityRank(workspace, work)).toBeGreaterThan(organizationPriorityRank(workspace, unassigned));
+  });
+
+  it('uses the highest direct Area, Project or Tag match without a type preference', () => {
+    const workspace = createWorkspace('Highest direct relationship');
+    ensureAreaDefinition(workspace, 'High area'); ensureAreaDefinition(workspace, 'Low area');
+    ensureProjectDefinition(workspace, 'High project', { areas: ['Low area'] });
+    ensureProjectDefinition(workspace, 'Low project', { areas: ['High area'] });
+    ensureTagDefinition(workspace, 'high-tag'); ensureTagDefinition(workspace, 'low-tag');
+    reorderOrganizationPriority(workspace, [
+      { kind: 'area', name: 'High area' },
+      { kind: 'project', name: 'High project', area: 'Low area' },
+      { kind: 'tag', name: 'high-tag' },
+      { kind: 'tag', name: 'low-tag' },
+      { kind: 'project', name: 'Low project', area: 'High area' },
+      { kind: 'area', name: 'Low area' },
+      { kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null },
+    ]);
+    const order = orderedOrganizationPriorityEntries(workspace);
+    const rankAt = (index: number) => order.length - index;
+
+    const areaWins = createItem('Area wins');
+    areaWins.areas = ['High area']; areaWins.projects = ['Low project']; areaWins.tags = ['low-tag'];
+    expect(organizationPriorityRank(workspace, areaWins)).toBe(rankAt(0));
+
+    const projectWins = createItem('Project wins');
+    projectWins.areas = ['Low area']; projectWins.projects = ['High project']; projectWins.tags = ['low-tag'];
+    expect(organizationPriorityRank(workspace, projectWins)).toBe(rankAt(1));
+
+    const tagWins = createItem('Tag wins');
+    tagWins.areas = ['Low area']; tagWins.projects = ['Low project']; tagWins.tags = ['high-tag'];
+    expect(organizationPriorityRank(workspace, tagWins)).toBe(rankAt(2));
   });
 
   it('mirrors the complete Tags catalog order into existing Unified slots, including No Tags', () => {
@@ -333,6 +364,46 @@ describe('PARA organization', () => {
     expect(workspace.views.rename?.query.source).toBe('tags contains "now"');
     expect(orderedOrganizationPriorityEntries(workspace)).toContainEqual({ kind: 'tag', name: 'now' });
     expect(organizationAccentFor(workspace, 'tag', 'now')).toBe('#8b5cf6');
+    expect(organizationAccentFor(workspace, 'tag', 'urgent')).toBeUndefined();
+  });
+
+  it('deletes an Area atomically while preserving its Projects and warning about free-form filters', () => {
+    const workspace = createWorkspace('Area deletion');
+    ensureAreaDefinition(workspace, 'Work'); ensureAreaDefinition(workspace, 'Personal');
+    ensureProjectDefinition(workspace, 'Launch', { areas: ['Work', 'Personal'] });
+    const item = createItem('Ship'); item.areas = ['Work', 'Personal']; item.area = 'Work'; workspace.items[item.id] = item;
+    workspace.views.scoped = { id: 'scoped', name: 'Work', query: { source: 'state == "open"' }, renderer: 'list', sort: [], fields: ['title'], area: 'Work' };
+    workspace.views.filter = { id: 'filter', name: 'Work filter', query: { source: 'includes(areas, "Work")' }, renderer: 'list', sort: [], fields: ['title'], creationDefaults: { areas: ['Work', 'Personal'] } };
+    workspace.viewOrder.push('scoped', 'filter');
+    Object.values(workspace.dashboards)[0]!.widgets.push({ id: 'scoped-widget', type: 'smart_list', title: 'Work', viewId: 'scoped', width: 1, order: 9 });
+
+    expect(organizationDeletionImpact(workspace, 'area', 'Work')).toMatchObject({ itemCount: 1, projectLinkCount: 1, savedViewCount: 1, viewDefaultCount: 1, filterReferenceCount: 1 });
+    deleteOrganizationDefinition(workspace, 'area', 'Work', new Date('2026-09-02T20:00:00.000Z'));
+
+    expect(workspace.areaDefinitions.Work).toBeUndefined();
+    expect(workspace.projectDefinitions.Launch?.areas).toEqual(['Personal']);
+    expect(item.areas).toEqual(['Personal']); expect(item.area).toBeUndefined(); expect(item.revision).toBe(2);
+    expect(workspace.views.scoped).toBeUndefined(); expect(workspace.viewOrder).not.toContain('scoped');
+    expect(Object.values(workspace.dashboards)[0]!.widgets.some((widget) => widget.viewId === 'scoped')).toBe(false);
+    expect(workspace.views.filter?.creationDefaults).toEqual({ areas: ['Personal'] });
+    expect(workspace.views.filter?.query.source).toContain('"Work"');
+  });
+
+  it('deletes Project and Tag links without removing unrelated organization data', () => {
+    const workspace = createWorkspace('Project and tag deletion');
+    ensureProjectDefinition(workspace, 'Launch'); ensureProjectDefinition(workspace, 'Keep');
+    ensureTagDefinition(workspace, 'urgent', { accent: '#8b5cf6' }); ensureTagDefinition(workspace, 'later');
+    const item = createItem('Ship'); item.projects = ['Launch', 'Keep']; item.project = 'Launch'; item.tags = ['urgent', 'later']; workspace.items[item.id] = item;
+    workspace.views.project = { id: 'project', name: 'Launch', query: { source: 'state == "open"' }, renderer: 'list', sort: [], fields: ['title'], project: 'Launch' };
+    workspace.views.tag = { id: 'tag', name: '#urgent', query: { source: 'includes(tags, "urgent")' }, renderer: 'list', sort: [], fields: ['title'], creationDefaults: { tags: ['urgent'] }, extensions: { 'utm:para-scope': JSON.stringify({ kind: 'tag', tag: 'urgent' }) } };
+
+    deleteOrganizationDefinition(workspace, 'project', 'Launch');
+    expect(workspace.projectDefinitions.Launch).toBeUndefined(); expect(workspace.projectDefinitions.Keep).toBeDefined();
+    expect(item.projects).toEqual(['Keep']); expect(item.project).toBeUndefined(); expect(workspace.views.project).toBeUndefined();
+
+    deleteOrganizationDefinition(workspace, 'tag', 'urgent');
+    expect(item.tags).toEqual(['later']); expect(workspace.views.tag).toBeUndefined();
+    expect(orderedTagEntries(workspace)).toContain('later'); expect(orderedTagEntries(workspace)).not.toContain('urgent');
     expect(organizationAccentFor(workspace, 'tag', 'urgent')).toBeUndefined();
   });
 });

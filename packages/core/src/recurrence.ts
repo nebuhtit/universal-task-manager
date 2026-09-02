@@ -336,7 +336,12 @@ function appendCycleHistory(item: UniversalItem, entry: CycleHistoryEntry): bool
   item.cycleHistory ??= [];
   if (item.cycleHistory.some((candidate) => candidate.recurrenceId === entry.recurrenceId)) return false;
   item.cycleHistory.push(entry);
-  item.cycleHistory.sort((left, right) => left.recurrenceId.localeCompare(right.recurrenceId));
+  // Automerge list proxies intentionally do not expose Array#sort. Reorder the
+  // list through splice and detached values so this helper works for both plain
+  // workspace objects and live Automerge drafts.
+  const sorted = JSON.parse(JSON.stringify(item.cycleHistory)) as CycleHistoryEntry[];
+  sorted.sort((left, right) => left.recurrenceId.localeCompare(right.recurrenceId));
+  item.cycleHistory.splice(0, item.cycleHistory.length, ...sorted);
   return true;
 }
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createId, createItem, createWorkspace, googleCalendarEventToItem } from '@utm/core';
 import { createAutomergeDocument, exportContainer, merge, toJSON, unlock, validateContainer } from './container.js';
 import { encryptBytes, encryptWithKey, randomKey } from './crypto.js';
-import { decryptWorkspaceFile, faceIdStatus } from './storage.js';
+import { decryptWorkspaceFile, faceIdStatus, reencryptWorkspaceFile } from './storage.js';
 
 const password = 'correct horse battery staple';
 
@@ -118,6 +118,20 @@ describe('encrypted .utmb container', () => {
     const damaged = JSON.parse(source) as { envelope: { ciphertext: string } };
     damaged.envelope.ciphertext = `${damaged.envelope.ciphertext.slice(0, -2)}aa`;
     await expect(unlock(JSON.stringify(damaged), password)).rejects.toThrow('damaged');
+  });
+
+  it('re-encrypts a verified backup under a new password without changing the source', async () => {
+    const workspace = createWorkspace('Rotated backup');
+    const item = createItem('Still present'); workspace.items[item.id] = item;
+    const source = await exportContainer(createAutomergeDocument(workspace), password);
+    const nextPassword = 'another correct horse battery staple';
+    const converted = await reencryptWorkspaceFile(source, password, nextPassword);
+    expect(converted.source).not.toBe(source);
+    expect(converted.workspaceId).toBe(workspace.workspaceId);
+    expect(converted.itemCount).toBe(1);
+    await expect(unlock(converted.source, password)).rejects.toThrow('Wrong password');
+    expect((await unlock(converted.source, nextPassword)).document.items[item.id]?.title).toBe('Still present');
+    expect((await unlock(source, password)).document.items[item.id]?.title).toBe('Still present');
   });
 
   it('merges edits made on two devices', async () => {
