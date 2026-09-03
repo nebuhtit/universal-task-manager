@@ -11,6 +11,7 @@
     "test:e2e": "playwright test",
     "performance:baseline": "pnpm --filter @utm/core build && pnpm --filter @utm/sdk build && UTM_PERF_BASELINE=1 pnpm --filter @utm/web exec vitest run src/performance/performanceBaseline.test.ts --reporter=verbose",
     "test-workspace:generate": "pnpm --filter @utm/core build && pnpm --filter @utm/sdk build && node scripts/generate-test-workspace.mjs",
+    "ios:prepare": "VITE_NATIVE_IOS=true pnpm --filter @utm/web build && node scripts/package-ios-web.mjs",
     "utm": "pnpm --filter @utm/sdk utm",
     "version:app": "node scripts/set-app-version.mjs"
   },

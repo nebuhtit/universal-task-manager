@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.98.1';
-export const APP_RELEASED_AT = '2026-09-03T18:52:29.068Z';
+export const APP_VERSION = '1.98.3';
+export const APP_RELEASED_AT = '2026-09-03T20:11:29.875Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -672,7 +672,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       [todayId]: {
         id: todayId,
         name: 'Today',
-        query: { source: `${activeQuery} && (eventToday == true || dueTodayOrOverdue == true)` },
+        query: { source: `${activeQuery} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSet == true` },
         renderer: 'list',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
@@ -681,7 +681,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       [weekId]: {
         id: weekId,
         name: 'This week',
-        query: { source: `${activeQuery} && (eventThisWeek == true || dueThisWeekOrOverdue == true)` },
+        query: { source: `${activeQuery} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSet == true` },
         renderer: 'list',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,

@@ -27,6 +27,8 @@ import { itemEditorSource } from './features/items/editor/itemEditorSource';
 import { COMPLETION_EXIT_MS, selectViewItems, setCompletionHold } from './features/views/viewSelectors';
 import { formatRussianDateTime } from './utils/dates';
 import { clockService } from './services/clockService';
+import { isNativeICloudBackupAvailable, requestNativeICloudImport, writeNativeICloudBackup } from './services/nativeICloudBackup';
+import { isNativeReminderAvailable, requestNativeReminderPermission, syncNativeReminders } from './services/nativeReminders';
 import {
   APP_VERSION, SCHEMA_VERSION, applyPortableImport, buildPortableImportPreview,
   collectItemDependencies, createId, createItem, createPortablePackage,
@@ -428,6 +430,12 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
   const [busy, setBusy] = useState(false);
   const [restoreSource, setRestoreSource] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const isLocalRecovery = async (source: string) => {
+    const parsed = JSON.parse(source) as { magic?: string };
+    if (parsed.magic !== 'UTM-LOCAL-ENCRYPTED') return validateContainer(source, password);
+    const unlocked = await decryptWorkspaceFile(source, password);
+    return { workspaceId: unlocked.workspace.workspaceId, itemCount: Object.keys(unlocked.workspace.items).length };
+  };
   const download = async () => {
     setBusy(true); setError('');
     try {
@@ -452,7 +460,7 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
     try {
       await onFlush();
       const source = await readEncryptedBackup(file);
-      const details = await validateContainer(source, password);
+      const details = await isLocalRecovery(source);
       if (details.workspaceId !== session.document.workspaceId) {
         setRestoreSource(source);
         setError(`This backup belongs to a different workspace (${details.itemCount} items). It cannot be merged. You can replace this device's local workspace with it instead.`);
@@ -465,6 +473,40 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); if (input.current) input.current.value = ''; }
   };
+  useEffect(() => {
+    const imported = (event: Event) => {
+      const detail = (event as CustomEvent<{ source?: string }>).detail;
+      if (detail?.source) void importSource(detail.source);
+    };
+    window.addEventListener('utm-native-backup-import', imported);
+    return () => window.removeEventListener('utm-native-backup-import', imported);
+  });
+  const importSource = async (source: string) => {
+    setBusy(true); setError('');
+    try {
+      await onFlush();
+      const details = await isLocalRecovery(source);
+      if (details.workspaceId !== session.document.workspaceId) {
+        setRestoreSource(source);
+        setError(`This backup belongs to a different workspace (${details.itemCount} items). It cannot be merged. You can replace this device's local workspace with it instead.`);
+        return;
+      }
+      const result = await mergeIntoLocalWorkspace(session, source, password);
+      onMerged(result.unlocked, `Merged ${result.changedItems} changed items`);
+      onClose();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  const saveToICloud = async () => {
+    setBusy(true); setError('');
+    try {
+      await onFlush();
+      const source = await exportEncryptedLocalBackup();
+      await writeNativeICloudBackup(source, `${safeFilename(session.document.name)}.utmb`);
+      onBackupExported?.();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
   const replaceFromBackup = async () => {
     if (!restoreSource) return;
     setBusy(true); setError('');
@@ -476,7 +518,7 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
-  return <div className="modal-backdrop"><section className="dialog"><header><h2>Encrypted backup & transfer</h2><button className="icon-button" onClick={onClose}>×</button></header><p>The unlocked workspace can be exported immediately: Universal reuses its existing encryption and verifies the saved encrypted block. A password is needed only to open an imported backup.</p><label>Backup password (only for import)<input type="password" minLength={10} value={password} onChange={(event) => { setPassword(event.target.value); setRestoreSource(null); }} /></label>{error && <p className="error">{error}</p>}<div className="transfer-actions"><button className="primary" disabled={busy} onClick={() => void download()}>Export encrypted .utmb</button><button className="secondary" disabled={password.length < 10 || busy} onClick={() => input.current?.click()}>{restoreSource ? 'Choose another backup' : 'Merge from backup'}</button><input ref={input} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} /></div>{restoreSource && <div className="restore-warning"><strong>Replace this device?</strong><p>This removes the current local workspace from this browser and restores the selected encrypted backup. The backup itself is not changed.</p><button className="danger" disabled={busy} onClick={() => void replaceFromBackup()}>Replace local workspace from backup</button></div>}<p className="hint">On iPhone, choose a <code>.utmb</code> backup in Files. Wrong passwords, unrelated files and modified containers are rejected before your local workspace changes.</p></section></div>;
+  return <div className="modal-backdrop"><section className="dialog"><header><h2>Encrypted backup & transfer</h2><button className="icon-button" onClick={onClose}>×</button></header><p>The unlocked workspace can be exported immediately: Universal reuses its existing encryption and verifies the saved encrypted block. A password is needed only to open an imported backup.</p>{isNativeICloudBackupAvailable() && <p className="hint">The iOS app automatically keeps the current encrypted backup and one previous version in its private iCloud Drive folder. Google Calendar data is never included.</p>}<label>Backup password (only for import)<input type="password" minLength={10} value={password} onChange={(event) => { setPassword(event.target.value); setRestoreSource(null); }} /></label>{error && <p className="error">{error}</p>}<div className="transfer-actions">{isNativeICloudBackupAvailable() && <button className="primary" disabled={busy} onClick={() => void saveToICloud()}>Back up to iCloud now</button>}<button className="secondary" disabled={busy} onClick={() => void download()}>Export encrypted .utmb</button><button className="secondary" disabled={password.length < 10 || busy} onClick={() => isNativeICloudBackupAvailable() ? requestNativeICloudImport() : input.current?.click()}>{restoreSource ? 'Choose another backup' : 'Merge from backup'}</button><input ref={input} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} /></div>{restoreSource && <div className="restore-warning"><strong>Replace this device?</strong><p>This removes the current local workspace from this browser and restores the selected encrypted backup. The backup itself is not changed.</p><button className="danger" disabled={busy} onClick={() => void replaceFromBackup()}>Replace local workspace from backup</button></div>}<p className="hint">On iPhone, choose a <code>.utmb</code> backup in Files. Wrong passwords, unrelated files and modified containers are rejected before your local workspace changes.</p></section></div>;
 }
 
 export default function App() {
@@ -508,6 +550,38 @@ export default function App() {
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
   const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  const iCloudBackupSignature = useRef<string | null>(null);
+  const nativeReminderSignature = useRef<string | null>(null);
+  useEffect(() => {
+    if (!workspace || !session || session.storageMode !== 'encrypted' || !isNativeICloudBackupAvailable()) return;
+    const signature = `${workspace.workspaceId}:${workspace.updatedAt}`;
+    if (iCloudBackupSignature.current === signature) return;
+    iCloudBackupSignature.current = signature;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void flushPersistence()
+        .then(() => exportEncryptedLocalBackup())
+        .then((source) => writeNativeICloudBackup(source, `${safeFilename(workspace.name)}.utmb`))
+        .then(() => { if (!cancelled) recordDiagnostic({ kind: 'result', operation: 'iCloud backup', outcome: 'succeeded', message: 'Encrypted recovery backup saved to iCloud' }); })
+        .catch((reason) => { if (!cancelled) recordDiagnostic({ kind: 'error', operation: 'iCloud backup', outcome: 'failed', message: reason instanceof Error ? reason.message : String(reason) }); });
+    }, 1_500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [flushPersistence, session, workspace]);
+  useEffect(() => {
+    if (!workspace || !isNativeReminderAvailable() || workspace.calendarPreferences.testClock?.enabled) return;
+    const signature = `${workspace.workspaceId}:${workspace.updatedAt}`;
+    if (nativeReminderSignature.current === signature) return;
+    nativeReminderSignature.current = signature;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void syncNativeReminders(workspace).then((status) => {
+        if (!cancelled) recordDiagnostic({ kind: 'result', operation: 'Native reminder sync', outcome: 'succeeded', message: `${status.scheduled ?? 0} iOS reminders scheduled` });
+      }).catch((reason) => {
+        if (!cancelled) recordDiagnostic({ kind: 'error', operation: 'Native reminder sync', outcome: 'failed', message: reason instanceof Error ? reason.message : String(reason) });
+      });
+    }, 500);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [workspace]);
   const exportAfterFlush = (action: () => void | Promise<void>) => {
     void flushPersistence().then(action).catch((reason) => setToast(`Export stopped because the latest change could not be saved: ${reason instanceof Error ? reason.message : String(reason)}`));
   };
@@ -856,7 +930,7 @@ export default function App() {
       {page === 'settings' && <section className="page-section settings-page-shell">
         <SettingsReleaseInfo />
         <details className="settings-disclosure"><summary>Backup and recovery</summary><section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="text" inputMode="numeric" pattern="[0-9]*" value={backupReminderDraft} onChange={(event) => { const next = event.target.value; if (/^\d*$/.test(next)) setBackupReminderDraft(next); }} onBlur={applyBackupReminderDays} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button><button className="secondary" onClick={() => void downloadOfflineRecoveryKit().then(() => setToast('Offline recovery kit downloaded.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section></details>
-        <SettingsPage workspace={workspace} passwordProtection={passwordProtection} onPasswordProtectionChanged={refreshPasswordProtection} onBeforeCriticalAction={flushPersistence} onExportAll={async (format, metadata) => { const items = Object.values(workspace.items).filter((item) => !item.deletedAt); await exportPortable(workspace, createPortablePackage(workspace, { kind: 'items', items, views: format === 'xlsx' ? Object.values(workspace.views) : [], selection: { type: 'all_items' } }), `${safeFilename(workspace.name)}-all-items`, format, metadata); }} onDownloadLockedRecoveryCopy={downloadLockedRecoveryCopy} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} onRestoredSnapshot={(next) => { void adoptSession(next, true).then(() => setToast('Previous workspace version restored.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />
+        <SettingsPage workspace={workspace} passwordProtection={passwordProtection} onPasswordProtectionChanged={refreshPasswordProtection} onBeforeCriticalAction={flushPersistence} onExportAll={async (format, metadata) => { const items = Object.values(workspace.items).filter((item) => !item.deletedAt); await exportPortable(workspace, createPortablePackage(workspace, { kind: 'items', items, views: format === 'xlsx' ? Object.values(workspace.views) : [], selection: { type: 'all_items' } }), `${safeFilename(workspace.name)}-all-items`, format, metadata); }} onDownloadLockedRecoveryCopy={downloadLockedRecoveryCopy} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void (isNativeReminderAvailable() ? requestNativeReminderPermission().then((status) => { setToast(`Notification permission: ${status.authorization ?? "unchanged"}`); if (status.authorization === "granted") return syncNativeReminders(workspace); }) : Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} onRestoredSnapshot={(next) => { void adoptSession(next, true).then(() => setToast('Previous workspace version restored.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />
         <DiagnosticsSettings workspace={workspace} count={diagnosticCount} onEnabledChange={(enabled) => { setDiagnosticsEnabled(enabled); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = enabled; }); }} onDownload={downloadDiagnostics} onClear={clearDiagnostics} />
         <details className="settings-disclosure"><summary>Device unlock</summary><section className="settings-card"><p className="eyebrow">DEVICE UNLOCK</p><h2>Face ID / Touch ID</h2>{faceId === 'unsupported' ? <p>Unavailable on this browser or device. Password unlock remains available.</p> : <><p>Optional quick unlock for this device only. Face ID never replaces your password, and exports still require the password.</p>{faceId === 'configured' ? <button className="secondary" onClick={() => void disableFaceIdUnlock().then(() => { setFaceId('available'); setToast('Face ID unlock disabled. Password unlock remains unchanged.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Disable Face ID</button> : <button className="secondary" onClick={() => void enableFaceIdUnlock(session.dataKey).then(() => { setFaceId('configured'); setToast('Face ID unlock is ready on this device.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Enable Face ID</button>}<p className="hint">If Face ID fails, is cancelled, or the device changes, use the password field on the lock screen. Removing this option never removes your workspace.</p></>}</section></details>
       </section>}

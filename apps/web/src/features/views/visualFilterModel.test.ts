@@ -17,6 +17,7 @@ describe('visual filter model', () => {
 
   it('does not offer presence checks for values that are always defined', () => {
     expect(visualOperators('activeRange')).toEqual(['==', '!=']);
+    expect(visualOperators('activeRangeWhenSet')).toEqual(['==', '!=']);
     expect(visualOperators('isHabit')).toEqual(['==', '!=']);
     expect(visualOperators('state')).toEqual(['==', '!=']);
     expect(visualOperators('schedule.startAt')).toContain('is set');
@@ -24,6 +25,7 @@ describe('visual filter model', () => {
     expect(visualOperators('schedule.allDay')).not.toContain('in');
     expect(visualOperators('parentDepth')).not.toContain('is set');
     expect(defaultVisualConditionForField('activeRange')).toEqual({ operator: '==', value: 'true' });
+    expect(defaultVisualConditionForField('activeRangeWhenSet')).toEqual({ operator: '==', value: 'true' });
     expect(defaultVisualConditionForField('state')).toEqual({ operator: '==', value: 'open' });
   });
 
@@ -120,5 +122,13 @@ describe('visual filter model', () => {
     expect(today?.map((row) => row.field)).toEqual(['state', 'isTemplate', schedulePeriodField]);
     expect(parseSchedulePeriodValue(today?.at(-1)?.value ?? '')).toMatchObject({ period: 'today', sources: ['event', 'due'], includeOverdue: true });
     expect(parseSchedulePeriodValue(week?.at(-1)?.value ?? '')).toMatchObject({ period: 'this_week', sources: ['event', 'due'], includeOverdue: true });
+  });
+
+  it('keeps the optional active-range guard editable', () => {
+    const source = '(scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSet == true)';
+    const rows = parseVisualRows(source);
+    expect(rows).not.toBeNull();
+    expect(rows?.map((row) => row.field)).toEqual([schedulePeriodField, 'activeRangeWhenSet']);
+    expect(serializeVisualRows(rows!)).toBe(source);
   });
 });

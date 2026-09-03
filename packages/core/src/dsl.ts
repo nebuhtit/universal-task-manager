@@ -140,7 +140,7 @@ function compiledExpression(source: string): Expression {
 }
 
 const timeDependentVariables = new Set([
-  'activeRange', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue',
+  'activeRange', 'activeRangeWhenSet', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue',
 ]);
 const timeDependentFunctions = new Set([
   'now', 'today', 'millisecondsUntil', 'secondsUntil', 'minutesUntil', 'hoursUntil', 'daysUntil', 'durationUntil', 'timeUntil',
@@ -510,7 +510,7 @@ export interface QueryRelationContext {
  * filters can be interpreted as the user's boolean intent.
  */
 export const NON_NULLABLE_QUERY_BOOLEAN_FIELDS = [
-  'isHabit', 'isTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeDuration',
+  'isHabit', 'isTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeRangeWhenSet', 'activeDuration',
   'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue',
 ] as const;
 
@@ -545,12 +545,16 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     const activeDuration = start !== undefined && !Number.isNaN(start) && due !== undefined && !Number.isNaN(due);
     const activeRange = (start === undefined || Number.isNaN(start) || current.getTime() >= start)
       && (due === undefined || Number.isNaN(due) || current.getTime() <= due);
+    // Optional active ranges should constrain a View only when both boundaries
+    // are actually present. Items without that range keep following the other
+    // View conditions, such as Schedule in period.
+    const activeRangeWhenSet = !activeDuration || activeRange;
     try {
       const relations = relationContext?.(item, current) ?? {};
       const dueBuckets = relations.dueDateBuckets ?? dueDateBuckets(item, current, temporalOptions);
       const hasActiveReminderValue = relations.hasActiveReminders ?? activeReminders(item).length > 0;
       const nextReminderAtValue = relations.remindersIndexed ? relations.nextReminderAt : nextActiveReminderAt(item);
-      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
+      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeRangeWhenSet, activeDuration, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

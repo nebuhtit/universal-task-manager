@@ -6,7 +6,7 @@ import { registerSW } from 'virtual:pwa-register';
 import App, { AppErrorBoundary } from './App.js';
 import './styles.css';
 
-if (import.meta.env.PROD) registerSW({ immediate: true });
+if (import.meta.env.PROD && import.meta.env.VITE_NATIVE_IOS !== 'true') registerSW({ immediate: true });
 else void navigator.serviceWorker?.getRegistrations().then((registrations) => registrations.forEach((registration) => void registration.unregister()));
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);

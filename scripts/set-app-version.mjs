@@ -10,6 +10,7 @@ if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
 const root = resolve(import.meta.dirname, '..');
 const typesPath = resolve(root, 'packages/core/src/types.ts');
 const e2ePath = resolve(root, 'tests/e2e/app.spec.ts');
+const iosProjectPath = resolve(root, 'ios/UniversalTaskManager.xcodeproj/project.pbxproj');
 const releasedAt = new Date().toISOString();
 
 const types = await readFile(typesPath, 'utf8');
@@ -26,5 +27,13 @@ const nextE2e = e2e
   .replace(/await expect\(page\.locator\('\.settings-release-info'\)\)\.toHaveText\(\/\^Universal Task Manager · v[^;]+;/, `await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v${escapedVersion} · build [0-9a-f]{7}(?: · local changes)?$/);`);
 if (e2e === nextE2e) throw new Error('Login version assertion was not found or already matches exactly');
 
-await Promise.all([writeFile(typesPath, nextTypes), writeFile(e2ePath, nextE2e)]);
+const iosProject = await readFile(iosProjectPath, 'utf8');
+const nextIosProject = iosProject.replaceAll(/MARKETING_VERSION = [^;]+;/g, `MARKETING_VERSION = ${version};`);
+if (iosProject === nextIosProject) throw new Error('iOS MARKETING_VERSION markers were not found or already match exactly');
+
+await Promise.all([
+  writeFile(typesPath, nextTypes),
+  writeFile(e2ePath, nextE2e),
+  writeFile(iosProjectPath, nextIosProject),
+]);
 console.log(`UTM application version updated to ${version} (${releasedAt})`);

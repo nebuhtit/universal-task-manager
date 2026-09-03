@@ -558,6 +558,26 @@ export async function reencryptWorkspaceFile(
   return { source: encrypted, workspaceId: verified.payload.workspaceId, itemCount };
 }
 
+type LocalRecoveryBackup = { magic: 'UTM-LOCAL-ENCRYPTED'; version: 1; metadata: EncryptedLocalMetadata; workspace: EncryptedLocalBlock };
+
+async function unlockLocalRecoveryBackup(source: string, password: string): Promise<{ backup: LocalRecoveryBackup; document: Automerge.Doc<WorkspaceDocument>; dataKey: Uint8Array }> {
+  let parsed: Partial<LocalRecoveryBackup>;
+  try { parsed = JSON.parse(source) as Partial<LocalRecoveryBackup>; }
+  catch { throw new Error('Encrypted workspace file is not valid JSON'); }
+  if (parsed.magic !== 'UTM-LOCAL-ENCRYPTED' || parsed.version !== 1 || !parsed.metadata?.wrappedKey || !parsed.workspace?.nonce || !parsed.workspace.ciphertext) {
+    throw new Error('Encrypted recovery copy is incomplete');
+  }
+  const backup = parsed as LocalRecoveryBackup;
+  const dataKey = await unwrapLocalKey(backup.metadata.wrappedKey, password);
+  try {
+    const document = Automerge.load<WorkspaceDocument>(await decryptLocalBlock(backup.workspace, dataKey));
+    return { backup, document, dataKey };
+  } catch (reason) {
+    dataKey.fill(0);
+    throw reason;
+  }
+}
+
 /**
  * Restores an encrypted container over the local browser copy.  This is
  * intentionally separate from merge: a backup made by another workspace
@@ -568,6 +588,31 @@ export async function reencryptWorkspaceFile(
  * started, and metadata + workspace are committed in one transaction.
  */
 export async function restoreLocalWorkspace(source: string, password: string): Promise<UnlockedWorkspace> {
+  let localRecovery: { backup: LocalRecoveryBackup; document: Automerge.Doc<WorkspaceDocument>; dataKey: Uint8Array } | undefined;
+  try {
+    const parsed = JSON.parse(source) as { magic?: string };
+    if (parsed.magic === 'UTM-LOCAL-ENCRYPTED') localRecovery = await unlockLocalRecoveryBackup(source, password);
+  } catch (reason) {
+    if (reason instanceof Error && reason.message !== 'Encrypted workspace file is not valid JSON') throw reason;
+  }
+  if (localRecovery) {
+    const currentMetadata = await getRecord<LocalMetadata>(META_KEY);
+    const currentBlock = await getRecord<LocalBlock>(BLOCK_KEY);
+    const previousSnapshot = await getRecord<LocalWorkspaceSnapshot>(SNAPSHOT_KEYS[0]);
+    const exportSafeBlock = await createExportSafeBlock(localRecovery.document, localRecovery.dataKey, localRecovery.backup.workspace);
+    const current = currentMetadata && currentBlock
+      ? { id: SNAPSHOT_KEYS[0], createdAt: new Date().toISOString(), schemaVersion: 'unknown', reason: 'before local recovery restore', metadata: currentMetadata, workspace: currentBlock } satisfies LocalWorkspaceSnapshot
+      : undefined;
+    await transactRecords([
+      [META_KEY, localRecovery.backup.metadata],
+      [BLOCK_KEY, localRecovery.backup.workspace],
+      [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock],
+      ...(current ? [[SNAPSHOT_KEYS[0], current] as [string, unknown]] : []),
+      ...(previousSnapshot ? [[SNAPSHOT_KEYS[1], { ...previousSnapshot, id: SNAPSHOT_KEYS[1] }] as [string, unknown]] : []),
+    ], [FACE_ID_KEY, PASSWORD_BYPASS_KEY]);
+    await saveVerifiedMirror(localRecovery.backup.metadata, localRecovery.backup.workspace);
+    return { document: localRecovery.document, dataKey: localRecovery.dataKey, storageMode: 'encrypted' };
+  }
   const incoming = await unlock(source, password);
   const dataKey = await randomKey();
   const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
@@ -585,7 +630,23 @@ export async function mergeIntoLocalWorkspace(
   source: string,
   password: string,
 ): Promise<{ unlocked: UnlockedWorkspace; changedItems: number }> {
-  const merged = await merge(current.document, source, password);
+  let merged: { document: Automerge.Doc<WorkspaceDocument>; changedItems: number };
+  let localRecovery: { document: Automerge.Doc<WorkspaceDocument>; dataKey: Uint8Array } | undefined;
+  try {
+    const parsed = JSON.parse(source) as { magic?: string };
+    if (parsed.magic === 'UTM-LOCAL-ENCRYPTED') localRecovery = await unlockLocalRecoveryBackup(source, password);
+  } catch (reason) {
+    if (reason instanceof Error && reason.message !== 'Encrypted workspace file is not valid JSON') throw reason;
+  }
+  if (localRecovery) {
+    try {
+      if (localRecovery.document.workspaceId !== current.document.workspaceId) throw new Error('Only backups from the same workspace can be merged');
+      const before = new Map(Object.entries(current.document.items).map(([id, item]) => [id, item.revision]));
+      let document = Automerge.merge(current.document, localRecovery.document);
+      document = Automerge.change(document, 'Record local recovery merge time', (draft) => { draft.updatedAt = new Date().toISOString(); });
+      merged = { document, changedItems: Object.entries(document.items).filter(([id, item]) => before.get(id) !== item.revision).length };
+    } finally { localRecovery.dataKey.fill(0); }
+  } else merged = await merge(current.document, source, password);
   const storageMode = current.storageMode ?? 'encrypted';
   await saveLocalWorkspace(merged.document, current.dataKey, storageMode);
   return { unlocked: { document: merged.document, dataKey: current.dataKey, storageMode }, changedItems: merged.changedItems };

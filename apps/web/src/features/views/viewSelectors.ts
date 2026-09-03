@@ -59,7 +59,7 @@ export function completionPhase(itemId: string, at = Date.now()): 'held' | 'exit
 export type AttentionSortValues = { bucket: number; at?: number; durationMs: number };
 export type ViewEvaluation = { items: UniversalItem[]; metrics: ViewTimeMetrics | null; now: Date };
 
-const displayedTimeFields = new Set(['activeRange', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue']);
+const displayedTimeFields = new Set(['activeRange', 'activeRangeWhenSet', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue']);
 
 function safeExpressionDependsOnTime(source: string): boolean {
   try { return expressionDependsOnCurrentTime(source); }

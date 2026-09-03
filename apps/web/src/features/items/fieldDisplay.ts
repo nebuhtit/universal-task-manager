@@ -19,7 +19,7 @@ export type ViewFieldOption = { path: string; label: string; group: string };
 const builtInViewFields: ViewFieldOption[] = [
   { path: 'title', label: 'Title', group: 'Core' }, { path: 'bodyMarkdown', label: 'Description', group: 'Core' }, { path: 'location', label: 'Location', group: 'Core' },
   { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
-  { path: 'isHabit', label: 'Habit', group: 'Core' }, { path: 'activeRange', label: 'Inside active range now', group: 'Core' },
+  { path: 'isHabit', label: 'Habit', group: 'Core' }, { path: 'activeRange', label: 'Inside active range now', group: 'Core' }, { path: 'activeRangeWhenSet', label: 'Inside active range now (if set)', group: 'Core' },
   { path: 'activeDuration', label: 'Has active range dates', group: 'Core' },
   { path: 'eventToday', label: 'Event overlaps today', group: 'Schedule' },
   { path: 'eventThisWeek', label: 'Event overlaps this week', group: 'Schedule' },

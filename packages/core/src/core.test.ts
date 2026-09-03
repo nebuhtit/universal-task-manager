@@ -64,6 +64,20 @@ describe('safe expression language', () => {
     expect(query(item, new Date('2026-08-20T10:03:00.000Z'))).toBe(false);
   });
 
+  it('applies the active-range guard only when both range boundaries are set', () => {
+    const now = new Date('2026-09-03T08:23:00.000Z');
+    const query = compileQuery('scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSet == true', undefined, { timeZone: 'UTC', weekStartsOn: 1 });
+    const futureRange = createItem('Future active range');
+    futureRange.schedule = { startAt: '2026-09-03T21:15:00.000Z', dueAt: '2026-09-06T11:00:00.000Z', timezone: 'UTC' };
+    const noRange = createItem('Due without active range');
+    noRange.schedule = { dueAt: '2026-09-03T18:00:00.000Z', timezone: 'UTC' };
+    const currentRange = createItem('Current active range');
+    currentRange.schedule = { startAt: '2026-09-02T09:00:00.000Z', dueAt: '2026-09-03T18:00:00.000Z', timezone: 'UTC' };
+    expect(query(futureRange, now)).toBe(false);
+    expect(query(noRange, now)).toBe(true);
+    expect(query(currentRange, now)).toBe(true);
+  });
+
   it('interprets legacy presence checks for computed booleans as explicit true or false', () => {
     const item = createItem('Future active range');
     item.schedule = { startAt: '2026-09-03T21:15:00.000Z', dueAt: '2026-09-06T11:00:00.000Z' };
@@ -187,7 +201,7 @@ describe('safe expression language', () => {
     const migrated = migrateWorkspace(workspace).value;
     expect(migrated.viewOrder.slice(0, 4)).toEqual([today.id, week.id, '__all_items__', 'custom']);
     expect(migrated.views[today.id]?.name).toBe('Today');
-    expect(migrated.views[today.id]?.query.source).toContain('eventToday == true || dueTodayOrOverdue == true');
+    expect(migrated.views[today.id]?.query.source).toContain('activeRangeWhenSet == true');
     expect(migrated.views[today.id]?.fields).toEqual(['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project']);
     expect(migrated.views[week.id]?.name).toBe('This week');
     expect(migrated.views.custom?.query.source).toBe('dueTodayOrOverdue == true');
