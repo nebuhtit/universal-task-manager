@@ -22,7 +22,8 @@ const e2e = await readFile(e2ePath, 'utf8');
 const escapedVersion = version.replaceAll('.', '\\.');
 const nextE2e = e2e
   .replace(/getByText\('v[^']+', \{ exact: true \}\)/, `getByText('v${version}', { exact: true })`)
-  .replace(/const releaseLabel = \/\^v[^;]+;/, `const releaseLabel = /^v${escapedVersion} · (?:local changes · )?commit [0-9a-f]{7}$/;`);
+  .replace(/const releaseLabel = \/\^v[^;]+;/, `const releaseLabel = /^v${escapedVersion} · (?:local changes · )?commit [0-9a-f]{7}$/;`)
+  .replace(/await expect\(page\.locator\('\.settings-release-info'\)\)\.toHaveText\(\/\^Universal Task Manager · v[^;]+;/, `await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v${escapedVersion} · build [0-9a-f]{7}(?: · local changes)?$/);`);
 if (e2e === nextE2e) throw new Error('Login version assertion was not found or already matches exactly');
 
 await Promise.all([writeFile(typesPath, nextTypes), writeFile(e2ePath, nextE2e)]);

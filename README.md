@@ -6,7 +6,7 @@ Universal Task Manager (UTM) is an installable React PWA built around one flexib
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v1.96.3** · workspace schema: **1.22.0**
+Current release: **v1.96.4** · workspace schema: **1.22.0**
 
 > [!IMPORTANT]
 > UTM is currently **beta software**. Your workspace is stored on your device, not in a hosted account. Create encrypted `.utmb` backups regularly. Clearing browser/PWA storage or removing an installed web app can erase its local workspace.

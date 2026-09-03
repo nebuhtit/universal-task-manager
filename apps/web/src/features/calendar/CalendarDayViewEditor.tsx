@@ -13,7 +13,7 @@ import { ViewEditorSection } from '../views/ViewEditorSection';
 import { ViewSortingEditor } from '../views/ViewSortingEditor';
 import { viewFieldOptions } from '../views/fieldCatalog';
 import {
-  defaultReminderPeriodValue, isReminderVisualField, parseVisualRows, reminderPeriodField, serializeVisualRows, visualFieldKinds, visualFilterFieldLabel, visualOperators, visualOptions,
+  defaultVisualConditionForField, isReminderVisualField, parseVisualRows, reminderPeriodField, serializeVisualRows, visualFieldKind, visualFilterFieldLabel, visualOperators, visualOptionsForField,
   type VisualConditionRow,
 } from '../views/visualFilterModel';
 
@@ -42,7 +42,8 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
   useEffect(() => {
     if (!open) return;
     const next = clean(workspace.calendarPreferences.dayView);
-    const parsed = parseVisualRows(next.filter.source);
+    const parsed = parseVisualRows(next.filter.source, workspace.customFields);
+    if (parsed) next.filter = { source: serializeVisualRows(parsed, workspace.customFields) };
     setDraft(next);
     setRows(parsed ?? []);
     setVisualDirty(parsed === null);
@@ -58,16 +59,16 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
   };
   const syncRows = (next: VisualConditionRow[]) => {
     setRows(next); setVisualDirty(false);
-    setDraft((current) => ({ ...current, filter: { source: serializeVisualRows(next) } }));
+    setDraft((current) => ({ ...current, filter: { source: serializeVisualRows(next, workspace.customFields) } }));
   };
   const addRow = (join: 'and' | 'or') => syncRows([...(visualDirty ? [] : rows), { id: createId(), join, field: 'state', operator: '==', value: 'open' }]);
   const updateRow = (id: string, patch: Partial<VisualConditionRow>) => syncRows(rows.map((row) => {
     if (row.id !== id) return row;
     const next = { ...row, ...patch };
     if (patch.field) {
-      const operators = visualOperators(patch.field);
-      next.operator = operators.includes(next.operator) ? next.operator : operators[0]!;
-      next.value = patch.field === reminderPeriodField ? JSON.stringify(defaultReminderPeriodValue()) : visualOptions[patch.field]?.[0] ?? '';
+      Object.assign(next, defaultVisualConditionForField(patch.field, workspace.customFields));
+    } else if (patch.operator && patch.operator !== 'is set' && patch.operator !== 'is not set' && !next.value) {
+      next.value = visualOptionsForField(next.field, workspace.customFields)?.[0] ?? '';
     }
     return next;
   }));
@@ -96,13 +97,13 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
         {rows.map((row, index) => <div className="visual-condition-row" key={row.id}>
           <Field className="condition-join" label={index === 0 ? 'Where' : 'Join'}>{index === 0 ? <span className="field-hint">First rule</span> : <Select value={row.join} onChange={(event) => updateRow(row.id, { join: event.target.value as 'and' | 'or' })}><option value="and">AND</option><option value="or">OR</option></Select>}</Field>
           <Field label="Property"><Select value={row.field} onChange={(event) => updateRow(row.id, { field: event.target.value })}><optgroup label="Time periods"><option value={reminderPeriodField}>Next reminder relative to period</option></optgroup>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{visualFilterFieldLabel(field.path, field.label)}</option>)}</optgroup>)}</Select></Field>
-          {row.field === reminderPeriodField ? <Field className="schedule-period-condition" label="Nearest active reminder"><ReminderPeriodEditor value={row.value} onChange={(value) => updateRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateRow(row.id, { operator: event.target.value })}>{visualOperators(row.field).map((operator) => <option key={operator}>{operator}</option>)}</Select></Field>
-          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptions[row.field] ? <Select value={row.value} onChange={(event) => updateRow(row.id, { value: event.target.value })}>{visualOptions[row.field]!.map((value) => <option key={value}>{value}</option>)}</Select> : <Input type={visualFieldKinds[row.field] === 'date' ? 'datetime-local' : 'text'} value={row.value} onChange={(event) => updateRow(row.id, { value: event.target.value })} />}</Field></>}
+          {row.field === reminderPeriodField ? <Field className="schedule-period-condition" label="Nearest active reminder"><ReminderPeriodEditor value={row.value} onChange={(value) => updateRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateRow(row.id, { operator: event.target.value })}>{visualOperators(row.field, workspace.customFields).map((operator) => <option key={operator}>{operator}</option>)}</Select></Field>
+          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptionsForField(row.field, workspace.customFields) ? <Select value={row.value} onChange={(event) => updateRow(row.id, { value: event.target.value })}>{visualOptionsForField(row.field, workspace.customFields)!.map((value) => <option key={value}>{value}</option>)}</Select> : <Input type={visualFieldKind(row.field, workspace.customFields) === 'date' ? 'datetime-local' : visualFieldKind(row.field, workspace.customFields) === 'number' ? 'number' : 'text'} value={row.value} onChange={(event) => updateRow(row.id, { value: event.target.value })} />}</Field></>}
           <IconButton size="compact" variant="ghost" aria-label={`Remove filter rule ${index + 1}`} onClick={() => syncRows(rows.filter((candidate) => candidate.id !== row.id))}><CloseIcon /></IconButton>
         </div>)}
         <p className="builder-status">{visualDirty ? 'This filter uses advanced code. Edit it below or replace it with a visual rule.' : 'Visual rules and advanced filter code are synchronized.'}</p>
         <div className="builder-actions"><Button size="compact" onClick={() => addRow('and')}>+ Add AND rule</Button><Button size="compact" onClick={() => addRow('or')}>+ Add OR rule</Button></div>
-        <Field label="Advanced filter code" hint="This additional filter cannot remove or bypass the selected-day boundary."><CodeEditor language="dsl" ariaLabel="Calendar day advanced filter code" rows={5} value={draft.filter.source} onChange={(source) => { const parsed = parseVisualRows(source); setDraft({ ...draft, filter: { source } }); setRows(parsed ?? []); setVisualDirty(parsed === null); }} /></Field>
+        <Field label="Advanced filter code" hint="This additional filter cannot remove or bypass the selected-day boundary."><CodeEditor language="dsl" ariaLabel="Calendar day advanced filter code" rows={5} value={draft.filter.source} onChange={(source) => { const parsed = parseVisualRows(source, workspace.customFields); setDraft({ ...draft, filter: { source } }); setRows(parsed ?? []); setVisualDirty(parsed === null); }} /></Field>
       </fieldset>
     </ViewEditorSection>
     <ViewEditorSection sectionKey="calendar-day-fields" title="Show in results"><DisplayedFieldsEditor workspace={workspace} view={view} onChange={(next) => setDraft({ ...draft, fields: next.fields })} /></ViewEditorSection>

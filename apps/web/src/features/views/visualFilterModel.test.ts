@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultReminderPeriodValue, defaultSchedulePeriodValue, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualOperators } from './visualFilterModel';
+import { defaultReminderPeriodValue, defaultSchedulePeriodValue, defaultVisualConditionForField, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualOperators, visualOptionsForField } from './visualFilterModel';
 
 describe('visual filter model', () => {
   it('round-trips the existing visual DSL without changing its syntax', () => {
@@ -13,6 +13,52 @@ describe('visual filter model', () => {
     expect(visualOperators('priority')).toContain('>=');
     expect(visualOperators('tags')).toContain('has any');
     expect(toSqlExpression('state == "open" && priority >= 2')).toBe('state = "open" AND priority >= 2');
+  });
+
+  it('does not offer presence checks for values that are always defined', () => {
+    expect(visualOperators('activeRange')).toEqual(['==', '!=']);
+    expect(visualOperators('isHabit')).toEqual(['==', '!=']);
+    expect(visualOperators('state')).toEqual(['==', '!=']);
+    expect(visualOperators('schedule.startAt')).toContain('is set');
+    expect(visualOperators('schedule.allDay')).toContain('is set');
+    expect(visualOperators('schedule.allDay')).not.toContain('in');
+    expect(visualOperators('parentDepth')).not.toContain('is set');
+    expect(defaultVisualConditionForField('activeRange')).toEqual({ operator: '==', value: 'true' });
+    expect(defaultVisualConditionForField('state')).toEqual({ operator: '==', value: 'open' });
+  });
+
+  it('uses workspace custom-field types for operators, values and inputs', () => {
+    const fields = {
+      flag: { id: 'flag', key: 'flag', label: 'Flag', kind: 'boolean' as const, required: false },
+      score: { id: 'score', key: 'score', label: 'Score', kind: 'number' as const, required: false },
+      phase: { id: 'phase', key: 'phase', label: 'Phase', kind: 'enum' as const, required: false, options: ['draft', 'ready'] },
+    };
+    expect(visualFieldKind('custom.flag', fields)).toBe('boolean');
+    expect(visualOperators('custom.flag', fields)).toEqual(['is set', 'is not set', '==', '!=']);
+    expect(visualOperators('custom.score', fields)).toContain('>=');
+    expect(visualOptionsForField('custom.phase', fields)).toEqual(['draft', 'ready']);
+    expect(defaultVisualConditionForField('custom.phase', fields)).toEqual({ operator: '==', value: 'draft' });
+  });
+
+  it('upgrades legacy boolean presence rows to explicit boolean comparisons', () => {
+    const rows = parseVisualRows('(activeRange != null && isHabit == null)');
+    expect(rows).toMatchObject([
+      { field: 'activeRange', operator: '==', value: 'true' },
+      { field: 'isHabit', operator: '==', value: 'false' },
+    ]);
+    expect(serializeVisualRows(rows!)).toBe('(activeRange == true && isHabit == false)');
+  });
+
+  it('serializes Contains in the correct direction and keeps it editable', () => {
+    const rows = [{ id: 'title', join: 'and' as const, field: 'title', operator: 'contains', value: 'готов' }];
+    expect(serializeVisualRows(rows)).toBe('includes(title, "готов")');
+    expect(parseVisualRows('includes(title, "готов")')).toMatchObject([{ field: 'title', operator: 'contains', value: 'готов' }]);
+    expect(parseVisualRows('title in "готов"')).toMatchObject([{ field: 'title', operator: 'contains', value: 'готов' }]);
+  });
+
+  it('keeps obsolete type-invalid rows in advanced mode instead of rendering a broken select', () => {
+    expect(parseVisualRows('state != null')).toBeNull();
+    expect(parseVisualRows('length(parentDepth) > 0')).toBeNull();
   });
 
   it('round-trips the Google Calendar provider filter', () => {

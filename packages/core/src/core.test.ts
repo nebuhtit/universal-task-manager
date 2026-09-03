@@ -34,6 +34,28 @@ describe('safe expression language', () => {
     expect(query(item, new Date('2026-08-20T10:03:00.000Z'))).toBe(false);
   });
 
+  it('interprets legacy presence checks for computed booleans as explicit true or false', () => {
+    const item = createItem('Future active range');
+    item.schedule = { startAt: '2026-09-03T21:15:00.000Z', dueAt: '2026-09-06T11:00:00.000Z' };
+    const legacyInside = compileQuery('activeRange != null');
+    const legacyOutside = compileQuery('activeRange == null');
+    expect(legacyInside(item, new Date('2026-09-03T08:23:00.000Z'))).toBe(false);
+    expect(legacyInside(item, new Date('2026-09-03T21:15:00.000Z'))).toBe(true);
+    expect(legacyOutside(item, new Date('2026-09-03T08:23:00.000Z'))).toBe(true);
+    expect(legacyOutside(item, new Date('2026-09-03T21:15:00.000Z'))).toBe(false);
+    expect(compileQuery('isHabit != null')(item)).toBe(false);
+    const combined = compileQuery('scheduleInPeriod("today", "active", false, 7, "", "") && activeRange != null', undefined, { timeZone: 'UTC', weekStartsOn: 1 });
+    expect(combined(item, new Date('2026-09-03T08:23:00.000Z'))).toBe(false);
+    expect(combined(item, new Date('2026-09-03T21:15:00.000Z'))).toBe(true);
+  });
+
+  it('keeps legacy Visual Setup Contains filters working in the intended direction', () => {
+    const item = createItem('Подготовка к воскресенью');
+    expect(compileQuery('title in "воскрес"')(item)).toBe(true);
+    expect(compileQuery('title in "уборка"')(item)).toBe(false);
+    expect(compileQuery('includes(title, "воскрес")')(item)).toBe(true);
+  });
+
   it('distinguishes an active duration from a point date and supports presence checks', () => {
     const bounded = createItem('Bounded');
     bounded.schedule = { startAt: '2026-08-20T10:00:00.000Z', dueAt: '2026-08-20T10:02:00.000Z' };

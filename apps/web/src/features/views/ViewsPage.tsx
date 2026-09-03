@@ -20,7 +20,7 @@ import { SavedViewSection } from './SavedViewSection';
 import { boardSettingsFor, defaultBoardStates, MANUAL_ORDER_EXTENSION, manualOrderFor, mergeManualOrder, type BoardSettings } from './viewSelectors';
 import { exampleViewFieldValue, viewFieldGroups, viewFieldLabel, viewFieldOptions } from './fieldCatalog';
 import { creationDefaultFieldOptions, defaultValueForPath } from './creationDefaults';
-import { defaultReminderPeriodValue, defaultSchedulePeriodValue, isReminderVisualField, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKinds, visualFilterFieldLabel, visualOperators, visualOptions, type VisualConditionRow } from './visualFilterModel';
+import { defaultSchedulePeriodValue, defaultVisualConditionForField, isReminderVisualField, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterFieldLabel, visualOperators, visualOptionsForField, type VisualConditionRow } from './visualFilterModel';
 import { ReminderPeriodEditor, SchedulePeriodEditor } from './SchedulePeriodEditor';
 import { DisplayedFieldsEditor } from './DisplayedFieldsEditor';
 import { ViewSortingEditor } from './ViewSortingEditor';
@@ -136,14 +136,15 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     if (!editing) return;
     setVisualRows(rows);
     setVisualDirty(false);
-    setEditing({ ...editing, query: { source: serializeVisualRows(rows) } });
+    setEditing({ ...editing, query: { source: serializeVisualRows(rows, workspace.customFields) } });
   };
   const beginEditing = (view: SavedView, templateId = 'builtin:inbox') => {
     const copy = modernizeLegacyViewScope(clean(view));
     copy.fields ??= [];
     copy.sort ??= [];
     const source = copy.sortSource ?? serializeSortRules(copy.sort.map((sort) => ({ expression: sort.field, direction: sort.direction, nulls: sort.nulls ?? 'last' })));
-    const rows = parseVisualRows(copy.query.source);
+    const rows = parseVisualRows(copy.query.source, workspace.customFields);
+    if (rows) copy.query = { source: serializeVisualRows(rows, workspace.customFields) };
     recordDiagnostic({
       kind: 'action', message: 'Open view editor requested', operation: 'View editor lifecycle', outcome: 'started',
       details: JSON.stringify({ viewId: copy.id, renderer: copy.renderer, sourceLength: copy.query.source.length, parsedVisualRows: rows?.length ?? 0, visualDslCompatible: rows !== null, displayedFields: copy.fields.length }),
@@ -168,9 +169,9 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       if (row.id !== id) return row;
       const next = { ...row, ...patch };
       if (patch.field) {
-        const options = visualOperators(patch.field);
-        next.operator = options.includes(next.operator) ? next.operator : options[0]!;
-        next.value = patch.field === schedulePeriodField ? JSON.stringify(defaultSchedulePeriodValue()) : patch.field === reminderPeriodField ? JSON.stringify(defaultReminderPeriodValue()) : visualOptions[patch.field]?.[0] ?? '';
+        Object.assign(next, defaultVisualConditionForField(patch.field, workspace.customFields));
+      } else if (patch.operator && patch.operator !== 'is set' && patch.operator !== 'is not set' && !next.value) {
+        next.value = visualOptionsForField(next.field, workspace.customFields)?.[0] ?? '';
       }
       return next;
     });
@@ -400,8 +401,8 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         {visualRows.map((row, index) => <div className="visual-condition-row" key={row.id}>
           <Field className="condition-join" label={index === 0 ? 'Where' : 'Join'}>{index === 0 ? <span className="field-hint">First rule</span> : <Select value={row.join} onChange={(event) => updateVisualRow(row.id, { join: event.target.value as 'and' | 'or' })}><option value="and">AND</option><option value="or">OR</option></Select>}</Field>
           <Field label="Property"><Select value={row.field} onChange={(event) => updateVisualRow(row.id, { field: event.target.value })}><optgroup label="Time periods"><option value={schedulePeriodField}>Schedule in period</option><option value={reminderPeriodField}>Next reminder relative to period</option></optgroup>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{visualFilterFieldLabel(field.path, field.label)}</option>)}</optgroup>)}</Select></Field>
-          {row.field === schedulePeriodField ? <Field className="schedule-period-condition" label="Match any selected condition (OR)"><SchedulePeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : row.field === reminderPeriodField ? <Field className="schedule-period-condition" label="Nearest active reminder"><ReminderPeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</Select></Field>
-          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptions[row.field] ? <Select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptions[row.field]!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</Select> : <Input type={visualFieldKinds[row.field] === 'date' ? 'datetime-local' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'tags' || row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'tags' || row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</Field></>}
+          {row.field === schedulePeriodField ? <Field className="schedule-period-condition" label="Match any selected condition (OR)"><SchedulePeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : row.field === reminderPeriodField ? <Field className="schedule-period-condition" label="Nearest active reminder"><ReminderPeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field, workspace.customFields).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</Select></Field>
+          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptionsForField(row.field, workspace.customFields) ? <Select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptionsForField(row.field, workspace.customFields)!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : value}</option>)}</Select> : <Input type={visualFieldKind(row.field, workspace.customFields) === 'date' ? 'datetime-local' : visualFieldKind(row.field, workspace.customFields) === 'number' ? 'number' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'tags' || row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'tags' || row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</Field></>}
           <IconButton size="compact" variant="ghost" className="visual-condition-remove" aria-label={`Remove filter rule ${index + 1}`} onClick={() => syncRowsToDsl(visualRows.filter((entry) => entry.id !== row.id))}><CloseIcon /></IconButton>
         </div>)}
         <datalist id="view-title-values">{[...new Set(Object.values(workspace.items).map((entry) => entry.title))].map((title) => <option value={title} key={title} />)}</datalist>
@@ -422,7 +423,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         <SearchableDisclosureList uiKey={`view-editor:statistics-reserved:${editing.id}`} className="view-statistics-reserved" summary={<span className="view-statistics-reserved-summary"><span>Reserved items</span><small>{statistics.reservedItemIds.length} selected</small></span>} items={reservedCandidates} getSearchText={(item) => item.title} searchLabel="Search reserved items" searchPlaceholder="Search items" emptyText="No scheduled items with Duration yet." noMatchesText="No matching items." renderItem={(item) => <Checkbox key={item.id} checked={statistics.reservedItemIds.includes(item.id)} onChange={(event) => toggleReservedItem(item.id, event.target.checked)} label={<>{item.title}{item.role === 'series_template' && <small> · repeats</small>}</>} />}/>
         <small className="field-hint">A recurring item is counted once for every occurrence inside the view period. If its occurrence is already in the view, it is not subtracted twice.</small>
       </fieldset></ViewEditorSection>
-      <ViewEditorSection sectionKey="advanced-filter" title="Advanced filter code"><Field className="dsl-field" label="Advanced filter code" hint={<>Optional text form of the visual rows. SQL preview: {toSqlExpression(editing.query.source)}</>}><CodeEditor language="dsl" ariaLabel="Advanced filter code" rows={5} value={editing.query.source} onChange={(value) => { const rows = parseVisualRows(value); setEditing({ ...editing, query: { source: value } }); if (rows !== null) setVisualRows(rows); setVisualDirty(rows === null); }} /></Field></ViewEditorSection>
+      <ViewEditorSection sectionKey="advanced-filter" title="Advanced filter code"><Field className="dsl-field" label="Advanced filter code" hint={<>Optional text form of the visual rows. SQL preview: {toSqlExpression(editing.query.source)}</>}><CodeEditor language="dsl" ariaLabel="Advanced filter code" rows={5} value={editing.query.source} onChange={(value) => { const rows = parseVisualRows(value, workspace.customFields); setEditing({ ...editing, query: { source: value } }); if (rows !== null) setVisualRows(rows); setVisualDirty(rows === null); }} /></Field></ViewEditorSection>
       <ViewEditorSection sectionKey="creation-defaults" title="Defaults for new items"><fieldset className="query-builder creation-defaults">
         <p className="builder-status">Pinned values are copied only when this view creates a new item. They never change the filter or existing items.</p>
         {Object.entries(editing.creationDefaults ?? {}).map(([path, value]) => <div className="creation-default-row" key={path}>

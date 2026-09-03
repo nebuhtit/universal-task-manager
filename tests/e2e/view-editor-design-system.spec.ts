@@ -120,6 +120,30 @@ test('shows the existing Today preset as editable visual conditions', async ({ p
   await expect(period.getByRole('checkbox', { name: 'Include overdue' })).toBeChecked();
 });
 
+test('visual filters reset to valid type-specific operators', async ({ page }) => {
+  await createWorkspace(page);
+  const todayView = page.locator('.view-section').filter({ has: page.getByRole('heading', { name: 'Today', exact: true }) });
+  await todayView.getByRole('button', { name: /^Edit / }).click();
+  const visual = await openSection(page, 'Visual setup');
+  await visual.getByRole('button', { name: '+ Add AND rule' }).click();
+  const row = visual.locator('.visual-condition-row').last();
+  const property = row.getByRole('combobox', { name: 'Property' });
+  const operator = row.getByRole('combobox', { name: 'Operator' });
+
+  await property.selectOption('schedule.startAt');
+  await expect(operator).toHaveValue('is set');
+  await property.selectOption('activeRange');
+  await expect(operator).toHaveValue('==');
+  await expect(operator.locator('option', { hasText: 'is set' })).toHaveCount(0);
+  await expect(row.getByRole('combobox', { name: 'Value' })).toHaveValue('true');
+
+  await property.selectOption('title');
+  await operator.selectOption('contains');
+  await row.locator('input').fill('воскрес');
+  await openSection(page, 'Advanced filter code');
+  await expect(page.getByLabel('Advanced filter code')).toHaveValue(/includes\(title, "воскрес"\)/);
+});
+
 test('explains reminder filtering separately from reminder field visibility', async ({ page }) => {
   await createWorkspace(page);
   await page.getByRole('button', { name: 'New view' }).click();

@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.96\.3 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.96\.4 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -120,7 +120,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v1\.96\.3 · build [0-9a-f]{7}(?: · local changes)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v1\.96\.4 · build [0-9a-f]{7}(?: · local changes)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -508,6 +508,14 @@ test('calendar switches periods and edits the fixed day view', async ({ page }) 
   await expect(editor.getByText('Filter items', { exact: true })).toBeVisible();
   await expect(editor.getByText('Show in results', { exact: true })).toBeVisible();
   await expect(editor.getByText('Sorting', { exact: true })).toBeVisible();
+  const filterSection = editor.locator('details.view-editor-section').filter({ hasText: 'Filter items' }).first();
+  await filterSection.locator(':scope > summary').click();
+  await filterSection.getByRole('button', { name: '+ Add AND rule' }).click();
+  const filterRow = filterSection.locator('.visual-condition-row').last();
+  await filterRow.getByRole('combobox', { name: 'Property' }).selectOption('activeRange');
+  await expect(filterRow.getByRole('combobox', { name: 'Operator' })).toHaveValue('==');
+  await expect(filterRow.getByRole('combobox', { name: 'Operator' }).locator('option', { hasText: 'is set' })).toHaveCount(0);
+  await expect(filterSection.getByLabel('Calendar day advanced filter code')).toHaveValue(/activeRange == true/);
   await editor.getByRole('button', { name: 'Save view' }).click();
   await expect(editor).toBeHidden();
   const calendarEditTrigger = page.getByRole('button', { name: 'Edit calendar day view' });

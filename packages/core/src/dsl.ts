@@ -390,13 +390,36 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
 }
 
 export interface QueryRelationContext { isSubtask?: boolean; isParent?: boolean; parentDepth?: number; childDepth?: number }
+
+/**
+ * Query variables that are always present and always boolean. A legacy Visual
+ * Setup row used `is set` for these values, which compiled to `!= null` and was
+ * therefore always true. Keep the list shared with the editor so old saved
+ * filters can be interpreted as the user's boolean intent.
+ */
+export const NON_NULLABLE_QUERY_BOOLEAN_FIELDS = [
+  'isHabit', 'isTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeDuration',
+  'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue',
+] as const;
+
+function normalizeLegacyBooleanPresence(source: string): string {
+  return NON_NULLABLE_QUERY_BOOLEAN_FIELDS.reduce((next, field) => next
+    .replace(new RegExp(`\\b${field}\\s*!=\\s*null\\b`, 'g'), `${field} == true`)
+    .replace(new RegExp(`\\b${field}\\s*==\\s*null\\b`, 'g'), `${field} == false`), source);
+}
+
+/** Early Visual Setup versions emitted `field in "text"` for a Contains row. */
+function normalizeLegacyVisualContains(source: string): string {
+  return source.replace(/\b([A-Za-z_][\w.]*)\s+in\s+("(?:[^"\\]|\\.)*")/g, 'includes($1, $2)');
+}
+
 export function compileQuery(source: string, relationContext?: (item: UniversalItem) => QueryRelationContext, temporalOptions: QueryTemporalOptions = {}): (item: UniversalItem, now?: Date) => boolean {
   // Compatibility for early Views: before habits became a universal capability,
   // the visual builder expressed them as `preset == "habit"`.
   const legacyToday = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && dueTodayOrOverdue == true`;
   const legacyWeek = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && dueThisWeekOrOverdue == true`;
   const compatibleSource = source === legacyToday ? `${ACTIVE_ITEM_VIEW_QUERY} && (eventToday == true || dueTodayOrOverdue == true)` : source === legacyWeek ? `${ACTIVE_ITEM_VIEW_QUERY} && (eventThisWeek == true || dueThisWeekOrOverdue == true)` : source;
-  const normalizedSource = compatibleSource
+  const normalizedSource = normalizeLegacyVisualContains(normalizeLegacyBooleanPresence(compatibleSource))
     .replace(/\bpreset\s*==\s*(["'])habit\1/g, 'isHabit == true')
     .replace(/\bpreset\s*!=\s*(["'])habit\1/g, 'isHabit != true')
     // Keep the storage model backwards compatible while making the UI wording clearer.
