@@ -1,13 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ACTIVE_ITEM_VIEW_QUERY, STANDARD_ATTENTION_VIEW_SORT_SOURCE, createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
-import { boardSettingsFor, completionPhase, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold } from './viewSelectors';
+import { boardSettingsFor, completionPhase, evaluateView, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold, viewContinuouslyDependsOnCurrentTime, viewDependsOnCurrentTime } from './viewSelectors';
 
 const view = (source = 'true'): SavedView => ({
   id: 'view-test', name: 'Test', query: { source }, renderer: 'table', fields: ['title'], sort: [],
 });
 
 describe('view selectors', () => {
+  it('evaluates membership and statistics together and only enables clocks when required', () => {
+    const workspace = createWorkspace('Evaluation');
+    const item = createItem('Static item');
+    item.schedule = { timezone: 'UTC', estimatedDuration: 'PT10M' };
+    workspace.items[item.id] = item;
+    const staticView = { ...view('state == "open"'), statistics: { showTime: true, reservedItemIds: [] } };
+    const now = new Date('2026-09-03T10:00:00.000Z');
+    const evaluation = evaluateView(workspace, staticView, now);
+    expect(evaluation.items.map((entry) => entry.id)).toEqual([item.id]);
+    expect(evaluation.metrics?.remainingDurationMs).toBe(10 * 60_000);
+    expect(evaluation.now).toBe(now);
+    expect(viewDependsOnCurrentTime(workspace, staticView)).toBe(false);
+
+    const todayView = view('scheduleInPeriod("today", "due", false, 7, "", "")');
+    expect(viewDependsOnCurrentTime(workspace, todayView)).toBe(true);
+    expect(viewContinuouslyDependsOnCurrentTime(workspace, todayView)).toBe(false);
+
+    const liveScriptView: SavedView = { ...staticView, fields: ['title', 'view_script.remaining'], scripts: [{ id: 'remaining-script', key: 'remaining', label: 'Remaining', source: 'timeUntil(schedule.dueAt)', resultKind: 'text' }] };
+    expect(viewContinuouslyDependsOnCurrentTime(workspace, liveScriptView)).toBe(true);
+    expect(viewDependsOnCurrentTime(workspace, { ...liveScriptView, fields: ['title'] })).toBe(false);
+  });
+
   it('filters and sorts view items without renderer state', () => {
     const workspace = createWorkspace('Views');
     const low = createItem('Low'); low.priority = 1;

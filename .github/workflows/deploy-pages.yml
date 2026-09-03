@@ -33,7 +33,7 @@ jobs:
       # release commit metadata used by the deployed version label.
       - run: pnpm --filter @utm/core build && pnpm --filter @utm/sdk build
       - run: pnpm typecheck
-      - run: pnpm test -- --run
+      - run: pnpm test
       - run: pnpm build
         env:
           VITE_GITHUB_PAGES: 'true'

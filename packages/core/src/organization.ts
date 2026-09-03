@@ -606,16 +606,22 @@ export function reorderTagSubset(workspace: WorkspaceDocument, orderedTags: Arra
   preferences.priorityOrder = normalizedOrganizationPriorityOrder(priorityOrder, workspace);
 }
 
-export function organizationPriorityRank(workspace: WorkspaceDocument, item: UniversalItem): number {
-  const areas = itemAreas(item); const projects = itemProjects(item); const tags = uniqueNames(item.tags);
+export function createOrganizationPriorityRanker(workspace: WorkspaceDocument): (item: UniversalItem) => number {
   const order = orderedOrganizationPriorityEntries(workspace);
-  const matches = (entry: OrganizationPriorityEntry) => entry.kind === 'area'
-    ? entry.name === null ? areas.length === 0 : areas.includes(entry.name)
-    : entry.kind === 'project'
-      ? entry.name === null ? projects.length === 0 : projects.includes(entry.name)
-      : entry.name === null ? tags.length === 0 : tags.includes(entry.name);
-  const index = order.findIndex(matches);
-  return index < 0 ? 0 : order.length - index;
+  return (item) => {
+    const areas = itemAreas(item); const projects = itemProjects(item); const tags = uniqueNames(item.tags);
+    const matches = (entry: OrganizationPriorityEntry) => entry.kind === 'area'
+      ? entry.name === null ? areas.length === 0 : areas.includes(entry.name)
+      : entry.kind === 'project'
+        ? entry.name === null ? projects.length === 0 : projects.includes(entry.name)
+        : entry.name === null ? tags.length === 0 : tags.includes(entry.name);
+    const index = order.findIndex(matches);
+    return index < 0 ? 0 : order.length - index;
+  };
+}
+
+export function organizationPriorityRank(workspace: WorkspaceDocument, item: UniversalItem): number {
+  return createOrganizationPriorityRanker(workspace)(item);
 }
 
 export { itemAreas, itemProjects };

@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import {
-  ACTIVE_ITEM_VIEW_QUERY, calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, deleteOrganizationDefinition, effectiveWorkspaceNow, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries, organizationDeletionImpact, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort,
+  ACTIVE_ITEM_VIEW_QUERY, calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries, organizationDeletionImpact, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort,
   orderedTagEntries, organizationAccentFor, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset,
   type OrganizationPreferences, type OrganizationPriorityEntry, type ProjectMetrics, type SavedView, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
@@ -13,12 +13,13 @@ import { formatComputedDuration } from '../items';
 import { FieldIcon } from '../items/FieldIcon';
 import { SavedViewSection } from '../views/SavedViewSection';
 import { VIEW_TEMPLATE_FIELDS } from '../views/viewTemplates';
+import { useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
+import { UserDataText } from '../../i18n-react';
 import './organization-manager.css';
 
 type Commit = (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
 type Route = { kind: 'overview' } | { kind: 'area'; area?: string } | { kind: 'project'; project: string } | { kind: 'tag'; tag?: string };
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-const UserDataText = ({ children }: { children: ReactNode }) => <span translate="no" data-utm-user-data>{children}</span>;
 const priorityKey = (entry: OrganizationPriorityEntry) => JSON.stringify([entry.kind, entry.name, entry.kind === 'project' && entry.name !== null ? entry.area ?? null : undefined]);
 const activeQuery = ACTIVE_ITEM_VIEW_QUERY;
 const PARA_VIEW_EXTENSION = 'utm:para-view';
@@ -131,7 +132,12 @@ function EntityControls({ kind, name, workspace, commit, onRenamed, onDeleted }:
     commit(`Delete ${entityLabel}`, (draft) => { deleteOrganizationDefinition(draft, kind, name); });
     setDeleting(false); setDeleteConfirmation(''); onDeleted();
   };
-  return <><div className="organization-entity-controls">{renaming ? <div className="organization-inline-rename"><Input aria-label={`New name for ${entityLabel} ${name}`} value={value} autoFocus onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); rename(); } if (event.key === 'Escape') { setValue(name); setRenaming(false); } }} /><Button size="compact" disabled={!normalizedValue || normalizedValue === name || nameExists} onClick={rename}>Save</Button><Button size="compact" variant="ghost" onClick={() => { setValue(name); setRenaming(false); }}>Cancel</Button></div> : <><Button className="organization-rename-button" size="compact" aria-label={`Rename ${entityLabel} ${name}`} onClick={() => setRenaming(true)}>Rename {entityLabel}</Button><label className="organization-project-color" style={{ '--organization-picker-color': accent ?? 'var(--color-text)' } as CSSProperties}><input type="color" aria-label={`Color for ${entityLabel} ${name}`} value={accent ?? (kind === 'area' ? DEFAULT_AREA_ACCENT : kind === 'project' ? DEFAULT_PROJECT_ACCENT : DEFAULT_TAG_ACCENT)} onChange={(event) => commit(`Change ${entityLabel} color`, (draft) => { if (kind === 'area') ensureAreaDefinition(draft, name, { accent: event.target.value }); else if (kind === 'project') ensureProjectDefinition(draft, name, { accent: event.target.value }); else ensureTagDefinition(draft, name, { accent: event.target.value }); })} /></label><Button size="compact" variant="destructive" onClick={() => setDeleting(true)}>Delete {entityLabel}</Button></>}</div>
+  const updateAccent = (accent: string) => commit(`Change ${entityLabel} color`, (draft) => {
+    if (kind === 'area') ensureAreaDefinition(draft, name, { accent });
+    else if (kind === 'project') ensureProjectDefinition(draft, name, { accent });
+    else ensureTagDefinition(draft, name, { accent });
+  });
+  return <><div className="organization-entity-controls">{renaming ? <div className="organization-inline-rename"><Input aria-label={`New name for ${entityLabel} ${name}`} value={value} autoFocus onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); rename(); } if (event.key === 'Escape') { setValue(name); setRenaming(false); } }} /><Button size="compact" disabled={!normalizedValue || normalizedValue === name || nameExists} onClick={rename}>Save</Button><Button size="compact" variant="ghost" onClick={() => { setValue(name); setRenaming(false); }}>Cancel</Button></div> : <><Button className="organization-rename-button" size="compact" aria-label={`Rename ${entityLabel} ${name}`} onClick={() => setRenaming(true)}>Rename {entityLabel}</Button><label className="organization-project-color" style={{ '--organization-picker-color': accent ?? 'var(--color-text)' } as CSSProperties}><input type="color" aria-label={`Color for ${entityLabel} ${name}`} value={accent ?? (kind === 'area' ? DEFAULT_AREA_ACCENT : kind === 'project' ? DEFAULT_PROJECT_ACCENT : DEFAULT_TAG_ACCENT)} onChange={(event) => updateAccent(event.target.value)} /></label><Button size="compact" variant="secondary" onClick={() => setDeleting(true)}>Delete {entityLabel}</Button></>}</div>
     <ResponsiveDialog open={deleting} onOpenChange={(open) => { setDeleting(open); if (!open) setDeleteConfirmation(''); }} title={<>Delete {entityLabel} “<UserDataText>{name}</UserDataText>”?</>} description="This operation can change many workspace records." initialFocus={false} footer={<><Button onClick={() => setDeleting(false)}>Cancel</Button><Button variant="destructive" disabled={deleteConfirmation !== name} onClick={remove}>Delete permanently</Button></>}>
       <div className="organization-delete-warning"><p><strong>This changes structured workspace data:</strong></p><ul><li>{impact.itemCount} linked items will lose this {entityLabel}.</li>{kind === 'area' && <li>{impact.projectLinkCount} Projects will be detached from this Area, but the Projects will remain.</li>}<li>{impact.savedViewCount} scoped saved views and their dashboard widgets will be removed.</li><li>{impact.viewDefaultCount} View creation defaults will be cleaned.</li></ul>{impact.filterReferenceCount > 0 && <p className="organization-delete-filter-warning"><strong>{impact.filterReferenceCount} free-form View filters or sorts mention this name.</strong> They cannot be rewritten safely and may stop matching after deletion. Review them manually.</p>}<p>Make an encrypted backup first if you may need to restore these links.</p><Field label={<>Type <UserDataText>{name}</UserDataText> to confirm</>}><Input aria-label="Deletion confirmation" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} autoComplete="off" /></Field></div>
     </ResponsiveDialog>
@@ -167,7 +173,8 @@ export function OrganizationManager({ workspace, commit, onEditItem = () => {}, 
   const [route, setRoute] = useState<Route>({ kind: 'overview' });
   const [areaName, setAreaName] = useState(''); const [tagName, setTagName] = useState(''); const [orderDraft, setOrderDraft] = useState<OrganizationPreferences | null>(null);
   const orderWorkspace = orderDraft ? { ...workspace, organizationPreferences: orderDraft } : workspace;
-  const projectMetrics = calculateProjectMetrics(workspace, effectiveWorkspaceNow(workspace));
+  const workspaceNow = useWorkspaceBoundaryNow(workspace);
+  const projectMetrics = calculateProjectMetrics(workspace, workspaceNow);
   const orderCommit: Commit = (_message, mutation) => { const draft = clean(orderWorkspace); mutation(draft); setOrderDraft(clean(draft.organizationPreferences)); };
   const entityCommit: Commit = (message, mutation) => { commit(message, mutation); if (!orderDraft) return; const draft = clean(orderWorkspace); mutation(draft); setOrderDraft(clean(draft.organizationPreferences)); };
   const areas = orderedOrganizationPriorityEntries(orderWorkspace).filter((entry) => entry.kind === 'area').map((entry) => entry.name);

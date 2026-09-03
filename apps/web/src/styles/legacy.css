@@ -557,6 +557,7 @@ label.check input { width: 18px; height: 18px; }
 .renderer-table-wrap thead th.reorder-column,
 .renderer-table-wrap tbody td.reorder-column { width: 28px; min-width: 28px; padding-left: 0; padding-right: 0; }
 .view-results-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.long-list-virtualized > * { content-visibility: auto; contain-intrinsic-size: auto 96px; }
 /* Keep the view title and its completion column on the same visual rail. */
 .renderer-fields { display: grid !important; gap: 4px; min-width: 0; }
 .renderer-fields > strong { display: block; color: var(--ink); font-size: 13px; font-weight: 500; }

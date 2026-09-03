@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v1\.96\.5 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v1\.98\.1 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -120,7 +120,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v1\.96\.5 · build [0-9a-f]{7}(?: · local changes)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v1\.98\.1 · build [0-9a-f]{7}(?: · local changes)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -233,6 +233,36 @@ test('creates and manually orders reusable tags from PARA', async ({ page }) => 
 
   await goHome(page);
   await expect(page.locator('.views-stack').getByRole('heading', { name: '#focus', exact: true })).toBeVisible();
+});
+
+test('never translates Area or Tag names that match interface dictionary keys', async ({ page }) => {
+  await page.getByLabel('Workspace name').fill('Localization boundaries');
+  await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
+  await page.getByLabel('Confirm password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+
+  await goToPara(page);
+  await page.getByLabel('New Area').fill('Home');
+  await page.getByRole('button', { name: 'Add Area' }).click();
+  await page.getByRole('textbox', { name: 'New tag', exact: true }).fill('Calendar');
+  await page.getByRole('button', { name: 'Add Tag' }).click();
+
+  await goToSettings(page);
+  const application = page.locator('details.settings-disclosure').filter({ hasText: 'Data, notifications and application' }).first();
+  await application.locator(':scope > summary').click();
+  await application.getByLabel('Language').selectOption('ru');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
+  await expect(page.getByRole('heading', { name: 'Настройки', exact: true })).toBeVisible();
+
+  if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: 'PARA' }).click();
+  else {
+    await page.locator('.mobile-menu-button').click();
+    await page.locator('.mobile-nav-menu').getByRole('button', { name: 'PARA' }).click();
+  }
+  await expect(page.locator('.organization-area-name').filter({ hasText: 'Home' })).toBeVisible();
+  await expect(page.locator('.organization-tag-entry').filter({ hasText: 'Calendar' })).toBeVisible();
+  await expect(page.locator('.organization-area-name').filter({ hasText: 'Главная' })).toHaveCount(0);
+  await expect(page.locator('.organization-tag-entry').filter({ hasText: 'Календарь' })).toHaveCount(0);
 });
 
 test('deletes an organization entity only after an impact warning and exact-name confirmation', async ({ page }) => {
@@ -414,7 +444,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(closeEditor).toHaveText('×');
   await expect(closeEditor).toHaveCSS('width', '44px');
   await expect(closeEditor).toHaveCSS('height', '44px');
-  await expect(page.getByRole('button', { name: 'Delete' })).toHaveCSS('background-color', 'rgb(243, 243, 243)');
+  await expect(page.getByRole('button', { name: 'Delete' })).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await closeEditor.click();
 
   await lockWorkspace(page);
@@ -467,11 +497,11 @@ test('settings sections stay on one content rail without horizontal overflow', a
   await goToSettings(page);
 
   const sections = page.locator('.settings-page-shell details.settings-disclosure');
-  await expect(sections).toHaveCount(10);
+  await expect(sections).toHaveCount(11);
   expect(await sections.evaluateAll((elements) => elements.every((element) => !(element as HTMLDetailsElement).open))).toBe(true);
   await sections.evaluateAll((elements) => elements.forEach((element) => { (element as HTMLDetailsElement).open = true; }));
   const cards = page.locator('.settings-page-shell .settings-card');
-  await expect(cards).toHaveCount(10);
+  await expect(cards).toHaveCount(11);
   const boxes = await cards.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { left: box.left, right: box.right };
@@ -1162,7 +1192,7 @@ test('recurring item accepts Deadline as its schedule anchor and handles missing
   await goHome(page);
   await page.getByRole('button', { name: 'New view' }).click();
   await openViewEditorSection(page, 'Advanced filter code');
-  await expect(page.getByLabel('Advanced filter code')).toHaveValue('(state == "open" || state == "done") && isTemplate != true');
+  await expect(page.getByLabel('Advanced filter code')).toHaveValue('((state == "open" || state == "done") && isTemplate != true)');
   await expect(page.getByLabel('Advanced filter code')).toHaveCSS('font-family', /monospace|Menlo|Monaco|Consolas/i);
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Open items');
   await page.getByRole('button', { name: 'Save view' }).click();

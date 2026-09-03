@@ -14,6 +14,11 @@ interface EncryptedLocalBlock { version: 1; mode?: never; nonce: string; ciphert
 interface PlaintextLocalBlock { version: 1; mode: 'plaintext'; binary: Uint8Array }
 type LocalBlock = EncryptedLocalBlock | PlaintextLocalBlock;
 export interface UnlockedWorkspace { document: Automerge.Doc<WorkspaceDocument>; dataKey: Uint8Array; storageMode?: 'encrypted' | 'plaintext' }
+export interface PreparedLocalWorkspaceSave {
+  storageMode: 'encrypted' | 'plaintext';
+  workspace: LocalBlock;
+  exportSafeWorkspace?: EncryptedLocalBlock;
+}
 export interface ReadableWorkspaceRecovery {
   format: 'utm-readable-workspace';
   formatVersion: 1;
@@ -67,6 +72,15 @@ async function verifyEncryptedDocument(block: EncryptedLocalBlock, dataKey: Uint
   catch { throw new Error('Encrypted workspace round-trip verification failed'); }
 }
 
+async function encryptedBlockFromVerifiedBinary(binary: Uint8Array, dataKey: Uint8Array): Promise<EncryptedLocalBlock> {
+  const block = { version: 1, ...await encryptWithKey(binary, dataKey, BLOCK_AAD) } satisfies EncryptedLocalBlock;
+  const decrypted = await decryptLocalBlock(block, dataKey);
+  if (decrypted.byteLength !== binary.byteLength || decrypted.some((value, index) => value !== binary[index])) {
+    throw new Error('Encrypted workspace byte verification failed');
+  }
+  return block;
+}
+
 async function createExportSafeBlock(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array, currentBlock?: EncryptedLocalBlock): Promise<EncryptedLocalBlock> {
   // Most workspaces have never contained Google data. Their normal block is
   // already safe, so avoid a second Automerge snapshot + encryption per save.
@@ -89,53 +103,62 @@ export type PasswordProtectionStatus = 'required' | 'disabled' | 'plaintext';
 
 const isPlaintextBlock = (block: LocalBlock): block is PlaintextLocalBlock => block.mode === 'plaintext';
 
+let databasePromise: Promise<IDBDatabase> | undefined;
+
 function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (databasePromise) return databasePromise;
+  databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-    request.onerror = () => reject(request.error ?? new Error('Cannot open IndexedDB'));
-    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      databasePromise = undefined;
+      reject(request.error ?? new Error('Cannot open IndexedDB'));
+    };
+    request.onsuccess = () => {
+      const database = request.result;
+      database.onversionchange = () => {
+        database.close();
+        databasePromise = undefined;
+      };
+      database.onclose = () => { databasePromise = undefined; };
+      resolve(database);
+    };
   });
+  return databasePromise;
 }
 
 async function getRecord<T>(key: string): Promise<T | undefined> {
   const db = await openDatabase();
-  try {
-    return await new Promise<T | undefined>((resolve, reject) => {
-      const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
-      request.onsuccess = () => resolve(request.result as T | undefined);
-      request.onerror = () => reject(request.error ?? new Error('IndexedDB read failed'));
-    });
-  } finally { db.close(); }
+  return await new Promise<T | undefined>((resolve, reject) => {
+    const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+    request.onsuccess = () => resolve(request.result as T | undefined);
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB read failed'));
+  });
 }
 
 async function putRecords(records: Array<[string, unknown]>): Promise<void> {
   const db = await openDatabase();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE, 'readwrite');
-      const store = transaction.objectStore(STORE);
-      records.forEach(([key, value]) => store.put(value, key));
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
-      transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
-    });
-  } finally { db.close(); }
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE, 'readwrite');
+    const store = transaction.objectStore(STORE);
+    records.forEach(([key, value]) => store.put(value, key));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
+    transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+  });
 }
 
 async function transactRecords(records: Array<[string, unknown]>, deleteKeys: string[] = []): Promise<void> {
   const db = await openDatabase();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE, 'readwrite');
-      const store = transaction.objectStore(STORE);
-      records.forEach(([key, value]) => store.put(value, key));
-      deleteKeys.forEach((key) => store.delete(key));
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
-      transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
-    });
-  } finally { db.close(); }
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE, 'readwrite');
+    const store = transaction.objectStore(STORE);
+    records.forEach(([key, value]) => store.put(value, key));
+    deleteKeys.forEach((key) => store.delete(key));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
+    transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+  });
 }
 
 async function saveVerifiedMirror(metadata: EncryptedLocalMetadata, workspace: EncryptedLocalBlock): Promise<void> {
@@ -316,19 +339,78 @@ export async function unlockUnencryptedLocalWorkspace(): Promise<UnlockedWorkspa
   catch { throw new Error('Plaintext local workspace is damaged'); }
 }
 
-export async function saveLocalWorkspace(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array, storageMode: UnlockedWorkspace['storageMode'] = 'encrypted'): Promise<void> {
+/**
+ * Builds and verifies the exact blocks that will be committed to IndexedDB.
+ * This function deliberately has no storage side effects, so browser clients
+ * can run it in a Web Worker without changing the durable format.
+ */
+export async function prepareLocalWorkspaceSave(
+  document: Automerge.Doc<WorkspaceDocument>,
+  dataKey: Uint8Array,
+  storageMode: UnlockedWorkspace['storageMode'] = 'encrypted',
+): Promise<PreparedLocalWorkspaceSave> {
   if (storageMode === 'plaintext') {
-    await putRecords([[BLOCK_KEY, { version: 1, mode: 'plaintext', binary: Automerge.save(document) } satisfies PlaintextLocalBlock]]);
-    return;
+    const binary = Automerge.save(document);
+    try { Automerge.load<WorkspaceDocument>(binary); }
+    catch { throw new Error('Plaintext workspace round-trip verification failed'); }
+    return { storageMode: 'plaintext', workspace: { version: 1, mode: 'plaintext', binary } };
   }
   const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
   const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
   await verifyEncryptedDocument(block, dataKey);
+  return {
+    storageMode: 'encrypted',
+    workspace: block,
+    exportSafeWorkspace: await createExportSafeBlock(document, dataKey, block),
+  };
+}
+
+/**
+ * Encrypts snapshots whose Automerge round-trip was already verified by the
+ * caller (normally the browser persistence worker). Authentication is checked
+ * byte-for-byte here before the prepared blocks may reach IndexedDB.
+ */
+export async function prepareLocalWorkspaceSaveFromVerifiedBinaries(
+  binary: Uint8Array,
+  exportSafeBinary: Uint8Array | undefined,
+  dataKey: Uint8Array,
+  storageMode: UnlockedWorkspace['storageMode'] = 'encrypted',
+): Promise<PreparedLocalWorkspaceSave> {
+  if (storageMode === 'plaintext') {
+    return { storageMode: 'plaintext', workspace: { version: 1, mode: 'plaintext', binary } };
+  }
+  const workspace = await encryptedBlockFromVerifiedBinary(binary, dataKey);
+  return {
+    storageMode: 'encrypted',
+    workspace,
+    exportSafeWorkspace: exportSafeBinary
+      ? await encryptedBlockFromVerifiedBinary(exportSafeBinary, dataKey)
+      : workspace,
+  };
+}
+
+/** Atomically commits an already serialized, encrypted and verified save. */
+export async function commitPreparedLocalWorkspaceSave(prepared: PreparedLocalWorkspaceSave): Promise<void> {
+  if (prepared.storageMode === 'plaintext') {
+    if (!isPlaintextBlock(prepared.workspace)) throw new Error('Prepared plaintext workspace block is invalid');
+    await putRecords([[BLOCK_KEY, prepared.workspace]]);
+    return;
+  }
+  if (isPlaintextBlock(prepared.workspace) || !prepared.exportSafeWorkspace) throw new Error('Prepared encrypted workspace block is incomplete');
   const metadata = await getRecord<EncryptedLocalMetadata>(META_KEY);
   if (!metadata) throw new Error('Encrypted workspace metadata is missing');
-  const exportSafeBlock = await createExportSafeBlock(document, dataKey, block);
-  await putRecords([[BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]]);
-  await saveVerifiedMirror(metadata, block);
+  const previousMirror = await getRecord<VerifiedWorkspaceMirror>(MIRROR_KEYS[0]);
+  const nextMirror = { savedAt: new Date().toISOString(), metadata, workspace: prepared.workspace } satisfies VerifiedWorkspaceMirror;
+  await putRecords([
+    [BLOCK_KEY, prepared.workspace],
+    [EXPORT_SAFE_BLOCK_KEY, prepared.exportSafeWorkspace],
+    [MIRROR_KEYS[0], nextMirror],
+    ...(previousMirror ? [[MIRROR_KEYS[1], previousMirror] as [string, unknown]] : []),
+  ]);
+}
+
+export async function saveLocalWorkspace(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array, storageMode: UnlockedWorkspace['storageMode'] = 'encrypted'): Promise<void> {
+  await commitPreparedLocalWorkspaceSave(await prepareLocalWorkspaceSave(document, dataKey, storageMode));
 }
 
 /** Atomically stores the current encrypted block as a rollback point and writes the migrated document. */
@@ -554,12 +636,10 @@ export async function enablePasswordRequirement(currentPassword: string): Promis
 
 export async function clearLocalWorkspace(): Promise<void> {
   const db = await openDatabase();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const request = db.transaction(STORE, 'readwrite').objectStore(STORE).clear();
-      request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-    });
-  } finally { db.close(); }
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction(STORE, 'readwrite').objectStore(STORE).clear();
+    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
+  });
 }
 
 export async function inspectEncryptedLocalRecords(): Promise<{ metadata: unknown; workspace: unknown }> {

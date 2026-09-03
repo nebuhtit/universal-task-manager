@@ -5,10 +5,12 @@ import { formatViewDate } from '../../utils/dates';
 import { previewCompletionSound } from '../../hooks/useUiSounds';
 import { displayViewValue, inferredPreset, priorityNames, readItemField, viewFieldLabel } from './fieldDisplay';
 import { FieldIcon } from './FieldIcon';
+import { UserDataText, useTranslation } from '../../i18n-react';
 
 const touchStateCommits = new Map<string, number>();
 
 export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewScripts = [], celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; now?: Date; viewScripts?: readonly ItemScriptField[]; celebrating?: boolean }) {
+  const t = useTranslation(workspace?.calendarPreferences.language ?? 'en');
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
   const today = (now ?? new Date()).toISOString().slice(0, 10);
   const isHabit = Boolean(item.habit);
@@ -65,17 +67,17 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
     const names = field === 'area' || field === 'areas' ? item.areas : field === 'project' || field === 'projects' ? item.projects : field === 'tags' ? item.tags : null;
     if (!names || !workspace) return null;
     const kind = field === 'area' || field === 'areas' ? 'area' : field === 'project' || field === 'projects' ? 'project' : 'tag';
-    return <>{names.map((name, index) => <span className="organization-colored-name" style={{ '--organization-accent': organizationAccentFor(workspace, kind, name) } as CSSProperties} key={name}>{index ? ', ' : ''}{kind === 'tag' ? '#' : ''}{name}</span>)}</>;
+    return <>{names.map((name, index) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': organizationAccentFor(workspace, kind, name) } as CSSProperties} key={name}>{index ? ', ' : ''}{kind === 'tag' ? '#' : ''}{name}</span>)}</>;
   };
   return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}${optimisticClosed === true ? ' is-optimistic-complete' : optimisticClosed === false ? ' is-optimistic-reopen' : ''}`}>
-    <button className={`state-toggle${optimisticClosed === true ? ' is-optimistic-closed' : ''}`} disabled={readOnlyExternal} data-sound={!visiblyClosed && !readOnlyExternal ? 'none' : undefined} aria-label={readOnlyExternal ? 'Read-only Google Calendar event' : isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item'} onPointerDown={beginStateToggle} onClick={finishStateToggle}>
+    <button className={`state-toggle${optimisticClosed === true ? ' is-optimistic-closed' : ''}`} disabled={readOnlyExternal} data-sound={!visiblyClosed && !readOnlyExternal ? 'none' : undefined} aria-label={t(readOnlyExternal ? 'Read-only Google Calendar event' : isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item')} onPointerDown={beginStateToggle} onClick={finishStateToggle}>
       {shownClosed ? '✓' : ''}
     </button>
     <button className="item-main" onClick={onEdit}>
-      {(!customDisplay || fields?.includes('title')) && <span className="item-title">{item.title}</span>}
-      {!customDisplay && <span className="item-meta"><span className={`preset ${inferredPreset(item)}`}>{inferredPreset(item)}</span>{due && <span>{formatViewDate(due, !item.schedule?.allDay, workspace?.calendarPreferences.language)}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span className="organization-colored-name" style={{ '--organization-accent': workspace ? organizationAccentFor(workspace, 'tag', tag) : undefined } as CSSProperties} key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">auto-closed</span>}</span>}
-      {customDisplay && metadataFields.length > 0 && <span className="view-item-fields">{metadataFields.map(({ field, value }) => { const label = viewFieldLabel(workspace!, field, viewScripts); const coloredValue = organizationValue(field); return <span key={field} data-field={field} title={field === 'bodyMarkdown' ? value : undefined} aria-label={value ? `${label}: ${value}` : undefined}>{value && <FieldIcon path={field} label={label} />}{coloredValue ?? value}</span>; })}</span>}
+      {(!customDisplay || fields?.includes('title')) && <UserDataText className="item-title">{item.title}</UserDataText>}
+      {!customDisplay && <span className="item-meta"><span className={`preset ${inferredPreset(item)}`}>{t(inferredPreset(item))}</span>{due && <span>{formatViewDate(due, !item.schedule?.allDay, workspace?.calendarPreferences.language)}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': workspace ? organizationAccentFor(workspace, 'tag', tag) : undefined } as CSSProperties} key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">{t('auto-closed')}</span>}</span>}
+      {customDisplay && metadataFields.length > 0 && <span className="view-item-fields">{metadataFields.map(({ field, value }) => { const label = viewFieldLabel(workspace!, field, viewScripts); const coloredValue = organizationValue(field); const interfaceValue = field === 'priority' || field === 'state' || field === 'preset'; return <span key={field} data-field={field} title={field === 'bodyMarkdown' ? value : undefined} aria-label={value ? `${label}: ${value}` : undefined}>{value && <FieldIcon path={field} label={label} />}{coloredValue ?? (interfaceValue ? t(value) : <UserDataText>{value}</UserDataText>)}</span>; })}</span>}
     </button>
-    {item.priority && !customDisplay ? <button className={`priority p${item.priority}`} title={`Priority ${item.priority}: ${priorityNames[item.priority]}. Click to edit.`} aria-label={`Priority ${item.priority}: ${priorityNames[item.priority]}. Edit item`} onClick={onEdit}>{priorityNames[item.priority]}</button> : null}
+    {item.priority && !customDisplay ? <button className={`priority p${item.priority}`} title={t(`Priority ${item.priority}: ${priorityNames[item.priority]}. Click to edit.`)} aria-label={t(`Priority ${item.priority}: ${priorityNames[item.priority]}. Edit item`)} onClick={onEdit}>{t(priorityNames[item.priority])}</button> : null}
   </article>;
 }

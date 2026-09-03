@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GoogleCalendarPreferences } from '@utm/core';
-import { synchronizeGoogleCalendars } from './googleCalendar';
+import { GOOGLE_CALENDAR_SYNC_CONCURRENCY, synchronizeGoogleCalendars } from './googleCalendar';
 
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const preferences = (): GoogleCalendarPreferences => ({ connectionId: 'connection-1', calendars: [], syncTokens: {} });
@@ -58,5 +58,25 @@ describe('Google Calendar browser synchronization', () => {
     await vi.advanceTimersByTimeAsync(30_000);
 
     await rejection;
+  });
+
+  it('downloads several calendars with bounded concurrency and deterministic batches', async () => {
+    let active = 0;
+    let peak = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/calendarList?')) return jsonResponse({ items: Array.from({ length: 5 }, (_, index) => ({ id: `calendar-${index}`, summary: `Calendar ${index}`, selected: true })) });
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      const calendarId = decodeURIComponent(url.split('/calendars/')[1]!.split('/events')[0]!);
+      return jsonResponse({ items: [{ id: `event-${calendarId}` }], nextSyncToken: `sync-${calendarId}` });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await synchronizeGoogleCalendars('access-token', preferences());
+
+    expect(peak).toBe(GOOGLE_CALENDAR_SYNC_CONCURRENCY);
+    expect(result.batches.map((batch) => batch.calendarId)).toEqual(['calendar-0', 'calendar-1', 'calendar-2', 'calendar-3', 'calendar-4']);
   });
 });

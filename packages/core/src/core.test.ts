@@ -1,15 +1,45 @@
 import { describe, expect, it } from 'vitest';
 import {
   APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
-  compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, fromCanonicalJSON, fromICS, makeSeries,
+  compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, expressionContinuouslyDependsOnCurrentTime, expressionDependsOnCurrentTime, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, reminderTime, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
+  scheduleDateKeysInRange,
   packageToTabular, parseCsv, serializePortablePackage, serializeSortRules, tabularToPackage, toCsv, toICS, validateViewCreationDefaults, validateWorkspace,
   updateRecurrenceCompletionTime,
 } from './index.js';
 import type { AutomationRule, DomainEvent, UniversalItem, WorkspaceDocument } from './types.js';
 
 describe('safe expression language', () => {
+  it('classifies static, boundary-based and continuous clock expressions', () => {
+    expect(expressionDependsOnCurrentTime('state == "open" && title == "Today"')).toBe(false);
+    expect(expressionDependsOnCurrentTime('scheduleInPeriod("today", "due", false, 7, "", "")')).toBe(true);
+    expect(expressionContinuouslyDependsOnCurrentTime('scheduleInPeriod("today", "due", false, 7, "", "")')).toBe(false);
+    expect(expressionDependsOnCurrentTime('scheduleInPeriod("custom", "due", false, 7, "2026-09-01", "2026-09-02")')).toBe(false);
+    expect(expressionContinuouslyDependsOnCurrentTime('timeUntil(schedule.dueAt)')).toBe(true);
+  });
+
+  it('reuses a compiled sort comparator while its source is unchanged', () => {
+    const source = 'schedule.dueAt asc nulls last';
+    expect(compileSort(source)).toBe(compileSort(source));
+    expect(compileSort(`${source}\ntitle asc`)).not.toBe(compileSort(source));
+  });
+
+  it('buckets schedule sources with the exact scheduleInPeriod date semantics', () => {
+    const item = createItem('Spanning dates');
+    item.schedule = {
+      timezone: 'America/New_York',
+      startAt: '2026-11-01T04:30:00.000Z',
+      endAt: '2026-11-02T05:00:00.000Z',
+      dueAt: '2026-11-03T05:00:00.000Z',
+    };
+    const options = { timeZone: 'America/New_York' };
+    expect(scheduleDateKeysInRange(item, ['event_open'], '2026-11-01', '2026-11-05', options)).toEqual(['2026-11-01']);
+    expect(scheduleDateKeysInRange(item, ['event'], '2026-11-01', '2026-11-05', options)).toEqual(['2026-11-01', '2026-11-02']);
+    expect(scheduleDateKeysInRange(item, ['active'], '2026-11-01', '2026-11-05', options)).toEqual(['2026-11-01', '2026-11-02', '2026-11-03']);
+    expect(scheduleDateKeysInRange(item, ['event_open', 'event', 'active', 'due'], '2026-11-02', '2026-11-03', options)).toEqual(['2026-11-02']);
+  });
+
   it('filters items without evaluating JavaScript', () => {
     const item = createItem('Prepare material');
     expect(item.createdWithAppId).toBe(APP_ID);

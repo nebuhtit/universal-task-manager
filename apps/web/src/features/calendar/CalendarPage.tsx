@@ -1,19 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
-  calculateViewTimeMetrics, createOccurrence, projectOccurrences,
-  type ItemPreset, type ProjectedOccurrence, type SavedView, type UniversalItem,
-  type ViewTimeMetrics, type WorkspaceDocument,
+  createOccurrence,
+  type ItemPreset, type ProjectedOccurrence, type UniversalItem, type ViewTimeMetrics, type WorkspaceDocument,
 } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { Button, IconButton, Surface } from '../../components/ui/primitives';
 import { ViewMetricsSummary } from '../views/ViewMetricsSummary';
 import { ViewResults } from '../views/ViewResults';
-import { selectViewItems } from '../views/viewSelectors';
+import { completionHoldsSnapshot, subscribeCompletionHolds } from '../views/viewSelectors';
+import { useViewNow, useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
 import { CalendarDayViewEditor } from './CalendarDayViewEditor';
+import { calendarDayView, evaluateCalendarRange } from './calendarEvaluation';
 import './calendar.css';
 
 const DAY_MS = 86_400_000;
-const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 type NavigatorMode = 'week' | 'month';
 
 function localDateKey(date: Date, timeZone: string): string {
@@ -43,55 +43,11 @@ function weekStart(key: string, startsOn: 0 | 1): string {
   return shiftDateKey(key, -((weekday - startsOn + 7) % 7));
 }
 
-function zonedStart(key: string, timeZone: string): Date {
-  const [year, month, day] = key.split('-').map(Number);
-  const wallClock = Date.UTC(year!, month! - 1, day!);
-  let instant = new Date(wallClock);
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-    }).formatToParts(instant);
-    const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
-    const displayed = Date.UTC(values.year!, values.month! - 1, values.day!, values.hour!, values.minute!, values.second!);
-    const next = new Date(wallClock - (displayed - instant.getTime()));
-    if (next.getTime() === instant.getTime()) break;
-    instant = next;
-  }
-  return instant;
-}
-
-function itemForRow(workspace: WorkspaceDocument, row: ProjectedOccurrence): UniversalItem | null {
-  const source = workspace.items[row.materializedItemId ?? row.sourceItemId];
-  if (!source) return null;
-  if (!row.virtual) return clean({ ...source, schedule: row.schedule, state: row.state });
-  if (!row.recurrenceId) return null;
-  const projected = createOccurrence(source, new Date(row.recurrenceId), 0);
-  projected.id = row.id;
-  projected.schedule = clean(row.schedule);
-  projected.state = row.state;
-  return projected;
-}
-
-function dayView(key: string, workspace: WorkspaceDocument): SavedView {
-  const settings = workspace.calendarPreferences.dayView;
-  const filter = settings.filter.source.trim() || 'true';
-  return {
-    id: `calendar:${key}`,
-    name: key,
-    renderer: 'list',
-    fields: [...settings.fields],
-    query: { source: `(scheduleInPeriod("custom", "${settings.scheduleSources.join(',')}", false, 7, "${key}", "${key}")) && (${filter})` },
-    sort: settings.sort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })),
-    ...(settings.sortSource ? { sortSource: settings.sortSource } : {}),
-    statistics: { showTime: true, reservedItemIds: [] },
-  };
-}
-
 const navigationMetrics = (metrics: ViewTimeMetrics): ViewTimeMetrics => ({ ...metrics, remainingDurationMs: 0 });
 
-export function CalendarPage({ workspace, now, commit, onEditItem, onState, createUiItem: _createUiItem, celebrationColors = new Map() }: {
+export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem: _createUiItem, celebrationColors = new Map() }: {
   workspace: WorkspaceDocument;
-  now: Date;
+  now?: Date;
   commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
   onEditItem: (item: UniversalItem) => void;
   onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void;
@@ -99,38 +55,26 @@ export function CalendarPage({ workspace, now, commit, onEditItem, onState, crea
   celebrationColors?: ReadonlyMap<string, string>;
 }) {
   const preferences = workspace.calendarPreferences;
-  const [selectedDate, setSelectedDate] = useState(() => localDateKey(now, preferences.timezone));
+  const navigationNow = useWorkspaceBoundaryNow(workspace, suppliedNow);
+  const initialNow = suppliedNow ?? navigationNow;
+  const [selectedDate, setSelectedDate] = useState(() => localDateKey(initialNow, preferences.timezone));
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
   const [editorOpen, setEditorOpen] = useState(false);
-  const todayKey = localDateKey(now, preferences.timezone);
+  const completionVersion = useSyncExternalStore(subscribeCompletionHolds, completionHoldsSnapshot, completionHoldsSnapshot);
+  const selectedDayView = calendarDayView(selectedDate, preferences.dayView);
+  const now = useViewNow(workspace, selectedDayView, suppliedNow);
+  const todayKey = localDateKey(suppliedNow ?? navigationNow, preferences.timezone);
   const rangeStartKey = navigatorMode === 'week' ? weekStart(selectedDate, preferences.weekStartsOn) : monthStart(selectedDate);
   const rangeEndKey = navigatorMode === 'week' ? shiftDateKey(rangeStartKey, 7) : nextMonthStart(selectedDate);
-  const rangeStart = zonedStart(rangeStartKey, preferences.timezone);
-  const rangeEnd = zonedStart(rangeEndKey, preferences.timezone);
-
-  const projected = useMemo(() => projectOccurrences(workspace, rangeStart, rangeEnd)
-    .map((row) => ({ row, item: itemForRow(workspace, row) }))
-    .filter((entry): entry is { row: ProjectedOccurrence; item: UniversalItem } => Boolean(entry.item)), [workspace, rangeStart.getTime(), rangeEnd.getTime()]);
 
   const dayKeys = useMemo(() => {
     const keys: string[] = [];
     for (let key = rangeStartKey; key < rangeEndKey; key = shiftDateKey(key, 1)) keys.push(key);
     return keys;
   }, [rangeStartKey, rangeEndKey]);
-  const dayData = useMemo(() => Object.fromEntries(dayKeys.map((key) => {
-    const view = dayView(key, workspace);
-    const candidateWorkspace = clean(workspace);
-    candidateWorkspace.items = Object.fromEntries(projected.map(({ item }) => [item.id, clean(item)]));
-    const selectedItems = selectViewItems(candidateWorkspace, view, new Date((zonedStart(key, preferences.timezone).getTime() + zonedStart(shiftDateKey(key, 1), preferences.timezone).getTime()) / 2));
-    const accepted = new Set(selectedItems.map((item) => item.id));
-    const entries = projected.filter(({ item }) => accepted.has(item.id));
-    candidateWorkspace.items = Object.fromEntries(selectedItems.map((item) => [item.id, clean(item)]));
-    const metrics = calculateViewTimeMetrics(candidateWorkspace, view, selectedItems, now);
-    return [key, { entries, view, workspace: candidateWorkspace, metrics }];
-  })), [dayKeys, projected, preferences.timezone, preferences.dayView, workspace, now.getTime()]);
-
-  const emptyWorkspace = clean(workspace); emptyWorkspace.items = {};
-  const selected = dayData[selectedDate] ?? { entries: [], view: dayView(selectedDate, workspace), workspace: emptyWorkspace, metrics: calculateViewTimeMetrics(emptyWorkspace, dayView(selectedDate, workspace), [], now) };
+  const calendar = useMemo(() => evaluateCalendarRange(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now), [completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
+  const dayData = calendar.days;
+  const selected = dayData[selectedDate]!;
   const rowsById = new Map(selected.entries.map(({ row, item }) => [item.id, row]));
   const formatDate = (key: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(preferences.language, { ...options, timeZone: 'UTC' }).format(dateFromKey(key));
   const selectedLabel = formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -145,7 +89,7 @@ export function CalendarPage({ workspace, now, commit, onEditItem, onState, crea
       if (!source || !row.recurrenceId) return;
       const occurrence = createOccurrence(source, new Date(row.recurrenceId), 0);
       draft.items[occurrence.id] = occurrence;
-      result = clean(occurrence);
+      result = structuredClone(occurrence);
     });
     return result;
   };
@@ -188,7 +132,7 @@ export function CalendarPage({ workspace, now, commit, onEditItem, onState, crea
       </div>
     </Surface>
 
-    <Surface className="calendar-day-list"><ViewResults view={selected.view} workspace={selected.workspace} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></Surface>
-    <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = clean(dayView); })} />
+    <Surface className="calendar-day-list"><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></Surface>
+    <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); })} />
   </section>;
 }

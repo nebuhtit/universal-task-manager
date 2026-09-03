@@ -1,7 +1,7 @@
 import * as Automerge from '@automerge/automerge';
 import { fromCanonicalJSON, migrateWorkspace, toCanonicalJSON, toICS, validateWorkspace, workspaceForExport } from '@utm/core';
 import type { WorkspaceDocument } from '@utm/core';
-import { decryptBytes, digest, encryptBytes, fromBase64, toBase64, type EncryptedEnvelope } from './crypto.js';
+import { decryptBytes, digest, encryptBytes, fromBase64, ready, toBase64, type EncryptedEnvelope } from './crypto.js';
 
 export interface UtmPayload {
   format: 'utm-workspace';
@@ -45,6 +45,7 @@ export function createAutomergeDocument(workspace: WorkspaceDocument): Automerge
 }
 
 export async function exportContainer(document: Automerge.Doc<WorkspaceDocument>, password: string): Promise<string> {
+  await ready();
   const original = structuredClone(document) as WorkspaceDocument;
   const snapshot = workspaceForExport(original);
   const validation = validateWorkspace(snapshot);

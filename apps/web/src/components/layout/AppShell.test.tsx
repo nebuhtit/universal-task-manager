@@ -33,6 +33,19 @@ describe('AppShell', () => {
     expect(markup).toContain('Backup needs attention');
     expect(markup).toContain('aria-label="Dismiss backup reminder"');
     expect(markup).not.toContain('>0</b>');
+    expect(markup).toContain('notification-center-scrim');
+  });
+
+  it('places an inert tap shield behind the open mobile navigation', () => {
+    const markup = renderToStaticMarkup(<AppShell
+      page="home" onPage={noop} openItems={0}
+      notices={[]} popupNoticeIds={[]} noticeCenterOpen={false} mobileNavOpen backupReminder={false} onBackupReminder={noop} onDismissBackupReminder={noop}
+      onNewView={noop} onToggleNotices={noop} onToggleNavigation={noop} onCloseNavigation={noop}
+      onDismissPopup={noop} onDeleteNotice={noop} onOpenNotice={noop} onTransfer={noop} onLock={noop}
+    ><p>Content</p></AppShell>);
+
+    expect(markup).toContain('mobile-nav-scrim');
+    expect(markup).toContain('aria-label="Close navigation"');
   });
 
   it('renders ordinary toasts separately', () => {
@@ -41,7 +54,7 @@ describe('AppShell', () => {
   });
 
   it('renders undo actions with their remaining seconds', () => {
-    const markup = renderToStaticMarkup(<ShellNotices toast="" undoNotices={[{ id: 'undo-1', label: 'Item completed', secondsLeft: 4 }]} onUndo={noop} />);
+    const markup = renderToStaticMarkup(<ShellNotices toast="" undoNotices={[{ id: 'undo-1', label: 'Item completed', expiresAt: Date.now() + 4_000 }]} onUndo={noop} />);
     expect(markup).toContain('Item completed');
     expect(markup).toContain('4 seconds remaining');
     expect(markup).toContain('Undo');

@@ -459,47 +459,109 @@ function shouldSkip(node: Text) {
     || (parent.closest('.syntax-editor') && !parent.closest('.syntax-editor-toolbar')));
 }
 
-export function localizeDom(root: ParentNode, language: WorkspaceLanguage) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const texts: Text[] = [];
-  while (walker.nextNode()) texts.push(walker.currentNode as Text);
-  for (const node of texts) {
-    if (shouldSkip(node)) continue;
-    const current = node.nodeValue ?? '';
-    const previous = localizedTexts.get(node);
-    // React commonly reuses a Text node and changes its value in place. Treat
-    // anything other than our last translated output as fresh application
-    // content, otherwise a MutationObserver would restore the first value and
-    // freeze counters/status labels on screen.
+function localizeTextNode(node: Text, language: WorkspaceLanguage) {
+  if (shouldSkip(node)) return;
+  const current = node.nodeValue ?? '';
+  const previous = localizedTexts.get(node);
+  // React commonly reuses a Text node and changes its value in place. Treat
+  // anything other than our last translated output as fresh application
+  // content, otherwise a MutationObserver would restore the first value and
+  // freeze counters/status labels on screen.
+  const source = !previous || current !== previous.applied ? current : previous.source;
+  const leading = source.match(/^\s*/)?.[0] ?? '';
+  const trailing = source.match(/\s*$/)?.[0] ?? '';
+  const core = source.slice(leading.length, source.length - trailing.length);
+  const applied = `${leading}${translateInterfaceText(core, language)}${trailing}`;
+  localizedTexts.set(node, { source, applied });
+  if (current !== applied) node.nodeValue = applied;
+}
+
+function localizeElementAttributes(element: Element, language: WorkspaceLanguage) {
+  if (element.closest('[translate="no"], [data-utm-user-data]')) return;
+  const seen = localizedAttributes.get(element) ?? new Map<string, LocalizedValue>();
+  localizedAttributes.set(element, seen);
+  for (const attribute of translatableAttributes) {
+    const current = element.getAttribute(attribute);
+    if (!current) continue;
+    const previous = seen.get(attribute);
     const source = !previous || current !== previous.applied ? current : previous.source;
-    const leading = source.match(/^\s*/)?.[0] ?? '';
-    const trailing = source.match(/\s*$/)?.[0] ?? '';
-    const core = source.slice(leading.length, source.length - trailing.length);
-    const applied = `${leading}${translateInterfaceText(core, language)}${trailing}`;
-    localizedTexts.set(node, { source, applied });
-    if (current !== applied) node.nodeValue = applied;
-  }
-  for (const element of Array.from((root as Document | Element).querySelectorAll?.('[aria-label], [placeholder], [title]') ?? [])) {
-    if (element.closest('[translate="no"], [data-utm-user-data]')) continue;
-    const seen = localizedAttributes.get(element) ?? new Map<string, LocalizedValue>();
-    localizedAttributes.set(element, seen);
-    for (const attribute of translatableAttributes) {
-      const current = element.getAttribute(attribute);
-      if (!current) continue;
-      const previous = seen.get(attribute);
-      const source = !previous || current !== previous.applied ? current : previous.source;
-      const applied = translateInterfaceText(source, language);
-      seen.set(attribute, { source, applied });
-      if (current !== applied) element.setAttribute(attribute, applied);
-    }
+    const applied = translateInterfaceText(source, language);
+    seen.set(attribute, { source, applied });
+    if (current !== applied) element.setAttribute(attribute, applied);
   }
 }
 
-/** Keeps static React labels translated without ever modifying item content or DSL/JSON editors. */
+export function localizeDom(root: ParentNode | Text, language: WorkspaceLanguage) {
+  if (root instanceof Text) {
+    localizeTextNode(root, language);
+    return;
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  while (walker.nextNode()) texts.push(walker.currentNode as Text);
+  for (const node of texts) localizeTextNode(node, language);
+  if (root instanceof Element) localizeElementAttributes(root, language);
+  for (const element of Array.from(root.querySelectorAll?.('[aria-label], [placeholder], [title]') ?? [])) localizeElementAttributes(element, language);
+}
+
+/**
+ * Transitional localization bridge for labels that have not moved to render-time
+ * translation yet. Mutations are reduced to their smallest roots and translated
+ * once per animation frame, so an update never triggers another full-page walk.
+ */
 export function installDomLocalization(language: WorkspaceLanguage) {
   document.documentElement.lang = language;
   localizeDom(document.body, language);
-  const observer = new MutationObserver(() => localizeDom(document.body, language));
-  observer.observe(document.body, { childList: true, subtree: true });
-  return () => observer.disconnect();
+  const pendingRoots = new Set<Node>();
+  let frame: number | undefined;
+  let timeout: number | undefined;
+  const observe = () => observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: [...translatableAttributes],
+  });
+  const queueRoot = (node: Node) => {
+    if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+      for (const child of Array.from(node.childNodes)) queueRoot(child);
+      return;
+    }
+    for (const pending of pendingRoots) {
+      if (pending === node || pending.contains(node)) return;
+      if (node.contains(pending)) pendingRoots.delete(pending);
+    }
+    pendingRoots.add(node);
+  };
+  const flush = () => {
+    frame = undefined;
+    timeout = undefined;
+    observer.disconnect();
+    const roots = Array.from(pendingRoots);
+    pendingRoots.clear();
+    for (const root of roots) {
+      if (!root.isConnected) continue;
+      if (root instanceof Text || root instanceof Element || root instanceof Document) localizeDom(root, language);
+    }
+    observe();
+  };
+  const scheduleFlush = () => {
+    if (frame !== undefined || timeout !== undefined) return;
+    if (typeof window.requestAnimationFrame === 'function') frame = window.requestAnimationFrame(flush);
+    else timeout = window.setTimeout(flush, 0);
+  };
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === 'childList') for (const node of Array.from(record.addedNodes)) queueRoot(node);
+      else queueRoot(record.target);
+    }
+    if (pendingRoots.size) scheduleFlush();
+  });
+  observe();
+  return () => {
+    observer.disconnect();
+    if (frame !== undefined) window.cancelAnimationFrame(frame);
+    if (timeout !== undefined) window.clearTimeout(timeout);
+    pendingRoots.clear();
+  };
 }

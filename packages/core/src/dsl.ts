@@ -125,6 +125,65 @@ export function parseExpression(source: string): Expression {
   return expression;
 }
 
+const MAX_COMPILED_DSL_CACHE_SIZE = 256;
+const queryAstCache = new Map<string, Expression>();
+const sortComparatorCache = new Map<string, (left: UniversalItem, right: UniversalItem, now?: Date) => number>();
+
+function rememberCompiled<T>(cache: Map<string, T>, key: string, value: T): T {
+  if (cache.size >= MAX_COMPILED_DSL_CACHE_SIZE && !cache.has(key)) cache.delete(cache.keys().next().value!);
+  cache.set(key, value);
+  return value;
+}
+
+function compiledExpression(source: string): Expression {
+  return queryAstCache.get(source) ?? rememberCompiled(queryAstCache, source, parseExpression(source));
+}
+
+const timeDependentVariables = new Set([
+  'activeRange', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue',
+]);
+const timeDependentFunctions = new Set([
+  'now', 'today', 'millisecondsUntil', 'secondsUntil', 'minutesUntil', 'hoursUntil', 'daysUntil', 'durationUntil', 'timeUntil',
+]);
+const continuouslyTimeDependentFunctions = new Set([
+  'now', 'millisecondsUntil', 'secondsUntil', 'minutesUntil', 'hoursUntil', 'daysUntil', 'durationUntil', 'timeUntil',
+]);
+
+/** Returns whether reevaluating an expression with a later clock can change its result. */
+export function expressionDependsOnCurrentTime(source: string): boolean {
+  const visit = (expression: Expression): boolean => {
+    if (expression.type === 'identifier') return timeDependentVariables.has(expression.path);
+    if (expression.type === 'unary') return visit(expression.argument);
+    if (expression.type === 'binary') return visit(expression.left) || visit(expression.right);
+    if (expression.type !== 'call') return false;
+    if (expression.args.some(visit)) return true;
+    if (timeDependentFunctions.has(expression.name)) return true;
+    if (expression.name === 'scheduleInPeriod') {
+      const period = expression.args[0];
+      const includeOverdue = expression.args[2];
+      return period?.type !== 'literal' || period.value !== 'custom'
+        || includeOverdue?.type !== 'literal' || includeOverdue.value !== false;
+    }
+    if (expression.name === 'nextReminderInPeriod') {
+      const period = expression.args[0];
+      return period?.type !== 'literal' || period.value !== 'custom';
+    }
+    return false;
+  };
+  return visit(compiledExpression(source.trim() || 'true'));
+}
+
+/** Returns whether an expression can visibly change between calendar/schedule boundaries. */
+export function expressionContinuouslyDependsOnCurrentTime(source: string): boolean {
+  const visit = (expression: Expression): boolean => {
+    if (expression.type === 'unary') return visit(expression.argument);
+    if (expression.type === 'binary') return visit(expression.left) || visit(expression.right);
+    if (expression.type !== 'call') return false;
+    return continuouslyTimeDependentFunctions.has(expression.name) || expression.args.some(visit);
+  };
+  return visit(compiledExpression(source.trim() || 'true'));
+}
+
 export type EvalValue = Scalar | Scalar[] | Record<string, unknown> | undefined;
 export interface EvaluationContext {
   item: UniversalItem;
@@ -146,7 +205,7 @@ export interface QueryTemporalOptions { timeZone?: string | undefined; weekStart
 export type SchedulePeriod = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'next_days' | 'custom';
 export type ReminderPeriodRelation = 'before' | 'in' | 'after';
 
-function calendarDateKey(value: Date, timeZone?: string): string {
+export function calendarDateKey(value: Date, timeZone?: string): string {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(value);
     const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? '';
@@ -156,7 +215,7 @@ function calendarDateKey(value: Date, timeZone?: string): string {
   }
 }
 
-function shiftCalendarDateKey(key: string, days: number): string {
+export function shiftCalendarDateKey(key: string, days: number): string {
   const [year, month, day] = key.split('-').map(Number);
   const value = new Date(Date.UTC(year!, month! - 1, day!));
   value.setUTCDate(value.getUTCDate() + days);
@@ -206,8 +265,49 @@ function scheduleMatchesPeriod(item: UniversalItem, now: Date, options: QueryTem
   return Number.isFinite(due) && due < now.getTime();
 }
 
-function nextReminderMatchesPeriod(item: UniversalItem, now: Date, options: QueryTemporalOptions, period: SchedulePeriod, relation: ReminderPeriodRelation, nextDays: number, customStart: string, customEnd: string): boolean {
-  const reminderAt = nextActiveReminderAt(item);
+/**
+ * Returns the calendar dates matched by scheduleInPeriod sources inside one
+ * finite range. Each source keeps the same inclusive date-key semantics as the
+ * DSL predicate; callers can therefore bucket a projected range in one pass.
+ */
+export function scheduleDateKeysInRange(
+  item: UniversalItem,
+  sources: string | readonly string[],
+  rangeStart: string,
+  rangeEndExclusive: string,
+  options: QueryTemporalOptions = {},
+): string[] {
+  if (rangeStart >= rangeEndExclusive) return [];
+  const selected = new Set((typeof sources === 'string' ? sources.split(',') : sources).map((source) => source.trim()).filter(Boolean));
+  const dateKey = (value: string | undefined) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? calendarDateKey(date, options.timeZone) : null;
+  };
+  const add = (keys: Set<string>, key: string | null) => {
+    if (key && key >= rangeStart && key < rangeEndExclusive) keys.add(key);
+  };
+  const addSpan = (keys: Set<string>, start: string | null, end: string | null) => {
+    if (!start || !end || start > end || end < rangeStart || start >= rangeEndExclusive) return;
+    for (let key = start < rangeStart ? rangeStart : start; key <= end && key < rangeEndExclusive; key = shiftCalendarDateKey(key, 1)) keys.add(key);
+  };
+
+  const startKey = dateKey(item.schedule?.startAt);
+  const endKey = dateKey(item.schedule?.endAt);
+  const dueKey = dateKey(item.schedule?.dueAt);
+  const startTime = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
+  const endTime = item.schedule?.endAt ? Date.parse(item.schedule.endAt) : Number.NaN;
+  const dueTime = item.schedule?.dueAt ? Date.parse(item.schedule.dueAt) : Number.NaN;
+  const keys = new Set<string>();
+  if (selected.has('event_open')) add(keys, startKey);
+  if (selected.has('event') && Number.isFinite(startTime) && Number.isFinite(endTime) && endTime >= startTime) addSpan(keys, startKey, endKey);
+  if (selected.has('active') && Number.isFinite(startTime) && Number.isFinite(dueTime) && dueTime >= startTime) addSpan(keys, startKey, dueKey);
+  if (selected.has('due')) add(keys, dueKey);
+  return [...keys].sort();
+}
+
+function nextReminderMatchesPeriod(item: UniversalItem, now: Date, options: QueryTemporalOptions, period: SchedulePeriod, relation: ReminderPeriodRelation, nextDays: number, customStart: string, customEnd: string, indexedReminderAt?: string | null): boolean {
+  const reminderAt = indexedReminderAt === undefined ? nextActiveReminderAt(item) : indexedReminderAt ?? undefined;
   const bounds = schedulePeriodBounds(period, now, options, nextDays, customStart, customEnd);
   if (!reminderAt || !bounds) return false;
   const date = new Date(reminderAt);
@@ -372,6 +472,9 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
           Number(args[2] ?? 7),
           String(args[3] ?? ''),
           String(args[4] ?? ''),
+          context.variables?.remindersIndexed === true
+            ? typeof context.variables.nextReminderAt === 'string' ? context.variables.nextReminderAt : null
+            : undefined,
         );
         case 'item': {
           const target = context.resolveItem?.(String(args[0] ?? ''));
@@ -389,7 +492,16 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
   }
 }
 
-export interface QueryRelationContext { isSubtask?: boolean; isParent?: boolean; parentDepth?: number; childDepth?: number }
+export interface QueryRelationContext {
+  isSubtask?: boolean;
+  isParent?: boolean;
+  parentDepth?: number;
+  childDepth?: number;
+  hasActiveReminders?: boolean;
+  nextReminderAt?: string;
+  remindersIndexed?: boolean;
+  dueDateBuckets?: DueDateBuckets;
+}
 
 /**
  * Query variables that are always present and always boolean. A legacy Visual
@@ -413,7 +525,7 @@ function normalizeLegacyVisualContains(source: string): string {
   return source.replace(/\b([A-Za-z_][\w.]*)\s+in\s+("(?:[^"\\]|\\.)*")/g, 'includes($1, $2)');
 }
 
-export function compileQuery(source: string, relationContext?: (item: UniversalItem) => QueryRelationContext, temporalOptions: QueryTemporalOptions = {}): (item: UniversalItem, now?: Date) => boolean {
+export function compileQuery(source: string, relationContext?: (item: UniversalItem, now: Date) => QueryRelationContext, temporalOptions: QueryTemporalOptions = {}): (item: UniversalItem, now?: Date) => boolean {
   // Compatibility for early Views: before habits became a universal capability,
   // the visual builder expressed them as `preset == "habit"`.
   const legacyToday = `${LEGACY_ACTIVE_ITEM_VIEW_QUERY} && dueTodayOrOverdue == true`;
@@ -425,7 +537,7 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     // Keep the storage model backwards compatible while making the UI wording clearer.
     .replace(/\bstate\s*==\s*(["'])active\1/g, 'state == "open"')
     .replace(/\bstate\s*!=\s*(["'])active\1/g, 'state != "open"');
-  const ast = parseExpression(normalizedSource);
+  const ast = compiledExpression(normalizedSource);
   return (item, now) => {
     const current = now ?? new Date();
     const start = item.schedule?.startAt ? new Date(item.schedule.startAt).getTime() : undefined;
@@ -434,10 +546,11 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     const activeRange = (start === undefined || Number.isNaN(start) || current.getTime() >= start)
       && (due === undefined || Number.isNaN(due) || current.getTime() <= due);
     try {
-      const relations = relationContext?.(item) ?? {};
-      const dueBuckets = dueDateBuckets(item, current, temporalOptions);
-      const activeReminderList = activeReminders(item);
-      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, hasActiveReminders: activeReminderList.length > 0, nextReminderAt: nextActiveReminderAt(item), ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
+      const relations = relationContext?.(item, current) ?? {};
+      const dueBuckets = relations.dueDateBuckets ?? dueDateBuckets(item, current, temporalOptions);
+      const hasActiveReminderValue = relations.hasActiveReminders ?? activeReminders(item).length > 0;
+      const nextReminderAtValue = relations.remindersIndexed ? relations.nextReminderAt : nextActiveReminderAt(item);
+      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeDuration, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;
@@ -471,8 +584,10 @@ function compareSortValues(left: unknown, right: unknown): number {
 }
 
 export function compileSort(source: string): (left: UniversalItem, right: UniversalItem, now?: Date) => number {
-  const rules = parseSortSource(source).map((rule) => ({ ...rule, ast: parseExpression(rule.expression) }));
-  return (left, right, now = new Date()) => {
+  const cached = sortComparatorCache.get(source);
+  if (cached) return cached;
+  const rules = parseSortSource(source).map((rule) => ({ ...rule, ast: compiledExpression(rule.expression) }));
+  const comparator = (left: UniversalItem, right: UniversalItem, now = new Date()) => {
     for (const rule of rules) {
       const leftValue = evaluateExpression(rule.ast, { item: left, now });
       const rightValue = evaluateExpression(rule.ast, { item: right, now });
@@ -485,6 +600,7 @@ export function compileSort(source: string): (left: UniversalItem, right: Univer
     }
     return left.id.localeCompare(right.id);
   };
+  return rememberCompiled(sortComparatorCache, source, comparator);
 }
 
 export interface FormulaResult { values: Record<string, CustomValue>; errors: Record<string, string> }

@@ -1,10 +1,17 @@
-import { compileQuery, compileSort, effectiveItemDurationMs, effectiveWorkspaceNow, itemAreas, itemProjects, listDefinitionFor, orderedOrganizationEntries, orderedTagEntries, organizationPriorityRank, parseSortSource, participatesInTimeStatistics, serializeSortRules, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
-import { isItemTemplate, relationContext } from '../items/fieldDisplay';
+import { calculateViewTimeMetrics, compileQuery, compileSort, effectiveItemDurationMs, effectiveWorkspaceNow, expressionContinuouslyDependsOnCurrentTime, expressionDependsOnCurrentTime, itemAreas, itemProjects, parseSortSource, participatesInTimeStatistics, serializeSortRules, type SavedView, type UniversalItem, type ViewSortRule, type ViewTimeMetrics, type WorkspaceDocument } from '@utm/core';
+import { getWorkspaceIndex } from '../../services/workspaceIndex';
+import { isItemTemplate } from '../items/fieldDisplay';
 
 export const COMPLETION_EXIT_MS = 200;
 export type CompletionHold = { previous: UniversalItem; undoUntil: number; removeAt: number };
 const completionHolds = new Map<string, CompletionHold>();
+const completionHoldListeners = new Set<() => void>();
+let completionHoldVersion = 0;
 export const MANUAL_ORDER_EXTENSION = 'utm:manualOrder';
+
+export const subscribeCompletionHolds = (listener: () => void) => { completionHoldListeners.add(listener); return () => completionHoldListeners.delete(listener); };
+export const completionHoldsSnapshot = () => completionHoldVersion;
+const notifyCompletionHolds = () => { completionHoldVersion += 1; completionHoldListeners.forEach((listener) => listener()); };
 
 export function manualOrderFor(view: SavedView): string[] {
   const value = view.extensions?.[MANUAL_ORDER_EXTENSION];
@@ -28,6 +35,7 @@ export function moveManualItem(itemIds: string[], draggedId: string, targetId: s
 export function setCompletionHold(itemId: string, hold?: CompletionHold): void {
   if (hold === undefined) completionHolds.delete(itemId);
   else completionHolds.set(itemId, hold);
+  notifyCompletionHolds();
 }
 
 function completionHoldFor(itemId: string, at = Date.now()): CompletionHold | undefined {
@@ -40,6 +48,8 @@ function completionHoldFor(itemId: string, at = Date.now()): CompletionHold | un
   return hold;
 }
 
+export const viewItemForEvaluation = (item: UniversalItem): UniversalItem => completionHoldFor(item.id)?.previous ?? item;
+
 export function completionPhase(itemId: string, at = Date.now()): 'held' | 'exiting' | undefined {
   const hold = completionHoldFor(itemId, at);
   if (!hold) return undefined;
@@ -47,6 +57,62 @@ export function completionPhase(itemId: string, at = Date.now()): 'held' | 'exit
 }
 
 export type AttentionSortValues = { bucket: number; at?: number; durationMs: number };
+export type ViewEvaluation = { items: UniversalItem[]; metrics: ViewTimeMetrics | null; now: Date };
+
+const displayedTimeFields = new Set(['activeRange', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue']);
+
+function safeExpressionDependsOnTime(source: string): boolean {
+  try { return expressionDependsOnCurrentTime(source); }
+  catch { return false; }
+}
+
+function safeExpressionContinuouslyDependsOnTime(source: string): boolean {
+  try { return expressionContinuouslyDependsOnCurrentTime(source); }
+  catch { return false; }
+}
+
+function visibleViewScripts(view: SavedView) {
+  return view.fields.includes('view_scripts')
+    ? view.scripts ?? []
+    : (view.scripts ?? []).filter((script) => view.fields.includes(`view_script.${script.key}`));
+}
+
+function visibleItemScripts(workspace: WorkspaceDocument, view: SavedView) {
+  const itemScriptKeys = new Set(view.fields.filter((field) => field.startsWith('script.')).map((field) => field.slice(7)));
+  if (!view.fields.includes('scripts') && !itemScriptKeys.size) return [];
+  return getWorkspaceIndex(workspace).scripts.allItemDefinitions.filter((script) => view.fields.includes('scripts') || itemScriptKeys.has(script.key));
+}
+
+/** Conservatively detects whether a View can change while the workspace stays unchanged. */
+export function viewDependsOnCurrentTime(workspace: WorkspaceDocument, view: SavedView): boolean {
+  if (safeExpressionDependsOnTime(view.query.source || 'true')) return true;
+  const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
+  if (/^\s*attentionOrder\b/m.test(sortSource)) return true;
+  try { if (parseSortSource(sortSource).some((rule) => safeExpressionDependsOnTime(rule.expression))) return true; }
+  catch { /* An invalid sort already produces an empty/error state and needs no live clock. */ }
+  if (view.fields.some((field) => displayedTimeFields.has(field))) return true;
+
+  if (visibleViewScripts(view).some((script) => safeExpressionDependsOnTime(script.source))) return true;
+
+  if (visibleItemScripts(workspace, view).some((script) => safeExpressionDependsOnTime(script.source))) return true;
+  return false;
+}
+
+/** Continuous clocks are reserved for expressions whose displayed value changes without crossing a date or schedule boundary. */
+export function viewContinuouslyDependsOnCurrentTime(workspace: WorkspaceDocument, view: SavedView): boolean {
+  if (safeExpressionContinuouslyDependsOnTime(view.query.source || 'true')) return true;
+  const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
+  try { if (parseSortSource(sortSource).some((rule) => safeExpressionContinuouslyDependsOnTime(rule.expression))) return true; }
+  catch { return false; }
+  if (visibleViewScripts(view).some((script) => safeExpressionContinuouslyDependsOnTime(script.source))) return true;
+  return visibleItemScripts(workspace, view).some((script) => safeExpressionContinuouslyDependsOnTime(script.source));
+}
+
+export function evaluateView(workspace: WorkspaceDocument, view: SavedView, now = effectiveWorkspaceNow(workspace)): ViewEvaluation {
+  const items = selectViewItems(workspace, view, now);
+  const metrics = view.statistics?.showTime === false ? null : calculateViewTimeMetrics(workspace, view, items, now);
+  return { items, metrics, now };
+}
 
 /** Stable time-attention tuple used by standard Views. Lower buckets are more urgent. */
 export function attentionSortValues(item: UniversalItem, now = new Date()): AttentionSortValues {
@@ -67,60 +133,14 @@ export function attentionSortValues(item: UniversalItem, now = new Date()): Atte
   return { bucket: 3, durationMs };
 }
 
-export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
-  const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
-  const selectionSource = (item: UniversalItem) => completionHoldFor(item.id)?.previous ?? item;
-  const available = Object.values(workspace.items).filter((item) => {
-    const source = selectionSource(item);
-    return !item.deletedAt
-      && (!view?.list || source.list === view.list)
-      && (!view?.area || itemAreas(source).includes(view.area))
-      && (!view?.project || itemProjects(source).includes(view.project))
-      && (templateFilterRequested || !isItemTemplate(source))
-      && !(source.role === 'occurrence' && source.occurrence?.seriesId && workspace.items[source.occurrence.seriesId]?.habit);
-  });
-  if (!view) return available.filter((item) => item.role !== 'series_template');
-
-  let items: UniversalItem[];
-  try {
-    const predicate = compileQuery(view.query.source || 'true', (item) => relationContext(workspace, item), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
-    const matchingRows = available.filter((item) => {
-      const source = selectionSource(item);
-      const areas = itemAreas(source); const projects = itemProjects(source);
-      const queryItem = { ...source, area: areas.length ? areas : undefined, project: projects.length ? projects : undefined } as unknown as UniversalItem;
-      return source.role !== 'series_template' ? predicate(queryItem, now) : Boolean(source.habit) && predicate({ ...queryItem, role: 'standalone' }, now);
-    });
-    const matchingSeries = available.filter((item) => {
-      const source = selectionSource(item);
-      return source.role === 'series_template' && !source.habit && predicate(source, now);
-    });
-    const standalone = matchingRows.filter((item) => item.role !== 'occurrence');
-    const occurrencesBySeries = new Map<string, UniversalItem[]>();
-    matchingRows.filter((item) => item.role === 'occurrence').forEach((item) => {
-      const seriesId = item.occurrence?.seriesId ?? item.id;
-      occurrencesBySeries.set(seriesId, [...(occurrencesBySeries.get(seriesId) ?? []), item]);
-    });
-    const logicalOccurrences = [...occurrencesBySeries.values()].map((occurrences) => [...occurrences].sort((left, right) => {
-      if (left.state === 'open' && right.state !== 'open') return -1;
-      if (right.state === 'open' && left.state !== 'open') return 1;
-      return new Date(right.occurrence?.recurrenceId ?? right.updatedAt).getTime() - new Date(left.occurrence?.recurrenceId ?? left.updatedAt).getTime();
-    })[0]!);
-    const combined = [...standalone, ...logicalOccurrences, ...matchingSeries.filter((series) => !logicalOccurrences.some((item) => item.occurrence?.seriesId === series.id))];
-    const seenLogical = new Set<string>();
-    items = combined.filter((item) => {
-      const key = item.role === 'occurrence' && item.occurrence?.seriesId
-        ? `occurrence:${item.occurrence.seriesId}:${item.occurrence.recurrenceId ?? item.schedule?.startAt ?? item.id}`
-        : `item:${item.id}`;
-      if (seenLogical.has(key)) return false;
-      seenLogical.add(key);
-      return true;
-    });
-  } catch {
-    return [];
-  }
+/** Sorts an already-filtered set without rescanning the workspace. */
+export function sortViewItems(workspace: WorkspaceDocument, view: SavedView, sourceItems: Iterable<UniversalItem>, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
+  const index = getWorkspaceIndex(workspace, true);
+  const selectionSource = viewItemForEvaluation;
+  const items = [...sourceItems];
   const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
   if (sortSource.trim()) {
-    const rules = parseSortSource(sortSource);
+    const rules = cachedSortRules(sortSource);
     const virtualSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'organizationOrder', 'areaOrder', 'projectOrder', 'tagOrder', 'attentionOrder', 'durationOrder'].includes(expression)));
     if (!virtualSorts.size) {
       const comparator = compileSort(sortSource);
@@ -145,30 +165,24 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
         ];
       }));
       const comparator = compileSort(expanded);
-      const areaOrder = orderedOrganizationEntries(workspace, 'area');
-      const projectOrder = orderedOrganizationEntries(workspace, 'project');
-      const tagOrder = orderedTagEntries(workspace);
-      const rank = (order: Array<string | null>, value: string | null) => {
-        const index = order.indexOf(value);
-        return index < 0 ? 0 : order.length - index;
-      };
       const sortable = (item: UniversalItem): UniversalItem => {
-        const list = listDefinitionFor(workspace, item.list, now);
-        const tagRank = item.tags.length ? Math.max(...item.tags.map((tag) => rank(tagOrder, tag))) : rank(tagOrder, null);
+        const list = index.listDefinitionFor(item.list, now);
+        const tagRank = item.tags.length ? Math.max(...item.tags.map((tag) => index.rankFor('tag', tag))) : index.rankFor('tag', null);
         const attention = attentionSortValues(item, now);
         return { ...item, custom: {
           ...item.custom,
           ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
-          __utm_organization_order: organizationPriorityRank(workspace, item),
+          __utm_organization_order: index.organizationRankFor(item),
           __utm_attention_bucket: attention.bucket,
           __utm_attention_at: attention.at ?? null,
           __utm_duration_order: attention.durationMs,
-          __utm_area_order: itemAreas(item).length ? Math.max(...itemAreas(item).map((area) => rank(areaOrder, area))) : rank(areaOrder, null),
-          __utm_project_order: itemProjects(item).length ? Math.max(...itemProjects(item).map((project) => rank(projectOrder, project))) : rank(projectOrder, null),
+          __utm_area_order: itemAreas(item).length ? Math.max(...itemAreas(item).map((area) => index.rankFor('area', area))) : index.rankFor('area', null),
+          __utm_project_order: itemProjects(item).length ? Math.max(...itemProjects(item).map((project) => index.rankFor('project', project))) : index.rankFor('project', null),
           __utm_tag_order: tagRank,
         } };
       };
-      items.sort((left, right) => comparator(sortable(selectionSource(left)), sortable(selectionSource(right)), now));
+      const sortableItems = new Map(items.map((item) => [item.id, sortable(selectionSource(item))]));
+      items.sort((left, right) => comparator(sortableItems.get(left.id)!, sortableItems.get(right.id)!, now));
     }
   }
   const manualOrder = manualOrderFor(view);
@@ -184,6 +198,70 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
     });
   }
   return items;
+}
+
+export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
+  const index = getWorkspaceIndex(workspace, true);
+  const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
+  const selectionSource = viewItemForEvaluation;
+  const available = index.visibleItems.filter((item) => {
+    const source = selectionSource(item);
+    return (!view?.list || source.list === view.list)
+      && (!view?.area || itemAreas(source).includes(view.area))
+      && (!view?.project || itemProjects(source).includes(view.project))
+      && (templateFilterRequested || !isItemTemplate(source))
+      && !(source.role === 'occurrence' && source.occurrence?.seriesId && index.itemById.get(source.occurrence.seriesId)?.habit);
+  });
+  if (!view) return available.filter((item) => item.role !== 'series_template');
+
+  let items: UniversalItem[];
+  try {
+    const predicate = compileQuery(view.query.source || 'true', (item) => index.queryContextFor(item, now), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
+    const matchingRows = available.filter((item) => {
+      const source = selectionSource(item);
+      const queryItem = index.queryItemFor(source);
+      return source.role !== 'series_template' ? predicate(queryItem, now) : Boolean(source.habit) && predicate({ ...queryItem, role: 'standalone' }, now);
+    });
+    const matchingSeries = available.filter((item) => {
+      const source = selectionSource(item);
+      return source.role === 'series_template' && !source.habit && predicate(source, now);
+    });
+    const standalone = matchingRows.filter((item) => item.role !== 'occurrence');
+    const occurrencesBySeries = new Map<string, UniversalItem[]>();
+    matchingRows.filter((item) => item.role === 'occurrence').forEach((item) => {
+      const seriesId = index.recurrence.seriesIdByOccurrenceId.get(item.id) ?? item.occurrence?.seriesId ?? item.id;
+      occurrencesBySeries.set(seriesId, [...(occurrencesBySeries.get(seriesId) ?? []), item]);
+    });
+    const logicalOccurrences = [...occurrencesBySeries.values()].map((occurrences) => [...occurrences].sort((left, right) => {
+      if (left.state === 'open' && right.state !== 'open') return -1;
+      if (right.state === 'open' && left.state !== 'open') return 1;
+      return new Date(right.occurrence?.recurrenceId ?? right.updatedAt).getTime() - new Date(left.occurrence?.recurrenceId ?? left.updatedAt).getTime();
+    })[0]!);
+    const representedSeries = new Set(logicalOccurrences.map((item) => item.occurrence?.seriesId).filter((id): id is string => Boolean(id)));
+    const combined = [...standalone, ...logicalOccurrences, ...matchingSeries.filter((series) => !representedSeries.has(series.id))];
+    const seenLogical = new Set<string>();
+    items = combined.filter((item) => {
+      const key = item.role === 'occurrence' && item.occurrence?.seriesId
+        ? `occurrence:${item.occurrence.seriesId}:${item.occurrence.recurrenceId ?? item.schedule?.startAt ?? item.id}`
+        : `item:${item.id}`;
+      if (seenLogical.has(key)) return false;
+      seenLogical.add(key);
+      return true;
+    });
+  } catch {
+    return [];
+  }
+  return sortViewItems(workspace, view, items, now);
+}
+
+const sortRulesCache = new Map<string, ViewSortRule[]>();
+function cachedSortRules(source: string): ViewSortRule[] {
+  const cached = sortRulesCache.get(source);
+  if (cached) return cached;
+  const rules = parseSortSource(source);
+  if (sortRulesCache.size >= 256) sortRulesCache.delete(sortRulesCache.keys().next().value!);
+  sortRulesCache.set(source, rules);
+  return rules;
 }
 
 export const defaultBoardStates = ['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const;

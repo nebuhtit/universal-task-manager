@@ -1,10 +1,7 @@
-import { Component, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import * as XLSX from 'xlsx';
+import { Component, lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
-import { CodeEditor } from './components/ui/CodeEditor';
-import { CloseIcon, LineIcon } from './components/ui/icons';
-import { Button, Field, Input } from './components/ui/primitives';
+import { CloseIcon } from './components/ui/icons';
 import { SectionGuide } from './components/ui/SectionGuide';
 import {
   AllItemsPage,
@@ -12,75 +9,48 @@ import {
   allItemsViewFor,
   isItemTemplate,
 } from './features/items';
-import { ItemEditor } from './features/items/editor/ItemEditor';
 import { OrganizationManager, createParaStructurePackage } from './features/settings/OrganizationManager';
-import { CalendarPage } from './features/calendar/CalendarPage';
-import { CalendarIntegrationSettings } from './features/calendar/CalendarIntegrationSettings';
 import { AppShell, type AppNotice as Notice, type AppPage as Page } from './components/layout/AppShell';
+import { useLegacyModalDismiss } from './components/ui/useLegacyModalDismiss';
 import { ShellNotices } from './components/layout/ShellNotices';
+import { AutomationsPage } from './features/automations/AutomationsPage';
 import { useAppearance } from './hooks/useAppearance';
 import { useToast } from './hooks/useToast';
 import { playCompletionSoundUnlessPreviewed, useUiSounds } from './hooks/useUiSounds';
 import { useViewport } from './hooks/useViewport';
+import { useDisplayedBuild } from './hooks/useDisplayedBuild';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
 import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
+import { applyViewCreationDefaults } from './features/views/applyCreationDefaults';
+import { SettingsReleaseInfo } from './features/settings/SettingsReleaseInfo';
+import { itemEditorSource } from './features/items/editor/itemEditorSource';
+import { COMPLETION_EXIT_MS, selectViewItems, setCompletionHold } from './features/views/viewSelectors';
+import { formatRussianDateTime } from './utils/dates';
+import { clockService } from './services/clockService';
 import {
-  ViewsPage,
-  COMPLETION_EXIT_MS,
-  applyViewCreationDefaults,
-  selectViewItems,
-  setCompletionHold,
-} from './features/views';
-import { BUILT_IN_VIEW_TEMPLATES } from './features/views/viewTemplates';
-import { formatHeaderDate, formatRussianDateTime, formatSystemDateTime } from './utils/dates';
-import {
-  APP_NAME, APP_VERSION, SCHEMA_VERSION, applyPortableImport, buildPortableImportPreview,
+  APP_VERSION, SCHEMA_VERSION, applyPortableImport, buildPortableImportPreview,
   collectItemDependencies, createId, createItem, createPortablePackage,
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences, updateRecurrenceCompletionTime,
   runAutomationEvents, serializePortablePackage,
-  createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, migrateWorkspace, packageToTabular, parseCsv, tabularToPackage, testClockDisplay, testDayDurationSeconds, toCsv, toICS,
-  type AutomationAction, type AutomationRule, type CustomFieldDefinition,
-  type ItemPreset, type PortableImportPreview, type PortableSelection, type RecurrenceCompletionRecord, type SavedView, type TestClockUnit, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
+  createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, migrateWorkspace, packageToTabular, parseCsv, tabularToPackage, toCsv, toICS,
+  type ItemPreset, type PortableImportPreview, type PortableSelection, type RecurrenceCompletionRecord, type SavedView, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
-  changePassword, createLocalWorkspace, createUnencryptedLocalWorkspace, decryptWorkspaceFile, disableFaceIdUnlock, disablePasswordRequirement, enableFaceIdUnlock, enablePasswordRequirement, exportContainer, exportEncryptedLocalBackup, exportLocalWorkspaceSnapshot, faceIdStatus, importAsLocalWorkspace,
-  listLocalWorkspaceSnapshots, mergeIntoLocalWorkspace, reencryptWorkspaceFile, restoreLocalWorkspace, restoreLocalWorkspaceSnapshot, saveLocalWorkspace, unlockLocalWorkspace, unlockLocalWorkspaceWithFaceId, validateContainer,
-  type LocalWorkspaceSnapshotInfo, type PasswordProtectionStatus, type UnlockedWorkspace,
+  createLocalWorkspace, createUnencryptedLocalWorkspace, decryptWorkspaceFile, disableFaceIdUnlock, enableFaceIdUnlock, exportContainer, exportEncryptedLocalBackup, faceIdStatus, importAsLocalWorkspace,
+  mergeIntoLocalWorkspace, restoreLocalWorkspace, unlockLocalWorkspace, unlockLocalWorkspaceWithFaceId, validateContainer,
+  type PasswordProtectionStatus, type UnlockedWorkspace,
 } from '@utm/sdk';
 
-const BUILD_COMMIT = (import.meta.env.VITE_COMMIT_SHA || 'local').slice(0, 7);
-
-function useDisplayedBuild(): { commit: string; dirty: boolean } {
-  const [build, setBuild] = useState({ commit: BUILD_COMMIT, dirty: false });
-  useEffect(() => {
-    // A previously installed PWA shell can be served by the service worker even
-    // while its URL points at Vite dev. The live endpoint remains authoritative.
-    const refresh = () => void fetch('/__utm-build-info', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() as Promise<{ commit?: string; dirty?: boolean }> : undefined)
-      .then((result) => { if (result?.commit) setBuild({ commit: result.commit.slice(0, 7), dirty: Boolean(result.dirty) }); })
-      .catch(() => undefined);
-    refresh();
-    const timer = window.setInterval(refresh, 5_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return build;
-}
+const ItemEditor = lazy(() => import('./features/items/editor/ItemEditor').then((module) => ({ default: module.ItemEditor })));
+const CalendarPage = lazy(() => import('./features/calendar/CalendarPage').then((module) => ({ default: module.CalendarPage })));
+const ViewsPage = lazy(() => import('./features/views/ViewsPage').then((module) => ({ default: module.ViewsPage })));
+const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((module) => ({ default: module.SettingsPage })));
+const DiagnosticsSettings = lazy(() => import('./features/settings/DiagnosticsSettings').then((module) => ({ default: module.DiagnosticsSettings })));
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 type PendingUndoAction = { id: string; label: string; expiresAt: number; undo: () => void; itemId?: string };
 const UNDO_WINDOW_MS = 4_000;
 
-/**
- * A visible recurring cycle is an occurrence, while recurrence settings belong
- * to its series template.  Opening the occurrence used to make the editor look
- * as though recurrence had not been saved.  Always resolve an occurrence back
- * to its source series for editing settings; completion still acts on the
- * occurrence itself through the separate state action.
- */
-export const itemEditorSource = (workspace: WorkspaceDocument | undefined, item: UniversalItem): UniversalItem => {
-  const seriesId = item.role === 'occurrence' ? item.occurrence?.seriesId : undefined;
-  return seriesId && workspace?.items[seriesId] ? workspace.items[seriesId]! : item;
-};
 // Some iOS Files providers do not implement File.text() reliably for custom
 // extensions. Reading bytes ourselves keeps .utmb recovery working reliably.
 const readEncryptedBackup = async (file: File): Promise<string> => new TextDecoder().decode(await file.arrayBuffer());
@@ -130,7 +100,7 @@ const confirmPlaintextDownload = (message = 'This JSON export is plaintext and m
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const packageForItems = (workspace: WorkspaceDocument, items: UniversalItem[], selection: PortableSelection) => createPortablePackage(workspace, { kind: 'items', items: collectItemDependencies(workspace, items), selection });
-const exportPortable = (workspace: WorkspaceDocument, portable: ReturnType<typeof createPortablePackage>, filename: string, format: PortableFormat, metadata = false) => {
+const exportPortable = async (workspace: WorkspaceDocument, portable: ReturnType<typeof createPortablePackage>, filename: string, format: PortableFormat, metadata = false): Promise<void> => {
   if (!confirmPlaintextDownload(`This ${format.toUpperCase()} export is readable plaintext and may contain private item data. Download it now?`)) return;
   if (format === 'json') { downloadText(serializePortablePackage(portable), `${filename}.json`); return; }
   // Keep the canonical item column in readable tabular exports. The friendly
@@ -139,6 +109,7 @@ const exportPortable = (workspace: WorkspaceDocument, portable: ReturnType<typeo
   // universal fields that a flat table cannot otherwise represent.
   if (format === 'csv') { const data = packageToTabular(portable); const columns = [...new Set(data.items.flatMap((row) => Object.keys(row)))]; downloadText(toCsv(data.items, columns), `${filename}.csv`, 'text/csv;charset=utf-8'); return; }
   if (format === 'xlsx') {
+    const XLSX = await import('xlsx');
     const data = packageToTabular(portable); const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(data.items), 'Items');
     if (data.customFields.length) XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(data.customFields), 'Custom fields');
@@ -155,7 +126,7 @@ const exportPortable = (workspace: WorkspaceDocument, portable: ReturnType<typeo
   downloadText(exported.ics, `${filename}${metadata ? '-utm' : ''}.ics`, 'text/calendar;charset=utf-8');
 };
 
-const exportSavedView = (workspace: WorkspaceDocument, view: SavedView, mode: 'definition' | 'results' | 'bundle', format: PortableFormat = 'json', metadata = false) => {
+const exportSavedView = (workspace: WorkspaceDocument, view: SavedView, mode: 'definition' | 'results' | 'bundle', format: PortableFormat = 'json', metadata = false): Promise<void> => {
   const results = selectViewItems(workspace, view); const dependencies = collectItemDependencies(workspace, results);
   const portable = createPortablePackage(workspace, {
     kind: mode === 'definition' ? 'views' : mode === 'results' ? 'items' : 'view_bundle',
@@ -163,11 +134,9 @@ const exportSavedView = (workspace: WorkspaceDocument, view: SavedView, mode: 'd
     selection: mode === 'definition' ? { type: 'view_definition', viewId: view.id, viewName: view.name } : { type: 'view_results', viewId: view.id, viewName: view.name },
     dependencyItemIds: dependencies.filter((item) => !results.some((result) => result.id === item.id)).map((item) => item.id),
   });
-  exportPortable(workspace, portable, `${safeFilename(view.name)}-${mode}`, format, metadata);
+  return exportPortable(workspace, portable, `${safeFilename(view.name)}-${mode}`, format, metadata);
 };
-const exportParaStructure = (workspace: WorkspaceDocument) => {
-  exportPortable(workspace, createParaStructurePackage(workspace), `${safeFilename(workspace.name)}-para`, 'json');
-};
+const exportParaStructure = (workspace: WorkspaceDocument): Promise<void> => exportPortable(workspace, createParaStructurePackage(workspace), `${safeFilename(workspace.name)}-para`, 'json');
 
 async function portableFromFile(file: File, workspace: WorkspaceDocument): Promise<{ source: string; warnings: string[] }> {
   const extension = file.name.toLowerCase().split('.').pop();
@@ -180,6 +149,7 @@ async function portableFromFile(file: File, workspace: WorkspaceDocument): Promi
   let tables: { items: Record<string, string | number | boolean | null | undefined>[]; customFields?: Record<string, string | number | boolean | null | undefined>[]; views?: Record<string, string | number | boolean | null | undefined>[]; customValues?: Record<string, string | number | boolean | null | undefined>[]; reminders?: Record<string, string | number | boolean | null | undefined>[]; relations?: Record<string, string | number | boolean | null | undefined>[]; attachments?: Record<string, string | number | boolean | null | undefined>[]; habitDates?: Record<string, string | number | boolean | null | undefined>[] };
   if (extension === 'csv') tables = { items: parseCsv(await file.text()) };
   else if (extension === 'xlsx') {
+    const XLSX = await import('xlsx');
     const book = XLSX.read(await file.arrayBuffer(), { type: 'array' }); const table = (name: string) => book.SheetNames.includes(name) ? XLSX.utils.sheet_to_json<Record<string, string | number | boolean | null | undefined>>(book.Sheets[name]!, { defval: '' }) : [];
     tables = { items: table('Items'), customFields: table('Custom fields'), views: table('Views'), customValues: table('Custom values'), reminders: table('Reminders'), relations: table('Relations'), attachments: table('Attachments'), habitDates: table('Habit dates') };
     if (!tables.items.length) throw new Error('Excel file needs an Items sheet with a header row.');
@@ -216,6 +186,10 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
 
   useEffect(() => {
     window.localStorage.setItem('utm-interface-language', language);
+    if (language === 'en') {
+      document.documentElement.lang = 'en';
+      return;
+    }
     return installDomLocalization(language);
   }, [language]);
   useEffect(() => {
@@ -361,6 +335,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
           <p><strong>Android:</strong> open it in Chrome, tap the menu, then choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
           <p>Each device has its own encrypted workspace. Use an encrypted <code>.utmb</code> backup file to move or merge your data between devices.</p><p><strong>Important:</strong> if you remove Universal from the Home Screen, clear website data, or delete the browser profile, the local workspace may be lost. Export an encrypted <code>.utmb</code> backup regularly and keep it in Files, iCloud Drive, or another trusted cloud.</p>
           <button className="secondary" type="button" onClick={() => void downloadOfflineRecoveryKit().catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button><p><small>Save this standalone HTML beside your encrypted <code>.utmb</code>. It can decrypt the backup without Universal or GitHub.</small></p>
+          {import.meta.env.DEV && <><hr/><h3>Complete test workspace</h3><p>A deterministic encrypted workspace covers filters, sorting, reminders, recurrence, Calendar, scripts, relations, time statistics and conflicting PARA priorities.</p><a className="secondary" href="/fixtures/test-workspace-1.98.0.utmb" download>Download test workspace</a><p><small>Import it as a separate test workspace. Its password is intentionally kept outside the interface.</small></p></>}
           <details className="notification-help"><summary>If the hosting site is unavailable</summary><div>
             <p>Your data is stored locally in the browser, not on GitHub or another host. To make a portable copy, open <em>Settings → Encrypted Transfer → Export encrypted .utmb</em>; in the Files/Save dialog choose a folder and confirm. The locked sign-in screen also has <em>Save encrypted recovery copy + log</em>, which creates a <code>.utmb</code> copy without unlocking.</p>
             <p><strong>iPhone/iPad:</strong> after export open the <em>Files</em> app and check <em>Downloads</em>, <em>On My iPhone/iPad</em> or <em>iCloud Drive</em> (the location you selected in the save dialog). Swipe down in that folder and search for <code>.utmb</code> or <code>universal-</code>. If the site is unavailable, open any working copy of Universal, tap <em>Choose backup file</em> on the sign-in screen, select the file in Files and enter the workspace password.</p>
@@ -400,7 +375,7 @@ function PortableImportDialog({ workspace, source, onApply, onClose }: {
     if (!current) return current; const next = clean(current); mutation(next); return next;
   });
   const unresolved = preview?.customFields.some((field) => field.choice === 'unresolved') ?? false;
-  return <div className="modal-backdrop"><section className="dialog wide-dialog import-preview" role="dialog" aria-modal="true" aria-label="Import preview">
+  return <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="dialog wide-dialog import-preview" role="dialog" aria-modal="true" aria-label="Import preview">
     <header><div><p className="dialog-kicker">NO CHANGES YET</p><h2>Import preview</h2></div><button className="icon-button" aria-label="Close import preview" onClick={onClose}><CloseIcon /></button></header>
     {error && <p className="error" role="alert">{error}</p>}
     {preview && <>
@@ -447,164 +422,7 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, { error
 }
 
 
-function AutomationsPage({ workspace, commit }: { workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void }) {
-  const [editing, setEditing] = useState<AutomationRule | null>(null);
-  const [actions, setActions] = useState('[]');
-  const [error, setError] = useState('');
-  const edit = (rule: AutomationRule) => { setEditing(clean(rule)); setActions(JSON.stringify(rule.actions, null, 2)); };
-  return <section className="page-section"><div className="page-title"><div><p className="eyebrow">IF → THEN, LOCALLY</p><h1>Automations</h1><p>Rules can change your workspace, but cannot run code or access the network.</p></div><button className="primary" onClick={() => edit({ id: createId(), name: 'New automation', enabled: true, trigger: { type: 'item.created' }, condition: { source: 'true' }, actions: [{ type: 'notify', title: 'Created', body: 'A new item was created' }], missedPolicy: 'run_each', maxDepth: 5, cooldownMs: 0 })}>+ New automation</button></div>
-    <div className="automation-layout"><div className="rule-list">{Object.values(workspace.automations).map((rule) => <article className="rule-card" key={rule.id}><div><span className={`status-dot ${rule.enabled ? 'on' : ''}`} /><strong>{rule.name}</strong><small>{rule.trigger.type}</small></div><code>{rule.condition.source}</code>{rule.disabledReason && <p className="error">{rule.disabledReason}</p>}<footer><button className="secondary" onClick={() => commit('Toggle rule', (draft) => { draft.automations[rule.id]!.enabled = !draft.automations[rule.id]!.enabled; delete draft.automations[rule.id]!.disabledReason; })}>{rule.enabled ? 'Disable' : 'Enable'}</button><button className="secondary" onClick={() => edit(rule)}>Edit</button></footer></article>)}{!Object.keys(workspace.automations).length && <div className="empty-panel"><svg className="automation-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 2 4.5 13.2h7.3L11 22l8.5-11.2h-7.3L13 2Z" /></svg><h3>No automations yet</h3><p>Create a safe rule for repetitive work.</p></div>}</div><aside className="log-panel"><h3>Execution log</h3>{workspace.automationLog.slice(-20).reverse().map((entry) => <div className="log-line" key={entry.id}><span className={`status-dot ${entry.outcome === 'success' ? 'on' : entry.outcome === 'failed' ? 'bad' : ''}`} /><div><strong>{workspace.automations[entry.ruleId]?.name ?? 'Deleted rule'}</strong><small>{entry.outcome} · {formatSystemDateTime(entry.finishedAt, workspace.calendarPreferences.language)}</small></div></div>)}{!workspace.automationLog.length && <p className="empty">Runs will appear here.</p>}</aside></div>
-    {editing && <div className="modal-backdrop"><section className="dialog wide-dialog"><header><h2>Automation rule</h2><button className="icon-button" onClick={() => setEditing(null)}>×</button></header><label>Name<input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label><div className="form-grid two"><label>Trigger<select value={editing.trigger.type} onChange={(event) => setEditing({ ...editing, trigger: { type: event.target.value as AutomationRule['trigger']['type'] } })}>{['item.created', 'item.updated', 'status.changed', 'occurrence.activated', 'occurrence.boundary', 'reminder.due', 'time.schedule'].map((trigger) => <option key={trigger}>{trigger}</option>)}</select></label><label>Missed runs<select value={editing.missedPolicy} onChange={(event) => setEditing({ ...editing, missedPolicy: event.target.value as AutomationRule['missedPolicy'] })}><option value="run_each">Run each</option><option value="run_once">Run once</option><option value="skip">Skip</option></select></label></div>{editing.trigger.type === 'time.schedule' && <label>Schedule RRULE<input value={editing.trigger.rrule ?? 'FREQ=DAILY;BYHOUR=9'} onChange={(event) => setEditing({ ...editing, trigger: { ...editing.trigger, rrule: event.target.value } })} /></label>}<Field className="automation-code-field" label="Condition DSL" htmlFor="automation-condition"><CodeEditor id="automation-condition" language="dsl" ariaLabel="Condition DSL" rows={3} value={editing.condition.source} onChange={(source) => setEditing({ ...editing, condition: { source } })} /></Field><Field className="automation-code-field" label="Actions" hint="Allowlisted JSON" htmlFor="automation-actions"><CodeEditor id="automation-actions" language="json" ariaLabel="Actions JSON" rows={11} value={actions} onChange={setActions} /></Field><p className="hint">Actions: set_field, close, archive, create_item, add_relation, set_progress, add_reminder, notify.</p>{error && <p className="error">{error}</p>}<footer><button className="danger" onClick={() => { commit('Delete automation', (draft) => { delete draft.automations[editing.id]; }); setEditing(null); }}>Delete</button><span /><button className="secondary" onClick={() => setEditing(null)}>Cancel</button><button className="primary" onClick={() => { try { parseExpression(editing.condition.source || 'true'); const parsed = JSON.parse(actions) as AutomationAction[]; if (!Array.isArray(parsed)) throw new Error('Actions must be an array'); commit('Save automation', (draft) => { draft.automations[editing.id] = clean({ ...editing, actions: parsed }); }); setEditing(null); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }}>Save rule</button></footer></section></div>}
-  </section>;
-}
-
-function PasswordProtectionSettings({ status, onStatusChange }: {
-  status: PasswordProtectionStatus | 'checking';
-  onStatusChange: () => Promise<PasswordProtectionStatus>;
-}) {
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [backupOldPassword, setBackupOldPassword] = useState('');
-  const [backupNewPassword, setBackupNewPassword] = useState('');
-  const [backupConfirmPassword, setBackupConfirmPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const backupInput = useRef<HTMLInputElement>(null);
-
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true); setError(''); setMessage('');
-    try { await action(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
-  };
-  const updatePassword = () => void run(async () => {
-    if (newPassword.length < 10) throw new Error('New password must contain at least 10 characters');
-    if (newPassword !== confirmPassword) throw new Error('New passwords do not match');
-    await changePassword(currentPassword, newPassword);
-    setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
-    setMessage('Password changed. Existing backups and saved workspace versions still use their previous passwords.');
-  });
-  const toggleRequirement = () => void run(async () => {
-    if (status === 'disabled') await enablePasswordRequirement(currentPassword);
-    else await disablePasswordRequirement(currentPassword);
-    const next = await onStatusChange();
-    setCurrentPassword('');
-    setMessage(next === 'disabled'
-      ? 'Password prompt disabled on this device. Anyone with access to this browser profile can open the workspace.'
-      : 'Password is required again when this workspace starts or locks.');
-  });
-  const reencryptBackup = (file: File) => void run(async () => {
-    if (backupNewPassword.length < 10) throw new Error('New backup password must contain at least 10 characters');
-    if (backupNewPassword !== backupConfirmPassword) throw new Error('New backup passwords do not match');
-    const result = await reencryptWorkspaceFile(await readEncryptedBackup(file), backupOldPassword, backupNewPassword);
-    const sourceName = file.name.replace(/\.utmb$/i, '');
-    downloadText(result.source, `${safeFilename(sourceName)}-reencrypted-v${APP_VERSION}.utmb`, 'application/octet-stream');
-    setBackupOldPassword(''); setBackupNewPassword(''); setBackupConfirmPassword('');
-    setMessage('Re-encrypted backup verified and downloaded. The original file was not changed.');
-  });
-  const encrypted = status !== 'plaintext';
-  return <details className="settings-disclosure"><summary>Password protection</summary><section className="settings-card password-protection-settings">
-    <p className="eyebrow">LOCAL SECURITY</p><h2>Password protection</h2>
-    {status === 'checking' ? <p>Checking password protection…</p> : status === 'plaintext' ? <p className="error" role="alert">This test workspace is stored without encryption. Create an encrypted workspace to use password protection.</p> : <>
-      <div className="setting-row"><span><strong>Password on startup</strong><small>{status === 'disabled' ? 'Disabled on this device' : 'Required'}</small></span></div>
-      <p>The current password is required to change the password or toggle the startup prompt. Passwords stay in memory only while an action is running.</p>
-      {status === 'disabled' && <p className="error" role="alert">The workspace block remains encrypted, but its unlock key is saved in this browser profile. Anyone who can open this profile can read the workspace.</p>}
-      <Field label="Current password"><Input type="password" minLength={10} autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></Field>
-      <div className="form-grid two">
-        <Field label="New password"><Input type="password" minLength={10} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></Field>
-        <Field label="Confirm new password"><Input type="password" minLength={10} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></Field>
-      </div>
-      <div className="settings-actions">
-        <Button disabled={busy || currentPassword.length < 10 || newPassword.length < 10 || newPassword !== confirmPassword} onClick={updatePassword}>Change password</Button>
-        <Button variant={status === 'disabled' ? 'primary' : 'destructive'} disabled={busy || currentPassword.length < 10} onClick={toggleRequirement}>{status === 'disabled' ? 'Require password on startup' : 'Disable password on this device'}</Button>
-      </div>
-    </>}
-    {encrypted && <><hr/><h2>Old encrypted backups</h2>
-      <p>Changing the workspace password cannot modify files already saved in Files, iCloud Drive or another folder. Those backups and older saved workspace versions keep their old passwords.</p>
-      <p className="hint">A selected valid .utmb can be fully opened with its old password, encrypted again with a new password and verified before download. Universal cannot make an already outdated backup current or repair a damaged source; it refuses the conversion instead. The original file is never overwritten.</p>
-      <div className="form-grid two">
-        <Field label="Old backup password"><Input type="password" minLength={10} autoComplete="current-password" value={backupOldPassword} onChange={(event) => setBackupOldPassword(event.target.value)} /></Field>
-        <Field label="New backup password"><Input type="password" minLength={10} autoComplete="new-password" value={backupNewPassword} onChange={(event) => setBackupNewPassword(event.target.value)} /></Field>
-      </div>
-      <Field label="Confirm new backup password"><Input type="password" minLength={10} autoComplete="new-password" value={backupConfirmPassword} onChange={(event) => setBackupConfirmPassword(event.target.value)} /></Field>
-      <Button disabled={busy || backupOldPassword.length < 10 || backupNewPassword.length < 10 || backupNewPassword !== backupConfirmPassword} onClick={() => backupInput.current?.click()}>Choose and re-encrypt old backup…</Button>
-      <input ref={backupInput} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) reencryptBackup(file); event.currentTarget.value = ''; }} />
-    </>}
-    {error && <p className="error" role="alert">{error}</p>}{message && <p className="success" role="status">{message}</p>}
-  </section></details>;
-}
-
-function SettingsPage({ workspace, passwordProtection, onPasswordProtectionChanged, commit, onNotify, onTransfer, onImportFile, onEnableBackground, onDisableBackground, onBackgroundContent, onRestoredSnapshot }: {
-  workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
-  passwordProtection: PasswordProtectionStatus | 'checking'; onPasswordProtectionChanged: () => Promise<PasswordProtectionStatus>;
-  onNotify: () => void; onTransfer: () => void; onImportFile: (file: File) => void;
-  onEnableBackground: () => void; onDisableBackground: () => void;
-  onBackgroundContent: (contentMode: WorkspaceDocument['pushPreferences']['contentMode']) => void;
-  onRestoredSnapshot: (session: UnlockedWorkspace) => void;
-}) {
-  const displayedBuild = useDisplayedBuild();
-  const starterWorkspace = useRef(createWorkspace('New workspace defaults', new Date(0))).current;
-  const starterViews = starterWorkspace.viewOrder.map((id) => starterWorkspace.views[id]).filter((view): view is SavedView => Boolean(view));
-  const starterDayView = starterWorkspace.calendarPreferences.dayView!;
-  const [field, setField] = useState<CustomFieldDefinition | null>(null);
-  const jsonInput = useRef<HTMLInputElement>(null);
-  const [snapshots, setSnapshots] = useState<LocalWorkspaceSnapshotInfo[]>([]);
-  const [snapshotError, setSnapshotError] = useState('');
-  useEffect(() => { void listLocalWorkspaceSnapshots().then(setSnapshots).catch((reason) => setSnapshotError(reason instanceof Error ? reason.message : String(reason))); }, [workspace.schemaVersion]);
-  const exportAll = (format: PortableFormat, metadata = false) => {
-    const items = Object.values(workspace.items).filter((item) => !item.deletedAt);
-    exportPortable(workspace, createPortablePackage(workspace, { kind: 'items', items, views: format === 'xlsx' ? Object.values(workspace.views) : [], selection: { type: 'all_items' } }), `${safeFilename(workspace.name)}-all-items`, format, metadata);
-  };
-  const testClock = workspace.calendarPreferences.testClock ?? { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours' as const, startedAt: new Date().toISOString(), virtualAt: new Date().toISOString() };
-  const testClockInput = testClockDisplay(testClock);
-  const [testClockDraft, setTestClockDraft] = useState(() => ({ enabled: testClock.enabled, value: String(testClockInput.value), unit: testClockInput.unit }));
-  useEffect(() => {
-    setTestClockDraft({ enabled: testClock.enabled, value: String(testClockInput.value), unit: testClockInput.unit });
-  }, [testClock.enabled, testClock.secondsPerDay, testClockInput.unit, testClockInput.value]);
-  const draftTestClockValue = Number(testClockDraft.value);
-  const validTestClockDraft = Number.isFinite(draftTestClockValue) && draftTestClockValue > 0;
-  const testClockDraftChanged = testClockDraft.enabled !== testClock.enabled || testClockDraft.unit !== testClockInput.unit || (validTestClockDraft && draftTestClockValue !== testClockInput.value);
-  const applyTestClock = () => commit('Apply accelerated test clock', (draft) => {
-    const realNow = new Date();
-    const current = draft.calendarPreferences.testClock ?? testClock;
-    const value = Math.max(0.01, draftTestClockValue);
-    const unit = testClockDraft.unit;
-    const enabled = testClockDraft.enabled;
-    const virtualNow = current.enabled ? effectiveWorkspaceNow(draft, realNow) : realNow;
-    draft.calendarPreferences.testClock = {
-      ...current, enabled, secondsPerDay: testDayDurationSeconds(value, unit), dayDurationValue: value, dayDurationUnit: unit,
-      startedAt: realNow.toISOString(), virtualAt: enabled && current.enabled ? virtualNow.toISOString() : realNow.toISOString(),
-    };
-  });
-  const repairRecurrenceIssue = (issueId: string, itemId: string) => {
-    const value = window.prompt('Enter recurrence start as an ISO date/time', new Date().toISOString());
-    if (!value || Number.isNaN(Date.parse(value))) { setSnapshotError('Enter a valid ISO date/time.'); return; }
-    commit('Repair migrated recurrence', (draft) => {
-      const item = draft.items[itemId]; const issue = draft.migrationIssues.find((entry) => entry.id === issueId); if (!item || !issue) return;
-      const quarantine = item.extensions?.quarantine as Record<string, unknown> | undefined;
-      if (!quarantine?.recurrence || typeof quarantine.recurrence !== 'object') return;
-      item.recurrence = clean(quarantine.recurrence) as NonNullable<UniversalItem['recurrence']>;
-      item.role = 'series_template'; item.schedule = { ...(item.schedule ?? { timezone: item.recurrence.timezone || 'UTC' }), timezone: item.schedule?.timezone || item.recurrence.timezone || 'UTC', startAt: new Date(value).toISOString() };
-      delete quarantine.recurrence; issue.status = 'resolved'; item.updatedAt = new Date().toISOString(); item.revision += 1;
-    });
-  };
-  const discardQuarantinedRecurrence = (issueId: string, itemId: string) => commit('Remove incompatible recurrence', (draft) => { const item = draft.items[itemId]; const issue = draft.migrationIssues.find((entry) => entry.id === issueId); const quarantine = item?.extensions?.quarantine as Record<string, unknown> | undefined; if (quarantine) delete quarantine.recurrence; if (issue) issue.status = 'resolved'; });
-  return <div className="settings-page"><div className="page-title"><div><h1>Settings</h1></div></div>
-<PasswordProtectionSettings status={passwordProtection} onStatusChange={onPasswordProtectionChanged} />
-<details className="settings-disclosure"><summary>Guide</summary><section className="settings-card settings-guide"><p className="eyebrow">GUIDE</p><h2>How Universal starts</h2><details className="settings-guide-section" open><summary>Presets</summary><div><p>These values come from the same defaults used to create a new workspace. Existing workspaces keep their own customized values.</p><h3>Starter Home views</h3><ul>{starterViews.map((view) => <li key={view.id}><strong>{view.name}</strong><small>{view.query.source} · {view.renderer} · {view.fields.length} fields</small></li>)}</ul><h3>Available View templates</h3><ul>{BUILT_IN_VIEW_TEMPLATES.map((view) => <li key={view.id}><strong>{view.name}</strong><small>{view.query.source} · {view.renderer}</small></li>)}</ul><h3>Calendar day view</h3><dl><div><dt>Filter</dt><dd>{starterDayView.filter.source}</dd></div><div><dt>Schedule sources</dt><dd>{starterDayView.scheduleSources.join(', ')}</dd></div><div><dt>Displayed fields</dt><dd>{starterDayView.fields.join(', ')}</dd></div><div><dt>Sorting</dt><dd>{starterDayView.sortSource}</dd></div></dl><h3>Workspace settings</h3><dl><div><dt>Week starts</dt><dd>{starterWorkspace.calendarPreferences.weekStartsOn === 1 ? 'Monday' : 'Sunday'}</dd></div><div><dt>Calendar</dt><dd>{starterWorkspace.calendarPreferences.lastMode} · weekends {starterWorkspace.calendarPreferences.weekends ? 'shown' : 'hidden'} · {starterWorkspace.calendarPreferences.timeFormat}</dd></div><div><dt>Working hours</dt><dd>{starterWorkspace.calendarPreferences.workingHours.start}–{starterWorkspace.calendarPreferences.workingHours.end}</dd></div><div><dt>Default Duration</dt><dd>{starterWorkspace.calendarPreferences.defaultDurationMinutes} min</dd></div><div><dt>Appearance</dt><dd>{starterWorkspace.calendarPreferences.appearance.mode} · interface sound on · completion sound on</dd></div><div><dt>Detailed explanations</dt><dd>Off</dd></div><div><dt>Backup reminder</dt><dd>Every {starterWorkspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} days</dd></div><div><dt>Diagnostics</dt><dd>On</dd></div><div><dt>Background push</dt><dd>Off · generic lock-screen content</dd></div></dl></div></details></section></details>
-<details className="settings-disclosure"><summary>Calendar and Google Calendar</summary><CalendarIntegrationSettings workspace={workspace} commit={commit} /></details>
-<details className="settings-disclosure"><summary>Appearance and sounds</summary>    <section className="settings-card"><p className="eyebrow">APPEARANCE</p><h2>Theme</h2><p>Choose a light, dark or system theme. Scheduled mode switches automatically using the times below.</p><label>Theme<select value={workspace.calendarPreferences.appearance.mode} onChange={(event) => commit('Change theme mode', (draft) => { draft.calendarPreferences.appearance.mode = event.target.value as WorkspaceDocument['calendarPreferences']['appearance']['mode']; })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option><option value="scheduled">Scheduled</option></select></label>{workspace.calendarPreferences.appearance.mode === 'scheduled' && <div className="form-grid two"><label>Light theme starts<input type="time" value={workspace.calendarPreferences.appearance.lightAt} onChange={(event) => commit('Change light theme schedule', (draft) => { draft.calendarPreferences.appearance.lightAt = event.target.value; })} /></label><label>Dark theme starts<input type="time" value={workspace.calendarPreferences.appearance.darkAt} onChange={(event) => commit('Change dark theme schedule', (draft) => { draft.calendarPreferences.appearance.darkAt = event.target.value; })} /></label></div>}<hr/><p className="eyebrow">GUIDANCE</p><h2>Detailed explanations</h2><label className="check explanations-setting"><input type="checkbox" checked={workspace.calendarPreferences.showExplanations} onChange={(event) => commit('Toggle detailed explanations', (draft) => { draft.calendarPreferences.showExplanations = event.target.checked; })} />Show explanatory text and guides throughout the interface</label><hr/><p className="eyebrow">SOUND</p><h2>Interface sounds</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.uiSound} onChange={(event) => commit('Toggle interface sounds', (draft) => { draft.calendarPreferences.appearance.uiSound = event.target.checked; })} />Play calm sounds for buttons and controls</label><h2>Completion sound</h2><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.appearance.tickSound} onChange={(event) => commit('Toggle completion sound', (draft) => { draft.calendarPreferences.appearance.tickSound = event.target.checked; })} />Play a short sound when an item is completed</label></section></details>
-<div className="settings-columns"><details className="settings-disclosure"><summary>Custom fields and testing</summary><section className="settings-card"><header><div><p className="eyebrow">DATA MODEL</p><h2>Custom fields</h2></div><button className="secondary" onClick={() => setField({ id: createId(), key: '', label: '', kind: 'text', required: false })}>+ Add</button></header>{Object.values(workspace.customFields).map((entry) => <button className="setting-row" key={entry.id} onClick={() => setField(clean(entry))}><span><strong>{entry.label}</strong><small>custom.{entry.key}</small></span><span>{entry.kind}</span></button>)}{!Object.keys(workspace.customFields).length && <p className="empty">No custom fields yet.</p>}<hr/><p className="eyebrow">TESTING</p><h2>Accelerated day</h2><p>Choose how much real time equals one simulated day. The visible clock, Views, scripts, active ranges, recurrence, Calendar and local reminders follow it.</p><label className="check"><input type="checkbox" checked={testClockDraft.enabled} onChange={(event) => setTestClockDraft((current) => ({ ...current, enabled: event.target.checked }))} /> Enable accelerated test clock</label><div className="form-grid two"><label>One simulated day<input type="number" min="0.01" step="any" inputMode="decimal" value={testClockDraft.value} onChange={(event) => setTestClockDraft((current) => ({ ...current, value: event.target.value }))} /></label><label>Unit<select value={testClockDraft.unit} onChange={(event) => setTestClockDraft((current) => ({ ...current, unit: event.target.value as TestClockUnit }))}><option value="seconds">Seconds</option><option value="minutes">Minutes</option><option value="hours">Hours</option></select></label></div><button className="secondary" disabled={!validTestClockDraft || !testClockDraftChanged} onClick={applyTestClock}>Apply</button><p className="hint">Changes start only after Apply. Example: 30 seconds = one simulated day. Backup schedules, diagnostics and background push remain on real time to avoid false alerts or external deliveries during a test.</p></section></details>
-<details className="settings-disclosure"><summary>Data, notifications and application</summary>    <section className="settings-card"><p className="eyebrow">INTERFACE</p><h2>Interface language</h2><p>Choose the language used by the app on this device. Item titles and your data are never translated.</p><label>Language<select value={workspace.calendarPreferences.language} onChange={(event) => commit('Change interface language', (draft) => { draft.calendarPreferences.language = event.target.value as WorkspaceDocument['calendarPreferences']['language']; })}>{interfaceLanguages.map((language) => <option value={language.value} key={language.value}>{language.label}</option>)}</select></label><hr/><p className="eyebrow">PORTABILITY</p><h2>Move your data</h2><p>Encrypted Transfer is safe for complete workspace merge. Readable exports use the same preview, add and copy rules on import.</p><div className="settings-actions"><button className="secondary" onClick={onTransfer}><LineIcon name="transfer"/> Encrypted Transfer</button><details className="inline-menu"><summary>Export all…</summary><div><button onClick={() => exportAll('json')}>JSON</button><button onClick={() => exportAll('csv')}>CSV</button><button onClick={() => exportAll('xlsx')}>Excel</button><button onClick={() => exportAll('ics')}>iCalendar</button><button onClick={() => exportAll('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary" onClick={() => jsonInput.current?.click()}>Import data…</button><input ref={jsonInput} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportFile(file); event.currentTarget.value = ''; }} /></div><hr/><p className="eyebrow">DEVICE</p><h2>Notifications</h2><p>Local reminders appear while the app is open. Background delivery uses optional Web Push and the free Cloudflare plan checks due jobs every 15 minutes.</p><button className="secondary" onClick={onNotify}>Allow local notifications</button><div className="background-push"><div><strong>Background notifications</strong><small>{workspace.pushPreferences.enabled ? 'Enabled for this encrypted workspace copy.' : 'Off — reminders stay only on this device while the app is open.'}</small></div>{workspace.pushPreferences.enabled ? <button className="secondary" onClick={onDisableBackground}>Disable</button> : <button className="secondary" onClick={onEnableBackground}>Enable background delivery</button>}</div>{workspace.pushPreferences.enabled && <label className="push-privacy">Lock-screen content<select value={workspace.pushPreferences.contentMode} onChange={(event) => onBackgroundContent(event.target.value as WorkspaceDocument['pushPreferences']['contentMode'])}><option value="generic">Generic — no task title leaves this device</option><option value="detailed">Show task title and urgency</option></select></label>}<p className="hint">For iPhone, install Universal to the Home Screen, then enable this from the installed app. The Worker never receives your password or encrypted database.</p><details className="notification-help"><summary>iPhone background notification instructions</summary><div><p>First add Universal to the Home Screen and open it from there. Tap <em>Allow local notifications</em> if iOS has not granted permission yet. Then tap <em>Enable background delivery</em> and enter the notification access code supplied by the workspace owner. This is optional; without it, reminders remain local to the device.</p><p>Background delivery is checked about every 15 minutes on the free service, so it is not an exact alarm. GitHub only hosts the app files; it does not receive your workspace or notification list. When detailed lock-screen content is selected, the push service temporarily receives the task title, Start, Deadline and reminder urgency needed to send the notification.</p></div></details><hr/><p className="eyebrow">LOCAL WORKSPACE</p><h2>Workspace storage</h2><p>Your workspace is encrypted and stored in this browser's private app storage (IndexedDB). iPhone does not expose a normal folder path for site data.</p><dl><div><dt>Storage</dt><dd>Encrypted local browser storage</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div><div><dt>Portable backup</dt><dd>Encrypted <code>.utmb</code> file</dd></div></dl><p className="hint">Use Encrypted Transfer above to save a <code>.utmb</code> backup in Files, iCloud Drive or another cloud. The app validates the encrypted contents instead of trusting the filename.</p><div className="backup-notice"><strong>Backups are manual in this web app</strong><span>Browsers and iOS do not allow a PWA to silently write encrypted backups into a user-selected folder. Choose a folder in Files when exporting, then replace the previous backup there.</span></div><p className="hint">This release supports one local workspace owner. Separate user accounts and permissions are not enabled yet; adding names here would not create real security boundaries.</p><hr/><p className="eyebrow">WORKSPACE</p><h2>{workspace.name}</h2><dl><div><dt>Schema</dt><dd>{workspace.schemaVersion}</dd></div><div><dt>Items</dt><dd>{Object.keys(workspace.items).length}</dd></div><div><dt>Workspace ID</dt><dd className="mono">{workspace.workspaceId}</dd></div></dl></section></details></div>
-<details className="settings-disclosure"><summary>Workspace versions</summary>    <section className="settings-card"><p className="eyebrow">RECOVERY</p><h2>Workspace versions</h2><p>Universal keeps the two encrypted versions from before schema updates.</p>{snapshotError && <p className="error">{snapshotError}</p>}{snapshots.map((snapshot) => <div className="setting-row" key={snapshot.id}><span><strong>Schema {snapshot.schemaVersion}</strong><small>{formatRussianDateTime(snapshot.createdAt)} · {snapshot.reason}</small></span><span className="settings-actions"><button className="secondary" onClick={() => { const password = window.prompt('Enter the password for this workspace version'); if (!password) return; void exportLocalWorkspaceSnapshot(snapshot.id, password).then((source) => downloadLockedRecoveryCopy(source, `universal-schema-${snapshot.schemaVersion}`)).catch((reason) => setSnapshotError(reason instanceof Error ? reason.message : String(reason))); }}>Download</button><button className="secondary" onClick={() => { const password = window.prompt('Enter the password for this workspace version'); if (!password) return; void restoreLocalWorkspaceSnapshot(snapshot.id, password).then(onRestoredSnapshot).catch((reason) => setSnapshotError(reason instanceof Error ? reason.message : String(reason))); }}>Restore</button></span></div>)}{!snapshots.length && <p className="empty">No previous workspace versions yet.</p>}</section></details>
-{workspace.migrationIssues.length > 0 && <details className="settings-disclosure"><summary>Compatibility repairs</summary><section className="settings-card"><p className="eyebrow">COMPATIBILITY</p><h2>Items needing repair</h2>{workspace.migrationIssues.map((issue) => <div className="setting-row" key={issue.id}><span><strong>{issue.code}</strong><small>{issue.entityType} · {issue.entityId} · disabled {issue.disabledCapability}</small></span>{issue.status === 'needs_repair' && issue.code === 'recurrence_missing_anchor' ? <span className="settings-actions"><button className="secondary" onClick={() => repairRecurrenceIssue(issue.id, issue.entityId)}>Choose start</button><button className="secondary" onClick={() => discardQuarantinedRecurrence(issue.id, issue.entityId)}>Remove recurrence</button></span> : <span>{issue.status}</span>}</div>)}</section></details>}
-    {field && <div className="modal-backdrop"><section className="dialog"><header><h2>Custom field</h2><button className="icon-button" onClick={() => setField(null)}>×</button></header><label>Label<input value={field.label} onChange={(event) => setField({ ...field, label: event.target.value, key: field.key || event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_') })} /></label><label>Key<input value={field.key} pattern="[a-z][a-z0-9_]*" onChange={(event) => setField({ ...field, key: event.target.value })} /></label><label>Type<select value={field.kind} onChange={(event) => setField({ ...field, kind: event.target.value as CustomFieldDefinition['kind'] })}>{['text', 'number', 'boolean', 'date', 'datetime', 'duration', 'enum', 'multi_enum', 'url', 'item_ref', 'formula'].map((kind) => <option key={kind}>{kind}</option>)}</select></label>{field.kind === 'formula' && <label>Formula DSL<input value={field.formula ?? ''} onChange={(event) => setField({ ...field, formula: event.target.value })} placeholder="custom.rate * custom.hours" /></label>}<footer><button className="danger" onClick={() => { commit('Delete custom field', (draft) => { delete draft.customFields[field.id]; }); setField(null); }}>Delete</button><span/><button className="primary" disabled={!field.label || !/^[a-z][a-z0-9_]*$/.test(field.key)} onClick={() => { if (field.formula) parseExpression(field.formula); commit('Save custom field', (draft) => { draft.customFields[field.id] = clean(field); }); setField(null); }}>Save field</button></footer></section></div>}
-  </div>;
-}
-
-function TransferDialog({ session, onMerged, onReplaced, onBackupExported, onClose }: { session: UnlockedWorkspace; onMerged: (session: UnlockedWorkspace, message: string) => void; onReplaced: (session: UnlockedWorkspace, message: string) => void; onBackupExported?: () => void; onClose: () => void }) {
+function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExported, onClose }: { session: UnlockedWorkspace; onFlush: () => Promise<void>; onMerged: (session: UnlockedWorkspace, message: string) => void; onReplaced: (session: UnlockedWorkspace, message: string) => void; onBackupExported?: () => void; onClose: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -613,7 +431,7 @@ function TransferDialog({ session, onMerged, onReplaced, onBackupExported, onClo
   const download = async () => {
     setBusy(true); setError('');
     try {
-      await saveLocalWorkspace(session.document, session.dataKey, session.storageMode);
+      await onFlush();
       const content = await exportEncryptedLocalBackup();
       const filename = `${session.document.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}.utmb`;
       const file = new File([content], filename, { type: 'application/octet-stream', lastModified: Date.now() });
@@ -632,6 +450,7 @@ function TransferDialog({ session, onMerged, onReplaced, onBackupExported, onClo
   const importFile = async (file: File) => {
     setBusy(true); setError('');
     try {
+      await onFlush();
       const source = await readEncryptedBackup(file);
       const details = await validateContainer(source, password);
       if (details.workspaceId !== session.document.workspaceId) {
@@ -650,6 +469,7 @@ function TransferDialog({ session, onMerged, onReplaced, onBackupExported, onClo
     if (!restoreSource) return;
     setBusy(true); setError('');
     try {
+      await onFlush();
       const restored = await restoreLocalWorkspace(restoreSource, password);
       onReplaced(restored, `Restored ${Object.keys(restored.document.items).length} items from encrypted backup`);
       onClose();
@@ -660,7 +480,6 @@ function TransferDialog({ session, onMerged, onReplaced, onBackupExported, onClo
 }
 
 export default function App() {
-  const displayedBuild = useDisplayedBuild();
   const [page, setPage] = useState<Page>('home');
   const [editor, setEditor] = useState<UniversalItem | null>(null);
   const [editorIsNew, setEditorIsNew] = useState(false);
@@ -676,18 +495,22 @@ export default function App() {
   const [quick, setQuick] = useState('');
   const [celebrationColors, setCelebrationColors] = useState<Map<string, string>>(new Map());
   const [undoActions, setUndoActions] = useState<PendingUndoAction[]>([]);
-  const [undoClock, setUndoClock] = useState(() => Date.now());
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
-  const [clockTick, refreshClock] = useState(() => Date.now());
+  useLegacyModalDismiss(Boolean(portableImportSource), () => setPortableImportSource(null));
+  useLegacyModalDismiss(transfer, () => setTransfer(false));
   const seenNoticeIds = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, number>());
   const completionTimers = useRef(new Map<string, { exit: number; remove: number }>());
+  const undoTimers = useRef(new Map<string, number>());
   const pushError = useRef('');
   const captureInputRef = useRef<HTMLInputElement>(null);
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
-  const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  const exportAfterFlush = (action: () => void | Promise<void>) => {
+    void flushPersistence().then(action).catch((reason) => setToast(`Export stopped because the latest change could not be saved: ${reason instanceof Error ? reason.message : String(reason)}`));
+  };
   useEffect(() => {
     if (!workspace || session?.storageMode === 'plaintext') { setFaceId('unsupported'); return; }
     void faceIdStatus().then(setFaceId).catch(() => setFaceId('unsupported'));
@@ -701,8 +524,12 @@ export default function App() {
     const queuedAt = Date.now();
     const resolvedExpiresAt = expiresAt ?? queuedAt + UNDO_WINDOW_MS;
     const id = createId();
-    setUndoClock(queuedAt);
+    if (itemId) undoActions.filter((action) => action.itemId === itemId).forEach((action) => { const timer = undoTimers.current.get(action.id); if (timer) window.clearTimeout(timer); undoTimers.current.delete(action.id); });
     setUndoActions((current) => [...(itemId ? current.filter((action) => action.itemId !== itemId) : current), { id, label, expiresAt: resolvedExpiresAt, undo, ...(itemId ? { itemId } : {}) }]);
+    undoTimers.current.set(id, window.setTimeout(() => {
+      undoTimers.current.delete(id);
+      setUndoActions((current) => current.filter((action) => action.id !== id));
+    }, Math.max(0, resolvedExpiresAt - Date.now())));
     return id;
   };
   const clearCompletionHold = (itemId: string) => {
@@ -714,23 +541,31 @@ export default function App() {
   const holdCompletedItem = (item: UniversalItem, undoUntil: number) => {
     clearCompletionHold(item.id);
     const removeAt = undoUntil + COMPLETION_EXIT_MS;
-    setCompletionHold(item.id, { previous: clean(item), undoUntil, removeAt });
-    const exit = window.setTimeout(() => refreshClock(Date.now()), Math.max(0, undoUntil - Date.now()));
+    const hold = { previous: clean(item), undoUntil, removeAt };
+    setCompletionHold(item.id, hold);
+    const exit = window.setTimeout(() => setCompletionHold(item.id, hold), Math.max(0, undoUntil - Date.now()));
     const remove = window.setTimeout(() => {
       completionTimers.current.delete(item.id);
       setCompletionHold(item.id);
-      refreshClock(Date.now());
     }, Math.max(0, removeAt - Date.now()));
     completionTimers.current.set(item.id, { exit, remove });
   };
   const runUndo = (id: string) => {
     const action = undoActions.find((candidate) => candidate.id === id);
     if (action && action.expiresAt > Date.now()) action.undo();
+    const timer = undoTimers.current.get(id); if (timer) window.clearTimeout(timer); undoTimers.current.delete(id);
     setUndoActions((current) => current.filter((candidate) => candidate.id !== id));
   };
-  const systemNow = workspace ? effectiveWorkspaceNow(workspace, new Date(clockTick)) : new Date(clockTick);
-  const recurrenceReconcileMinute = Math.floor(systemNow.getTime() / 60_000);
-  const recurrenceSeriesSignature = workspace ? Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.recurrence && !item.deletedAt).map((item) => `${item.id}:${item.revision}`).sort().join('|') : '';
+  const clearUndoActionsForItem = (itemId: string) => {
+    setUndoActions((current) => current.filter((action) => {
+      if (action.itemId !== itemId) return true;
+      const timer = undoTimers.current.get(action.id);
+      if (timer) window.clearTimeout(timer);
+      undoTimers.current.delete(action.id);
+      return false;
+    }));
+  };
+  const currentWorkspaceNow = () => workspace ? effectiveWorkspaceNow(workspace, clockService.now()) : clockService.now();
   const backupReminderDays = workspace?.calendarPreferences.backupPreferences?.reminderDays ?? 7;
   const [backupReminderDraft, setBackupReminderDraft] = useState(() => String(backupReminderDays));
   useEffect(() => { setBackupReminderDraft(String(backupReminderDays)); }, [backupReminderDays]);
@@ -760,10 +595,6 @@ export default function App() {
   }, []);
   useViewport(captureInputRef, boot === 'ready');
   useEffect(() => {
-    if (!workspace || !recurrenceSeriesSignature) return;
-    commit('Reconcile recurring items', (draft) => { reconcileRecurrences(draft, effectiveWorkspaceNow(draft, new Date(clockTick))); });
-  }, [workspace?.workspaceId, recurrenceSeriesSignature, recurrenceReconcileMinute]);
-  useEffect(() => {
     if (!workspace) return;
     const prefs = workspace.calendarPreferences.backupPreferences;
     const days = prefs?.reminderDays ?? 7;
@@ -773,19 +604,9 @@ export default function App() {
     const overdue = days > 0 && Date.now() - new Date(reminderBaseline).getTime() >= days * 86_400_000;
     setBackupReminder(overdue);
   }, [workspace?.updatedAt, workspace?.calendarPreferences.backupPreferences?.lastBackupAt, workspace?.calendarPreferences.backupPreferences?.reminderDays]);
-  // Views using activeRange are time-sensitive; refresh their predicates without a reload.
-  useEffect(() => {
-    const timer = window.setInterval(() => refreshClock(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  useEffect(() => {
-    if (!undoActions.length) return;
-    const refresh = () => { const now = Date.now(); setUndoClock(now); setUndoActions((current) => current.filter((action) => action.expiresAt > now)); };
-    const timer = window.setInterval(refresh, 200);
-    return () => window.clearInterval(timer);
-  }, [undoActions.length]);
   useEffect(() => {
     setUndoActions([]);
+    undoTimers.current.forEach((timer) => window.clearTimeout(timer)); undoTimers.current.clear();
     completionTimers.current.forEach(({ exit, remove }, itemId) => {
       window.clearTimeout(exit); window.clearTimeout(remove); setCompletionHold(itemId);
     });
@@ -807,6 +628,7 @@ export default function App() {
   useEffect(() => () => {
     noticeTimers.current.forEach((timer) => window.clearTimeout(timer));
     completionTimers.current.forEach(({ exit, remove }) => { window.clearTimeout(exit); window.clearTimeout(remove); });
+    undoTimers.current.forEach((timer) => window.clearTimeout(timer));
   }, []);
 
   useEffect(() => {
@@ -826,7 +648,7 @@ export default function App() {
     document.documentElement.dataset.explanations = workspace?.calendarPreferences.showExplanations ? 'on' : 'off';
     return () => { delete document.documentElement.dataset.explanations; };
   }, [workspace?.calendarPreferences.showExplanations]);
-  useAppearance(workspace?.calendarPreferences.appearance, boot === 'ready', systemNow);
+  useAppearance(workspace, boot === 'ready');
   useUiSounds(workspace?.calendarPreferences.appearance.uiSound);
   useEffect(() => {
     const itemId = new URLSearchParams(window.location.search).get('item');
@@ -874,7 +696,7 @@ export default function App() {
 
   const changeItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)') => {
     if (item.external?.readOnly) { window.open(item.external.sourceUrl, '_blank', 'noopener,noreferrer'); return; }
-    const occurredAt = workspace ? effectiveWorkspaceNow(workspace).toISOString() : new Date().toISOString();
+    const occurredAt = currentWorkspaceNow().toISOString();
     const completionExpiresAt = Date.now() + UNDO_WINDOW_MS;
     const targetId = item.habit ? item.id : item.occurrence?.seriesId && workspace?.items[item.occurrence.seriesId]?.habit ? item.occurrence.seriesId : item.id;
     const beforeTarget = workspace?.items[targetId] ? clean(workspace.items[targetId]!) : undefined;
@@ -885,7 +707,7 @@ export default function App() {
     }
     else {
       clearCompletionHold(item.id);
-      setUndoActions((current) => current.filter((action) => action.itemId !== item.id));
+      clearUndoActionsForItem(item.id);
       setCelebrationColors((current) => {
         if (!current.has(item.id)) return current;
         const next = new Map(current); next.delete(item.id); return next;
@@ -940,6 +762,9 @@ export default function App() {
         if (result.notifications.length) setNotices((current) => [...current, ...result.notifications.map((notice) => ({ ...notice, id: createId(), at: occurredAt }))]);
       });
       if (!changed && undoId) {
+        const timer = undoTimers.current.get(undoId);
+        if (timer) window.clearTimeout(timer);
+        undoTimers.current.delete(undoId);
         setUndoActions((current) => current.filter((action) => action.id !== undoId));
         clearCompletionHold(item.id);
       }
@@ -955,7 +780,7 @@ export default function App() {
   const deleteNotice = (id: string) => {
     const notice = notices.find((candidate) => candidate.id === id);
     if (notice?.itemId && notice.reminderIds?.length) {
-      const acknowledgedAt = workspace ? effectiveWorkspaceNow(workspace).toISOString() : new Date().toISOString();
+      const acknowledgedAt = currentWorkspaceNow().toISOString();
       commit('Acknowledge reminders', (draft) => {
         const item = draft.items[notice.itemId!];
         if (!item) return;
@@ -987,8 +812,9 @@ export default function App() {
   const restoreItem = (item: UniversalItem) => commit('Restore item from trash', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
     delete target.deletedAt; delete draft.tombstones[item.id];
-    target.updatedAt = systemNow.toISOString(); target.revision += 1;
-    if (target.role === 'series_template') reconcileRecurrences(draft, systemNow);
+    const now = currentWorkspaceNow();
+    target.updatedAt = now.toISOString(); target.revision += 1;
+    if (target.role === 'series_template') reconcileRecurrences(draft, now);
   });
   const clearTrash = () => commit('Clear trash', (draft) => {
     Object.values(draft.items).forEach((item) => { if (item.deletedAt) { delete draft.items[item.id]; delete draft.tombstones[item.id]; } });
@@ -1010,46 +836,48 @@ export default function App() {
     // Quick capture should only preserve what the user actually entered.
     // Calendar dates are added by calendar/view creation flows or explicitly
     // in the editor, never implicitly by the global capture field.
-    persistQuickItem(createItem(quick.trim(), 'task', systemNow));
+    persistQuickItem(createItem(quick.trim(), 'task', currentWorkspaceNow()));
     setQuick('');
   };
   const captureQuickViewItem = (view: SavedView, title: string) => {
     const value = title.trim();
     if (!value) return;
-    persistQuickItem(applyViewCreationDefaults(createItem(value, 'task', systemNow), view, workspace));
+    persistQuickItem(applyViewCreationDefaults(createItem(value, 'task', currentWorkspaceNow()), view, workspace));
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
-  const activeDateLabel = formatHeaderDate(systemNow, workspace.calendarPreferences.language);
-  return <><AppShell page={page} onPage={setPage} activeDateLabel={activeDateLabel} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
-      {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', systemNow), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportSavedView(workspace, view, mode, format, metadata)} /></>}
-      {page === 'calendar' && <CalendarPage workspace={workspace} now={systemNow} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} />}
+  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+      <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
+      {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
+      {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={openWorkspaceItem} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
-      {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', systemNow), view, workspace)); }} onQuickAddItem={captureQuickViewItem} onExport={() => exportParaStructure(workspace)} /></section>}
+      {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onQuickAddItem={captureQuickViewItem} onExport={() => exportAfterFlush(() => exportParaStructure(workspace))} /></section>}
       {page === 'settings' && <section className="page-section settings-page-shell">
-        <p className="settings-release-info settings-release-info-top">{APP_NAME} · v{APP_VERSION} · build {displayedBuild.commit}{displayedBuild.dirty ? ' · local changes' : ''}</p>
+        <SettingsReleaseInfo />
         <details className="settings-disclosure"><summary>Backup and recovery</summary><section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="text" inputMode="numeric" pattern="[0-9]*" value={backupReminderDraft} onChange={(event) => { const next = event.target.value; if (/^\d*$/.test(next)) setBackupReminderDraft(next); }} onBlur={applyBackupReminderDays} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button><button className="secondary" onClick={() => void downloadOfflineRecoveryKit().then(() => setToast('Offline recovery kit downloaded.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section></details>
-        <SettingsPage workspace={workspace} passwordProtection={passwordProtection} onPasswordProtectionChanged={refreshPasswordProtection} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} onRestoredSnapshot={(next) => { adoptSession(next, true); setToast('Previous workspace version restored.'); }} />
-        <details className="settings-disclosure"><summary>Diagnostics</summary><section className="settings-card diagnostics-card"><p className="eyebrow">DIAGNOSTICS</p><h2>Actions, results and error log</h2><p>Local diagnostics record operation names, results, durations and crashes without task content. Nothing is uploaded automatically.</p><label className="check"><input type="checkbox" checked={workspace.calendarPreferences.diagnosticsEnabled !== false} onChange={(event) => { setDiagnosticsEnabled(event.target.checked); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = event.target.checked; }); }} />Record local diagnostics</label><div className="diagnostics-actions"><span>{diagnosticCount} recorded entries</span><button className="secondary" onClick={downloadDiagnostics} disabled={!diagnosticCount}>Download log</button><button className="secondary" onClick={clearDiagnostics}>Clear log</button></div></section></details>
+        <SettingsPage workspace={workspace} passwordProtection={passwordProtection} onPasswordProtectionChanged={refreshPasswordProtection} onBeforeCriticalAction={flushPersistence} onExportAll={async (format, metadata) => { const items = Object.values(workspace.items).filter((item) => !item.deletedAt); await exportPortable(workspace, createPortablePackage(workspace, { kind: 'items', items, views: format === 'xlsx' ? Object.values(workspace.views) : [], selection: { type: 'all_items' } }), `${safeFilename(workspace.name)}-all-items`, format, metadata); }} onDownloadLockedRecoveryCopy={downloadLockedRecoveryCopy} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} onRestoredSnapshot={(next) => { void adoptSession(next, true).then(() => setToast('Previous workspace version restored.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />
+        <DiagnosticsSettings workspace={workspace} count={diagnosticCount} onEnabledChange={(enabled) => { setDiagnosticsEnabled(enabled); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = enabled; }); }} onDownload={downloadDiagnostics} onClear={clearDiagnostics} />
         <details className="settings-disclosure"><summary>Device unlock</summary><section className="settings-card"><p className="eyebrow">DEVICE UNLOCK</p><h2>Face ID / Touch ID</h2>{faceId === 'unsupported' ? <p>Unavailable on this browser or device. Password unlock remains available.</p> : <><p>Optional quick unlock for this device only. Face ID never replaces your password, and exports still require the password.</p>{faceId === 'configured' ? <button className="secondary" onClick={() => void disableFaceIdUnlock().then(() => { setFaceId('available'); setToast('Face ID unlock disabled. Password unlock remains unchanged.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Disable Face ID</button> : <button className="secondary" onClick={() => void enableFaceIdUnlock(session.dataKey).then(() => { setFaceId('configured'); setToast('Face ID unlock is ready on this device.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Enable Face ID</button>}<p className="hint">If Face ID fails, is cancelled, or the device changes, use the password field on the lock screen. Removing this option never removes your workspace.</p></>}</section></details>
       </section>}
+      </Suspense>
     </AppShell>
     {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Add new item" aria-label="Add new item"/></form></div>}
-    {editor && <ItemEditor initial={editor} workspace={workspace} now={systemNow} isNew={editorIsNew} onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata)} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onUpdateRecurrenceCompletion={(record: RecurrenceCompletionRecord, completedAt) => {
+    <Suspense fallback={null}>{editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew} onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportAfterFlush(() => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata))} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onUpdateRecurrenceCompletion={(record: RecurrenceCompletionRecord, completedAt) => {
+      const actionNow = currentWorkspaceNow();
       let result = { changed: false, rescheduled: false };
       let series: UniversalItem | undefined;
       const saved = commit('Change recurring completion time', (draft) => {
-        result = updateRecurrenceCompletionTime(draft, record, completedAt, systemNow);
-        if (result.changed) reconcileRecurrences(draft, systemNow);
+        result = updateRecurrenceCompletionTime(draft, record, completedAt, actionNow);
+        if (result.changed) reconcileRecurrences(draft, actionNow);
         const updatedSeries = draft.items[record.seriesId];
         if (updatedSeries) series = clean(updatedSeries);
       });
       if (saved && result.changed) setToast(result.rescheduled ? 'Completion time saved. Next cycle updated.' : 'Completion time saved.');
       return { series, rescheduled: result.rescheduled };
-    }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', systemNow); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={(item, options) => { const isNew = !workspace.items[item.id]; let recurrenceError = ''; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); item.areas.forEach((area) => ensureAreaDefinition(draft, area)); item.projects.forEach((project) => { const existing = draft.projectDefinitions[project]; const converted = options?.convertedProject === project; ensureProjectDefinition(draft, project, !existing || converted ? { areas: [...new Set([...(existing?.areas ?? []), ...item.areas])] } : {}); }); item.tags.forEach((tag) => ensureTagDefinition(draft, tag)); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: systemNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, systemNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } }); if (saved) { recordDiagnostic({ kind: 'result', message: options?.convertedProject ? 'Item converted to Project and saved' : 'Item organization saved', operation: 'Save item organization', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, areas: item.areas.length, projects: item.projects.length, tags: item.tags.length, converted: Boolean(options?.convertedProject) }) }); setEditorIsNew(false); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const snapshot = clean(workspace.items[item.id] ?? item); const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = systemNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', (draft) => { draft.items[item.id] = clean(snapshot); delete draft.tombstones[item.id]; })); setEditorIsNew(false); setEditor(null); } }} />}
-    {transfer && <TransferDialog session={session} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { adoptSession(next); setToast(message); }} onReplaced={(next, message) => { adoptSession(next, true); setToast(message); }} />}
+    }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', currentWorkspaceNow()); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={(item, options) => { const actionNow = currentWorkspaceNow(); const isNew = !workspace.items[item.id]; let recurrenceError = ''; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); item.areas.forEach((area) => ensureAreaDefinition(draft, area)); item.projects.forEach((project) => { const existing = draft.projectDefinitions[project]; const converted = options?.convertedProject === project; ensureProjectDefinition(draft, project, !existing || converted ? { areas: [...new Set([...(existing?.areas ?? []), ...item.areas])] } : {}); }); item.tags.forEach((tag) => ensureTagDefinition(draft, tag)); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: actionNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, actionNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } }); if (saved) { recordDiagnostic({ kind: 'result', message: options?.convertedProject ? 'Item converted to Project and saved' : 'Item organization saved', operation: 'Save item organization', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, areas: item.areas.length, projects: item.projects.length, tags: item.tags.length, converted: Boolean(options?.convertedProject) }) }); setEditorIsNew(false); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const snapshot = clean(workspace.items[item.id] ?? item); const actionNow = currentWorkspaceNow(); const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = actionNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', (draft) => { draft.items[item.id] = clean(snapshot); delete draft.tombstones[item.id]; })); setEditorIsNew(false); setEditor(null); } }} />}</Suspense>
+    {transfer && <TransferDialog session={session} onFlush={flushPersistence} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { void adoptSession(next).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} onReplaced={(next, message) => { void adoptSession(next, true).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
-    <ShellNotices toast={toast} undoNotices={undoActions.map((action) => ({ id: action.id, label: action.label, secondsLeft: Math.max(1, Math.ceil((action.expiresAt - undoClock) / 1_000)) }))} onUndo={runUndo} />
+    <ShellNotices toast={toast} undoNotices={undoActions.map(({ id, label, expiresAt }) => ({ id, label, expiresAt }))} onUndo={runUndo} language={workspace.calendarPreferences.language} />
   </>;
 }

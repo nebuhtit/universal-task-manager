@@ -1,11 +1,6 @@
 import {
   APP_VERSION,
-  activeReminders,
   dueDateBuckets,
-  evaluateFormulas,
-  evaluateItemScripts,
-  evaluateScriptsForItem,
-  reminderTime,
   type ItemPreset,
   type ItemScriptField,
   type UniversalItem,
@@ -14,6 +9,7 @@ import {
 } from '@utm/core';
 import { calendarDurationMs, parseFriendlyDuration, toIsoDuration } from '../../utils/durations';
 import { formatViewDate } from '../../utils/dates';
+import { getWorkspaceIndex } from '../../services/workspaceIndex';
 
 export const priorityNames: Record<NonNullable<UniversalItem['priority']>, string> = { 0: 'None', 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
 export const stateNames: Record<UniversalItem['state'], string> = { open: 'Active', done: 'Completed', auto_closed: 'Auto closed', cancelled: 'Cancelled', archived: 'Archived' };
@@ -81,20 +77,18 @@ export function isHabitOccurrence(workspace: WorkspaceDocument, item: UniversalI
 
 export function isItemTemplate(item: UniversalItem): boolean { return item.extensions?.['utm:template'] === true; }
 
+export function createRelationContextResolver(workspace: WorkspaceDocument) {
+  const index = getWorkspaceIndex(workspace);
+  return (item: UniversalItem) => index.relationFor(item);
+}
+
 export function relationContext(workspace: WorkspaceDocument, item: UniversalItem) {
-  const parents = new Map<string, string[]>();
-  Object.values(workspace.items).forEach((candidate) => candidate.relations.filter((relation) => relation.type === 'parent').forEach((relation) => parents.set(relation.targetId, [...(parents.get(relation.targetId) ?? []), candidate.id])));
-  const children = (id: string) => (workspace.items[id]?.relations ?? [])
-    .filter((relation) => relation.type === 'parent' && Boolean(workspace.items[relation.targetId]))
-    .map((relation) => relation.targetId);
-  const distance = (start: string, next: (id: string) => string[]) => { const seen = new Set([start]); let frontier = [start]; for (let depth = 1; depth <= 3; depth += 1) { frontier = frontier.flatMap(next).filter((id) => !seen.has(id)); frontier.forEach((id) => seen.add(id)); if (frontier.length) return depth; } return 0; };
-  const parentDepth = distance(item.id, (id) => parents.get(id) ?? []); const childDepth = distance(item.id, children);
-  return { isSubtask: parentDepth > 0, isParent: childDepth > 0, parentDepth, childDepth };
+  return createRelationContextResolver(workspace)(item);
 }
 
 export const viewFieldOptions = (workspace: WorkspaceDocument, viewScripts: readonly ItemScriptField[] = []): ViewFieldOption[] => {
   const scriptFields = new Map<string, ViewFieldOption>();
-  Object.values(workspace.items).flatMap((item) => item.scripts ?? []).forEach((script) => {
+  getWorkspaceIndex(workspace).scripts.allItemDefinitions.forEach((script) => {
     if (!scriptFields.has(script.key)) scriptFields.set(script.key, { path: `script.${script.key}`, label: script.label, group: 'Scripts' });
   });
   return [
@@ -156,6 +150,7 @@ const reminderLabels = (language: WorkspaceLanguage = 'en') => ({
 }[language]);
 
 export const readItemField = (item: UniversalItem, field: string, workspace?: WorkspaceDocument, now = new Date(), viewScripts: readonly ItemScriptField[] = []): unknown => {
+  const index = workspace ? getWorkspaceIndex(workspace) : undefined;
   if (field === 'description') field = 'bodyMarkdown';
   if (field === 'area' || field === 'areas') return [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])])];
   if (field === 'project' || field === 'projects') return [...new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])])];
@@ -168,13 +163,12 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
     }
     return undefined;
   }
-  if (field === 'hasActiveReminders') return activeReminders(item).length > 0;
-  if (field === 'nextReminderAt') return activeReminders(item).map((reminder) => reminderTime(item, reminder)).filter((value): value is string => Boolean(value)).sort((left, right) => Date.parse(left) - Date.parse(right))[0];
+  if (field === 'hasActiveReminders') return (index?.remindersFor(item).length ?? item.reminders.filter((reminder) => !reminder.acknowledgedAt).length) > 0;
+  if (field === 'nextReminderAt') return index?.remindersFor(item).find((entry) => entry.resolvedAt)?.resolvedAt;
   if (field === 'reminders') {
     const labels = reminderLabels(workspace?.calendarPreferences.language);
     const unitLabels = { seconds: 'sec', minutes: 'min', hours: 'h', days: 'd', weeks: 'wk', months: 'mo', years: 'y' } as const;
-    return activeReminders(item).map((reminder) => {
-      const resolved = reminderTime(item, reminder);
+    return (index?.remindersFor(item) ?? []).map(({ reminder, resolvedAt: resolved }) => {
       if (resolved) return { reminder, resolved, label: `${formatViewDate(resolved, true, workspace?.calendarPreferences.language)} · ${labels[reminder.urgency]}` };
       if (reminder.mode === 'absolute') return { reminder, label: `${labels.unresolved} · ${labels[reminder.urgency]}` };
       const before = reminder.offset?.startsWith('-') === true;
@@ -188,23 +182,20 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
       return { reminder, label: `${timing} · ${labels[reminder.urgency]}` };
     }).sort((left, right) => left.resolved && right.resolved ? Date.parse(left.resolved) - Date.parse(right.resolved) : left.resolved ? -1 : right.resolved ? 1 : 0).map((entry) => entry.label);
   }
-  if (workspace && field === 'subtasks') return item.relations.filter((relation) => relation.type === 'parent').map((relation) => workspace.items[relation.targetId]?.title ?? relation.targetId);
-  if (workspace && field === 'parent') {
-    const parent = Object.values(workspace.items).find((candidate) => candidate.relations.some((relation) => relation.type === 'parent' && relation.targetId === item.id));
-    return parent?.title;
-  }
+  if (workspace && field === 'subtasks') return (index?.childIdsByItemId.get(item.id) ?? []).map((id) => workspace.items[id]?.title ?? id);
+  if (workspace && field === 'parent') return index?.parentFor(item)?.title;
   if (workspace && ['isTemplate', 'isSubtask', 'isParent', 'parentDepth', 'childDepth'].includes(field)) {
     if (field === 'isTemplate') return isItemTemplate(item);
-    const relation = relationContext(workspace, item);
+    const relation = index!.relationFor(item);
     return relation[field as keyof typeof relation];
   }
   if (field.startsWith('custom.') && workspace) {
     const key = field.slice(7);
     const definition = Object.values(workspace.customFields).find((candidate) => candidate.key === key);
-    if (definition?.kind === 'formula') return evaluateFormulas(item, Object.values(workspace.customFields), now).values[key];
+    if (definition?.kind === 'formula') return index!.formulasFor(item, now).values[key];
   }
   if (field === 'scripts' && workspace) {
-    const result = evaluateItemScripts(item, (id) => workspace.items[id], now);
+    const result = index!.itemScriptsFor(item, now);
     return (item.scripts ?? []).map((script) => {
       const value = result.errors[script.key] ?? formatScriptResult(result.values[script.key], script.resultKind);
       return `${script.label}: ${value}`;
@@ -213,12 +204,12 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
   if (field.startsWith('script.') && workspace) {
     const key = field.slice(7);
     const definition = item.scripts?.find((script) => script.key === key);
-    const result = evaluateItemScripts(item, (id) => workspace.items[id], now).values[key];
+    const result = index!.itemScriptsFor(item, now).values[key];
     if (definition?.resultKind === 'duration' && typeof result === 'number') return formatComputedDuration(result);
     return result;
   }
   if (field === 'view_scripts' && workspace) {
-    const result = evaluateScriptsForItem(item, viewScripts, (id) => workspace.items[id], now);
+    const result = index!.viewScriptsFor(item, viewScripts, now);
     return viewScripts.map((script) => {
       const value = result.errors[script.key] ?? formatScriptResult(result.values[script.key], script.resultKind);
       return `${script.label}: ${value}`;
@@ -227,7 +218,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
   if (field.startsWith('view_script.') && workspace) {
     const key = field.slice(12);
     const definition = viewScripts.find((script) => script.key === key);
-    const result = evaluateScriptsForItem(item, viewScripts, (id) => workspace.items[id], now).values[key];
+    const result = index!.viewScriptsFor(item, viewScripts, now).values[key];
     if (definition?.resultKind === 'duration' && typeof result === 'number') return formatComputedDuration(result);
     return result;
   }

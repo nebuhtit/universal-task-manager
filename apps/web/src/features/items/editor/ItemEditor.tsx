@@ -12,6 +12,7 @@ import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
 import { effectiveScheduleDuration, parseFriendlyDuration, scheduleWithDue, scheduleWithDuration, scheduleWithEnd, scheduleWithStart, type FriendlyDurationUnit } from '../../../utils/durations';
+import { useWorkspaceNow } from '../../../hooks/useClock';
 import { inferredPreset, priorityNames, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
@@ -53,9 +54,11 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onUpdateRecurrenceCompletion, onReadPortableFile, onExportItem, onClose }: {
-  initial: UniversalItem; workspace: WorkspaceDocument; now: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string }) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
+export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onUpdateRecurrenceCompletion, onReadPortableFile, onExportItem, onClose }: {
+  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string }) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
+  const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
+  const now = suppliedNow ?? liveNow;
   const [item, setItem] = useState(() => clean(initial));
   const [tags, setTags] = useState(item.tags.join(', '));
   const [areaDraft, setAreaDraft] = useState('');
@@ -284,7 +287,7 @@ export function ItemEditor({ initial, workspace, now, isNew = false, onSave, onD
     patchItem({ habit: { ...rest, timerSessions: [...(habit.timerSessions ?? []), { id: createId(), startedAt, endedAt, durationSeconds }] } });
   };
 
-  return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <button className="danger" onClick={() => onDelete(item)}>Delete</button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
+  return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
     <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
       if (event.target === titleInputRef.current) quickTitleWasFocused.current = true;
       else if (quickTitleWasFocused.current) quickTitleSaveAllowed.current = false;

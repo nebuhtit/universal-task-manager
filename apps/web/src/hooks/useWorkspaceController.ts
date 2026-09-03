@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import * as Automerge from '@automerge/automerge';
 import {
-  backfillItemCreationVersions, collectScheduledEvents, consolidateHabitOccurrences, createId, effectiveWorkspaceNow, reminderTime,
-  migrateWorkspace, reconcileRecurrences, removeDuplicateReminders, runAutomationEvents, validateWorkspace,
+  backfillItemCreationVersions, collectScheduledEvents, consolidateHabitOccurrences, createId, effectiveWorkspaceNow,
+  migrateWorkspace, removeDuplicateReminders, runAutomationEvents, validateWorkspace,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
@@ -12,20 +12,14 @@ import {
 } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
 import { diagnosticFailureCode, recordDiagnostic } from '../services/diagnostics';
+import { clockService } from '../services/clockService';
+import { getWorkspaceIndex } from '../services/workspaceIndex';
 import { applyReconciliationResult, commitWorkspaceDocument } from '../services/workspaceLifecycle';
+import { LatestPersistenceQueue, persistWorkspace, type PersistenceOperation } from '../services/workspacePersistence';
+import { reconcileOffMainThread } from '../services/recurrenceWorker';
+import { scheduleWorkspaceTime } from '../services/workspaceTimers';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-
-async function reconcileOffMainThread(workspace: WorkspaceDocument, now: Date): Promise<ReconcileResult> {
-  if (typeof Worker === 'undefined') return await Promise.race([Promise.resolve().then(() => reconcileRecurrences(clean(workspace), now)), new Promise<ReconcileResult>((_, reject) => window.setTimeout(() => reject(new Error('Recurrence reconciliation timed out')), 8_000))]);
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('../recurrence.worker.ts', import.meta.url), { type: 'module' });
-    const timeout = window.setTimeout(() => { worker.terminate(); reject(new Error('Recurrence worker timed out')); }, 8_000);
-    worker.onmessage = (event: MessageEvent<{ ok: true; result: ReconcileResult } | { ok: false; error: string }>) => { window.clearTimeout(timeout); worker.terminate(); if (event.data.ok) resolve(event.data.result); else reject(new Error(event.data.error)); };
-    worker.onerror = () => { window.clearTimeout(timeout); worker.terminate(); reject(new Error('Recurrence worker failed')); };
-    worker.postMessage({ workspace: clean(workspace), now: now.toISOString() });
-  });
-}
 
 type Options = { onToast: (message: string) => void; setNotices: Dispatch<SetStateAction<AppNotice[]>> };
 
@@ -34,8 +28,19 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const [passwordProtection, setPasswordProtection] = useState<PasswordProtectionStatus | 'checking'>('checking');
   const [session, setSession] = useState<UnlockedWorkspace | null>(null);
   const sessionRef = useRef<UnlockedWorkspace | null>(null);
-  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const persistenceQueue = useRef<LatestPersistenceQueue<PersistenceOperation> | null>(null);
+  if (!persistenceQueue.current) {
+    persistenceQueue.current = new LatestPersistenceQueue(
+      async ({ session: target }) => persistWorkspace(target),
+      ({ message, startedAt }) => recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) }),
+      (reason, { message, startedAt }) => {
+        recordDiagnostic({ kind: 'error', message: 'Workspace persistence is delayed and retained for retry', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
+        onToast(`Save is delayed; your latest change remains open and will retry: ${reason instanceof Error ? reason.message : String(reason)}`);
+      },
+    );
+  }
   const deliveredReminderIds = useRef(new Set<string>());
+  const recurrenceClock = useRef({ minute: Number.NaN, signature: '' });
   const workspace = session?.document as WorkspaceDocument | undefined;
 
   useEffect(() => {
@@ -67,7 +72,6 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     if (!currentSession) return false;
     const startedAt = performance.now();
     recordDiagnostic({ kind: 'action', message: 'Workspace operation started', operation: message, outcome: 'started' });
-    const previous = currentSession;
     let document: Automerge.Doc<WorkspaceDocument>;
     try { document = commitWorkspaceDocument(currentSession.document as Automerge.Doc<WorkspaceDocument>, message, mutation); }
     catch (reason) {
@@ -76,18 +80,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       onToast(`Save failed; nothing was changed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
     }
     const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);
-    saveQueue.current = saveQueue.current.then(async () => {
-      await saveLocalWorkspace(document, currentSession.dataKey, currentSession.storageMode);
-      recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
-    }).catch((reason) => {
-      setSession((current) => {
-        if (current?.document !== document) return current;
-        sessionRef.current = previous;
-        return previous;
-      });
-      recordDiagnostic({ kind: 'error', message: 'Workspace persistence failed and was reverted', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
-      onToast(`Save failed; the change was reverted: ${String(reason)}`);
-    });
+    persistenceQueue.current?.enqueue({ session: next, message, startedAt });
     return true;
   };
 
@@ -132,6 +125,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     if (sourceVersion !== migration.value.schemaVersion) await saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`);
     else await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode);
     finishActivationStage('persistence');
+    persistenceQueue.current?.clearPending();
     const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated);
     setPasswordProtection(unlocked.storageMode === 'plaintext' ? 'plaintext' : await passwordProtectionStatus());
     setBoot('ready');
@@ -149,39 +143,69 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   useEffect(() => {
     if (!workspace) return;
     let cancelled = false;
-    const tick = () => {
+    const workspaceIndex = getWorkspaceIndex(workspace);
+    const recurrenceSignature = workspaceIndex.recurrence.seriesTemplates
+      .filter((item) => item.recurrence)
+      .map((item) => `${item.id}:${item.revision}`).sort().join('|');
+    const reminderQueue = workspaceIndex.reminders.resolved.flatMap(({ itemId, reminder, resolvedAt }) => {
+      const item = workspaceIndex.itemById.get(itemId);
+      if (!item || item.state !== 'open' || item.role === 'series_template') return [];
+      const availableAt = item.schedule?.availableFrom ? Date.parse(item.schedule.availableFrom) : Number.NEGATIVE_INFINITY;
+      if (deliveredReminderIds.current.has(reminder.id)) return [];
+      const reminderAt = Date.parse(resolvedAt);
+      if (!Number.isFinite(reminderAt)) return [];
+      return [{ itemId: item.id, reminderId: reminder.id, at: Math.max(reminderAt, Number.isFinite(availableAt) ? availableAt : Number.NEGATIVE_INFINITY) }];
+    }).sort((left, right) => left.at - right.at);
+    let reminderCursor = 0;
+    let cancelReminderTimer: () => void = () => undefined;
+    let cancelRecurrenceTimer: () => void = () => undefined;
+    const deliverDueReminders = () => {
       if (cancelled) return;
-      const now = effectiveWorkspaceNow(workspace);
-      if (workspace.calendarPreferences.testClock?.enabled) {
-        try {
-          const result = reconcileRecurrences(clean(workspace), now);
-          if (result.created.length || result.updated.length || result.autoClosed.length || result.removedIds.length) {
-            commit('Accelerated clock reconciliation', (draft) => { result.created.forEach((item) => { if (!draft.items[item.id]) draft.items[item.id] = clean(item); }); [...result.updated, ...result.autoClosed].forEach((item) => { draft.items[item.id] = clean(item); }); result.removedIds.forEach((id) => { draft.tombstones[id] = now.toISOString(); delete draft.items[id]; }); });
-            recordDiagnostic({ kind: 'result', message: 'Accelerated recurrence reconciliation changed items', operation: 'Accelerated clock reconciliation', outcome: 'succeeded', details: JSON.stringify({ created: result.created.length, updated: result.updated.length, autoClosed: result.autoClosed.length, removed: result.removedIds.length }) });
-          }
-        } catch (reason) {
-          recordDiagnostic({ kind: 'error', message: 'Accelerated recurrence reconciliation failed', operation: 'Accelerated clock reconciliation', outcome: 'failed', details: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
-        }
+      const now = effectiveWorkspaceNow(workspace, clockService.now());
+      const dueByItem = new Map<string, string[]>();
+      while (reminderCursor < reminderQueue.length && reminderQueue[reminderCursor]!.at <= now.getTime()) {
+        const candidate = reminderQueue[reminderCursor++]!;
+        if (deliveredReminderIds.current.has(candidate.reminderId)) continue;
+        deliveredReminderIds.current.add(candidate.reminderId);
+        dueByItem.set(candidate.itemId, [...(dueByItem.get(candidate.itemId) ?? []), candidate.reminderId]);
       }
-      const due = Object.values(workspace.items).flatMap((item) => {
-        if (item.deletedAt || item.state !== 'open' || item.role === 'series_template') return [];
-        if (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now) return [];
-        const reminderIds = item.reminders.filter((reminder) => {
-          const at = reminderTime(item, reminder);
-          return !reminder.acknowledgedAt && !deliveredReminderIds.current.has(reminder.id) && Boolean(at) && new Date(at!).getTime() <= now.getTime();
-        }).map((reminder) => reminder.id);
-        if (!reminderIds.length) return [];
-        reminderIds.forEach((id) => deliveredReminderIds.current.add(id));
-        return [{ id: createId(), title: item.title, body: `Reminder${reminderIds.length > 1 ? `s · ${reminderIds.length}` : ''}`, at: now.toISOString(), itemId: item.id, reminderIds } satisfies AppNotice];
+      const due = [...dueByItem].flatMap(([itemId, reminderIds]) => {
+        const item = workspace.items[itemId];
+        return item ? [{ id: createId(), title: item.title, body: `Reminder${reminderIds.length > 1 ? `s · ${reminderIds.length}` : ''}`, at: now.toISOString(), itemId, reminderIds } satisfies AppNotice] : [];
       });
       if (due.length) {
         setNotices((current) => [...current, ...due]);
         recordDiagnostic({ kind: 'result', message: 'Local reminders delivered', operation: 'Local reminder check', outcome: 'succeeded', details: JSON.stringify({ notices: due.length, reminders: due.reduce((total, notice) => total + (notice.reminderIds?.length ?? 0), 0), accelerated: Boolean(workspace.calendarPreferences.testClock?.enabled) }) });
         if ('Notification' in window && Notification.permission === 'granted') due.forEach((notice) => new Notification(notice.title, { body: notice.body, tag: `reminder:${notice.itemId}` }));
       }
+      const next = reminderQueue[reminderCursor];
+      if (next) cancelReminderTimer = scheduleWorkspaceTime(workspace, next.at - now.getTime(), deliverDueReminders);
     };
-    tick();
-    const timer = window.setInterval(tick, 1_000); return () => { cancelled = true; window.clearInterval(timer); };
+    const reconcileAtBoundary = async () => {
+      if (cancelled || !recurrenceSignature) return;
+      const now = effectiveWorkspaceNow(workspace, clockService.now());
+      const minute = Math.floor(now.getTime() / 60_000);
+      if (minute !== recurrenceClock.current.minute || recurrenceSignature !== recurrenceClock.current.signature) {
+        recurrenceClock.current = { minute, signature: recurrenceSignature };
+        try {
+          const result = await reconcileOffMainThread(workspace, now);
+          if (!cancelled && (result.created.length || result.updated.length || result.autoClosed.length || result.removedIds.length)) {
+            commit('Clock recurrence reconciliation', (draft) => { result.created.forEach((item) => { if (!draft.items[item.id]) draft.items[item.id] = clean(item); }); [...result.updated, ...result.autoClosed].forEach((item) => { draft.items[item.id] = clean(item); }); result.removedIds.forEach((id) => { draft.tombstones[id] = now.toISOString(); delete draft.items[id]; }); });
+            recordDiagnostic({ kind: 'result', message: 'Clock recurrence reconciliation changed items', operation: 'Clock recurrence reconciliation', outcome: 'succeeded', details: JSON.stringify({ created: result.created.length, updated: result.updated.length, autoClosed: result.autoClosed.length, removed: result.removedIds.length, accelerated: Boolean(workspace.calendarPreferences.testClock?.enabled) }) });
+          }
+        } catch (reason) {
+          recordDiagnostic({ kind: 'error', message: 'Clock recurrence reconciliation failed', operation: 'Clock recurrence reconciliation', outcome: 'failed', details: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
+        }
+      }
+      if (!cancelled) {
+        const refreshedNow = effectiveWorkspaceNow(workspace, clockService.now());
+        const untilNextMinute = 60_000 - (refreshedNow.getTime() % 60_000);
+        cancelRecurrenceTimer = scheduleWorkspaceTime(workspace, untilNextMinute, () => { void reconcileAtBoundary(); });
+      }
+    };
+    deliverDueReminders();
+    void reconcileAtBoundary();
+    return () => { cancelled = true; cancelReminderTimer(); cancelRecurrenceTimer(); };
   }, [workspace?.updatedAt, workspace?.calendarPreferences.testClock?.enabled]);
 
   const refreshPasswordProtection = async () => {
@@ -189,11 +213,43 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     setPasswordProtection(status);
     return status;
   };
-  const lockWorkspace = () => {
+  const flushPersistence = async () => {
+    await persistenceQueue.current?.flush();
+  };
+
+  useEffect(() => {
+    const flushBeforeBackground = () => {
+      if (document.visibilityState === 'hidden') void flushPersistence().catch((reason) => {
+        recordDiagnostic({ kind: 'error', message: 'Workspace flush on background failed', operation: 'Flush workspace before background', outcome: 'failed', details: diagnosticFailureCode(reason) });
+      });
+    };
+    const flushBeforePageExit = () => {
+      void flushPersistence().catch((reason) => {
+        recordDiagnostic({ kind: 'error', message: 'Workspace flush on page exit failed', operation: 'Flush workspace before page exit', outcome: 'failed', details: diagnosticFailureCode(reason) });
+      });
+    };
+    document.addEventListener('visibilitychange', flushBeforeBackground);
+    window.addEventListener('pagehide', flushBeforePageExit);
+    window.addEventListener('beforeunload', flushBeforePageExit);
+    return () => {
+      document.removeEventListener('visibilitychange', flushBeforeBackground);
+      window.removeEventListener('pagehide', flushBeforePageExit);
+      window.removeEventListener('beforeunload', flushBeforePageExit);
+    };
+  }, []);
+
+  const lockWorkspace = async () => {
     if (session?.storageMode === 'plaintext') { onToast('An unencrypted test workspace cannot be locked. Create an encrypted workspace to use password lock.'); return; }
     if (passwordProtection === 'disabled') { onToast('Password protection is disabled on this device. Require the password in Settings before locking.'); return; }
+    try { await flushPersistence(); }
+    catch (reason) { onToast(`Cannot lock until the latest change is saved: ${reason instanceof Error ? reason.message : String(reason)}`); return; }
     if (session) lock(session); deliveredReminderIds.current.clear(); sessionRef.current = null; setSession(null); setBoot('locked');
   };
-  const adoptSession = (next: UnlockedWorkspace, lockCurrent = false) => { if (lockCurrent && session) lock(session); deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); void refreshPasswordProtection(); };
-  return { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, lockWorkspace, adoptSession };
+  const adoptSession = async (next: UnlockedWorkspace, lockCurrent = false) => {
+    await flushPersistence();
+    if (lockCurrent && sessionRef.current) lock(sessionRef.current);
+    persistenceQueue.current?.clearPending();
+    deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); void refreshPasswordProtection();
+  };
+  return { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession };
 }

@@ -55,7 +55,10 @@ export function playCompletionSoundUnlessPreviewed(itemId: string, enabled: bool
 export function useUiSounds(enabled: boolean | undefined) {
   useEffect(() => {
     if (!enabled) return;
-    const onPointerDown = (event: PointerEvent) => {
+    // A pointer can begin on a control and turn into a scroll or drag.  Sound
+    // therefore follows the native click activation, not pointerdown.
+    const onClick = (event: MouseEvent) => {
+      if (!event.isTrusted) return;
       audioContext();
       const target = event.target as HTMLElement | null;
       const control = target?.closest('button,summary,select,input[type="checkbox"],input[type="radio"],[role="button"]') as HTMLElement | null;
@@ -64,7 +67,7 @@ export function useUiSounds(enabled: boolean | undefined) {
       const kind: UiSoundKind = /reset/.test(label) ? 'reset' : /delete|remove|cancel|close|dismiss|clear|lock/.test(label) ? 'dismiss' : /details|expand|collapse|section|recurrence/.test(label) ? 'expand' : /checkbox|toggle|sound|theme|language|select/.test(label) ? 'toggle' : /save|apply|add|create|enable|import|restore|backup|complete/.test(label) ? 'confirm' : 'click';
       playUiSound(kind);
     };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
   }, [enabled]);
 }

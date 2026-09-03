@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  compileSort, createId, effectiveItemDurationMs, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, inferViewPeriod, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateScriptDefinitions, validateViewCreationDefaults,
+  compileSort, createId, effectiveItemDurationMs, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, inferViewPeriod, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateScriptDefinitions, validateViewCreationDefaults,
   type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../components/ui/CodeEditor';
@@ -26,6 +26,7 @@ import { DisplayedFieldsEditor } from './DisplayedFieldsEditor';
 import { ViewSortingEditor } from './ViewSortingEditor';
 import { ViewPortabilityEditor } from './ViewPortabilityEditor';
 import { ViewEditorSection } from './ViewEditorSection';
+import { useWorkspaceBoundaryNow } from './useViewEvaluation';
 import { modernizeLegacyViewScope } from './legacyViewScope';
 import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_EXTENSION, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
 import './views-editor.css';
@@ -48,11 +49,12 @@ const viewAccentOptions = [
   { value: '#8d3f78', label: 'Plum' }, { value: '#5d6470', label: 'Slate' },
 ] as const;
 
-export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onAddItem, onExportView, celebrationColors, createRequest = 0 }: {
+export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onAddItem, onExportView, celebrationColors, createRequest = 0, onCreateRequestHandled }: {
   workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
   onEditItem: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void;
-  onOpenCalendar?: (viewId: string) => void; onAddItem: (view: SavedView) => void; onExportView: (view: SavedView, mode: 'definition' | 'results' | 'bundle', format?: PortableFormat, metadata?: boolean) => void; celebrationColors?: ReadonlyMap<string, string> | undefined; createRequest?: number;
+  onOpenCalendar?: (viewId: string) => void; onAddItem: (view: SavedView) => void; onExportView: (view: SavedView, mode: 'definition' | 'results' | 'bundle', format?: PortableFormat, metadata?: boolean) => void; celebrationColors?: ReadonlyMap<string, string> | undefined; createRequest?: number; onCreateRequestHandled?: () => void;
 }) {
+  const workspaceNow = useWorkspaceBoundaryNow(workspace);
   const [editing, setEditing] = useState<SavedView | null>(null);
   const [error, setError] = useState('');
   const [visualRows, setVisualRows] = useState<VisualConditionRow[]>([]);
@@ -67,7 +69,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const [templateArea, setTemplateArea] = useState(() => orderedOrganizationNames(workspace, 'area')[0] ?? '');
   const [templateProject, setTemplateProject] = useState(() => orderedOrganizationNames(workspace, 'project')[0] ?? '');
   const [viewExpansion, setViewExpansion] = useState<Record<string, boolean>>(() => Object.fromEntries(Object.values(workspace.views).map((view) => [view.id, readUiBoolean(`view:${view.id}`, true)])));
-  const handledCreateRequest = useRef(createRequest);
+  const handledCreateRequest = useRef(0);
   const lastEditorId = useRef<string | null>(null);
   const editorOpenedAt = useRef<number | null>(null);
   const closeEditor = () => {
@@ -246,7 +248,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     return <Input value={String(value ?? '')} onChange={(event) => setCreationDefaultValue(path, event.target.value)} />;
   };
   const statistics = editing?.statistics ?? { showTime: true, reservedItemIds: [] };
-  const statisticsPeriod = editing ? inferViewPeriod(editing, effectiveWorkspaceNow(workspace), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn }) : null;
+  const statisticsPeriod = editing ? inferViewPeriod(editing, workspaceNow, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn }) : null;
   const reservedCandidates = Object.values(workspace.items)
     .filter((item) => !item.deletedAt && item.role !== 'occurrence' && Boolean(item.schedule) && effectiveItemDurationMs(item) > 0)
     .sort((left, right) => left.title.localeCompare(right.title));
@@ -257,7 +259,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const toggleReservedItem = (id: string, checked: boolean) => updateStatistics(statistics.showTime, checked ? [...statistics.reservedItemIds, id] : statistics.reservedItemIds.filter((candidate) => candidate !== id));
   const scriptPreviewItem = Object.values(workspace.items).find((item) => !item.deletedAt);
   const viewScriptResults = editing && scriptPreviewItem
-    ? evaluateScriptsForItem(scriptPreviewItem, editing.scripts ?? [], (id) => workspace.items[id], effectiveWorkspaceNow(workspace))
+    ? evaluateScriptsForItem(scriptPreviewItem, editing.scripts ?? [], (id) => workspace.items[id], workspaceNow)
     : { values: {}, errors: {} };
   const updateViewScripts = (scripts: NonNullable<SavedView['scripts']>) => {
     if (!editing) return;
@@ -310,10 +312,11 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   };
   const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && isTemplate != true' }, renderer: 'table', sort: [{ field: 'organizationOrder', direction: 'desc', nulls: 'last' }, { field: 'updatedAt', direction: 'desc', nulls: 'last' }], sortSource: 'organizationOrder desc nulls last\nupdatedAt desc nulls last', fields: [...VIEW_TEMPLATE_FIELDS] });
   useEffect(() => {
-    if (createRequest === handledCreateRequest.current) return;
+    if (createRequest === 0 || createRequest === handledCreateRequest.current) return;
     handledCreateRequest.current = createRequest;
     newView();
-  }, [createRequest]);
+    onCreateRequestHandled?.();
+  }, [createRequest, onCreateRequestHandled]);
   const applyViewJson = (source = viewJson) => {
     if (!editing) return;
     try {
@@ -387,7 +390,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       closeLabel="Close view editor"
       initialFocus={false}
       finalFocus={typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches ? false : undefined}
-      footer={<><Button variant="destructive" onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return; } commit('Delete view', (draft) => { delete draft.views[editing.id]; Object.values(draft.dashboards).forEach((dashboard) => { for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) if (dashboard.widgets[index]?.viewId === editing.id) dashboard.widgets.splice(index, 1); }); }); closeEditor(); setConfirmDelete(false); }}>{confirmDelete ? 'Confirm delete' : 'Delete view'}</Button><span className="view-editor-action-spacer" /><Button onClick={() => { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'cancel-button' }) }); closeEditor(); }}>Cancel</Button><Button variant="primary" onClick={save}>Save view</Button></>}
+      footer={<><Button variant="secondary" onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return; } commit('Delete view', (draft) => { delete draft.views[editing.id]; Object.values(draft.dashboards).forEach((dashboard) => { for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) if (dashboard.widgets[index]?.viewId === editing.id) dashboard.widgets.splice(index, 1); }); }); closeEditor(); setConfirmDelete(false); }}>{confirmDelete ? 'Confirm delete' : 'Delete view'}</Button><span className="view-editor-action-spacer" /><Button onClick={() => { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'cancel-button' }) }); closeEditor(); }}>Cancel</Button><Button variant="primary" onClick={save}>Save view</Button></>}
     >
       <Field label="Name"><Input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></Field>
       <Field label="Renderer"><Select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></Select></Field>

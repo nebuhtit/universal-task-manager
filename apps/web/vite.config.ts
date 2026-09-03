@@ -32,9 +32,10 @@ export default defineConfig({
     // GitHub supplies its exact SHA; local development reads the checked-out commit.
     'import.meta.env.VITE_COMMIT_SHA': JSON.stringify(process.env.VITE_COMMIT_SHA || localCommit),
   },
-  // Automerge's webpack export embeds its WASM as base64, which works in Vite
-  // without relying on the still-experimental ESM/WASM integration proposal.
+  // Keep Automerge's JavaScript slim and load its WASM as one cacheable asset.
+  // The webpack condition remains for packages that expose browser-safe entries.
   resolve: {
+    alias: [{ find: /^@automerge\/automerge$/, replacement: '@automerge/automerge/slim' }],
     conditions: ['webpack'],
     // Workspace symlinks can otherwise let the dev server optimize React from
     // more than one path. A remote Safari client then sees an Invalid Hook Call
@@ -63,6 +64,9 @@ export default defineConfig({
       },
       injectManifest: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+        // Excel is optional and comparatively large. Its dynamic chunk should
+        // be fetched only when the user actually imports or exports .xlsx.
+        globIgnores: ['**/xlsx-*.js'],
       },
     }),
   ],

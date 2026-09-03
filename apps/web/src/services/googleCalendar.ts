@@ -6,6 +6,7 @@ const GOOGLE_AUTH_TIMEOUT_MS = 90_000;
 const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
 const GOOGLE_SYNC_WINDOW_REFRESH_MS = 7 * 86_400_000;
 const GOOGLE_EVENTS_PAGE_SIZE = '500';
+export const GOOGLE_CALENDAR_SYNC_CONCURRENCY = 3;
 export const GOOGLE_CALENDAR_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ?? '';
 
 interface GoogleTokenResponse { access_token?: string; expires_in?: number; error?: string; error_description?: string }
@@ -165,16 +166,34 @@ export async function synchronizeGoogleCalendars(accessToken: string, preference
   const batches: GoogleCalendarSyncBatch[] = [];
   const selectedCalendars = calendars.filter((entry) => entry.selected);
   let eventCount = 0;
-  for (const [index, calendar] of selectedCalendars.entries()) {
-    const existingToken = syncTokens[calendar.id];
-    onProgress?.({ stage: 'events', message: `${existingToken ? 'Updating' : 'Loading'} ${calendar.name} (${index + 1}/${selectedCalendars.length})…`, completedCalendars: index, totalCalendars: selectedCalendars.length, eventCount, fullSync: !existingToken });
-    const response = await listEvents(accessToken, calendar.id, syncWindow, existingToken, (page, calendarEventCount) => {
-      onProgress?.({ stage: 'events', message: `${calendar.name}: page ${page}, ${calendarEventCount} events…`, completedCalendars: index, totalCalendars: selectedCalendars.length, eventCount: eventCount + calendarEventCount, page, fullSync: !existingToken });
-    });
-    eventCount += response.events.length;
-    syncTokens[calendar.id] = response.nextSyncToken;
-    batches.push({ connectionId: preferences.connectionId, calendarId: calendar.id, events: response.events, syncedAt, fullSync: response.fullSync });
-    onProgress?.({ stage: 'events', message: `${calendar.name}: ${response.events.length} events loaded.`, completedCalendars: index + 1, totalCalendars: selectedCalendars.length, eventCount });
+  let nextCalendarIndex = 0;
+  let completedCalendars = 0;
+  const partialCounts = new Map<number, number>();
+  const results = new Array<{ response: Awaited<ReturnType<typeof listEvents>>; calendar: GoogleCalendarDefinition } | undefined>(selectedCalendars.length);
+  const worker = async () => {
+    while (true) {
+      const index = nextCalendarIndex++;
+      const calendar = selectedCalendars[index];
+      if (!calendar) return;
+      const existingToken = syncTokens[calendar.id];
+      onProgress?.({ stage: 'events', message: `${existingToken ? 'Updating' : 'Loading'} ${calendar.name} (${index + 1}/${selectedCalendars.length})…`, completedCalendars, totalCalendars: selectedCalendars.length, eventCount, fullSync: !existingToken });
+      const response = await listEvents(accessToken, calendar.id, syncWindow, existingToken, (page, calendarEventCount) => {
+        partialCounts.set(index, calendarEventCount);
+        const inFlightEvents = [...partialCounts.values()].reduce((total, count) => total + count, 0);
+        onProgress?.({ stage: 'events', message: `${calendar.name}: page ${page}, ${calendarEventCount} events…`, completedCalendars, totalCalendars: selectedCalendars.length, eventCount: eventCount + inFlightEvents, page, fullSync: !existingToken });
+      });
+      partialCounts.delete(index);
+      results[index] = { response, calendar };
+      eventCount += response.events.length;
+      completedCalendars += 1;
+      onProgress?.({ stage: 'events', message: `${calendar.name}: ${response.events.length} events loaded.`, completedCalendars, totalCalendars: selectedCalendars.length, eventCount });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(GOOGLE_CALENDAR_SYNC_CONCURRENCY, selectedCalendars.length) }, () => worker()));
+  for (const result of results) {
+    if (!result) continue;
+    syncTokens[result.calendar.id] = result.response.nextSyncToken;
+    batches.push({ connectionId: preferences.connectionId, calendarId: result.calendar.id, events: result.response.events, syncedAt, fullSync: result.response.fullSync });
   }
   for (const calendarId of Object.keys(syncTokens)) if (!calendars.some((calendar) => calendar.id === calendarId && calendar.selected)) delete syncTokens[calendarId];
   onProgress?.({ stage: 'complete', message: `Google download complete: ${eventCount} events.`, completedCalendars: selectedCalendars.length, totalCalendars: selectedCalendars.length, eventCount });

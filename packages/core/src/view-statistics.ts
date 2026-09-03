@@ -1,6 +1,6 @@
 import { schedulePeriodBounds, type QueryTemporalOptions, type SchedulePeriod } from './dsl.js';
 import { projectOccurrences } from './calendar.js';
-import { effectiveItemDurationMs, calculateItemSetMetrics, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
+import { effectiveItemDurationMs, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
 import type { SavedView, UniversalItem, WorkspaceDocument } from './types.js';
 
 const DAY_MS = 86_400_000;
@@ -18,6 +18,12 @@ export interface ViewTimeMetrics extends ItemSetMetrics {
   periodDurationMs?: number;
   reservedDurationMs: number;
   freeDurationMs?: number;
+}
+
+export interface ViewTimeMetricsAccumulator {
+  add(item: UniversalItem): void;
+  remove(item: UniversalItem): void;
+  finish(reservedDurationMs?: number): ViewTimeMetrics;
 }
 
 function shiftDateKey(key: string, days: number): string {
@@ -40,7 +46,7 @@ function localParts(date: Date, timeZone: string): Record<string, number> {
 }
 
 /** Resolves the start of a calendar date in an IANA timezone without relying on the host timezone. */
-function zonedDateStart(key: string, timeZone: string): Date {
+export function zonedDateStart(key: string, timeZone: string): Date {
   const [year, month, day] = key.split('-').map(Number);
   const wallClock = Date.UTC(year!, month! - 1, day!);
   let instant = new Date(wallClock);
@@ -52,6 +58,17 @@ function zonedDateStart(key: string, timeZone: string): Date {
     instant = next;
   }
   return instant;
+}
+
+export function viewPeriodBoundsForDates(startDate: string, endDate: string, timeZone = 'UTC'): ViewPeriodBounds {
+  return {
+    period: 'custom',
+    startDate,
+    endDate,
+    start: zonedDateStart(startDate, timeZone),
+    endExclusive: zonedDateStart(shiftDateKey(endDate, 1), timeZone),
+    durationMs: dateCount(startDate, endDate) * DAY_MS,
+  };
 }
 
 function dateCount(start: string, end: string): number {
@@ -104,15 +121,64 @@ function durationInsidePeriod(item: UniversalItem, period: ViewPeriodBounds): nu
   return overlap > 0 ? overlap : duration;
 }
 
+/** Incrementally derives exactly the same metrics as a finite-period View. */
+export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): ViewTimeMetricsAccumulator {
+  let totalItems = 0;
+  let completedItems = 0;
+  let totalDurationMs = 0;
+  let completedDurationMs = 0;
+  let remainingDurationMs = 0;
+  let plannedDurationMs = 0;
+  const seen = new Set<string>();
+  const apply = (item: UniversalItem, direction: 1 | -1) => {
+    const duration = effectiveItemDurationMs(item);
+    if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && !item.external?.readOnly && participatesInTimeStatistics(item)) {
+      totalItems += direction;
+      totalDurationMs += direction * duration;
+      if (item.state === 'done' || item.state === 'auto_closed') {
+        completedItems += direction;
+        completedDurationMs += direction * duration;
+      } else if (item.state === 'open') remainingDurationMs += direction * duration;
+    }
+    if (period && eligible(item)) plannedDurationMs += direction * durationInsidePeriod(item, period);
+  };
+  return {
+    add(item) {
+      if (seen.has(item.id)) return;
+      seen.add(item.id);
+      apply(item, 1);
+    },
+    remove(item) {
+      if (!seen.delete(item.id)) return;
+      apply(item, -1);
+    },
+    finish(reservedDurationMs = 0) {
+      const base: ViewTimeMetrics = {
+        totalItems,
+        completedItems,
+        completionPercent: totalDurationMs ? Math.round(completedDurationMs / totalDurationMs * 100) : 0,
+        remainingDurationMs,
+        reservedDurationMs,
+      };
+      if (!period) return base;
+      return {
+        ...base,
+        periodDurationMs: period.durationMs,
+        freeDurationMs: period.durationMs - plannedDurationMs - reservedDurationMs,
+      };
+    },
+  };
+}
+
 /** Computes view metrics on demand. Nothing derived here is persisted in the workspace. */
 export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: SavedView, matchingItems: Iterable<UniversalItem>, now = new Date()): ViewTimeMetrics {
   const items = [...matchingItems];
-  const base = calculateItemSetMetrics(items);
   const period = inferViewPeriod(view, now, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
-  if (!period) return { ...base, reservedDurationMs: 0 };
+  const accumulator = createViewTimeMetricsAccumulator(period ?? undefined);
+  items.forEach((item) => accumulator.add(item));
+  if (!period) return accumulator.finish();
 
   const matchingIds = new Set(items.filter(eligible).map((item) => item.id));
-  let plannedDurationMs = items.filter(eligible).reduce((sum, item) => sum + durationInsidePeriod(item, period), 0);
   let reservedDurationMs = 0;
   const reservedIds = new Set(view.statistics?.reservedItemIds ?? []);
   if (reservedIds.size) {
@@ -134,6 +200,5 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
       if (occurrenceDuration > 0) reservedDurationMs += occurrenceDuration;
     }
   }
-  plannedDurationMs += reservedDurationMs;
-  return { ...base, periodDurationMs: period.durationMs, reservedDurationMs, freeDurationMs: period.durationMs - plannedDurationMs };
+  return accumulator.finish(reservedDurationMs);
 }
