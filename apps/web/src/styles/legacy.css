@@ -533,6 +533,7 @@ label.check input { width: 18px; height: 18px; }
 .settings-page > * { width: 100%; max-width: 100%; min-width: 0; }
 .settings-page .page-title { margin-bottom: 0; }
 .settings-release-info { font-size: var(--font-size-caption); opacity: .72; }
+.settings-release-info-top { margin: 0 0 2px; text-align: right; }
 .settings-guide { display: grid; gap: var(--space-3); }
 .settings-guide-section { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .settings-guide-section > summary { padding: var(--space-3); cursor: pointer; font-weight: var(--font-weight-semibold); }
