@@ -11,8 +11,21 @@ const audioContext = () => {
   return sharedAudioContext;
 };
 
-/** Unlocks Web Audio from the user's Start-button gesture before the timer expires. */
-export const prepareTimerAlarm = () => { try { audioContext(); } catch { /* Optional audio. */ } };
+/**
+ * Unlocks Web Audio while the user is still pressing Start. On iPhone, merely
+ * constructing/resuming AudioContext is not reliably enough: a source has to
+ * start inside the gesture or a later timer alarm can be silent.
+ */
+export const prepareTimerAlarm = () => {
+  try {
+    const context = audioContext();
+    if (!context) return;
+    const oscillator = context.createOscillator(); const gain = context.createGain();
+    gain.gain.setValueAtTime(.0001, context.currentTime);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start(); oscillator.stop(context.currentTime + .02);
+  } catch { /* Optional audio. */ }
+};
 
 /** Starts a quiet, slowly pulsing tone and returns the explicit stop action. */
 export function startTimerAlarm(enabled = true): () => void {
@@ -24,7 +37,7 @@ export function startTimerAlarm(enabled = true): () => void {
     const gain = context.createGain(); const pulseDepth = context.createGain();
     tone.type = 'sine'; tone.frequency.setValueAtTime(440, context.currentTime);
     pulse.type = 'sine'; pulse.frequency.setValueAtTime(.28, context.currentTime);
-    gain.gain.setValueAtTime(.022, context.currentTime); pulseDepth.gain.setValueAtTime(.012, context.currentTime);
+    gain.gain.setValueAtTime(.05, context.currentTime); pulseDepth.gain.setValueAtTime(.02, context.currentTime);
     pulse.connect(pulseDepth).connect(gain.gain); tone.connect(gain).connect(context.destination);
     tone.start(); pulse.start();
     let stopped = false;
