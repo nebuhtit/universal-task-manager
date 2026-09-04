@@ -4,7 +4,7 @@ export function Icon({ children }: { children: ReactNode }) { return <span class
 
 export function CloseIcon() { return <svg className="close-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M4 4l12 12M16 4 4 16" /></svg>; }
 
-export type LineIconName = 'home' | 'pin' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu' | 'plus' | 'chevronDown';
+export type LineIconName = 'home' | 'pin' | 'calendar' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu' | 'plus' | 'sync' | 'chevronDown';
 
 export function LineIcon({ name }: { name: LineIconName }) {
   const paths: Record<LineIconName, ReactNode> = {
@@ -20,6 +20,7 @@ export function LineIcon({ name }: { name: LineIconName }) {
     transfer: <><path d="M7 7h11l-3-3M17 17H6l3 3"/><path d="m18 7-3 3M6 17l3-3"/></>,
     menu: <path d="M4 6h16M4 12h16M4 18h16"/>,
     plus: <path d="M12 4v16M4 12h16"/>,
+    sync: <><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.8-2L20 9"/><path d="M17.9 15A7 7 0 0 1 6.1 17L4 15"/></>,
     chevronDown: <path d="m6 9 6 6 6-6"/>,
   };
   return <svg className="line-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;

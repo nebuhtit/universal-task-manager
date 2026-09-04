@@ -1,12 +1,14 @@
 /// <reference lib="WebWorker" />
 
-import { clientsClaim } from 'workbox-core';
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<unknown> };
 
 self.skipWaiting();
-clientsClaim();
+// Do not claim an already open page. That page can still lazy-load a CSS or
+// JavaScript chunk from the older release; taking control mid-session lets the
+// new cache remove that exact chunk and leaves the user at the recovery screen.
+// The fresh worker takes control on the next navigation instead.
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 // Keep the app shell available when GitHub (or the LAN host) is temporarily

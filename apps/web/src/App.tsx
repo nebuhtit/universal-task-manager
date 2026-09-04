@@ -31,13 +31,14 @@ import { dateInput, fromDateInput, formatRussianDateTime } from './utils/dates';
 import { clockService } from './services/clockService';
 import { isNativeICloudBackupAvailable, requestNativeICloudImport, writeNativeICloudBackup } from './services/nativeICloudBackup';
 import { isNativeReminderAvailable, requestNativeReminderPermission, syncNativeReminders } from './services/nativeReminders';
+import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from './services/googleCalendar';
 import {
-  APP_VERSION, SCHEMA_VERSION, applyPortableImport, buildPortableImportPreview,
+  APP_VERSION, SCHEMA_VERSION, applyGoogleCalendarSync, applyPortableImport, buildPortableImportPreview,
   collectItemDependencies, createId, createItem, createPortablePackage,
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences, updateRecurrenceCompletionTime,
   runAutomationEvents, serializePortablePackage,
   createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, migrateWorkspace, packageToTabular, parseCsv, tabularToPackage, toCsv, toICS,
-  type ItemPreset, type PortableImportPreview, type PortableSelection, type RecurrenceCompletionRecord, type SavedView, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
+  type GoogleCalendarPreferences, type ItemPreset, type PortableImportPreview, type PortableSelection, type RecurrenceCompletionRecord, type SavedView, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
   createLocalWorkspace, createUnencryptedLocalWorkspace, decryptWorkspaceFile, disableFaceIdUnlock, enableFaceIdUnlock, exportContainer, exportEncryptedLocalBackup, faceIdStatus, importAsLocalWorkspace,
@@ -543,6 +544,8 @@ export default function App() {
   const [undoActions, setUndoActions] = useState<PendingUndoAction[]>([]);
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
   const [quickCompletion, setQuickCompletion] = useState<QuickCompletionRequest | null>(null);
+  const [googleCalendarSyncing, setGoogleCalendarSyncing] = useState(false);
+  const googleCalendarToken = useRef<{ accessToken: string; expiresAt: number } | null>(null);
   useLegacyModalDismiss(Boolean(portableImportSource), () => setPortableImportSource(null));
   useLegacyModalDismiss(transfer, () => setTransfer(false));
   const seenNoticeIds = useRef(new Set<string>());
@@ -555,6 +558,36 @@ export default function App() {
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
   const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  const syncGoogleCalendarFromHome = async () => {
+    const google = workspace?.calendarPreferences.googleCalendar;
+    if (!workspace || !google || googleCalendarSyncing) return;
+    if (!GOOGLE_CALENDAR_CLIENT_ID) { setToast('This build needs a Google OAuth client ID before sync is available.'); return; }
+    const startedAt = performance.now();
+    setGoogleCalendarSyncing(true);
+    try {
+      const existingToken = googleCalendarToken.current;
+      const token = existingToken && existingToken.expiresAt > Date.now() + 60_000 ? existingToken : await requestGoogleCalendarToken();
+      googleCalendarToken.current = token;
+      const current: GoogleCalendarPreferences = google;
+      const result = await synchronizeGoogleCalendars(token.accessToken, current);
+      commit('Sync Google Calendar', (draft) => {
+        for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
+        draft.calendarPreferences.googleCalendar = {
+          connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
+          ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
+        };
+      });
+      const events = result.batches.reduce((total, batch) => total + batch.events.length, 0);
+      const durationMs = Math.round(performance.now() - startedAt);
+      setToast(`Google Calendar synced: ${events} events.`);
+      recordDiagnostic({ kind: 'result', message: 'Google Calendar sync completed', operation: 'Google Calendar sync', outcome: 'succeeded', durationMs, details: JSON.stringify({ calendars: result.batches.length, events }) });
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setToast(`Google Calendar sync failed: ${message}`);
+      recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
+      commit('Record Google Calendar sync error', (draft) => { if (draft.calendarPreferences.googleCalendar) draft.calendarPreferences.googleCalendar.lastError = message; });
+    } finally { setGoogleCalendarSyncing(false); }
+  };
   useEffect(() => {
     const openHostItem = (event: Event) => {
       const itemId = (event as CustomEvent<{ itemId?: string }>).detail?.itemId;
@@ -945,7 +978,7 @@ export default function App() {
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
-  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} />}

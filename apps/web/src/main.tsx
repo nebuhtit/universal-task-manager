@@ -7,6 +7,17 @@ import App, { AppErrorBoundary } from './App.js';
 import './styles.css';
 import { bootstrapObsidianWorkspace } from './services/obsidianBridge';
 
+// A deployment can replace a lazy-loaded CSS/JS chunk while an installed PWA
+// still has the old page open. Reload once into the fresh app shell instead of
+// treating this recoverable cache transition as a workspace failure.
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  const reloadKey = 'utm:preload-error-reloaded';
+  if (sessionStorage.getItem(reloadKey)) return;
+  sessionStorage.setItem(reloadKey, 'true');
+  window.location.reload();
+});
+
 if (import.meta.env.PROD && import.meta.env.VITE_NATIVE_IOS !== 'true' && import.meta.env.VITE_OBSIDIAN !== 'true') registerSW({ immediate: true });
 else void navigator.serviceWorker?.getRegistrations().then((registrations) => registrations.forEach((registration) => void registration.unregister()));
 

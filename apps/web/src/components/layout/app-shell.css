@@ -76,6 +76,7 @@
 .top-actions { z-index: 1; grid-column: 3; grid-row: 1; justify-content: flex-end; }
 .top-actions > .ui-icon-button { flex: 0 0 var(--control-height-compact); color: var(--color-text); }
 .views-add-button,
+.google-calendar-sync-button,
 .notice-button,
 .mobile-menu-button { border-color: transparent; background: transparent; }
 .notice-button { position: relative; }
