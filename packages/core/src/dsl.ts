@@ -543,8 +543,9 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     const start = item.schedule?.startAt ? new Date(item.schedule.startAt).getTime() : undefined;
     const due = item.schedule?.dueAt ? new Date(item.schedule.dueAt).getTime() : undefined;
     const activeDuration = start !== undefined && !Number.isNaN(start) && due !== undefined && !Number.isNaN(due);
-    const activeRange = (start === undefined || Number.isNaN(start) || current.getTime() >= start)
-      && (due === undefined || Number.isNaN(due) || current.getTime() <= due);
+    const activeRange = activeDuration
+      && current.getTime() >= start!
+      && current.getTime() <= due!;
     // Optional active ranges should constrain a View only when both boundaries
     // are actually present. Items without that range keep following the other
     // View conditions, such as Schedule in period.

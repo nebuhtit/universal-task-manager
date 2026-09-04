@@ -71,11 +71,16 @@ describe('safe expression language', () => {
     futureRange.schedule = { startAt: '2026-09-03T21:15:00.000Z', dueAt: '2026-09-06T11:00:00.000Z', timezone: 'UTC' };
     const noRange = createItem('Due without active range');
     noRange.schedule = { dueAt: '2026-09-03T18:00:00.000Z', timezone: 'UTC' };
+    const eventWithoutActiveRange = createItem('Event without active range');
+    eventWithoutActiveRange.schedule = { startAt: '2026-09-03T07:00:00.000Z', endAt: '2026-09-03T09:00:00.000Z', timezone: 'UTC' };
     const currentRange = createItem('Current active range');
     currentRange.schedule = { startAt: '2026-09-02T09:00:00.000Z', dueAt: '2026-09-03T18:00:00.000Z', timezone: 'UTC' };
     expect(query(futureRange, now)).toBe(false);
     expect(query(noRange, now)).toBe(true);
+    expect(query(eventWithoutActiveRange, now)).toBe(true);
     expect(query(currentRange, now)).toBe(true);
+    expect(compileQuery('activeRange == true')(noRange, now)).toBe(false);
+    expect(compileQuery('activeRange == true')(eventWithoutActiveRange, now)).toBe(false);
   });
 
   it('interprets legacy presence checks for computed booleans as explicit true or false', () => {
