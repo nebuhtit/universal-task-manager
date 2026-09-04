@@ -71,6 +71,21 @@ describe('view selectors', () => {
     expect(selected[0]?.role).toBe('occurrence');
   });
 
+  it('excludes a recurring series by occurrence.seriesId before and after reconciliation', () => {
+    const now = new Date('2026-09-04T11:00:00.000Z');
+    const workspace = createWorkspace('Recurring exclusions', now);
+    const item = createItem('Sleep', 'event', now);
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-04T20:00:00.000Z', endAt: '2026-09-05T05:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=DAILY;INTERVAL=1');
+    workspace.items[series.id] = series;
+    const withoutSleep = view(`state == "open" && occurrence.seriesId != ${JSON.stringify(series.id)}`);
+
+    expect(selectViewItems(workspace, withoutSleep, now)).toEqual([]);
+    reconcileRecurrences(workspace, now);
+    expect(Object.values(workspace.items).some((candidate) => candidate.occurrence?.seriesId === series.id)).toBe(true);
+    expect(selectViewItems(workspace, withoutSleep, now)).toEqual([]);
+  });
+
   it('holds a completed item in its original views and sort position only until Undo exits', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-31T10:00:00.000Z'));

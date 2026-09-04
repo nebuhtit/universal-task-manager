@@ -224,7 +224,21 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
     });
     const matchingSeries = available.filter((item) => {
       const source = selectionSource(item);
-      return source.role === 'series_template' && !source.habit && predicate(source, now);
+      if (source.role !== 'series_template' || source.habit) return false;
+      // A source series is the fallback row before its live occurrence has
+      // materialized. Evaluate it with the same stable series identity as an
+      // occurrence, so an explicit `occurrence.seriesId != ...` exclusion
+      // cannot disappear merely because reconciliation has not run yet.
+      const queryItem = index.queryItemFor(source);
+      return predicate({
+        ...queryItem,
+        occurrence: {
+          seriesId: source.id,
+          recurrenceId: source.schedule?.startAt ?? source.schedule?.dueAt ?? source.createdAt,
+          sequence: 0,
+          templateRevision: source.revision,
+        },
+      }, now);
     });
     const standalone = matchingRows.filter((item) => item.role !== 'occurrence');
     const occurrencesBySeries = new Map<string, UniversalItem[]>();
