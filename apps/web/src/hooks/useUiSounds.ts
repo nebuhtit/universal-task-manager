@@ -32,6 +32,20 @@ export function startTimerAlarm(enabled = true): () => void {
   } catch { return () => undefined; }
 }
 
+/** A short, unobtrusive cue for optional timer intervals. */
+export function playTimerIntervalSound(enabled = true): void {
+  if (!enabled) return;
+  try {
+    const context = audioContext();
+    if (!context) return;
+    const oscillator = context.createOscillator(); const gain = context.createGain();
+    oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(520, context.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(460, context.currentTime + .16);
+    gain.gain.setValueAtTime(.0001, context.currentTime); gain.gain.exponentialRampToValueAtTime(.028, context.currentTime + .012); gain.gain.exponentialRampToValueAtTime(.0001, context.currentTime + .17);
+    oscillator.connect(gain).connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + .18);
+  } catch { /* Optional interval cue. */ }
+}
+
 const playUiSound = (kind: UiSoundKind) => {
   try {
     const context = audioContext();

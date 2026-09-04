@@ -7,16 +7,18 @@
 }
 
 .quick-item-timer > summary { cursor: pointer; color: var(--color-text-secondary); font-size: var(--font-size-secondary); font-weight: var(--font-weight-medium); }
-.quick-item-timer-body { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: var(--space-3); padding-top: var(--space-3); }
+.quick-item-timer-body { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); padding-top: var(--space-3); }
 .quick-item-timer-controls { display: flex; align-items: end; gap: var(--space-2); min-width: 0; }
 .quick-item-timer-controls > select { min-width: 0; }
 .quick-item-timer-controls label { width: 76px; margin: 0; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--font-size-caption); }
 .quick-item-timer-controls input { min-height: var(--control-height-compact); }
 .quick-item-timer output { min-width: 72px; align-self: center; font-variant-numeric: tabular-nums; font-size: var(--font-size-section); font-weight: var(--font-weight-semibold); text-align: center; }
+.quick-item-timer-interval { display: flex; align-items: center; gap: var(--space-2); }
+.quick-item-timer-interval .ui-checkbox { flex: 1; }
+.quick-item-timer-interval input { width: 64px; min-height: var(--control-height-compact); }
+.quick-item-timer-interval select { width: 76px; min-height: var(--control-height-compact); }
 .quick-item-timer-actions { display: flex; align-items: center; gap: var(--space-1); }
 
 @media (max-width: 480px) {
-  .quick-item-timer-body { grid-template-columns: minmax(0, 1fr) auto; }
-  .quick-item-timer output { grid-column: 1 / -1; grid-row: 1; justify-self: center; }
-  .quick-item-timer-controls, .quick-item-timer-actions { grid-row: 2; }
+  .quick-item-timer-controls { flex-wrap: wrap; }
 }
