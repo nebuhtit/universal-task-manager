@@ -28,6 +28,7 @@ enum ICloudBackupStore {
         let temporary = directory.appendingPathComponent(".incoming-\(UUID().uuidString).utmb")
         try data.write(to: temporary, options: .atomic)
         var coordinatorError: NSError?
+        var operationError: Error?
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(writingItemAt: directory, options: .forReplacing, error: &coordinatorError) { _ in
             do {
@@ -40,10 +41,13 @@ enum ICloudBackupStore {
                 }
             } catch {
                 try? FileManager.default.removeItem(at: temporary)
-                coordinatorError = error as NSError
+                // coordinatorError is exclusively borrowed by coordinate(...)
+                // for the whole closure. Keep file-operation failures separate.
+                operationError = error
             }
         }
         if let coordinatorError { throw coordinatorError }
+        if let operationError { throw operationError }
     }
 
     private static func isEncryptedRecovery(_ data: Data) -> Bool {
