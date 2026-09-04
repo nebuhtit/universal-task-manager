@@ -22,6 +22,7 @@ declare global {
 }
 
 let scriptPromise: Promise<void> | null = null;
+let cachedGoogleCalendarToken: { accessToken: string; expiresAt: number } | null = null;
 function loadGoogleIdentityServices(): Promise<void> {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
@@ -45,6 +46,7 @@ function loadGoogleIdentityServices(): Promise<void> {
 
 export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIENT_ID): Promise<{ accessToken: string; expiresAt: number }> {
   if (!clientId) throw new Error('Google Calendar is not configured for this build. Add VITE_GOOGLE_CLIENT_ID.');
+  if (cachedGoogleCalendarToken && cachedGoogleCalendarToken.expiresAt > Date.now() + 60_000) return cachedGoogleCalendarToken;
   await loadGoogleIdentityServices();
   return new Promise((resolve, reject) => {
     const oauth2 = window.google?.accounts?.oauth2;
@@ -55,11 +57,16 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
       client_id: clientId, scope: GOOGLE_SCOPE,
       callback: (response) => {
         if (!response.access_token) { finish(() => reject(new Error(response.error_description || response.error || 'Google sign-in was cancelled.'))); return; }
-        finish(() => resolve({ accessToken: response.access_token!, expiresAt: Date.now() + Math.max(60, response.expires_in ?? 3_600) * 1_000 }));
+        finish(() => {
+          cachedGoogleCalendarToken = { accessToken: response.access_token!, expiresAt: Date.now() + Math.max(60, response.expires_in ?? 3_600) * 1_000 };
+          resolve(cachedGoogleCalendarToken);
+        });
       },
       error_callback: () => finish(() => reject(new Error('Google sign-in was cancelled.'))),
     });
-    client.requestAccessToken({ prompt: 'consent' });
+    // Google still asks for consent when it is needed, but never force that
+    // screen again for an already-authorized Google browser session.
+    client.requestAccessToken({ prompt: '' });
   });
 }
 
