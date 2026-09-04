@@ -7,6 +7,7 @@ import { displayViewValue, inferredPreset, priorityNames, readItemField, viewFie
 import { FieldIcon } from './FieldIcon';
 import { UserDataText, useTranslation } from '../../i18n-react';
 import { OverdueDueIndicator, overdueAgeWithoutActiveRange } from './OverdueDueIndicator';
+import { ItemStateMarker } from './ItemStateMarker';
 
 const touchStateCommits = new Map<string, number>();
 
@@ -74,9 +75,9 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
     return <>{names.map((name, index) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': organizationAccentFor(workspace, kind, name) } as CSSProperties} key={name}>{index ? ', ' : ''}{kind === 'tag' ? '#' : ''}{name}</span>)}</>;
   };
   return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}${optimisticClosed === true ? ' is-optimistic-complete' : optimisticClosed === false ? ' is-optimistic-reopen' : ''}`}>
-    <button className={`state-toggle${optimisticClosed === true ? ' is-optimistic-closed' : ''}`} disabled={readOnlyExternal} data-sound={!visiblyClosed && !readOnlyExternal ? 'none' : undefined} aria-label={t(readOnlyExternal ? 'Read-only Google Calendar event' : isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item')} onPointerDown={beginStateToggle} onClick={finishStateToggle}>
+    <ItemStateMarker item={item} googleLabel={t('Read-only Google Calendar event')} onOpen={onEdit}><button className={`state-toggle${optimisticClosed === true ? ' is-optimistic-closed' : ''}`} disabled={readOnlyExternal} data-sound={!visiblyClosed && !readOnlyExternal ? 'none' : undefined} aria-label={t(isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item')} onPointerDown={beginStateToggle} onClick={finishStateToggle}>
       {shownClosed ? '✓' : ''}
-    </button>
+    </button></ItemStateMarker>
     <button className="item-main" onClick={onEdit}>
       {(!customDisplay || fields?.includes('title')) && <UserDataText className="item-title">{item.title}</UserDataText>}
       {!customDisplay && <span className="item-meta"><OverdueDueIndicator item={item} now={displayNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} /><span className={`preset ${inferredPreset(item)}`}>{t(inferredPreset(item))}</span>{due && <span>{formatViewDate(due, !item.schedule?.allDay, workspace?.calendarPreferences.language)}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': workspace ? organizationAccentFor(workspace, 'tag', tag) : undefined } as CSSProperties} key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">{t('auto-closed')}</span>}</span>}

@@ -81,7 +81,22 @@ describe('ViewResults manual ordering controls', () => {
     for (const renderer of ['list', 'table', 'calendar', 'board'] as const) {
       const markup = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer }} />);
       expect(markup).toContain('aria-label="Read-only Google Calendar event"');
-      expect(markup).toContain('disabled=""');
+      expect(markup).toContain('<button type="button" class="external-calendar-state-marker"');
+      expect(markup).not.toContain('state-toggle');
+    }
+  });
+
+  it('does not show a completion control for local all-day events', () => {
+    const workspace = createWorkspace('All day');
+    const item = createItem('Holiday', 'event');
+    item.schedule = { timezone: 'UTC', allDay: true, startAt: '2026-09-04T00:00:00.000Z', endAt: '2026-09-05T00:00:00.000Z' };
+    workspace.items[item.id] = item;
+    const view: SavedView = { id: 'all-day', name: 'All day', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] };
+    const props = { workspace, onEdit: vi.fn(), onState: vi.fn() };
+    for (const renderer of ['list', 'table', 'calendar', 'board'] as const) {
+      const markup = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer }} />);
+      expect(markup).toContain('item-state-placeholder');
+      expect(markup).not.toContain('state-toggle');
     }
   });
 });
