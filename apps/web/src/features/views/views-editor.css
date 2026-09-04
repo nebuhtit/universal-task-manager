@@ -71,6 +71,11 @@
   gap: var(--space-2);
 }
 
+.view-statistics-item-controls { display: grid; grid-template-columns: minmax(10rem, 1fr) auto auto; align-items: center; gap: var(--space-3); width: 100%; }
+.view-statistics-item-title { min-width: 0; overflow-wrap: anywhere; }
+.view-statistics-item-controls .check { margin: 0; white-space: nowrap; }
+@media (max-width: 620px) { .view-statistics-item-controls { grid-template-columns: 1fr; align-items: start; } }
+
 .view-statistics-reserved-summary small {
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);

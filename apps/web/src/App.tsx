@@ -24,8 +24,10 @@ import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, rea
 import { applyViewCreationDefaults } from './features/views/applyCreationDefaults';
 import { SettingsReleaseInfo } from './features/settings/SettingsReleaseInfo';
 import { itemEditorSource } from './features/items/editor/itemEditorSource';
+import { QuickCompletionInput } from './features/items/QuickCompletionInput';
+import { usesCompletionAnchoredRecurrence } from './features/items/quickCompletion';
 import { COMPLETION_EXIT_MS, selectViewItems, setCompletionHold } from './features/views/viewSelectors';
-import { formatRussianDateTime } from './utils/dates';
+import { dateInput, fromDateInput, formatRussianDateTime } from './utils/dates';
 import { clockService } from './services/clockService';
 import { isNativeICloudBackupAvailable, requestNativeICloudImport, writeNativeICloudBackup } from './services/nativeICloudBackup';
 import { isNativeReminderAvailable, requestNativeReminderPermission, syncNativeReminders } from './services/nativeReminders';
@@ -51,6 +53,7 @@ const DiagnosticsSettings = lazy(() => import('./features/settings/DiagnosticsSe
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 type PendingUndoAction = { id: string; label: string; expiresAt: number; undo: () => void; itemId?: string };
+type QuickCompletionRequest = { itemId: string; celebrationColor: string; completedAt: string };
 const UNDO_WINDOW_MS = 4_000;
 
 // Some iOS Files providers do not implement File.text() reliably for custom
@@ -539,6 +542,7 @@ export default function App() {
   const [celebrationColors, setCelebrationColors] = useState<Map<string, string>>(new Map());
   const [undoActions, setUndoActions] = useState<PendingUndoAction[]>([]);
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
+  const [quickCompletion, setQuickCompletion] = useState<QuickCompletionRequest | null>(null);
   useLegacyModalDismiss(Boolean(portableImportSource), () => setPortableImportSource(null));
   useLegacyModalDismiss(transfer, () => setTransfer(false));
   const seenNoticeIds = useRef(new Set<string>());
@@ -691,6 +695,7 @@ export default function App() {
     setBackupReminder(overdue);
   }, [workspace?.updatedAt, workspace?.calendarPreferences.backupPreferences?.lastBackupAt, workspace?.calendarPreferences.backupPreferences?.reminderDays]);
   useEffect(() => {
+    setQuickCompletion(null);
     setUndoActions([]);
     undoTimers.current.forEach((timer) => window.clearTimeout(timer)); undoTimers.current.clear();
     completionTimers.current.forEach(({ exit, remove }, itemId) => {
@@ -780,9 +785,10 @@ export default function App() {
     commit('Change background notification privacy', (draft) => { draft.pushPreferences.contentMode = contentMode; });
   };
 
-  const changeItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)') => {
+  const applyItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)', completionAt?: string) => {
     if (item.external?.readOnly) { window.open(item.external.sourceUrl, '_blank', 'noopener,noreferrer'); return; }
     const occurredAt = currentWorkspaceNow().toISOString();
+    const completedAt = completionAt ?? occurredAt;
     const completionExpiresAt = Date.now() + UNDO_WINDOW_MS;
     const targetId = item.habit ? item.id : item.occurrence?.seriesId && workspace?.items[item.occurrence.seriesId]?.habit ? item.occurrence.seriesId : item.id;
     const beforeTarget = workspace?.items[targetId] ? clean(workspace.items[targetId]!) : undefined;
@@ -815,7 +821,7 @@ export default function App() {
           if (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]) target = draft.items[item.occurrence.seriesId]!;
           target.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
           target.habit.completedDates ??= [];
-          const date = (item.occurrence?.recurrenceId ?? occurredAt).slice(0, 10);
+          const date = (item.occurrence?.recurrenceId ?? completedAt).slice(0, 10);
           if (state === 'done' && !target.habit.completedDates.includes(date)) {
             target.habit.completedDates.push(date);
             const recurrenceId = item.occurrence?.recurrenceId ?? `${date}T00:00:00.000Z`;
@@ -824,7 +830,7 @@ export default function App() {
               recurrenceId,
               ...(item.schedule?.startAt ? { startAt: item.schedule.startAt } : {}),
               ...(item.schedule?.dueAt ? { dueAt: item.schedule.dueAt } : {}),
-              closedAt: occurredAt,
+              closedAt: completedAt,
               state: 'done',
               actor: 'user',
               reason: 'manual',
@@ -841,7 +847,7 @@ export default function App() {
         }
         target.state = state; target.updatedAt = occurredAt; target.revision += 1;
         if (state === 'open') delete target.closure;
-        else target.closure = { at: target.updatedAt, actor: 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' };
+        else target.closure = { at: state === 'done' ? completedAt : target.updatedAt, actor: 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' };
         if ((state === 'done' || state === 'cancelled') && target.occurrence && target.closure) advanceCompletionAnchoredSeries(draft, target, target.closure.at);
         const event = { id: createId(), type: 'status.changed' as const, at: target.updatedAt, itemId: target.id, before: clean(item), after: clean(target as unknown as UniversalItem), causationId: createId(), depth: 0 };
         const result = runAutomationEvents(draft, [event]);
@@ -856,6 +862,13 @@ export default function App() {
       }
       if (changed && state !== 'open') setNotices((current) => current.filter((notice) => notice.itemId !== item.id));
     }, 0));
+  };
+  const changeItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)') => {
+    if (workspace && state === 'done' && usesCompletionAnchoredRecurrence(workspace, item)) {
+      setQuickCompletion({ itemId: item.id, celebrationColor, completedAt: dateInput(currentWorkspaceNow().toISOString()) });
+      return;
+    }
+    applyItemState(item, state, celebrationColor);
   };
   const dismissPopupNotice = (id: string) => {
     const timer = noticeTimers.current.get(id);
@@ -949,6 +962,25 @@ export default function App() {
       </Suspense>
     </AppShell>
     {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Add new item" aria-label="Add new item"/></form></div>}
+    {quickCompletion && <QuickCompletionInput
+      open
+      value={quickCompletion.completedAt}
+      onChange={(completedAt) => setQuickCompletion((current) => current ? { ...current, completedAt } : null)}
+      onClose={() => setQuickCompletion(null)}
+      onConfirm={() => {
+        const request = quickCompletion;
+        const item = workspace.items[request.itemId];
+        if (!item) { setQuickCompletion(null); return; }
+        const completedAt = fromDateInput(request.completedAt);
+        setQuickCompletion(null);
+        applyItemState(item, 'done', request.celebrationColor, completedAt);
+      }}
+      onEditItem={() => {
+        const item = workspace.items[quickCompletion.itemId];
+        setQuickCompletion(null);
+        if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
+      }}
+    />}
     <Suspense fallback={null}>{editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew} onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportAfterFlush(() => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata))} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onUpdateRecurrenceCompletion={(record: RecurrenceCompletionRecord, completedAt) => {
       const actionNow = currentWorkspaceNow();
       let result = { changed: false, rescheduled: false };

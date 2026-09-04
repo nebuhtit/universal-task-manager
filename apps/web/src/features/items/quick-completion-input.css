@@ -1,0 +1,12 @@
+.ui-dialog-popup.quick-completion-input {
+  width: min(100%, var(--layout-dialog-compact-max));
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.quick-completion-input .ui-dialog-header { display: none; }
+.quick-completion-input .ui-dialog-footer { justify-content: stretch; }
+.quick-completion-input .ui-dialog-footer .ui-button { flex: 1; }
+
+@media (max-width: 620px) {
+  .ui-dialog-popup.quick-completion-input { width: 100%; }
+}

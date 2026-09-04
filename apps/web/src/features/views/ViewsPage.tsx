@@ -29,6 +29,7 @@ import { ViewEditorSection } from './ViewEditorSection';
 import { useWorkspaceBoundaryNow } from './useViewEvaluation';
 import { modernizeLegacyViewScope } from './legacyViewScope';
 import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_EXTENSION, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
+import { itemIsExcludedByRows, itemIsExcludedBySource, setItemExcludedInRows, setItemExcludedInSource } from './viewItemExclusions';
 import './views-editor.css';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
@@ -257,6 +258,16 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setEditing({ ...editing, statistics: { showTime, reservedItemIds: [...new Set(reservedItemIds)] } });
   };
   const toggleReservedItem = (id: string, checked: boolean) => updateStatistics(statistics.showTime, checked ? [...statistics.reservedItemIds, id] : statistics.reservedItemIds.filter((candidate) => candidate !== id));
+  const isCandidateExcluded = (item: UniversalItem) => visualDirty ? itemIsExcludedBySource(item, editing?.query.source ?? '') : itemIsExcludedByRows(item, visualRows);
+  const excludedCandidateCount = reservedCandidates.filter(isCandidateExcluded).length;
+  const toggleExcludedItem = (item: UniversalItem, checked: boolean) => {
+    if (visualDirty) {
+      if (!editing) return;
+      setEditing({ ...editing, query: { source: setItemExcludedInSource(item, editing.query.source, checked) } });
+      return;
+    }
+    syncRowsToDsl(setItemExcludedInRows(item, visualRows, checked));
+  };
   const scriptPreviewItem = Object.values(workspace.items).find((item) => !item.deletedAt);
   const viewScriptResults = editing && scriptPreviewItem
     ? evaluateScriptsForItem(scriptPreviewItem, editing.scripts ?? [], (id) => workspace.items[id], workspaceNow)
@@ -423,7 +434,8 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
         <p className="builder-status">Completion is weighted by Duration. Remaining time includes unfinished items in this view.</p>
         {statisticsPeriod ? <p className="view-statistics-period">Capacity period: <strong>{statisticsPeriod.startDate === statisticsPeriod.endDate ? statisticsPeriod.startDate : `${statisticsPeriod.startDate} – ${statisticsPeriod.endDate}`}</strong></p> : <p className="view-statistics-period">Free time unavailable: add one finite Schedule in period rule.</p>}
         <p className="builder-status">Free time is the whole period minus this view's planned Duration and the reserved items below.</p>
-        <SearchableDisclosureList uiKey={`view-editor:statistics-reserved:${editing.id}`} className="view-statistics-reserved" summary={<span className="view-statistics-reserved-summary"><span>Reserved items</span><small>{statistics.reservedItemIds.length} selected</small></span>} items={reservedCandidates} getSearchText={(item) => item.title} searchLabel="Search reserved items" searchPlaceholder="Search items" emptyText="No scheduled items with Duration yet." noMatchesText="No matching items." renderItem={(item) => <Checkbox key={item.id} checked={statistics.reservedItemIds.includes(item.id)} onChange={(event) => toggleReservedItem(item.id, event.target.checked)} label={<>{item.title}{item.role === 'series_template' && <small> · repeats</small>}</>} />}/>
+        <SearchableDisclosureList uiKey={`view-editor:statistics-reserved:${editing.id}`} className="view-statistics-reserved" summary={<span className="view-statistics-reserved-summary"><span>Reserved items</span><small>{statistics.reservedItemIds.length} reserved · {excludedCandidateCount} excluded</small></span>} items={reservedCandidates} getSearchText={(item) => item.title} searchLabel="Search reserved items" searchPlaceholder="Search items" emptyText="No scheduled items with Duration yet." noMatchesText="No matching items." renderItem={(item) => <div className="view-statistics-item-controls" key={item.id}><span className="view-statistics-item-title">{item.title}{item.role === 'series_template' && <small> · repeats</small>}</span><Checkbox checked={statistics.reservedItemIds.includes(item.id)} onChange={(event) => toggleReservedItem(item.id, event.target.checked)} label="Reserve time" /><Checkbox checked={isCandidateExcluded(item)} onChange={(event) => toggleExcludedItem(item, event.target.checked)} label="Exclude from View" /></div>}/>
+        <small className="field-hint">Reserve time affects statistics only. Exclude from View adds a visible AND rule to Filter items and Advanced filter code. The two choices are independent.</small>
         <small className="field-hint">A recurring item is counted once for every occurrence inside the view period. If its occurrence is already in the view, it is not subtracted twice.</small>
       </fieldset></ViewEditorSection>
       <ViewEditorSection sectionKey="advanced-filter" title="Advanced filter code"><Field className="dsl-field" label="Advanced filter code" hint={<>Optional text form of the visual rows. SQL preview: {toSqlExpression(editing.query.source)}</>}><CodeEditor language="dsl" ariaLabel="Advanced filter code" rows={5} value={editing.query.source} onChange={(value) => { const rows = parseVisualRows(value, workspace.customFields); setEditing({ ...editing, query: { source: value } }); if (rows !== null) setVisualRows(rows); setVisualDirty(rows === null); }} /></Field></ViewEditorSection>
