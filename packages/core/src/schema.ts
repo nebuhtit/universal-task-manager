@@ -285,7 +285,7 @@ export const workspaceJsonSchema = {
         sleepSchedule: { type: 'object', additionalProperties: false, required: ['wake', 'sleep'], properties: { wake: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, sleep: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' } } },
         weekends: { type: 'boolean' }, snapMinutes: { type: 'integer', minimum: 1 }, defaultDurationMinutes: { type: 'integer', minimum: 1 },
         timeFormat: { const: '24h' }, language: { enum: ['en', 'ru', 'es', 'de', 'fr', 'ko'] },
-        appearance: { type: 'object', additionalProperties: false, required: ['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound'], properties: { mode: { enum: ['system', 'light', 'dark', 'scheduled'] }, lightAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, darkAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, tickSound: { type: 'boolean' }, uiSound: { type: 'boolean' }, soundDefaultsVersion: { const: 1 } } },
+        appearance: { type: 'object', additionalProperties: false, required: ['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound', 'overdueAgeIndicator'], properties: { mode: { enum: ['system', 'light', 'dark', 'scheduled'] }, lightAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, darkAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, tickSound: { type: 'boolean' }, uiSound: { type: 'boolean' }, overdueAgeIndicator: { type: 'boolean' }, soundDefaultsVersion: { const: 1 } } },
         dayView: {
           type: 'object', additionalProperties: false, required: ['filter', 'scheduleSources', 'fields', 'sort'],
           properties: {
@@ -830,7 +830,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.calendarPreferences ??= {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, weekends: true,
-    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 }, diagnosticsEnabled: true, showExplanations: false,
+    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, overdueAgeIndicator: true, soundDefaultsVersion: 1 }, diagnosticsEnabled: true, showExplanations: false,
   };
   const calendarPreferences = source.calendarPreferences as Record<string, unknown>;
   // Preferences are persisted locally and evolve faster than the workspace
@@ -921,14 +921,15 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       };
     }
   }
-  calendarPreferences.appearance ??= { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 };
+  calendarPreferences.appearance ??= { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, overdueAgeIndicator: true, soundDefaultsVersion: 1 };
   const appearance = calendarPreferences.appearance as Record<string, unknown>;
   Object.keys(appearance).forEach((key) => {
-    if (!['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound', 'soundDefaultsVersion'].includes(key)) delete appearance[key];
+    if (!['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound', 'overdueAgeIndicator', 'soundDefaultsVersion'].includes(key)) delete appearance[key];
   });
   if (!['system', 'light', 'dark', 'scheduled'].includes(String(appearance.mode))) appearance.mode = 'system';
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(appearance.lightAt))) appearance.lightAt = '07:00';
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(appearance.darkAt))) appearance.darkAt = '20:00';
+  if (typeof appearance.overdueAgeIndicator !== 'boolean') appearance.overdueAgeIndicator = true;
   // Previous releases had both switches off by default. Upgrade that default once,
   // while allowing a person to turn either sound off afterwards.
   if (appearance.soundDefaultsVersion !== 1) {

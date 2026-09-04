@@ -208,7 +208,7 @@ const measure = async <T,>(operation: () => T | Promise<T>) => {
 };
 
 const expectedBehaviorHashes: Record<number, string> = {
-  100: '4ab5f120',
+  100: 'a983a621',
   1_000: '9493f8f4',
   10_000: '3f8bf015',
 };

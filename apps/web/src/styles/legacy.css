@@ -148,6 +148,8 @@
 .view-item-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px; color: #444; font-size: 11px; margin-top: 4px; }
 .view-item-fields > span { flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .view-item-fields > [data-field="bodyMarkdown"] { max-width: 32ch; }
+.item-overdue-due-indicator { display: inline-block; flex: 0 0 auto; min-width: 1ch; min-height: 0; color: var(--color-warning); font-size: var(--font-size-caption); font-weight: var(--font-weight-regular); line-height: 1; text-align: center; font-variant-numeric: tabular-nums; }
+.item-system-status-column { width: var(--control-height-compact); padding-inline: var(--space-1); text-align: center; }
 .organization-colored-name { color: var(--organization-accent); }
 @supports (color: color-mix(in srgb, red 50%, black)) {
   .organization-colored-name { color: color-mix(in srgb, var(--organization-accent) 62%, var(--color-text-secondary)); }

@@ -40,6 +40,20 @@ describe('ViewResults manual ordering controls', () => {
     expect(renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer: 'table' }} />)).toContain('📌 Call mom 👩‍👦');
   });
 
+  it('shows the due-only overdue marker before configurable fields in every renderer', () => {
+    const workspace = createWorkspace('Overdue marker');
+    const item = createItem('Counters');
+    item.schedule = { timezone: 'UTC', dueAt: '2026-09-01T09:00:00.000Z' };
+    workspace.items[item.id] = item;
+    const view: SavedView = { id: 'overdue', name: 'Overdue', query: { source: 'true' }, renderer: 'list', fields: [], sort: [] };
+    const props = { workspace, evaluation: { items: [item], metrics: null, now: new Date('2026-09-04T13:00:00.000Z') }, onEdit: vi.fn(), onState: vi.fn() };
+    for (const renderer of ['list', 'table', 'calendar', 'board'] as const) {
+      const markup = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer }} />);
+      expect(markup).toContain('item-overdue-due-indicator');
+      expect(markup).toContain('Overdue');
+    }
+  });
+
   it('uses the initiating View color for every celebrating duplicate', () => {
     const workspace = createWorkspace('Celebration');
     const item = createItem('Shared item'); workspace.items[item.id] = item;

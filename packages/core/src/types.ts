@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.98.7';
-export const APP_RELEASED_AT = '2026-09-04T10:24:11.000Z';
+export const APP_VERSION = '1.98.8';
+export const APP_RELEASED_AT = '2026-09-04T14:50:34.127Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -553,7 +553,7 @@ export interface CalendarPreferences {
   defaultDurationMinutes: number;
   timeFormat: '24h';
   language: WorkspaceLanguage;
-  appearance: { mode: 'system' | 'light' | 'dark' | 'scheduled'; lightAt: string; darkAt: string; tickSound: boolean; uiSound: boolean; /** Records the one-time upgrade that enabled calm sounds by default. */ soundDefaultsVersion?: 1 };
+  appearance: { mode: 'system' | 'light' | 'dark' | 'scheduled'; lightAt: string; darkAt: string; tickSound: boolean; uiSound: boolean; overdueAgeIndicator: boolean; /** Records the one-time upgrade that enabled calm sounds by default. */ soundDefaultsVersion?: 1 };
   dayView: CalendarDayViewPreferences;
   /** Opt-in local operation logs used for troubleshooting; never uploaded automatically. */
   diagnosticsEnabled: boolean;
@@ -709,7 +709,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     calendarPreferences: {
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, sleepSchedule: { wake: '08:00', sleep: '22:00' },
-      weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 },
+      weekends: true, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, overdueAgeIndicator: true, soundDefaultsVersion: 1 },
       dayView: {
         filter: { source: 'state == "open" || state == "done"' },
         scheduleSources: ['event_open', 'event', 'active', 'due'],

@@ -900,6 +900,7 @@ describe('interoperability', () => {
     old.schemaVersion = '1.0.0';
     delete (old as Partial<typeof old>).listDefinitions;
     delete (old.calendarPreferences as Partial<typeof old.calendarPreferences>).sleepSchedule;
+    delete (old.calendarPreferences.appearance as Partial<typeof old.calendarPreferences.appearance>).overdueAgeIndicator;
     // A previously shipped UI briefly stored view-only state here. Unlock must
     // migrate it away rather than rejecting the whole local workspace.
     (old.calendarPreferences as typeof old.calendarPreferences & { staleUiFlag?: boolean }).staleUiFlag = true;
@@ -918,11 +919,17 @@ describe('interoperability', () => {
     expect(migrated.calendarPreferences.language).toBe('en');
     expect(migrated.calendarPreferences.diagnosticsEnabled).toBe(true);
     expect(migrated.calendarPreferences.showExplanations).toBe(false);
-    expect(migrated.calendarPreferences.appearance).toEqual({ mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, soundDefaultsVersion: 1 });
+    expect(migrated.calendarPreferences.appearance).toEqual({ mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, overdueAgeIndicator: true, soundDefaultsVersion: 1 });
     expect((migrated.calendarPreferences as typeof migrated.calendarPreferences & { staleUiFlag?: boolean }).staleUiFlag).toBeUndefined();
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
     expect(migrated.items[legacyHabit.id]!.habit?.completedDates).toEqual([]);
     expect(validateWorkspace(migrated).valid).toBe(true);
+  });
+
+  it('preserves an explicitly disabled overdue-age indicator', () => {
+    const workspace = createWorkspace('Hidden overdue age');
+    workspace.calendarPreferences.appearance.overdueAgeIndicator = false;
+    expect(fromCanonicalJSON(JSON.stringify(workspace)).calendarPreferences.appearance.overdueAgeIndicator).toBe(false);
   });
 
   it('adds a stable View order to workspaces created before View drag-and-drop', () => {

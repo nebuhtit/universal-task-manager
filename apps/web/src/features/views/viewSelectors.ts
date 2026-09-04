@@ -85,6 +85,9 @@ function visibleItemScripts(workspace: WorkspaceDocument, view: SavedView) {
 
 /** Conservatively detects whether a View can change while the workspace stays unchanged. */
 export function viewDependsOnCurrentTime(workspace: WorkspaceDocument, view: SavedView): boolean {
+  if (workspace.calendarPreferences.appearance.overdueAgeIndicator && getWorkspaceIndex(workspace).visibleItems.some((item) => item.state === 'open'
+    && Boolean(item.schedule?.dueAt)
+    && (!item.schedule?.startAt || !Number.isFinite(Date.parse(item.schedule.startAt))))) return true;
   if (safeExpressionDependsOnTime(view.query.source || 'true')) return true;
   const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
   if (/^\s*attentionOrder\b/m.test(sortSource)) return true;
