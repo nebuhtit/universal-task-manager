@@ -1,0 +1,21 @@
+{
+  "name": "@utm/obsidian",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs development",
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "dependencies": {
+    "@utm/web": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "builtin-modules": "^5.0.0",
+    "esbuild": "^0.28.2",
+    "obsidian": "latest",
+    "typescript": "^5.9.2"
+  }
+}

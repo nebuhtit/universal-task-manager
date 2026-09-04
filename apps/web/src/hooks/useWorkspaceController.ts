@@ -18,6 +18,8 @@ import { applyReconciliationResult, commitWorkspaceDocument } from '../services/
 import { LatestPersistenceQueue, persistWorkspace, type PersistenceOperation } from '../services/workspacePersistence';
 import { reconcileOffMainThread } from '../services/recurrenceWorker';
 import { scheduleWorkspaceTime } from '../services/workspaceTimers';
+import { nativeReminderSchedule } from '../services/nativeReminders';
+import { acknowledgeObsidianFlush, persistObsidianWorkspace, syncObsidianReminders } from '../services/obsidianBridge';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -124,6 +126,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
     if (sourceVersion !== migration.value.schemaVersion) await saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`);
     else await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode);
+    if (unlocked.storageMode !== 'plaintext') await persistObsidianWorkspace();
     finishActivationStage('persistence');
     persistenceQueue.current?.clearPending();
     const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated);
@@ -142,6 +145,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
 
   useEffect(() => {
     if (!workspace) return;
+    syncObsidianReminders(nativeReminderSchedule(workspace, effectiveWorkspaceNow(workspace)));
     let cancelled = false;
     const workspaceIndex = getWorkspaceIndex(workspace);
     const recurrenceSignature = workspaceIndex.recurrence.seriesTemplates
@@ -216,6 +220,15 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const flushPersistence = async () => {
     await persistenceQueue.current?.flush();
   };
+
+  useEffect(() => {
+    const flushForHost = (event: Event) => {
+      const id = (event as CustomEvent<{ id: string }>).detail.id;
+      void flushPersistence().then(() => acknowledgeObsidianFlush(id), (reason) => acknowledgeObsidianFlush(id, reason instanceof Error ? reason.message : String(reason)));
+    };
+    window.addEventListener('utm-obsidian-flush', flushForHost);
+    return () => window.removeEventListener('utm-obsidian-flush', flushForHost);
+  }, []);
 
   useEffect(() => {
     const flushBeforeBackground = () => {

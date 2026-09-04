@@ -1,34 +1,30 @@
-# Obsidian plugin plan
+# Obsidian plugin implementation
 
-## Goal
+## Implemented locally
 
-Provide an Obsidian-native shell around the Universal workspace without duplicating domain logic or weakening encryption. The plugin should work offline and keep workspace data in the user's vault or an explicitly selected local location.
+- Dedicated `Universal Task Manager` tab, command and ribbon action.
+- Bundled relative-path web build without GitHub Pages, network access or PWA registration.
+- Canonical encrypted `.universal/workspace.utmb`, loaded before the web workspace boots.
+- Existing debounced persistence followed by a host save through `app.vault.adapter` only.
+- Temporary write, exact read-back validation, previous-copy rotation and recovery copies.
+- External-change detection with explicit choices and no silent overwrite. Merge preserves both files and routes through Universal Transfer, which verifies the password and uses Automerge.
+- One nearest-reminder timer and clickable Obsidian Notice while Obsidian is running.
+- Normal Obsidian `ItemView` restoration after a tab or application restart.
 
-## Proposed phases
+## Security boundary
 
-1. **Read-only prototype** — register a `Universal` view, load the bundled web app in an Obsidian item view, and expose vault paths only through an explicit import/export action.
-2. **Workspace bridge** — add commands to open/import an encrypted `.utmb` file and export a verified backup. Never write Google Calendar events or OAuth tokens into vault files.
-3. **Vault integration** — optionally mirror selected plain-text notes as one-way references, with stable item IDs and conflict warnings. The encrypted workspace remains the source of truth.
-4. **Notifications and sync** — use Obsidian's lifecycle and workspace events, with debounced persistence and no background network sync by default.
+- The host receives only the already encrypted, Google-safe recovery container; it never receives or stores the password or data key.
+- The decrypted Automerge document exists only in embedded-app memory. Universal's lock flow zeroes its key.
+- No telemetry was added. Plugin logs contain no item or calendar titles.
+- Runtime uses no Node or Electron APIs. Build-time esbuild uses Node, but the artifact uses the mobile-compatible Vault Adapter.
+- Note integration is not implemented, so the plugin never scans the vault.
 
-## Technical decisions
+## Verification required before public release
 
-- Reuse `packages/core` and `packages/sdk` through a small adapter rather than reimplementing filtering, recurrence, reminders, and sorting.
-- Keep the web UI bundled locally; no dependency on GitHub Pages at runtime.
-- Store plugin settings (workspace path, UI preferences) separately from workspace content.
-- Treat vault sync as an explicit user action; never silently overwrite a workspace or expose Google Calendar data in Markdown, JSON, or plugin settings.
-- Add a capability check for Obsidian mobile and degrade to file import/export when native filesystem access is unavailable.
+- Physical iOS and Android Obsidian: touch, safe area, keyboard and tab restoration.
+- Obsidian Sync/iCloud conflicts on two devices.
+- 10,000-item workspace responsiveness and interrupted-write recovery.
+- Cold start and reminders while offline.
+- Community Plugins packaging review.
 
-## First implementation slice
-
-- scaffold `manifest.json` and `main.ts`;
-- add a `UniversalView` ItemView with a local asset loader;
-- add commands: `Open Universal workspace`, `Export encrypted backup`, and `Close workspace`;
-- add unit tests for path handling and export exclusion rules;
-- verify desktop and mobile Obsidian packaging before adding vault mirroring.
-
-## Open decisions
-
-- whether the canonical workspace lives inside the vault or in Application Support;
-- whether vault mirroring should be opt-in per item or disabled entirely in v1;
-- whether native Obsidian notices should replace the web notification center.
+Background reminders while Obsidian is closed are intentionally out of scope; the native iOS shell owns that capability.

@@ -5,13 +5,14 @@ import automergeWasmUrl from '@automerge/automerge/automerge.wasm?url';
 import { registerSW } from 'virtual:pwa-register';
 import App, { AppErrorBoundary } from './App.js';
 import './styles.css';
+import { bootstrapObsidianWorkspace } from './services/obsidianBridge';
 
-if (import.meta.env.PROD && import.meta.env.VITE_NATIVE_IOS !== 'true') registerSW({ immediate: true });
+if (import.meta.env.PROD && import.meta.env.VITE_NATIVE_IOS !== 'true' && import.meta.env.VITE_OBSIDIAN !== 'true') registerSW({ immediate: true });
 else void navigator.serviceWorker?.getRegistrations().then((registrations) => registrations.forEach((registration) => void registration.unregister()));
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 
-void Automerge.initializeWasm(automergeWasmUrl).then(() => {
+void Automerge.initializeWasm(automergeWasmUrl).then(bootstrapObsidianWorkspace).then(() => {
   root.render(<React.StrictMode><AppErrorBoundary><App /></AppErrorBoundary></React.StrictMode>);
 }).catch((reason) => {
   const message = reason instanceof Error ? reason.message : String(reason);

@@ -525,6 +525,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('home');
   const [editor, setEditor] = useState<UniversalItem | null>(null);
   const [editorIsNew, setEditorIsNew] = useState(false);
+
   const [transfer, setTransfer] = useState(false);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [popupNoticeIds, setPopupNoticeIds] = useState<string[]>([]);
@@ -550,6 +551,17 @@ export default function App() {
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
   const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  useEffect(() => {
+    const openHostItem = (event: Event) => {
+      const itemId = (event as CustomEvent<{ itemId?: string }>).detail?.itemId;
+      const item = itemId ? workspace?.items[itemId] : undefined;
+      if (!workspace || !item) return;
+      setEditorIsNew(false);
+      setEditor(itemEditorSource(workspace, item));
+    };
+    window.addEventListener('utm-open-item', openHostItem);
+    return () => window.removeEventListener('utm-open-item', openHostItem);
+  }, [workspace]);
   const iCloudBackupSignature = useRef<string | null>(null);
   const nativeReminderSignature = useRef<string | null>(null);
   useEffect(() => {

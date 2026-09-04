@@ -7,6 +7,7 @@ import {
   type UnlockedWorkspace,
 } from '@utm/sdk';
 import type { WorkspaceDocument } from '@utm/core';
+import { persistObsidianWorkspace } from './obsidianBridge';
 
 type PersistenceResponse =
   | { id: number; ok: true; binary: Uint8Array; exportSafeBinary?: Uint8Array }
@@ -73,6 +74,7 @@ async function prepareOffMainThread(session: UnlockedWorkspace): Promise<Prepare
 export async function persistWorkspace(session: UnlockedWorkspace): Promise<void> {
   const prepared = await prepareOffMainThread(session);
   await commitPreparedLocalWorkspaceSave(prepared);
+  if (session.storageMode !== 'plaintext') await persistObsidianWorkspace();
 }
 
 export type PersistenceOperation = { session: UnlockedWorkspace; message: string; startedAt: number };

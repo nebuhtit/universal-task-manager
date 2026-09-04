@@ -1,0 +1,9 @@
+{
+  "id": "universal-task-manager",
+  "name": "Universal Task Manager",
+  "version": "0.1.0",
+  "minAppVersion": "1.8.10",
+  "description": "Open the offline Universal task, event, habit, and PARA workspace inside Obsidian.",
+  "author": "Konstantin Petrov",
+  "isDesktopOnly": false
+}

@@ -718,6 +718,25 @@ export async function exportEncryptedLocalBackup(): Promise<string> {
   return JSON.stringify({ magic: 'UTM-LOCAL-ENCRYPTED', version: 1, exportedAt: new Date().toISOString(), metadata, workspace });
 }
 
+/**
+ * Installs an encrypted local recovery copy supplied by a trusted local host
+ * (for example the Obsidian vault adapter) without ever asking that host for
+ * the password. Authentication still happens through the normal unlock flow.
+ */
+export async function installEncryptedLocalBackup(source: string): Promise<void> {
+  let parsed: Partial<LocalRecoveryBackup>;
+  try { parsed = JSON.parse(source) as Partial<LocalRecoveryBackup>; }
+  catch { throw new Error('Encrypted workspace file is not valid JSON'); }
+  if (parsed.magic !== 'UTM-LOCAL-ENCRYPTED' || parsed.version !== 1 || !parsed.metadata?.wrappedKey || !parsed.workspace?.nonce || !parsed.workspace.ciphertext) {
+    throw new Error('Encrypted recovery copy is incomplete');
+  }
+  const backup = parsed as LocalRecoveryBackup;
+  await transactRecords(
+    [[META_KEY, backup.metadata], [BLOCK_KEY, backup.workspace], [EXPORT_SAFE_BLOCK_KEY, backup.workspace]],
+    [FACE_ID_KEY, PASSWORD_BYPASS_KEY],
+  );
+}
+
 export function lock(unlocked: UnlockedWorkspace): void { unlocked.dataKey.fill(0); }
 
 export const __testing = { DB_NAME, STORE, META_KEY, BLOCK_KEY, EXPORT_SAFE_BLOCK_KEY, PASSWORD_BYPASS_KEY, toBase64, fromBase64 };

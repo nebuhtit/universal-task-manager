@@ -12,6 +12,7 @@ const hasLocalChanges = () => {
   catch { return false; }
 };
 const localCommit = readLocalCommit();
+const isObsidianBuild = process.env.VITE_OBSIDIAN === 'true';
 
 const liveBuildInfo: Plugin = {
   name: 'utm-live-build-info',
@@ -24,7 +25,11 @@ const liveBuildInfo: Plugin = {
   },
 };
 
-const base = process.env.VITE_GITHUB_PAGES === 'true' ? '/universal-task-manager/' : '/';
+const base = process.env.VITE_GITHUB_PAGES === 'true'
+  ? '/universal-task-manager/'
+  : isObsidianBuild
+    ? './'
+    : '/';
 
 export default defineConfig({
   base,
@@ -46,6 +51,7 @@ export default defineConfig({
     liveBuildInfo,
     react(),
     VitePWA({
+      disable: isObsidianBuild,
       registerType: 'autoUpdate',
       strategies: 'injectManifest',
       srcDir: 'src',
