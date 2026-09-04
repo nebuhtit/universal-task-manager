@@ -110,7 +110,7 @@ const eligible = (item: UniversalItem) => !item.deletedAt
   && item.external?.transparency !== 'transparent'
   && participatesInTimeStatistics(item);
 
-function durationInsidePeriod(item: UniversalItem, period: ViewPeriodBounds): number {
+export function itemDurationInsidePeriod(item: UniversalItem, period: ViewPeriodBounds): number {
   const duration = effectiveItemDurationMs(item);
   if (duration <= 0) return 0;
   const start = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
@@ -140,7 +140,7 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
         completedDurationMs += direction * duration;
       } else if (item.state === 'open') remainingDurationMs += direction * duration;
     }
-    if (period && eligible(item)) plannedDurationMs += direction * durationInsidePeriod(item, period);
+  if (period && eligible(item)) plannedDurationMs += direction * itemDurationInsidePeriod(item, period);
   };
   return {
     add(item) {

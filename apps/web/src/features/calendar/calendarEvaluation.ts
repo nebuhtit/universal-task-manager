@@ -2,6 +2,8 @@ import {
   compileQuery,
   createOccurrence,
   createViewTimeMetricsAccumulator,
+  itemDurationInsidePeriod,
+  participatesInTimeStatistics,
   projectOccurrences,
   scheduleDateKeysInRange,
   viewPeriodBoundsForDates,
@@ -49,7 +51,7 @@ export function calendarDayView(key: string, settings: CalendarDayViewPreference
     query: { source: `(scheduleInPeriod("custom", "${settings.scheduleSources.join(',')}", false, 7, "${key}", "${key}")) && (${filter})` },
     sort: settings.sort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })),
     ...(settings.sortSource ? { sortSource: settings.sortSource } : {}),
-    statistics: { showTime: true, reservedItemIds: [] },
+    statistics: settings.statistics ?? { showTime: true, reservedItemIds: [] },
   };
 }
 
@@ -110,6 +112,9 @@ export function evaluateCalendarRange(
     metrics: ReturnType<typeof createViewTimeMetricsAccumulator>;
     occurrenceIndexBySeries: Map<string, number>;
     standaloneIds: Set<string>;
+    visibleSourceIds: Set<string>;
+    reservedSourceIds: Set<string>;
+    reservedDurationMs: number;
   }>();
   for (let key = rangeStartKey; key < rangeEndKey; key = shiftDateKey(key, 1)) {
     buckets.set(key, {
@@ -118,6 +123,9 @@ export function evaluateCalendarRange(
       metrics: createViewTimeMetricsAccumulator(viewPeriodBoundsForDates(key, key, timeZone)),
       occurrenceIndexBySeries: new Map(),
       standaloneIds: new Set(),
+      visibleSourceIds: new Set(),
+      reservedSourceIds: new Set(),
+      reservedDurationMs: 0,
     });
   }
 
@@ -135,6 +143,7 @@ export function evaluateCalendarRange(
       const bucket = buckets.get(key);
       if (!bucket) continue;
       const seriesId = entry.item.role === 'occurrence' ? entry.item.occurrence?.seriesId : undefined;
+      bucket.visibleSourceIds.add(seriesId ?? entry.item.id);
       if (!seriesId) {
         if (bucket.standaloneIds.has(entry.item.id)) continue;
         bucket.standaloneIds.add(entry.item.id);
@@ -157,11 +166,24 @@ export function evaluateCalendarRange(
     }
   }
 
+  const reservedIds = new Set(settings.statistics?.reservedItemIds ?? []);
+  if (reservedIds.size) for (const entry of projected) {
+    const sourceId = entry.item.role === 'occurrence' ? entry.item.occurrence?.seriesId : entry.item.id;
+    if (!sourceId || !reservedIds.has(sourceId) || entry.item.deletedAt || entry.item.state === 'cancelled' || entry.item.state === 'archived' || entry.item.external?.transparency === 'transparent' || !participatesInTimeStatistics(entry.item)) continue;
+    const keys = scheduleDateKeysInRange(viewItemForEvaluation(entry.item), ['event_open', 'event', 'active', 'due'], rangeStartKey, rangeEndKey, { timeZone });
+    for (const key of keys) {
+      const bucket = buckets.get(key);
+      if (!bucket || bucket.visibleSourceIds.has(sourceId) || bucket.reservedSourceIds.has(sourceId)) continue;
+      bucket.reservedSourceIds.add(sourceId);
+      bucket.reservedDurationMs += itemDurationInsidePeriod(entry.item, viewPeriodBoundsForDates(key, key, timeZone));
+    }
+  }
+
   const days = Object.fromEntries([...buckets].map(([key, bucket]) => {
     const items = sortViewItems(projectedWorkspace, bucket.view, bucket.entries.map(({ item }) => item), now);
     const entriesById = new Map(bucket.entries.map((entry) => [entry.item.id, entry]));
     const entries = items.map((item) => entriesById.get(item.id)).filter((entry): entry is CalendarProjectedEntry => Boolean(entry));
-    const metrics = bucket.metrics.finish();
+    const metrics = bucket.metrics.finish(bucket.reservedDurationMs);
     return [key, { entries, view: bucket.view, metrics, evaluation: { items, metrics, now } }];
   }));
 

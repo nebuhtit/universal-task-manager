@@ -292,6 +292,10 @@ export const workspaceJsonSchema = {
             filter: { type: 'object', additionalProperties: false, required: ['source'], properties: { source: { type: 'string' } } },
             scheduleSources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['event_open', 'event', 'active', 'due'] } },
             fields: stringArray,
+            statistics: {
+              type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
+              properties: { showTime: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
+            },
             sort: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['expression', 'direction', 'nulls'], properties: { expression: { type: 'string' }, direction: { enum: ['asc', 'desc'] }, nulls: { enum: ['first', 'last'] } } } },
             sortSource: { type: 'string' },
           },
@@ -866,12 +870,19 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       filter: { source: selectedView?.query.source || stateFilter },
       scheduleSources: ['event_open', 'event', 'active', 'due'],
       fields: selectedView?.fields?.length ? [...selectedView.fields] : [...starterFields, 'schedule.estimatedDuration', 'external.provider'],
+      statistics: selectedView?.statistics ?? { showTime: true, reservedItemIds: [] },
       sort: migratedSort,
       sortSource: serializeSortRules(migratedSort),
     };
   }
   delete calendarPreferences.selectedViewId;
   delete calendarPreferences.includeStates;
+  const dayView = calendarPreferences.dayView as Record<string, unknown>;
+  const dayStatistics = dayView.statistics && typeof dayView.statistics === 'object' && !Array.isArray(dayView.statistics) ? dayView.statistics as Record<string, unknown> : {};
+  dayView.statistics = {
+    showTime: dayStatistics.showTime !== false,
+    reservedItemIds: Array.isArray(dayStatistics.reservedItemIds) ? [...new Set(dayStatistics.reservedItemIds.filter((id): id is string => typeof id === 'string' && id.length > 0))] : [],
+  };
   const legacyWorkingHours = calendarPreferences.workingHours as { start?: string; end?: string } | undefined;
   calendarPreferences.sleepSchedule ??= { wake: legacyWorkingHours?.start ?? '08:00', sleep: legacyWorkingHours?.end ?? '22:00' };
   if (!['en', 'ru', 'es', 'de', 'fr', 'ko'].includes(String(calendarPreferences.language))) calendarPreferences.language = 'en';

@@ -107,7 +107,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
 
   return <section className="calendar-page page-section">
     <header className="calendar-title">
-      <div><p className="eyebrow">CALENDAR</p><h1>{selectedLabel}</h1><ViewMetricsSummary metrics={selected.metrics} language={preferences.language} /></div>
+      <div><p className="eyebrow">CALENDAR</p><h1>{selectedLabel}</h1>{selected.view.statistics?.showTime !== false && <ViewMetricsSummary metrics={selected.metrics} language={preferences.language} />}</div>
       <IconButton size="compact" variant="ghost" onClick={() => setEditorOpen(true)} aria-label="Edit calendar day view"><LineIcon name="settings" /></IconButton>
     </header>
 
@@ -127,7 +127,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
         {navigatorMode === 'month' && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
         {dayKeys.map((key) => <button type="button" className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} onClick={() => setSelectedDate(key)} key={key}>
           <span className="calendar-day-label"><b>{navigatorMode === 'week' ? formatDate(key, { weekday: 'short' }) : Number(key.slice(-2))}</b>{navigatorMode === 'week' && <small>{formatDate(key, { day: 'numeric', month: 'short' })}</small>}</span>
-          <ViewMetricsSummary metrics={navigationMetrics(dayData[key]!.metrics)} language={preferences.language} />
+          {dayData[key]!.view.statistics?.showTime !== false && <ViewMetricsSummary metrics={navigationMetrics(dayData[key]!.metrics)} language={preferences.language} />}
         </button>)}
       </div>
     </Surface>

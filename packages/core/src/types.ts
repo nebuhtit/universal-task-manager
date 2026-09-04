@@ -537,6 +537,8 @@ export interface CalendarDayViewPreferences {
   /** Schedule relationships matched with OR inside the fixed selected day. */
   scheduleSources: CalendarScheduleSource[];
   fields: string[];
+  /** Presentation and capacity settings shared by every selected calendar day. */
+  statistics?: ViewStatisticsSettings;
   sort: ViewSortRule[];
   sortSource?: string;
 }

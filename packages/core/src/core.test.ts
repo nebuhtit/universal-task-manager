@@ -985,6 +985,7 @@ describe('interoperability', () => {
     expect(migrated.calendarPreferences.dayView.filter.source).toBe(selected.query.source);
     expect(migrated.calendarPreferences.dayView.scheduleSources).toEqual(['event_open', 'event', 'active', 'due']);
     expect(migrated.calendarPreferences.dayView.fields).toEqual(selected.fields);
+    expect(migrated.calendarPreferences.dayView.statistics).toEqual(selected.statistics ?? { showTime: true, reservedItemIds: [] });
     expect(migrated.calendarPreferences).not.toHaveProperty('selectedViewId');
     expect(migrated.calendarPreferences).not.toHaveProperty('includeStates');
     expect(validateWorkspace(migrated).valid).toBe(true);

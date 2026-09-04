@@ -70,5 +70,21 @@ describe('calendar range evaluation', () => {
     expect(Object.keys(result.days)).toEqual(['2026-10-24', '2026-10-25', '2026-10-26']);
     expect(Object.values(result.days).every((day) => day.evaluation.items.length === 0 && day.metrics.periodDurationMs === 86_400_000)).toBe(true);
   });
-});
 
+  it('keeps a hidden reserved item out of the day while still subtracting its time', () => {
+    const workspace = createWorkspace('Calendar reserve', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    const sleep = createItem('Sleep', 'event', now);
+    sleep.id = 'sleep';
+    sleep.schedule = { timezone: 'UTC', startAt: '2026-08-31T10:00:00.000Z', endAt: '2026-08-31T12:00:00.000Z', estimatedDuration: 'PT2H' };
+    workspace.items = { sleep };
+    const preferences = settings(['event']);
+    preferences.filter.source = 'id != "sleep"';
+    preferences.statistics = { showTime: true, reservedItemIds: ['sleep'] };
+
+    const result = evaluateCalendarRange(workspace, '2026-08-31', '2026-09-01', preferences, now);
+    expect(result.days['2026-08-31']!.evaluation.items).toEqual([]);
+    expect(result.days['2026-08-31']!.metrics.reservedDurationMs).toBe(2 * 60 * 60 * 1_000);
+    expect(result.days['2026-08-31']!.metrics.freeDurationMs).toBe(22 * 60 * 60 * 1_000);
+  });
+});

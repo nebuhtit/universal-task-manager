@@ -10,6 +10,7 @@ import { Button, Field, IconButton, Input, Select } from '../../components/ui/pr
 import { DisplayedFieldsEditor } from '../views/DisplayedFieldsEditor';
 import { ReminderPeriodEditor, ScheduleSourcePicker } from '../views/SchedulePeriodEditor';
 import { ViewEditorSection } from '../views/ViewEditorSection';
+import { ViewStatisticsEditor } from '../views/ViewStatisticsEditor';
 import { ViewSortingEditor } from '../views/ViewSortingEditor';
 import { viewFieldOptions } from '../views/fieldCatalog';
 import {
@@ -24,6 +25,7 @@ const editorView = (settings: CalendarDayViewPreferences): SavedView => ({
   query: clean(settings.filter), fields: [...settings.fields],
   sort: settings.sort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })),
   sortSource: settings.sortSource ?? serializeSortRules(settings.sort),
+  statistics: settings.statistics ?? { showTime: true, reservedItemIds: [] },
 });
 
 export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }: {
@@ -74,6 +76,7 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
   }));
   const updateSortRules = (next: ViewSortRule[]) => { setSortRules(next); setSortSource(serializeSortRules(next)); };
   const view = editorView(draft);
+  const updateEditorView = (next: SavedView) => setDraft((current) => ({ ...current, filter: clean(next.query), fields: [...next.fields], statistics: next.statistics ?? { showTime: true, reservedItemIds: [] } }));
   const save = () => {
     try {
       parseExpression(draft.filter.source.trim() || 'true');
@@ -107,6 +110,7 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
       </fieldset>
     </ViewEditorSection>
     <ViewEditorSection sectionKey="calendar-day-fields" title="Show in results"><DisplayedFieldsEditor workspace={workspace} view={view} onChange={(next) => setDraft({ ...draft, fields: next.fields })} /></ViewEditorSection>
+    <ViewStatisticsEditor workspace={workspace} view={view} rows={rows} visualDirty={visualDirty} onViewChange={updateEditorView} onRowsChange={syncRows} fixedPeriodLabel="Selected calendar day" />
     <ViewSortingEditor workspace={workspace} rules={sortRules} source={sortSource} onRules={updateSortRules} onSource={(source, parsed) => { setSortSource(source); if (parsed) setSortRules(parsed); }} />
     {error && <p className="error" role="alert">{error}</p>}
   </ResponsiveDialog>;
