@@ -8,8 +8,8 @@ describe('view templates', () => {
     expect(BUILT_IN_VIEW_TEMPLATES.map((view) => view.name)).toEqual(['Inbox', 'All', 'Today', 'Tomorrow', 'This week', 'Some Area', 'Some Project']);
     expect(BUILT_IN_VIEW_TEMPLATES[3]?.query.source).toContain('scheduleInPeriod("tomorrow", "event_open,active,due", false');
     expect(BUILT_IN_VIEW_TEMPLATES[2]?.query.source).toContain('scheduleInPeriod("today", "event_open,event,active,due", true');
-    expect(BUILT_IN_VIEW_TEMPLATES[2]?.query.source).toContain('activeRangeWhenSet == true');
-    expect(BUILT_IN_VIEW_TEMPLATES[4]?.query.source).toContain('activeRangeWhenSet == true');
+    expect(BUILT_IN_VIEW_TEMPLATES[2]?.query.source).toContain('activeRangeWhenSetOrOverdue == true');
+    expect(BUILT_IN_VIEW_TEMPLATES[4]?.query.source).toContain('activeRangeWhenSetOrOverdue == true');
     expect(BUILT_IN_VIEW_TEMPLATES[3]?.fields).toEqual(BUILT_IN_VIEW_TEMPLATES[2]?.fields);
     expect(BUILT_IN_VIEW_TEMPLATES.every(isViewTemplate)).toBe(true);
     expect(BUILT_IN_VIEW_TEMPLATES.every((view) => JSON.stringify(view.fields) === JSON.stringify(VIEW_TEMPLATE_FIELDS))).toBe(true);

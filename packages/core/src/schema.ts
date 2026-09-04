@@ -589,6 +589,8 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const weekQuery = `${ACTIVE_ITEM_VIEW_QUERY} && (eventThisWeek == true || dueThisWeekOrOverdue == true)`;
   const guardedTodayQuery = `${ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSet == true`;
   const guardedWeekQuery = `${ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSet == true`;
+  const overdueAwareTodayQuery = `${ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true`;
+  const overdueAwareWeekQuery = `${ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true`;
   const tomorrowQuery = `${ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")`;
   const starterFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
   const legacyStarterFields = [
@@ -629,6 +631,8 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       }
       if (migrated.value.name === 'Today' && migrated.value.query.source === todayQuery) migrated.value.query.source = guardedTodayQuery;
       if (migrated.value.name === 'This week' && migrated.value.query.source === weekQuery) migrated.value.query.source = guardedWeekQuery;
+      if (migrated.value.name === 'Today' && migrated.value.query.source === guardedTodayQuery) migrated.value.query.source = overdueAwareTodayQuery;
+      if (migrated.value.name === 'This week' && migrated.value.query.source === guardedWeekQuery) migrated.value.query.source = overdueAwareWeekQuery;
       const manualOrder = migrated.value.extensions?.['utm:manualOrder'];
       if (migrated.value.renderer !== 'calendar' && !(Array.isArray(manualOrder) && manualOrder.length)) {
         try {
@@ -658,11 +662,11 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const migratedViews = source.views as Record<string, SavedView>;
   if (migratedViews.__all_items__ && hasLegacyStarterFields(migratedViews.__all_items__.fields)) migratedViews.__all_items__.fields = [...starterFields];
   Object.values(migratedViews).forEach((view) => {
-    if ([todayQuery, weekQuery, guardedTodayQuery, guardedWeekQuery].includes(view.query.source) && hasLegacyStarterFields(view.fields)) view.fields = [...starterFields];
+    if ([todayQuery, weekQuery, guardedTodayQuery, guardedWeekQuery, overdueAwareTodayQuery, overdueAwareWeekQuery].includes(view.query.source) && hasLegacyStarterFields(view.fields)) view.fields = [...starterFields];
   });
   const requestedViewOrder = Array.isArray(source.viewOrder) ? source.viewOrder.filter((id): id is string => typeof id === 'string' && Boolean(migratedViews[id])) : [];
-  const todayStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'Today' && view.query.source === guardedTodayQuery)?.[0];
-  const weekStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'This week' && view.query.source === guardedWeekQuery)?.[0];
+  const todayStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'Today' && view.query.source === overdueAwareTodayQuery)?.[0];
+  const weekStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'This week' && view.query.source === overdueAwareWeekQuery)?.[0];
   const starterIds = [todayStarterId, weekStarterId, migratedViews.__all_items__ ? '__all_items__' : undefined].filter((id): id is string => Boolean(id));
   source.viewOrder = [...new Set([...starterIds, ...requestedViewOrder.filter((id) => !starterIds.includes(id)), ...Object.keys(migratedViews)])];
   const rawListDefinitions = source.listDefinitions && typeof source.listDefinitions === 'object' && !Array.isArray(source.listDefinitions)

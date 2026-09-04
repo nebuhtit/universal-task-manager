@@ -83,6 +83,17 @@ describe('safe expression language', () => {
     expect(compileQuery('activeRange == true')(eventWithoutActiveRange, now)).toBe(false);
   });
 
+  it('lets standard Today guards retain overdue items without admitting future active ranges', () => {
+    const now = new Date('2026-09-04T13:40:00.000Z');
+    const query = compileQuery('scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true', undefined, { timeZone: 'UTC', weekStartsOn: 1 });
+    const overdue = createItem('Counters');
+    overdue.schedule = { startAt: '2026-09-01T09:00:00.000Z', dueAt: '2026-09-01T09:00:00.000Z', timezone: 'UTC' };
+    const future = createItem('Future range');
+    future.schedule = { startAt: '2026-09-04T21:15:00.000Z', dueAt: '2026-09-06T11:00:00.000Z', timezone: 'UTC' };
+    expect(query(overdue, now)).toBe(true);
+    expect(query(future, now)).toBe(false);
+  });
+
   it('interprets legacy presence checks for computed booleans as explicit true or false', () => {
     const item = createItem('Future active range');
     item.schedule = { startAt: '2026-09-03T21:15:00.000Z', dueAt: '2026-09-06T11:00:00.000Z' };
@@ -206,7 +217,7 @@ describe('safe expression language', () => {
     const migrated = migrateWorkspace(workspace).value;
     expect(migrated.viewOrder.slice(0, 4)).toEqual([today.id, week.id, '__all_items__', 'custom']);
     expect(migrated.views[today.id]?.name).toBe('Today');
-    expect(migrated.views[today.id]?.query.source).toContain('activeRangeWhenSet == true');
+    expect(migrated.views[today.id]?.query.source).toContain('activeRangeWhenSetOrOverdue == true');
     expect(migrated.views[today.id]?.fields).toEqual(['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project']);
     expect(migrated.views[week.id]?.name).toBe('This week');
     expect(migrated.views.custom?.query.source).toBe('dueTodayOrOverdue == true');

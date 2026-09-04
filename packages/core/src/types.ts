@@ -674,7 +674,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       [todayId]: {
         id: todayId,
         name: 'Today',
-        query: { source: `${activeQuery} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSet == true` },
+        query: { source: `${activeQuery} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true` },
         renderer: 'list',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
@@ -683,7 +683,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       [weekId]: {
         id: weekId,
         name: 'This week',
-        query: { source: `${activeQuery} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSet == true` },
+        query: { source: `${activeQuery} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true` },
         renderer: 'list',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
