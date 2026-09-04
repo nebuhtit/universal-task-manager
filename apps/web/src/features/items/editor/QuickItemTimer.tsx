@@ -7,7 +7,16 @@ import './quick-item-timer.css';
 
 type TimerMode = 'timer' | 'stopwatch';
 
-const formatClock = (milliseconds: number) => {
+const formatClock = (milliseconds: number, includeMilliseconds = false) => {
+  if (includeMilliseconds) {
+    const safe = Math.max(0, Math.floor(milliseconds));
+    const totalSeconds = Math.floor(safe / 1_000);
+    const hours = Math.floor(totalSeconds / 3_600);
+    const minutes = Math.floor((totalSeconds % 3_600) / 60);
+    const seconds = totalSeconds % 60;
+    const prefix = [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
+    return `${prefix}.${String(safe % 1_000).padStart(3, '0')}`;
+  }
   const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1_000));
   const hours = Math.floor(totalSeconds / 3_600);
   const minutes = Math.floor((totalSeconds % 3_600) / 60);
@@ -25,7 +34,7 @@ export function QuickItemTimer({ soundEnabled = true, onRecord }: { soundEnabled
   const [elapsedBeforeStart, setElapsedBeforeStart] = useState(0);
   const [alarming, setAlarming] = useState(false);
   const stopAlarmRef = useRef<() => void>(() => undefined);
-  const now = useClockMilliseconds(250, running);
+  const now = useClockMilliseconds(mode === 'stopwatch' ? 50 : 250, running);
   const elapsed = elapsedBeforeStart + (running ? Math.max(0, now - startedAt) : 0);
   const duration = Math.max(1, minutes) * 60_000;
   const remaining = Math.max(0, duration - elapsed);
@@ -45,7 +54,8 @@ export function QuickItemTimer({ soundEnabled = true, onRecord }: { soundEnabled
 
   const stopAlarm = () => { stopAlarmRef.current(); stopAlarmRef.current = () => undefined; setAlarming(false); };
   const record = (durationMilliseconds: number, endedAt = Date.now()) => {
-    if (!onRecord || durationMilliseconds < 1_000) return;
+    const minimumDuration = mode === 'stopwatch' ? 30_000 : 1_000;
+    if (!onRecord || durationMilliseconds <= minimumDuration) return;
     onRecord({
       id: crypto.randomUUID(), mode, startedAt: new Date(Math.max(0, endedAt - durationMilliseconds)).toISOString(), endedAt: new Date(endedAt).toISOString(),
       durationSeconds: Math.round(durationMilliseconds / 1_000), ...(mode === 'timer' ? { targetSeconds: Math.max(1, minutes) * 60 } : {}),
@@ -61,17 +71,20 @@ export function QuickItemTimer({ soundEnabled = true, onRecord }: { soundEnabled
     setStartedAt(Date.now()); setRunning(true);
   };
 
-  return <section className="quick-item-timer" aria-label="Quick timer and stopwatch">
+  return <details className="quick-item-timer" aria-label="Quick timer and stopwatch">
+    <summary>Quick timer &amp; stopwatch</summary>
+    <div className="quick-item-timer-body">
     <div className="quick-item-timer-controls">
       <Select aria-label="Quick timer mode" value={mode} onChange={(event) => changeMode(event.target.value as TimerMode)}>
         <option value="timer">Timer</option><option value="stopwatch">Stopwatch</option>
       </Select>
       {mode === 'timer' && <label><span>Minutes</span><Input aria-label="Timer minutes" type="number" min="1" step="1" value={minutes} onChange={(event) => { setMinutes(Math.max(1, Math.floor(Number(event.target.value) || 1))); reset(); }} /></label>}
     </div>
-    <output aria-live={finished ? 'polite' : 'off'}>{formatClock(mode === 'timer' ? remaining : elapsed)}</output>
+    <output aria-live={finished ? 'polite' : 'off'}>{formatClock(mode === 'timer' ? remaining : elapsed, mode === 'stopwatch')}</output>
     <div className="quick-item-timer-actions">
       {alarming ? <Button size="compact" onClick={stopAlarm}>Stop sound</Button> : <Button size="compact" onClick={toggle}>{running ? 'Pause' : finished ? 'Restart' : 'Start'}</Button>}
       <Button size="compact" variant="ghost" disabled={!running && elapsedBeforeStart === 0} onClick={reset}>Reset</Button>
     </div>
-  </section>;
+    </div>
+  </details>;
 }
