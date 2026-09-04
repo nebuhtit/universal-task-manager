@@ -38,7 +38,9 @@ final class LocalWebServer: @unchecked Sendable {
             let parameters = NWParameters.tcp
             parameters.allowLocalEndpointReuse = true
             parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: Self.serverPort)
-            let listener = try NWListener(using: parameters, on: Self.serverPort)
+            // requiredLocalEndpoint already supplies the port. Passing it a
+            // second time through init(using:on:) produces NWError 22 on iOS.
+            let listener = try NWListener(using: parameters)
             self.listener = listener
 
             listener.newConnectionHandler = { [weak self] connection in
