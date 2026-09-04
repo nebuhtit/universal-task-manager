@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.98.8';
-export const APP_RELEASED_AT = '2026-09-04T14:50:34.127Z';
+export const APP_VERSION = '1.99.0';
+export const APP_RELEASED_AT = '2026-09-04T15:15:28.239Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -186,6 +186,14 @@ export function removeDuplicateReminders(item: UniversalItem): number {
 export type RelationType = 'parent' | 'blocks' | 'blocked_by' | 'related' | 'duplicate' | 'custom';
 export interface ItemRelation { id: string; targetId: string; type: RelationType; label?: string }
 export interface LinkAttachment { id: string; url: string; title?: string; mimeType?: string }
+export interface ItemTimerSession {
+  id: string;
+  mode: 'timer' | 'stopwatch';
+  startedAt: ISODateTime;
+  endedAt: ISODateTime;
+  durationSeconds: number;
+  targetSeconds?: number;
+}
 
 /** Provenance for an immutable event mirrored from an external calendar. */
 export interface ExternalCalendarSource {
@@ -242,6 +250,8 @@ export interface UniversalItem {
   reminders: Reminder[];
   relations: ItemRelation[];
   attachments: LinkAttachment[];
+  /** Completed quick timer and stopwatch sessions; active controls remain editor-local. */
+  timerHistory?: ItemTimerSession[];
   /** External events are edited only in their source calendar. */
   external?: ExternalCalendarSource;
   custom: Record<string, CustomValue>;

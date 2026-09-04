@@ -47,7 +47,14 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'isSubtask', label: 'Subtask', group: 'Connections' }, { path: 'isParent', label: 'Parent item', group: 'Connections' },
   { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
   { path: 'attachments', label: 'Links', group: 'Connections' },
-  { path: 'external.provider', label: 'External source', group: 'Connections' }, { path: 'external.calendarId', label: 'External calendar', group: 'Connections' },
+  { path: 'external.provider', label: 'External source', group: 'Google Calendar' },
+  { path: 'external.calendarId', label: 'Google calendar ID', group: 'Google Calendar' },
+  { path: 'external.connectionId', label: 'Google connection ID', group: 'Google Calendar' },
+  { path: 'external.eventId', label: 'Google event ID', group: 'Google Calendar' },
+  { path: 'external.transparency', label: 'Google event availability', group: 'Google Calendar' },
+  { path: 'external.sourceUrl', label: 'Google event link', group: 'Google Calendar' },
+  { path: 'external.readOnly', label: 'External read-only item', group: 'Google Calendar' },
+  { path: 'external.syncedAt', label: 'Last Google sync', group: 'Google Calendar' },
   { path: 'scripts', label: 'Script results', group: 'Scripts' },
   { path: 'closure.at', label: 'Closed at', group: 'History' }, { path: 'closure.actor', label: 'Closed by', group: 'History' },
   { path: 'closure.reason', label: 'Closure reason', group: 'History' }, { path: 'closure.automationId', label: 'Closing automation ID', group: 'History' },
@@ -56,6 +63,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'recurrenceOverride.kind', label: 'Recurrence override kind', group: 'History' }, { path: 'recurrenceOverride.sourceSeriesId', label: 'Override source series ID', group: 'History' },
   { path: 'recurrenceOverride.recurrenceId', label: 'Override occurrence date', group: 'History' },
   { path: 'cycleHistory', label: 'Cycle history', group: 'History' },
+  { path: 'timerHistory', label: 'Timer history', group: 'History' },
   { path: 'createdAt', label: 'Created at', group: 'System' }, { path: 'updatedAt', label: 'Last modified', group: 'System' },
   { path: 'deletedAt', label: 'Deleted at', group: 'System' },
   { path: 'createdWithAppName', label: 'Created with app', group: 'System' }, { path: 'createdWithVersion', label: 'Created with version', group: 'System' },
@@ -118,7 +126,9 @@ export const exampleViewFieldValue = (path: string): string => {
     'recurrence.closeAt': 'Next activation', 'recurrence.anchor': 'Scheduled time', 'recurrence.autoRenew': 'Yes',
     'progress.mode': 'Counter', 'progress.current': '2', 'progress.target': '4', 'progress.unit': 'chapters',
     'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
-    reminders: 'Mon 09:00 · normal, Thu 17:00 · urgent', hasActiveReminders: 'Yes', nextReminderAt: 'Mon 09:00', relations: 'Related: Project brief', attachments: 'Research link', 'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar',
+    reminders: 'Mon 09:00 · normal, Thu 17:00 · urgent', hasActiveReminders: 'Yes', nextReminderAt: 'Mon 09:00', relations: 'Related: Project brief', attachments: 'Research link',
+    'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar', 'external.connectionId': 'Google account', 'external.eventId': 'event_123',
+    'external.transparency': 'Busy', 'external.sourceUrl': 'Open in Google Calendar', 'external.readOnly': 'Yes', 'external.syncedAt': 'Today, 09:45',
     'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
     'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', cycleHistory: '4 finished cycles', subtasks: 'Draft outline, Review notes', parent: 'Quarterly review',
     isSubtask: 'Yes', isParent: 'Yes', parentDepth: '1', childDepth: '2', createdAt: 'Aug 12, 14:20', updatedAt: 'Today, 09:45',
@@ -228,6 +238,8 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
 export const displayViewValue = (value: unknown, field: string, language?: WorkspaceLanguage): string => {
   if (value === undefined || value === null || value === '') return '';
   if (field === 'external.provider' && value === 'google_calendar') return 'Google Calendar';
+  if (field === 'external.transparency' && value === 'opaque') return 'Busy';
+  if (field === 'external.transparency' && value === 'transparent') return 'Free';
   if ((field.endsWith('Duration') || field.endsWith('Offset')) && typeof value === 'string' && /^P/.test(value)) {
     const parsed = parseFriendlyDuration(value);
     const totalMinutes = Math.round(calendarDurationMs(parsed.amount, parsed.unit) / 60_000);

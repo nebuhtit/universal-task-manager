@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultReminderPeriodValue, defaultSchedulePeriodValue, defaultVisualConditionForField, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualOperators, visualOptionsForField } from './visualFilterModel';
+import { defaultReminderPeriodValue, defaultSchedulePeriodValue, defaultVisualConditionForField, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterValueLabel, visualOperators, visualOptionsForField } from './visualFilterModel';
 
 describe('visual filter model', () => {
   it('round-trips the existing visual DSL without changing its syntax', () => {
@@ -68,6 +68,21 @@ describe('visual filter model', () => {
     expect(visualOperators('external.provider')).toContain('==');
     const rows = parseVisualRows(source);
     expect(rows).toMatchObject([{ field: 'external.provider', operator: '==', value: 'google_calendar' }]);
+    expect(serializeVisualRows(rows!)).toBe(source);
+  });
+
+  it('offers readable Google Calendar property filters', () => {
+    expect(visualOptionsForField('external.transparency')).toEqual(['opaque', 'transparent']);
+    expect(visualFilterValueLabel('external.transparency', 'opaque')).toBe('Busy');
+    expect(visualFilterValueLabel('external.transparency', 'transparent')).toBe('Free');
+    expect(visualFieldKind('external.syncedAt')).toBe('date');
+    expect(visualOperators('external.sourceUrl')).toContain('is set');
+    const source = '(external.provider == "google_calendar" && schedule.allDay == true)';
+    const rows = parseVisualRows(source);
+    expect(rows).toMatchObject([
+      { field: 'external.provider', value: 'google_calendar' },
+      { field: 'schedule.allDay', value: 'true' },
+    ]);
     expect(serializeVisualRows(rows!)).toBe(source);
   });
 

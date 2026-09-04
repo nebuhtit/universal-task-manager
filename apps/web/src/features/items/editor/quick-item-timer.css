@@ -1,0 +1,24 @@
+.quick-item-timer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.quick-item-timer-controls { display: flex; align-items: end; gap: var(--space-2); min-width: 0; }
+.quick-item-timer-controls > select { min-width: 0; }
+.quick-item-timer-controls label { width: 76px; margin: 0; gap: var(--space-1); color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.quick-item-timer-controls input { min-height: var(--control-height-compact); }
+.quick-item-timer output { min-width: 72px; align-self: center; font-variant-numeric: tabular-nums; font-size: var(--font-size-section); font-weight: var(--font-weight-semibold); text-align: center; }
+.quick-item-timer-actions { display: flex; align-items: center; gap: var(--space-1); }
+
+@media (max-width: 480px) {
+  .quick-item-timer { grid-template-columns: minmax(0, 1fr) auto; }
+  .quick-item-timer output { grid-column: 1 / -1; grid-row: 1; justify-self: center; }
+  .quick-item-timer-controls, .quick-item-timer-actions { grid-row: 2; }
+}

@@ -129,6 +129,16 @@ export const itemJsonSchema = {
         properties: { id: { type: 'string' }, url: { type: 'string' }, title: { type: 'string' }, mimeType: { type: 'string' } },
       },
     },
+    timerHistory: {
+      type: 'array', items: {
+        type: 'object', additionalProperties: false, required: ['id', 'mode', 'startedAt', 'endedAt', 'durationSeconds'],
+        properties: {
+          id: { type: 'string', minLength: 1 }, mode: { enum: ['timer', 'stopwatch'] },
+          startedAt: { type: 'string', format: 'date-time' }, endedAt: { type: 'string', format: 'date-time' },
+          durationSeconds: { type: 'number', minimum: 0 }, targetSeconds: { type: 'number', exclusiveMinimum: 0 },
+        },
+      },
+    },
     external: {
       type: 'object', additionalProperties: false,
       required: ['provider', 'connectionId', 'calendarId', 'eventId', 'sourceUrl', 'readOnly', 'syncedAt'],

@@ -104,6 +104,28 @@ Object.assign(common.de, { Copy: 'Kopieren', Copied: 'Kopiert', 'Copy failed': '
 Object.assign(common.fr, { Copy: 'Copier', Copied: 'Copié', 'Copy failed': 'Échec de la copie' });
 Object.assign(common.ko, { Copy: '복사', Copied: '복사됨', 'Copy failed': '복사 실패' });
 
+Object.assign(en, {
+  'Google calendar ID': 'ID календаря Google', 'Google connection ID': 'ID подключения Google', 'Google event ID': 'ID события Google',
+  'Google event availability': 'Занятость события Google', 'Google event link': 'Ссылка на событие Google', 'External read-only item': 'Внешний элемент только для чтения', 'Last Google sync': 'Последняя синхронизация Google',
+  Busy: 'Занято', Free: 'Свободно', Timer: 'Таймер', Stopwatch: 'Секундомер', Minutes: 'Минуты', Pause: 'Пауза', Restart: 'Заново', Reset: 'Сбросить', 'Stop sound': 'Остановить звук', 'Timer history': 'История таймеров',
+});
+Object.assign(common.es, {
+  'Google calendar ID': 'ID del calendario de Google', 'Google connection ID': 'ID de conexión de Google', 'Google event ID': 'ID del evento de Google', 'Google event availability': 'Disponibilidad del evento de Google', 'Google event link': 'Enlace del evento de Google', 'External read-only item': 'Elemento externo de solo lectura', 'Last Google sync': 'Última sincronización de Google', Busy: 'Ocupado', Free: 'Libre', Timer: 'Temporizador', Stopwatch: 'Cronómetro', Minutes: 'Minutos', Pause: 'Pausa', Restart: 'Reiniciar', Reset: 'Restablecer', 'Stop sound': 'Detener sonido',
+});
+Object.assign(common.de, {
+  'Google calendar ID': 'Google-Kalender-ID', 'Google connection ID': 'Google-Verbindungs-ID', 'Google event ID': 'Google-Termin-ID', 'Google event availability': 'Google-Terminverfügbarkeit', 'Google event link': 'Google-Terminlink', 'External read-only item': 'Externes schreibgeschütztes Element', 'Last Google sync': 'Letzte Google-Synchronisierung', Busy: 'Beschäftigt', Free: 'Frei', Timer: 'Timer', Stopwatch: 'Stoppuhr', Minutes: 'Minuten', Pause: 'Pause', Restart: 'Neu starten', Reset: 'Zurücksetzen', 'Stop sound': 'Ton stoppen',
+});
+Object.assign(common.fr, {
+  'Google calendar ID': 'ID du calendrier Google', 'Google connection ID': 'ID de connexion Google', 'Google event ID': 'ID de l’événement Google', 'Google event availability': 'Disponibilité de l’événement Google', 'Google event link': 'Lien de l’événement Google', 'External read-only item': 'Élément externe en lecture seule', 'Last Google sync': 'Dernière synchronisation Google', Busy: 'Occupé', Free: 'Libre', Timer: 'Minuteur', Stopwatch: 'Chronomètre', Minutes: 'Minutes', Pause: 'Pause', Restart: 'Redémarrer', Reset: 'Réinitialiser', 'Stop sound': 'Arrêter le son',
+});
+Object.assign(common.ko, {
+  'Google calendar ID': 'Google 캘린더 ID', 'Google connection ID': 'Google 연결 ID', 'Google event ID': 'Google 이벤트 ID', 'Google event availability': 'Google 이벤트 상태', 'Google event link': 'Google 이벤트 링크', 'External read-only item': '외부 읽기 전용 항목', 'Last Google sync': '마지막 Google 동기화', Busy: '바쁨', Free: '한가함', Timer: '타이머', Stopwatch: '스톱워치', Minutes: '분', Pause: '일시 정지', Restart: '다시 시작', Reset: '초기화', 'Stop sound': '소리 끄기',
+});
+Object.assign(common.es, { 'Timer history': 'Historial de temporizadores' });
+Object.assign(common.de, { 'Timer history': 'Timerverlauf' });
+Object.assign(common.fr, { 'Timer history': 'Historique des minuteurs' });
+Object.assign(common.ko, { 'Timer history': '타이머 기록' });
+
 const onboarding: Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary> = {
   ru: {
     'Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.': 'Ваши данные остаются на этом устройстве в зашифрованном виде. Здесь нет аккаунта и восстановления пароля. Пожалуйста, запомните пароль.',

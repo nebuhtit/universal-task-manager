@@ -11,6 +11,27 @@ const audioContext = () => {
   return sharedAudioContext;
 };
 
+/** Unlocks Web Audio from the user's Start-button gesture before the timer expires. */
+export const prepareTimerAlarm = () => { try { audioContext(); } catch { /* Optional audio. */ } };
+
+/** Starts a quiet, slowly pulsing tone and returns the explicit stop action. */
+export function startTimerAlarm(enabled = true): () => void {
+  if (!enabled) return () => undefined;
+  try {
+    const context = audioContext();
+    if (!context) return () => undefined;
+    const tone = context.createOscillator(); const pulse = context.createOscillator();
+    const gain = context.createGain(); const pulseDepth = context.createGain();
+    tone.type = 'sine'; tone.frequency.setValueAtTime(440, context.currentTime);
+    pulse.type = 'sine'; pulse.frequency.setValueAtTime(.28, context.currentTime);
+    gain.gain.setValueAtTime(.022, context.currentTime); pulseDepth.gain.setValueAtTime(.012, context.currentTime);
+    pulse.connect(pulseDepth).connect(gain.gain); tone.connect(gain).connect(context.destination);
+    tone.start(); pulse.start();
+    let stopped = false;
+    return () => { if (stopped) return; stopped = true; try { tone.stop(); pulse.stop(); } catch { /* Already stopped. */ } };
+  } catch { return () => undefined; }
+}
+
 const playUiSound = (kind: UiSoundKind) => {
   try {
     const context = audioContext();
