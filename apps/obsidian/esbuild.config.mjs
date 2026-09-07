@@ -10,14 +10,16 @@ const repositoryRoot = resolve(pluginRoot, '../..');
 const outputRoot = resolve(pluginRoot, 'dist');
 const production = process.argv[2] === 'production';
 
-execFileSync('pnpm', ['--filter', '@utm/web', 'build'], {
-  cwd: repositoryRoot,
-  env: { ...process.env, VITE_OBSIDIAN: 'true' },
-  stdio: 'inherit',
-});
-
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
+
+// Never overwrite apps/web/dist: Pages uploads that directory after the
+// recursive monorepo build, while this copy has a different base and no PWA.
+execFileSync('pnpm', ['--filter', '@utm/web', 'build', '--outDir', resolve(outputRoot, 'web')], {
+  cwd: repositoryRoot,
+  env: { ...process.env, VITE_GITHUB_PAGES: 'false', VITE_OBSIDIAN: 'true' },
+  stdio: 'inherit',
+});
 
 await esbuild.build({
   entryPoints: [resolve(pluginRoot, 'main.ts')],
@@ -35,7 +37,6 @@ await esbuild.build({
 await Promise.all([
   cp(resolve(pluginRoot, 'manifest.json'), resolve(outputRoot, 'manifest.json')),
   cp(resolve(pluginRoot, 'styles.css'), resolve(outputRoot, 'styles.css')),
-  cp(resolve(repositoryRoot, 'apps/web/dist'), resolve(outputRoot, 'web'), { recursive: true }),
 ]);
 
 console.log(`Built Obsidian plugin at ${outputRoot}`);

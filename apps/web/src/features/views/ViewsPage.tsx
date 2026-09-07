@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  compileSort, createId, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort, validateScriptDefinitions, validateViewCreationDefaults,
+  validateFilterProgram, compileSort, createId, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort, validateScriptDefinitions, validateViewCreationDefaults,
   type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
 } from '@utm/core';
-import { CodeEditor } from '../../components/ui/CodeEditor';
+import { FilterProgramEditor } from './FilterProgramEditor';
 import { CloseIcon } from '../../components/ui/icons';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
@@ -18,10 +18,9 @@ import { FieldIcon } from '../items/FieldIcon';
 import { ScriptsSection } from '../items/editor/sections/ScriptsSection';
 import { SavedViewSection } from './SavedViewSection';
 import { boardSettingsFor, defaultBoardStates, hiddenItemIdsByExpandedView, MANUAL_ORDER_EXTENSION, manualOrderFor, mergeManualOrder, type BoardSettings } from './viewSelectors';
-import { exampleViewFieldValue, viewFieldGroups, viewFieldLabel, viewFieldOptions } from './fieldCatalog';
+import { exampleViewFieldValue, viewFieldGroups, viewFieldLabel } from './fieldCatalog';
 import { creationDefaultFieldOptions, defaultValueForPath } from './creationDefaults';
-import { defaultSchedulePeriodValue, defaultVisualConditionForField, isOrganizationChoiceField, isReminderVisualField, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterFieldLabel, visualFilterValueLabel, visualOperators, visualOptionsForField, type VisualConditionRow } from './visualFilterModel';
-import { ReminderPeriodEditor, SchedulePeriodEditor } from './SchedulePeriodEditor';
+import { parseVisualRows, serializeVisualRows, type VisualConditionRow } from './visualFilterModel';
 import { DisplayedFieldsEditor } from './DisplayedFieldsEditor';
 import { ViewSortingEditor } from './ViewSortingEditor';
 import { ViewPortabilityEditor } from './ViewPortabilityEditor';
@@ -58,6 +57,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const workspaceNow = useWorkspaceBoundaryNow(workspace);
   const [editing, setEditing] = useState<SavedView | null>(null);
   const [error, setError] = useState('');
+  const [filterValid, setFilterValid] = useState(true);
   const [visualRows, setVisualRows] = useState<VisualConditionRow[]>([]);
   const [visualDirty, setVisualDirty] = useState(false);
   const [sortRules, setSortRules] = useState<ViewSortRule[]>([]);
@@ -153,6 +153,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       kind: 'action', message: 'Open view editor requested', operation: 'View editor lifecycle', outcome: 'started',
       details: JSON.stringify({ viewId: copy.id, renderer: copy.renderer, sourceLength: copy.query.source.length, parsedVisualRows: rows?.length ?? 0, visualDslCompatible: rows !== null, displayedFields: copy.fields.length }),
     });
+    setFilterValid(true);
     setEditing(copy);
     setVisualRows(rows ?? []);
     setVisualDirty(rows === null);
@@ -165,36 +166,6 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setSelectedTemplateId(templateId);
     setTemplateName(`${copy.name} template`);
     setError('');
-  };
-  const addVisualRow = (join: 'and' | 'or') => syncRowsToDsl([...visualRows, { id: createId(), join, field: 'state', operator: '==', value: 'open' }]);
-  const addSchedulePeriodRow = () => syncRowsToDsl([...(visualDirty ? [] : visualRows), { id: createId(), join: 'and', field: schedulePeriodField, operator: 'matches', value: JSON.stringify(defaultSchedulePeriodValue()) }]);
-  const startVisualRows = () => syncRowsToDsl([{ id: createId(), join: 'and', field: 'state', operator: '==', value: 'open' }]);
-  const updateVisualRow = (id: string, patch: Partial<VisualConditionRow>) => {
-    const rows = visualRows.map((row) => {
-      if (row.id !== id) return row;
-      const next = { ...row, ...patch };
-      if (patch.field) {
-        Object.assign(next, defaultVisualConditionForField(patch.field, workspace.customFields));
-      } else if (patch.operator && patch.operator !== 'is set' && patch.operator !== 'is not set' && !next.value) {
-        next.value = visualOptionsForField(next.field, workspace.customFields)?.[0] ?? '';
-      }
-      return next;
-    });
-    syncRowsToDsl(rows);
-  };
-  const organizationFilterOptions = (field: string): string[] => {
-    if (field === 'area') return orderedOrganizationNames(workspace, 'area');
-    if (field === 'project') return orderedOrganizationNames(workspace, 'project');
-    if (field === 'list') return orderedListNames(workspace);
-    if (field === 'tags') return orderedTagEntries(workspace).filter((tag): tag is string => tag !== null);
-    return [];
-  };
-  const organizationFilterValue = (row: VisualConditionRow) => {
-    const selected = commaList(row.value);
-    const options = organizationFilterOptions(row.field);
-    const noun = row.field === 'area' ? 'Areas' : row.field === 'project' ? 'Projects' : row.field === 'list' ? 'Lists' : 'Tags';
-    const toggle = (value: string, checked: boolean) => updateVisualRow(row.id, { value: (checked ? [...selected, value] : selected.filter((entry) => entry !== value)).join(', ') });
-    return <SearchableDisclosureList uiKey={`view-editor:filter-values:${editing?.id}:${row.id}`} className="visual-filter-value-picker" summary={selected.length ? `${selected.length} selected` : `Choose ${noun}…`} items={options} getSearchText={(option) => option} searchLabel={`Search ${noun}`} searchPlaceholder={`Search ${noun}`} emptyText={`No ${noun.toLowerCase()} yet.`} noMatchesText={`No matching ${noun.toLowerCase()}.`} renderItem={(option) => <Checkbox checked={selected.includes(option)} onChange={(event) => toggle(option, event.target.checked)} label={option} />} />;
   };
   const updateSortRules = (next: ViewSortRule[]) => {
     setSortRules(next);
@@ -275,7 +246,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     setEditing(scripts.length ? { ...editing, scripts, fields } : (() => { const { scripts: _scripts, ...withoutScripts } = editing; return { ...withoutScripts, fields: fields.filter((field) => field !== 'view_scripts') }; })());
   };
   const save = () => {
-    if (!editing) return;
+    if (!editing || !filterValid) return;
     const result = editing;
     const startedAt = performance.now();
     recordDiagnostic({
@@ -283,7 +254,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       details: JSON.stringify({ viewId: result.id, renderer: result.renderer, sourceLength: result.query.source.length, visualRows: visualRows.length, visualDirty, displayedFields: result.fields.length, sortRules: sortRules.length }),
     });
     try {
-      parseExpression(result.query.source.trim() || 'true');
+      validateFilterProgram(parseExpression(result.query.source.trim() || 'true'));
       validateScriptDefinitions(result.scripts ?? []);
       const defaultsValidation = validateViewCreationDefaults(result.creationDefaults);
       if (!defaultsValidation.valid) throw new Error(defaultsValidation.errors.join('; '));
@@ -355,9 +326,9 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     beginEditing(next, selectedTemplate.id);
   };
   const saveCurrentAsTemplate = () => {
-    if (!editing || !templateName.trim()) return;
+    if (!editing || !filterValid || !templateName.trim()) return;
     try {
-      parseExpression(editing.query.source.trim() || 'true');
+      validateFilterProgram(parseExpression(editing.query.source.trim() || 'true'));
       validateScriptDefinitions(editing.scripts ?? []);
       const parsedSort = parseSortSource(sortSource); compileSort(sortSource);
       const id = createId();
@@ -405,36 +376,20 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       closeLabel="Close view editor"
       initialFocus={false}
       finalFocus={typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches ? false : undefined}
-      footer={<><Button variant="secondary" onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return; } commit('Delete view', (draft) => { delete draft.views[editing.id]; Object.values(draft.dashboards).forEach((dashboard) => { for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) if (dashboard.widgets[index]?.viewId === editing.id) dashboard.widgets.splice(index, 1); }); }); closeEditor(); setConfirmDelete(false); }}>{confirmDelete ? 'Confirm delete' : 'Delete view'}</Button><span className="view-editor-action-spacer" /><Button onClick={() => { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'cancel-button' }) }); closeEditor(); }}>Cancel</Button><Button variant="primary" onClick={save}>Save view</Button></>}
+      footer={<><Button variant="secondary" onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return; } commit('Delete view', (draft) => { delete draft.views[editing.id]; Object.values(draft.dashboards).forEach((dashboard) => { for (let index = dashboard.widgets.length - 1; index >= 0; index -= 1) if (dashboard.widgets[index]?.viewId === editing.id) dashboard.widgets.splice(index, 1); }); }); closeEditor(); setConfirmDelete(false); }}>{confirmDelete ? 'Confirm delete' : 'Delete view'}</Button><span className="view-editor-action-spacer" /><Button onClick={() => { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'cancel-button' }) }); closeEditor(); }}>Cancel</Button><Button variant="primary" disabled={!filterValid} onClick={save}>Save view</Button></>}
     >
       <Field label="Name"><Input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></Field>
       <Field label="Renderer"><Select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></Select></Field>
-      <ViewEditorSection sectionKey="templates" title="View templates"><fieldset className="view-template-picker"><div className="view-template-apply"><Field label="Template"><SearchableDisclosureList uiKey={`view-editor:templates:${editing.id}`} summary={selectedTemplate?.name ?? 'Choose template…'} items={availableTemplates} getSearchText={(template) => template.name} searchLabel="Search View templates" searchPlaceholder="Search templates" renderItem={(template) => <Button size="compact" variant="ghost" key={template.id} aria-pressed={template.id === selectedTemplateId} onClick={(event) => { setSelectedTemplateId(template.id); setConfirmDeleteTemplate(false); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.name}</Button>} /></Field>{selectedTemplateId === 'builtin:some-area' && <Field label="Area"><SearchableDisclosureList uiKey={`view-editor:template-area:${editing.id}`} summary={templateArea || 'Choose Area…'} items={orderedOrganizationNames(workspace, 'area')} getSearchText={(area) => area} searchLabel="Search Areas" searchPlaceholder="Search Areas" renderItem={(area) => <Button size="compact" variant="ghost" key={area} onClick={(event) => { setTemplateArea(area); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{area}</Button>} /></Field>}{selectedTemplateId === 'builtin:some-project' && <Field label="Project"><SearchableDisclosureList uiKey={`view-editor:template-project:${editing.id}`} summary={templateProject || 'Choose Project…'} items={orderedOrganizationNames(workspace, 'project')} getSearchText={(project) => project} searchLabel="Search Projects" searchPlaceholder="Search Projects" renderItem={(project) => <Button size="compact" variant="ghost" key={project} onClick={(event) => { setTemplateProject(project); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{project}</Button>} /></Field>}<div className="view-template-actions"><Button size="compact" disabled={!selectedTemplate || (selectedTemplateId === 'builtin:some-area' && !templateArea) || (selectedTemplateId === 'builtin:some-project' && !templateProject)} onClick={applySelectedTemplate}>Apply template</Button>{selectedTemplate && !selectedTemplate.id.startsWith('builtin:') && <Button size="compact" variant="secondary" onClick={deleteSelectedTemplate}>{confirmDeleteTemplate ? 'Confirm delete template' : 'Delete template'}</Button>}</div></div><div className="view-template-save"><Field label="Save current View as template"><Input aria-label="Template name" value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Template name" /></Field><Button size="compact" disabled={!templateName.trim()} onClick={saveCurrentAsTemplate}>Save as template</Button></div></fieldset></ViewEditorSection>
+      <ViewEditorSection sectionKey="templates" title="View templates"><fieldset className="view-template-picker"><div className="view-template-apply"><Field label="Template"><SearchableDisclosureList uiKey={`view-editor:templates:${editing.id}`} summary={selectedTemplate?.name ?? 'Choose template…'} items={availableTemplates} getSearchText={(template) => template.name} searchLabel="Search View templates" searchPlaceholder="Search templates" renderItem={(template) => <Button size="compact" variant="ghost" key={template.id} aria-pressed={template.id === selectedTemplateId} onClick={(event) => { setSelectedTemplateId(template.id); setConfirmDeleteTemplate(false); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.name}</Button>} /></Field>{selectedTemplateId === 'builtin:some-area' && <Field label="Area"><SearchableDisclosureList uiKey={`view-editor:template-area:${editing.id}`} summary={templateArea || 'Choose Area…'} items={orderedOrganizationNames(workspace, 'area')} getSearchText={(area) => area} searchLabel="Search Areas" searchPlaceholder="Search Areas" renderItem={(area) => <Button size="compact" variant="ghost" key={area} onClick={(event) => { setTemplateArea(area); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{area}</Button>} /></Field>}{selectedTemplateId === 'builtin:some-project' && <Field label="Project"><SearchableDisclosureList uiKey={`view-editor:template-project:${editing.id}`} summary={templateProject || 'Choose Project…'} items={orderedOrganizationNames(workspace, 'project')} getSearchText={(project) => project} searchLabel="Search Projects" searchPlaceholder="Search Projects" renderItem={(project) => <Button size="compact" variant="ghost" key={project} onClick={(event) => { setTemplateProject(project); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{project}</Button>} /></Field>}<div className="view-template-actions"><Button size="compact" disabled={!selectedTemplate || (selectedTemplateId === 'builtin:some-area' && !templateArea) || (selectedTemplateId === 'builtin:some-project' && !templateProject)} onClick={applySelectedTemplate}>Apply template</Button>{selectedTemplate && !selectedTemplate.id.startsWith('builtin:') && <Button size="compact" variant="secondary" onClick={deleteSelectedTemplate}>{confirmDeleteTemplate ? 'Confirm delete template' : 'Delete template'}</Button>}</div></div><div className="view-template-save"><Field label="Save current View as template"><Input aria-label="Template name" value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Template name" /></Field><Button size="compact" disabled={!filterValid || !templateName.trim()} onClick={saveCurrentAsTemplate}>Save as template</Button></div></fieldset></ViewEditorSection>
       <ViewEditorSection sectionKey="color" title="View color"><fieldset className="view-accent-picker"><p className="builder-status">This color identifies the view and completed ticks. Each option stays readable in light and dark themes.</p><div className="view-accent-options"><Button size="compact" className={`view-accent-option view-accent-default${!editing.accent ? ' selected' : ''}`} aria-label="Default view color" aria-pressed={!editing.accent} onClick={() => { const { accent: _accent, ...withoutAccent } = editing; setEditing(withoutAccent); }}><span aria-hidden /></Button>{viewAccentOptions.map((option) => <Button size="compact" key={option.value} className={`view-accent-option${editing.accent === option.value ? ' selected' : ''}`} aria-label={`${option.label} view color`} aria-pressed={editing.accent === option.value} onClick={() => setEditing({ ...editing, accent: option.value })}><span aria-hidden style={{ backgroundColor: option.value }} /></Button>)}<label className="view-custom-accent" aria-label="Custom view color" style={{ backgroundColor: editing.accent ?? '#2864c7' }}><input type="color" value={editing.accent ?? '#2864c7'} onChange={(event) => setEditing({ ...editing, accent: event.target.value })} /></label></div></fieldset></ViewEditorSection>
       <SectionGuide title="How views work"><ul><li>A view is a saved, live list; it never copies items.</li><li>Use the visual setup below: first choose which items appear, then choose what is shown for each item.</li><li>The optional advanced filter code below is synchronized with ordinary rows whenever its logic can be represented visually.</li><li>An empty filter means all items except recurring source templates. Sorting only controls order.</li></ul></SectionGuide>
-      <ViewEditorSection sectionKey="visual-setup" title="Visual setup"><fieldset className="query-builder visual-query-builder">
-        <h3 className="query-builder-heading">1. Filter items</h3>
-        <p className="builder-status">Build the filter with ordinary fields, operators and values. The result and advanced code update immediately. Active range uses Event opens through Due.</p>
-        {visualRows.some((row) => isReminderVisualField(row.field)) && <p className="builder-status">Reminder filters: Any reminders includes acknowledged reminders; Has active reminders uses unacknowledged reminders; Next resolved active reminder ignores active reminders whose date cannot be calculated.</p>}
-        {visualRows.map((row, index) => <div className="visual-condition-row" key={row.id}>
-          <Field className="condition-join" label={index === 0 ? 'Where' : 'Join'}>{index === 0 ? <span className="field-hint">First rule</span> : <Select value={row.join} onChange={(event) => updateVisualRow(row.id, { join: event.target.value as 'and' | 'or' })}><option value="and">AND</option><option value="or">OR</option></Select>}</Field>
-          <Field label="Property"><Select value={row.field} onChange={(event) => updateVisualRow(row.id, { field: event.target.value })}><optgroup label="Time periods"><option value={schedulePeriodField}>Schedule in period</option><option value={reminderPeriodField}>Next reminder relative to period</option></optgroup>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{visualFilterFieldLabel(field.path, field.label)}</option>)}</optgroup>)}</Select></Field>
-          {row.field === schedulePeriodField ? <Field className="schedule-period-condition" label="Match any selected condition (OR)"><SchedulePeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : row.field === reminderPeriodField ? <Field className="schedule-period-condition" label="Nearest active reminder"><ReminderPeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field, workspace.customFields).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</Select></Field>
-          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : isOrganizationChoiceField(row.field) ? organizationFilterValue(row) : visualOptionsForField(row.field, workspace.customFields) ? <Select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptionsForField(row.field, workspace.customFields)!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : visualFilterValueLabel(row.field, value)}</option>)}</Select> : <Input type={visualFieldKind(row.field, workspace.customFields) === 'date' ? 'datetime-local' : visualFieldKind(row.field, workspace.customFields) === 'number' ? 'number' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</Field></>}
-          <IconButton size="compact" variant="ghost" className="visual-condition-remove" aria-label={`Remove filter rule ${index + 1}`} onClick={() => syncRowsToDsl(visualRows.filter((entry) => entry.id !== row.id))}><CloseIcon /></IconButton>
-        </div>)}
-        <datalist id="view-title-values">{[...new Set(Object.values(workspace.items).map((entry) => entry.title))].map((title) => <option value={title} key={title} />)}</datalist>
-        <datalist id="view-tag-values">{[...new Set(Object.values(workspace.items).flatMap((entry) => [...entry.tags, ...entry.contexts]))].sort().map((tag) => <option value={tag} key={tag} />)}</datalist>
-        {visualDirty ? <p className="builder-status">This filter uses advanced code that cannot be shown as ordinary rows. Adding a visual rule replaces that code.</p> : <p className="builder-status">The visual rows and advanced filter code are synchronized.</p>}
-        <div className="builder-actions"><Button size="compact" onClick={addSchedulePeriodRow}>+ Add time period</Button><Button size="compact" onClick={() => visualDirty ? startVisualRows() : addVisualRow('and')}>+ Add AND rule</Button><Button size="compact" onClick={() => visualDirty ? startVisualRows() : addVisualRow('or')}>+ Add OR rule</Button></div>
-      </fieldset></ViewEditorSection>
+      <ViewEditorSection sectionKey="visual-setup" title="Visual setup"><FilterProgramEditor key={editing.id} workspace={workspace} source={editing.query.source} python={typeof editing.extensions?.filterPython === 'string' ? editing.extensions.filterPython : undefined} onValidityChange={setFilterValid} onChange={(source, python) => { const rows = parseVisualRows(source, workspace.customFields); setVisualRows(rows ?? []); setVisualDirty(rows === null); setEditing({ ...editing, query: { source }, extensions: { ...editing.extensions, filterPython: python } }); }} /></ViewEditorSection>
       <ViewEditorSection sectionKey="scripts" title="Scripts"><fieldset className="view-scripts-settings">
         <ScriptsSection embedded scope="view" scripts={editing.scripts ?? []} onChange={updateViewScripts} scriptResults={viewScriptResults} />
         <small className="field-hint">Live result uses the first available workspace item as a preview. Select the generated View-script fields in “Show in results” to display them for every matching item.</small>
       </fieldset></ViewEditorSection>
       <ViewEditorSection sectionKey="show-in-results" title="Show in results"><DisplayedFieldsEditor workspace={workspace} view={editing} onChange={setEditing} /></ViewEditorSection>
       <ViewStatisticsEditor workspace={workspace} view={editing} rows={visualRows} visualDirty={visualDirty} onViewChange={setEditing} onRowsChange={syncRowsToDsl} now={workspaceNow} />
-      <ViewEditorSection sectionKey="advanced-filter" title="Advanced filter code"><Field className="dsl-field" label="Advanced filter code" hint={<>Optional text form of the visual rows. SQL preview: {toSqlExpression(editing.query.source)}</>}><CodeEditor language="dsl" ariaLabel="Advanced filter code" rows={5} value={editing.query.source} onChange={(value) => { const rows = parseVisualRows(value, workspace.customFields); setEditing({ ...editing, query: { source: value } }); if (rows !== null) setVisualRows(rows); setVisualDirty(rows === null); }} /></Field></ViewEditorSection>
       <ViewEditorSection sectionKey="creation-defaults" title="Defaults for new items"><fieldset className="query-builder creation-defaults">
         <p className="builder-status">Pinned values are copied only when this view creates a new item. They never change the filter or existing items.</p>
         {Object.entries(editing.creationDefaults ?? {}).map(([path, value]) => <div className="creation-default-row" key={path}>

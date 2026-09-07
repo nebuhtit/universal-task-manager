@@ -301,6 +301,7 @@ export const workspaceJsonSchema = {
           type: 'object', additionalProperties: false, required: ['filter', 'scheduleSources', 'fields', 'sort'],
           properties: {
             filter: { type: 'object', additionalProperties: false, required: ['source'], properties: { source: { type: 'string' } } },
+            filterPython: { type: 'string' },
             scheduleSources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['event_open', 'event', 'active', 'due'] } },
             fields: stringArray,
             statistics: {

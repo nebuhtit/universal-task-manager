@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.99.11';
-export const APP_RELEASED_AT = '2026-09-07T14:23:34.829Z';
+export const APP_VERSION = '1.99.12';
+export const APP_RELEASED_AT = '2026-09-07T15:06:18.737Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -547,6 +547,8 @@ export interface GoogleCalendarPreferences {
 }
 export type CalendarScheduleSource = 'event_open' | 'event' | 'active' | 'due';
 export interface CalendarDayViewPreferences {
+  /** Comment-preserving Python-like source; executable filter remains authoritative. */
+  filterPython?: string;
   /** Additional filter applied inside the selected day boundary. */
   filter: QuerySpec;
   /** Schedule relationships matched with OR inside the fixed selected day. */

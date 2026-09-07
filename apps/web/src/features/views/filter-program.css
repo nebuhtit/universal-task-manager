@@ -1,0 +1,7 @@
+.filter-program, .filter-block, .filter-condition, .filter-child { display: grid; gap: var(--space-3); min-width: 0; }
+.filter-block { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); }
+.filter-block-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.filter-program pre, .filter-expression { white-space: pre-wrap; overflow-wrap: anywhere; }
+.filter-expression small { display: block; color: var(--color-text-secondary); }
+.filter-program textarea { font-family: monospace; }
+@media (max-width: 620px) { .filter-block { padding: var(--space-2); } }

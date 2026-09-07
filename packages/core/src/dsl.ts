@@ -1,5 +1,7 @@
 import { ACTIVE_ITEM_VIEW_QUERY, LEGACY_ACTIVE_ITEM_VIEW_QUERY, activeReminders, durationToMs, nextActiveReminderAt, type CustomFieldDefinition, type CustomValue, type Expression, type Scalar, type UniversalItem, type ViewSortRule } from './types.js';
 
+import { filterRegexMatches } from './filter-regex.js';
+import { validateFilterProgram } from './filter-validation.js';
 export { durationToMs } from './types.js';
 
 type TokenKind = 'number' | 'string' | 'identifier' | 'operator' | 'paren' | 'comma' | 'eof';
@@ -136,7 +138,11 @@ function rememberCompiled<T>(cache: Map<string, T>, key: string, value: T): T {
 }
 
 function compiledExpression(source: string): Expression {
-  return queryAstCache.get(source) ?? rememberCompiled(queryAstCache, source, parseExpression(source));
+  const cached = queryAstCache.get(source);
+  if (cached) return cached;
+  const parsed = parseExpression(source);
+  validateFilterProgram(parsed);
+  return rememberCompiled(queryAstCache, source, parsed);
 }
 
 const timeDependentVariables = new Set([
@@ -186,6 +192,8 @@ export function expressionContinuouslyDependsOnCurrentTime(source: string): bool
 
 export type EvalValue = Scalar | Scalar[] | Record<string, unknown> | undefined;
 export interface EvaluationContext {
+  /** Shared iteration allowance for nested collection predicates. */
+  collectionBudget?: { remaining: number };
   item: UniversalItem;
   now?: Date;
   variables?: Record<string, EvalValue>;
@@ -350,6 +358,7 @@ function getPath(root: unknown, path: string): EvalValue {
   let current: unknown = root;
   for (const segment of path.split('.')) {
     if (current === null || typeof current !== 'object') return undefined;
+    if (segment === '__proto__' || segment === 'constructor' || segment === 'prototype' || !Object.prototype.hasOwnProperty.call(current, segment)) return undefined;
     current = (current as Record<string, unknown>)[segment];
   }
   return current as EvalValue;
@@ -394,6 +403,10 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
   switch (expression.type) {
     case 'literal': return expression.value;
     case 'identifier': {
+      const [root, ...rest] = expression.path.split('.');
+      if (context.variables && Object.prototype.hasOwnProperty.call(context.variables, root!)) {
+        return rest.length ? getPath(context.variables[root!], rest.join('.')) : context.variables[root!];
+      }
       if (expression.path.startsWith('custom.')) return getPath(context.item.custom, expression.path.slice(7));
       return context.variables?.[expression.path] ?? getPath(context.item, expression.path);
     }
@@ -425,9 +438,27 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
       }
     }
     case 'call': {
+      if (expression.name === 'if') {
+        if (expression.args.length !== 3) throw new TypeError('if requires condition, then and else');
+        return evaluateExpression(expression.args[Boolean(evaluateExpression(expression.args[0]!, context)) ? 1 : 2]!, context);
+      }
+      if (expression.name === 'anyWhere' || expression.name === 'allWhere') {
+        const [collection, variable, predicate] = expression.args;
+        if (!collection || !predicate || variable?.type !== 'literal' || typeof variable.value !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(variable.value)) throw new TypeError('Invalid collection condition');
+        const values = evaluateExpression(collection, context);
+        if (!Array.isArray(values)) return false;
+        if (values.length > 10000) throw new TypeError('Collection exceeds filter limit');
+        const collectionBudget = context.collectionBudget ?? { remaining: 20000 };
+        const test = (value: Scalar) => {
+          if (--collectionBudget.remaining < 0) throw new TypeError('Collection filter iteration limit exceeded');
+          return Boolean(evaluateExpression(predicate, { ...context, collectionBudget, variables: { ...context.variables, [variable.value as string]: value } }));
+        };
+        return expression.name === 'anyWhere' ? values.some(test) : values.every(test);
+      }
       const args = expression.args.map((argument) => evaluateExpression(argument, context));
       const now = context.now ?? new Date();
       switch (expression.name) {
+        case 'regexMatch': return filterRegexMatches(args[0], String(args[1] ?? ''), Boolean(args[2]));
         case 'now': return now.toISOString();
         case 'today': return now.toISOString().slice(0, 10);
         case 'has': return args[0] !== undefined && args[0] !== null && args[0] !== '';
