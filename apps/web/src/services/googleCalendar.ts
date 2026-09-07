@@ -23,6 +23,7 @@ declare global {
 
 let scriptPromise: Promise<void> | null = null;
 let cachedGoogleCalendarToken: { accessToken: string; expiresAt: number } | null = null;
+export function forgetGoogleCalendarAuthorization(): void { cachedGoogleCalendarToken = null; }
 function loadGoogleIdentityServices(): Promise<void> {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
   if (scriptPromise) return scriptPromise;

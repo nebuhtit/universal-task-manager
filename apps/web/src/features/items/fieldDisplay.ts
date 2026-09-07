@@ -48,6 +48,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
   { path: 'attachments', label: 'Links', group: 'Connections' },
   { path: 'external.provider', label: 'External source', group: 'Google Calendar' },
+  { path: 'googleCalendarAllDay', label: 'Google Calendar all-day event', group: 'Google Calendar' },
   { path: 'external.calendarId', label: 'Google calendar ID', group: 'Google Calendar' },
   { path: 'external.connectionId', label: 'Google connection ID', group: 'Google Calendar' },
   { path: 'external.eventId', label: 'Google event ID', group: 'Google Calendar' },
@@ -127,7 +128,7 @@ export const exampleViewFieldValue = (path: string): string => {
     'progress.mode': 'Counter', 'progress.current': '2', 'progress.target': '4', 'progress.unit': 'chapters',
     'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
     reminders: 'Mon 09:00 · normal, Thu 17:00 · urgent', hasActiveReminders: 'Yes', nextReminderAt: 'Mon 09:00', relations: 'Related: Project brief', attachments: 'Research link',
-    'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar', 'external.connectionId': 'Google account', 'external.eventId': 'event_123',
+    googleCalendarAllDay: 'Yes', 'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar', 'external.connectionId': 'Google account', 'external.eventId': 'event_123',
     'external.transparency': 'Busy', 'external.sourceUrl': 'Open in Google Calendar', 'external.readOnly': 'Yes', 'external.syncedAt': 'Today, 09:45',
     'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
     'occurrence.recurrenceId': 'Aug 24, 10:00', 'occurrence.sequence': '12', cycleHistory: '4 finished cycles', subtasks: 'Draft outline, Review notes', parent: 'Quarterly review',
@@ -165,6 +166,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
   if (field === 'area' || field === 'areas') return [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])])];
   if (field === 'project' || field === 'projects') return [...new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])])];
   if (field === 'eventToday' || field === 'eventThisWeek' || field === 'dueTodayOrOverdue' || field === 'dueThisWeekOrOverdue') return dueDateBuckets(item, now, { timeZone: workspace?.calendarPreferences.timezone, weekStartsOn: workspace?.calendarPreferences.weekStartsOn })[field];
+  if (field === 'googleCalendarAllDay') return item.external?.provider === 'google_calendar' && item.schedule?.allDay === true;
   if (field === 'schedule.estimatedDuration') {
     if (item.schedule?.estimatedDuration) return item.schedule.estimatedDuration;
     if (item.schedule?.startAt && item.schedule?.endAt) {

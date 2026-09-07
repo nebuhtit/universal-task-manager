@@ -56,6 +56,17 @@ describe('safe expression language', () => {
     expect(() => compileQuery('globalThis.fetch("https://example.com")')(item)).toThrow('Function is not allowed');
   });
 
+  it('filters Google Calendar all-day events without hiding local all-day items', () => {
+    const googleAllDay = createItem('Google holiday', 'event');
+    googleAllDay.schedule = { timezone: 'UTC', allDay: true, startAt: '2026-09-07T00:00:00.000Z', endAt: '2026-09-08T00:00:00.000Z' };
+    googleAllDay.external = { provider: 'google_calendar', connectionId: 'google', calendarId: 'primary', eventId: 'holiday', sourceUrl: 'https://calendar.google.com/', readOnly: true, syncedAt: '2026-09-07T08:00:00.000Z' };
+    const localAllDay = createItem('Local all-day item', 'event');
+    localAllDay.schedule = { timezone: 'UTC', allDay: true, startAt: '2026-09-07T00:00:00.000Z', endAt: '2026-09-08T00:00:00.000Z' };
+    const excludeGoogleAllDay = compileQuery('googleCalendarAllDay == false');
+    expect(excludeGoogleAllDay(googleAllDay)).toBe(false);
+    expect(excludeGoogleAllDay(localAllDay)).toBe(true);
+  });
+
   it('supports active-range predicates and Active wording aliases', () => {
     const item = createItem('Time boxed');
     item.schedule = { startAt: '2026-08-20T10:00:00.000Z', dueAt: '2026-08-20T10:02:00.000Z' };

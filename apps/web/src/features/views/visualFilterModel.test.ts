@@ -86,6 +86,12 @@ describe('visual filter model', () => {
     expect(serializeVisualRows(rows!)).toBe(source);
   });
 
+  it('offers one boolean filter for Google Calendar all-day events', () => {
+    expect(visualOptionsForField('googleCalendarAllDay')).toEqual(['true', 'false']);
+    expect(visualOperators('googleCalendarAllDay')).toEqual(['==', '!=']);
+    expect(serializeVisualRows([{ id: 'google-all-day', join: 'and', field: 'googleCalendarAllDay', operator: '==', value: 'false' }])).toBe('googleCalendarAllDay == false');
+  });
+
   it('offers All day as a boolean visual filter', () => {
     const source = 'schedule.allDay != true';
     expect(visualOperators('schedule.allDay')).toEqual(expect.arrayContaining(['==', '!=']));

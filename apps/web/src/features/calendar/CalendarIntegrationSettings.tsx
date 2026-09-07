@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { applyGoogleCalendarSync, createId, type GoogleCalendarPreferences, type WorkspaceDocument } from '@utm/core';
 import { Button, Checkbox, Disclosure, Field, Input, Select } from '../../components/ui/primitives';
 import { recordDiagnostic } from '../../services/diagnostics';
-import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from '../../services/googleCalendar';
+import { forgetGoogleCalendarAuthorization, GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from '../../services/googleCalendar';
 
 type GoogleSyncLogEntry = { at: string; level: 'info' | 'error'; message: string };
 
@@ -70,6 +70,24 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
     });
   });
 
+  const disconnectGoogleCalendar = () => {
+    if (!preferences.googleCalendar) return;
+    const warning = preferences.language === 'ru'
+      ? 'Отключить Google Календарь и удалить его зеркальные события из этого workspace? События в самом Google Календаре не изменятся.'
+      : 'Disconnect Google Calendar and remove its mirrored events from this workspace? Your events in Google Calendar will not be changed.';
+    if (!window.confirm(warning)) return;
+    const connectionId = preferences.googleCalendar.connectionId;
+    forgetGoogleCalendarAuthorization();
+    setGoogleToken(null); setGoogleError(''); setGoogleSyncStatus(''); setGoogleSyncLog([]);
+    commit('Disconnect Google Calendar', (draft) => {
+      for (const item of Object.values(draft.items)) {
+        if (item.external?.provider !== 'google_calendar' || item.external.connectionId !== connectionId) continue;
+        delete draft.items[item.id]; delete draft.tombstones[item.id];
+      }
+      delete draft.calendarPreferences.googleCalendar;
+    });
+  };
+
   return <section className="settings-card calendar-dialog-fields" aria-label="Calendar and Google Calendar">
     <p className="eyebrow">CALENDAR</p><h2>Calendar preferences</h2>
     <Field label="Timezone"><Input value={preferences.timezone} onChange={(event) => commit('Change calendar timezone', (draft) => { draft.calendarPreferences.timezone = event.target.value; })} /></Field>
@@ -80,7 +98,7 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
       {!GOOGLE_CALENDAR_CLIENT_ID && <p className="hint">This build needs a Google OAuth client ID before connection is available.</p>}
       {preferences.googleCalendar?.accountEmail && <small>Connected as {preferences.googleCalendar.accountEmail}</small>}
       {preferences.googleCalendar?.calendars.length ? <div className="calendar-google-list">{preferences.googleCalendar.calendars.map((calendar) => <Checkbox key={calendar.id} label={`${calendar.name}${calendar.primary ? ' · primary' : ''}`} checked={calendar.selected} onChange={() => selectGoogleCalendar(calendar.id)} />)}</div> : null}
-      <Button onClick={() => void syncGoogle()} disabled={googleBusy || !GOOGLE_CALENDAR_CLIENT_ID}>{googleBusy ? 'Syncing…' : preferences.googleCalendar ? 'Sync now' : 'Connect Google Calendar'}</Button>
+      <div className="settings-actions"><Button onClick={() => void syncGoogle()} disabled={googleBusy || !GOOGLE_CALENDAR_CLIENT_ID}>{googleBusy ? 'Syncing…' : preferences.googleCalendar ? 'Sync now' : 'Connect Google Calendar'}</Button>{preferences.googleCalendar && <Button variant="ghost" disabled={googleBusy} onClick={disconnectGoogleCalendar}>Disconnect Google Calendar</Button>}</div>
       {googleSyncStatus && <small className="calendar-google-status" role="status" aria-live="polite">{googleSyncStatus}</small>}
       {preferences.googleCalendar?.lastSyncedAt && <small>Last synced {new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(preferences.googleCalendar.lastSyncedAt))}</small>}
       {(googleError || preferences.googleCalendar?.lastError) && <p className="form-error" role="alert">{googleError || preferences.googleCalendar?.lastError}</p>}

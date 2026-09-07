@@ -545,7 +545,6 @@ export default function App() {
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
   const [quickCompletion, setQuickCompletion] = useState<QuickCompletionRequest | null>(null);
   const [googleCalendarSyncing, setGoogleCalendarSyncing] = useState(false);
-  const googleCalendarToken = useRef<{ accessToken: string; expiresAt: number } | null>(null);
   useLegacyModalDismiss(Boolean(portableImportSource), () => setPortableImportSource(null));
   useLegacyModalDismiss(transfer, () => setTransfer(false));
   const seenNoticeIds = useRef(new Set<string>());
@@ -565,9 +564,7 @@ export default function App() {
     const startedAt = performance.now();
     setGoogleCalendarSyncing(true);
     try {
-      const existingToken = googleCalendarToken.current;
-      const token = existingToken && existingToken.expiresAt > Date.now() + 60_000 ? existingToken : await requestGoogleCalendarToken();
-      googleCalendarToken.current = token;
+      const token = await requestGoogleCalendarToken();
       const current: GoogleCalendarPreferences = google;
       const result = await synchronizeGoogleCalendars(token.accessToken, current);
       commit('Sync Google Calendar', (draft) => {

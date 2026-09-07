@@ -511,7 +511,7 @@ export interface QueryRelationContext {
  */
 export const NON_NULLABLE_QUERY_BOOLEAN_FIELDS = [
   'isHabit', 'isTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'activeDuration',
-  'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue',
+  'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue', 'googleCalendarAllDay',
 ] as const;
 
 function normalizeLegacyBooleanPresence(source: string): string {
@@ -556,7 +556,7 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
       const dueBuckets = relations.dueDateBuckets ?? dueDateBuckets(item, current, temporalOptions);
       const hasActiveReminderValue = relations.hasActiveReminders ?? activeReminders(item).length > 0;
       const nextReminderAtValue = relations.remindersIndexed ? relations.nextReminderAt : nextActiveReminderAt(item);
-      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
+      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;
