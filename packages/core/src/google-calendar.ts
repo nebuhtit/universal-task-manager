@@ -116,6 +116,7 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
     const next = googleCalendarEventToItem(event, batch.calendarId, batch.connectionId, batch.syncedAt, workspace.calendarPreferences.timezone);
     if (!next) continue;
     const existing = workspace.items[id];
+    if (existing && event.etag && existing.external?.etag === event.etag) continue;
     if (existing) { next.createdAt = existing.createdAt; next.revision = existing.revision + 1; updated += 1; }
     else added += 1;
     workspace.items[id] = next;

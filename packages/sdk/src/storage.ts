@@ -93,6 +93,11 @@ async function createExportSafeBlock(document: Automerge.Doc<WorkspaceDocument>,
   return block;
 }
 
+async function ensureExportSafeBlock(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array, currentBlock: EncryptedLocalBlock): Promise<void> {
+  if (await getRecord<EncryptedLocalBlock>(EXPORT_SAFE_BLOCK_KEY)) return;
+  await putRecords([[EXPORT_SAFE_BLOCK_KEY, await createExportSafeBlock(document, dataKey, currentBlock)]]);
+}
+
 export interface LocalWorkspaceSnapshotInfo { id: string; createdAt: string; schemaVersion: string; reason: string }
 interface LocalWorkspaceSnapshot extends LocalWorkspaceSnapshotInfo { metadata: LocalMetadata; workspace: LocalBlock }
 interface VerifiedWorkspaceMirror { savedAt: string; metadata: EncryptedLocalMetadata; workspace: EncryptedLocalBlock }
@@ -237,7 +242,7 @@ export async function unlockLocalWorkspaceWithFaceId(): Promise<UnlockedWorkspac
     biometricKey = await faceIdKey(arrayBuffer(fromBase64(record.credentialId)), fromBase64(record.salt));
     dataKey = await decryptWithKey(record.wrappedDataKey, biometricKey, FACE_ID_AAD);
     const document = Automerge.load<WorkspaceDocument>(await decryptLocalBlock(block, dataKey));
-    await putRecords([[EXPORT_SAFE_BLOCK_KEY, await createExportSafeBlock(document, dataKey, block)]]);
+    await ensureExportSafeBlock(document, dataKey, block);
     return { document, dataKey, storageMode: 'encrypted' };
   } catch (reason) {
     dataKey?.fill(0);
@@ -302,9 +307,10 @@ export async function unlockLocalWorkspace(password: string): Promise<UnlockedWo
     try {
       dataKey = await unwrapLocalKey(candidate.metadata.wrappedKey, password);
       const document = Automerge.load<WorkspaceDocument>(await decryptLocalBlock(candidate.workspace, dataKey));
-      const exportSafeBlock = await createExportSafeBlock(document, dataKey, candidate.workspace);
-      if (candidate.mirrored) await putRecords([[META_KEY, candidate.metadata], [BLOCK_KEY, candidate.workspace]]);
-      await putRecords([[EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]]);
+      if (candidate.mirrored) {
+        const exportSafeBlock = await createExportSafeBlock(document, dataKey, candidate.workspace);
+        await putRecords([[META_KEY, candidate.metadata], [BLOCK_KEY, candidate.workspace], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]]);
+      } else await ensureExportSafeBlock(document, dataKey, candidate.workspace);
       return { document, dataKey, storageMode: 'encrypted' };
     } catch (reason) { if (dataKey) dataKey.fill(0); lastError = reason; }
   }
@@ -322,7 +328,7 @@ export async function unlockLocalWorkspaceWithoutPassword(): Promise<UnlockedWor
   const dataKey = fromBase64(bypass.dataKey);
   try {
     const document = Automerge.load<WorkspaceDocument>(await decryptLocalBlock(block, dataKey));
-    await putRecords([[EXPORT_SAFE_BLOCK_KEY, await createExportSafeBlock(document, dataKey, block)]]);
+    await ensureExportSafeBlock(document, dataKey, block);
     return { document, dataKey, storageMode: 'encrypted' };
   } catch (reason) {
     dataKey.fill(0);

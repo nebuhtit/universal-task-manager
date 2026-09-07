@@ -253,6 +253,7 @@ Object.assign(extraTranslations.ru, {
 Object.assign(extraTranslations.ru, {
   'View templates': 'Шаблоны видов', 'View template': 'Шаблон вида', Template: 'Шаблон', Templates: 'Шаблоны', 'Template name': 'Название шаблона',
   'Choose a saved template': 'Выберите сохранённый шаблон', 'Apply template': 'Применить шаблон', 'Save as template': 'Сохранить как шаблон',
+  'Delete template': 'Удалить шаблон', 'Confirm delete template': 'Подтвердить удаление шаблона',
   'Import as template': 'Импортировать как шаблон', 'No templates yet.': 'Шаблонов пока нет.', 'Untitled template': 'Шаблон без названия',
   'Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.': 'Выберите шаблон для заполнения нового элемента. Пока шаблон не выбран, ничего не меняется; перед сохранением можно изменить любое поле.',
   'Templates are kept in the same workspace but do not appear in ordinary lists. They can be selected only while creating a new item.': 'Шаблоны хранятся в этом пространстве, но не появляются в обычных списках. Их можно выбрать только при создании нового элемента.',

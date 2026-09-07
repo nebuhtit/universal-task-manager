@@ -215,6 +215,22 @@ describe('view selectors', () => {
       .toEqual(['Long', 'Short new', 'High future', 'Low overdue']);
   });
 
+  it('keeps completed items below open items in the standard sort without changing membership', () => {
+    const now = new Date('2026-09-07T12:00:00.000Z');
+    const workspace = createWorkspace('Completion order', now);
+    const open = createItem('Open low priority', 'task', now); open.areas = ['Later'];
+    const completed = createItem('Completed high priority', 'task', now); completed.tags = ['urgent']; completed.state = 'done';
+    [open, completed].forEach((item) => { workspace.items[item.id] = item; });
+    ensureAreaDefinition(workspace, 'Later');
+    workspace.organizationPreferences.tagOrder = ['urgent', null];
+    reorderOrganizationPriority(workspace, [{ kind: 'tag', name: 'urgent' }, { kind: 'area', name: 'Later' }, { kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null }]);
+
+    expect(selectViewItems(workspace, { ...view('state == "open" || state == "done"'), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE }, now).map((item) => item.title))
+      .toEqual(['Open low priority', 'Completed high priority']);
+    expect(selectViewItems(workspace, { ...view('state == "open"'), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE }, now).map((item) => item.title))
+      .toEqual(['Open low priority']);
+  });
+
   it('keeps organization sorting usable before an in-memory legacy workspace is migrated', () => {
     const workspace = createWorkspace('Legacy live workspace');
     const item = createItem('Still visible'); workspace.items[item.id] = item;

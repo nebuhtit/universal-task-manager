@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, expressionContinuouslyDependsOnCurrentTime, expressionDependsOnCurrentTime, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, reminderTime, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
@@ -961,10 +961,12 @@ describe('interoperability', () => {
     standard.sortSource = LEGACY_STANDARD_VIEW_SORT_SOURCE;
     standard.sort = parseSortSource(LEGACY_STANDARD_VIEW_SORT_SOURCE).map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls }));
     old.views.custom = { ...standard, id: 'custom', name: 'Custom', sortSource: 'priority desc nulls last', sort: [{ field: 'priority', direction: 'desc', nulls: 'last' }] };
+    old.views.previousStandard = { ...standard, id: 'previousStandard', name: 'Previous standard', sortSource: PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, sort: parseSortSource(PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE).map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })) };
     old.views.manual = { ...standard, id: 'manual', name: 'Manual', extensions: { 'utm:manualOrder': ['item-1'] } };
     old.views.calendar = { ...standard, id: 'calendar', name: 'Calendar', renderer: 'calendar' };
     const migrated = migrateWorkspace(old).value;
     expect(migrated.views.__all_items__?.sortSource).toBe(STANDARD_ATTENTION_VIEW_SORT_SOURCE);
+    expect(migrated.views.previousStandard?.sortSource).toBe(STANDARD_ATTENTION_VIEW_SORT_SOURCE);
     expect(migrated.views.custom?.sortSource).toBe('priority desc nulls last');
     expect(migrated.views.manual?.sortSource).toBe(LEGACY_STANDARD_VIEW_SORT_SOURCE);
     expect(migrated.views.calendar?.sortSource).toBe(LEGACY_STANDARD_VIEW_SORT_SOURCE);
@@ -1018,6 +1020,18 @@ describe('interoperability', () => {
     expect(migrated.calendarPreferences).not.toHaveProperty('selectedViewId');
     expect(migrated.calendarPreferences).not.toHaveProperty('includeStates');
     expect(validateWorkspace(migrated).valid).toBe(true);
+  });
+
+  it('adds completion-first ordering to an untouched same-schema Calendar day view', () => {
+    const old = createWorkspace('Previous Calendar sort');
+    old.calendarPreferences.dayView.sort = [
+      { expression: 'schedule.startAt', direction: 'asc', nulls: 'first' },
+      { expression: 'schedule.dueAt', direction: 'asc', nulls: 'first' },
+    ];
+    old.calendarPreferences.dayView.sortSource = 'schedule.startAt asc nulls first\nschedule.dueAt asc nulls first';
+
+    const migrated = migrateWorkspace(old).value;
+    expect(migrated.calendarPreferences.dayView.sortSource).toBe('completionOrder asc nulls last\nschedule.startAt asc nulls first\nschedule.dueAt asc nulls first');
   });
 
   it('splits legacy PARA lists into independent Area and Project fields', () => {

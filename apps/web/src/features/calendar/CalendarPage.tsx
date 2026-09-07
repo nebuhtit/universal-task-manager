@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   createOccurrence,
   type ItemPreset, type ProjectedOccurrence, type UniversalItem, type ViewTimeMetrics, type WorkspaceDocument,
@@ -60,6 +60,8 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const [selectedDate, setSelectedDate] = useState(() => localDateKey(initialNow, preferences.timezone));
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
   const [editorOpen, setEditorOpen] = useState(false);
+  const dayPanelRef = useRef<HTMLDivElement>(null);
+  const todayChoiceRef = useRef<HTMLButtonElement>(null);
   const completionVersion = useSyncExternalStore(subscribeCompletionHolds, completionHoldsSnapshot, completionHoldsSnapshot);
   const selectedDayView = calendarDayView(selectedDate, preferences.dayView);
   const now = useViewNow(workspace, selectedDayView, suppliedNow);
@@ -80,6 +82,14 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const selectedLabel = formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const weekdayOffset = navigatorMode === 'month' ? (dateFromKey(rangeStartKey).getUTCDay() - preferences.weekStartsOn + 7) % 7 : 0;
   const labelWeek = weekStart('2026-08-31', preferences.weekStartsOn);
+
+  useLayoutEffect(() => {
+    if (navigatorMode !== 'week' || selectedDate !== todayKey) return;
+    const panel = dayPanelRef.current;
+    const today = todayChoiceRef.current;
+    if (!panel || !today || panel.scrollWidth <= panel.clientWidth) return;
+    panel.scrollLeft = Math.max(0, today.offsetLeft - (panel.clientWidth - today.offsetWidth) / 2);
+  }, [navigatorMode, selectedDate, todayKey]);
 
   const materialize = (row: ProjectedOccurrence): UniversalItem | undefined => {
     if (!row.virtual) return workspace.items[row.materializedItemId ?? row.id];
@@ -122,10 +132,10 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
           <IconButton size="compact" variant="ghost" aria-label="Next period" onClick={() => setSelectedDate(navigatorMode === 'week' ? shiftDateKey(selectedDate, 7) : shiftMonth(selectedDate, 1))}>›</IconButton>
         </div>
       </div>
-      <div className={`calendar-day-panel is-${navigatorMode}`}>
+      <div className={`calendar-day-panel is-${navigatorMode}`} ref={dayPanelRef}>
         {navigatorMode === 'month' && Array.from({ length: 7 }, (_, index) => <span className="calendar-weekday-label" key={index}>{formatDate(shiftDateKey(labelWeek, index), { weekday: 'short' })}</span>)}
         {navigatorMode === 'month' && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
-        {dayKeys.map((key) => <button type="button" className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} onClick={() => setSelectedDate(key)} key={key}>
+        {dayKeys.map((key) => <button type="button" ref={key === todayKey ? todayChoiceRef : undefined} className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} onClick={() => setSelectedDate(key)} key={key}>
           <span className="calendar-day-label"><b>{navigatorMode === 'week' ? formatDate(key, { weekday: 'short' }) : Number(key.slice(-2))}</b>{navigatorMode === 'week' && <small>{formatDate(key, { day: 'numeric', month: 'short' })}</small>}</span>
           {dayData[key]!.view.statistics?.showTime !== false && <ViewMetricsSummary metrics={navigationMetrics(dayData[key]!.metrics)} language={preferences.language} />}
         </button>)}

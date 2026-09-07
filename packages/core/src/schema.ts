@@ -1,6 +1,6 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort } from './types.js';
+import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort } from './types.js';
 import { normalizedOrganizationPriorityOrder } from './organization.js';
 import { parseSortSource, serializeSortRules } from './dsl.js';
 import type { PortablePackage, SavedView, UniversalItem, ViewSortRule, WorkspaceDocument } from './types.js';
@@ -650,6 +650,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
             ? serializeSortRules(parseSortSource(migrated.value.sortSource))
             : serializeSortRules(migrated.value.sort.map((rule) => ({ expression: rule.field, direction: rule.direction, nulls: rule.nulls ?? 'last' })));
           const legacyDefault = canonicalSort === LEGACY_STANDARD_VIEW_SORT_SOURCE
+            || canonicalSort === PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE
             || isLegacyStarterView(key, migrated.value) && (canonicalSort === legacyChronologicalSort || canonicalSort === legacyDueOnlySort);
           if (legacyDefault) {
             migrated.value.sort = standardAttentionViewSort();
@@ -864,6 +865,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       ? legacyStates.map((state) => `state == ${JSON.stringify(state)}`).join(' || ')
       : 'false';
     const fallbackSort: ViewSortRule[] = [
+      { expression: 'completionOrder', direction: 'asc', nulls: 'last' },
       { expression: 'schedule.startAt', direction: 'asc', nulls: 'first' },
       { expression: 'schedule.dueAt', direction: 'asc', nulls: 'first' },
     ];
@@ -892,6 +894,16 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   delete calendarPreferences.selectedViewId;
   delete calendarPreferences.includeStates;
   const dayView = calendarPreferences.dayView as Record<string, unknown>;
+  const previousDaySortSource = 'schedule.startAt asc nulls first\nschedule.dueAt asc nulls first';
+  if (dayView.sortSource === previousDaySortSource) {
+    const upgradedDaySort: ViewSortRule[] = [
+      { expression: 'completionOrder', direction: 'asc', nulls: 'last' },
+      { expression: 'schedule.startAt', direction: 'asc', nulls: 'first' },
+      { expression: 'schedule.dueAt', direction: 'asc', nulls: 'first' },
+    ];
+    dayView.sort = upgradedDaySort;
+    dayView.sortSource = serializeSortRules(upgradedDaySort);
+  }
   const dayStatistics = dayView.statistics && typeof dayView.statistics === 'object' && !Array.isArray(dayView.statistics) ? dayView.statistics as Record<string, unknown> : {};
   dayView.statistics = {
     showTime: dayStatistics.showTime !== false,

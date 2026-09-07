@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  compileSort, createId, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, validateScriptDefinitions, validateViewCreationDefaults,
+  compileSort, createId, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort, validateScriptDefinitions, validateViewCreationDefaults,
   type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../components/ui/CodeEditor';
@@ -64,6 +64,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const [sortSource, setSortSource] = useState('');
   const [defaultField, setDefaultField] = useState('priority');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDeleteTemplate, setConfirmDeleteTemplate] = useState(false);
   const [viewJson, setViewJson] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('builtin:inbox');
   const [templateName, setTemplateName] = useState('');
@@ -159,6 +160,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     try { setSortRules(parseSortSource(source)); } catch { setSortRules([]); }
     setDefaultField('priority');
     setConfirmDelete(false);
+    setConfirmDeleteTemplate(false);
     setViewJson(JSON.stringify(copy, null, 2));
     setSelectedTemplateId(templateId);
     setTemplateName(`${copy.name} template`);
@@ -301,7 +303,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
-  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: '(state == "open" || state == "done") && isTemplate != true' }, renderer: 'table', sort: [{ field: 'organizationOrder', direction: 'desc', nulls: 'last' }, { field: 'updatedAt', direction: 'desc', nulls: 'last' }], sortSource: 'organizationOrder desc nulls last\nupdatedAt desc nulls last', fields: [...VIEW_TEMPLATE_FIELDS] });
+  const newView = () => beginEditing({ id: createId(), name: 'New view', query: { source: 'state == "open" && isTemplate != true' }, renderer: 'table', sort: standardAttentionViewSort(), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...VIEW_TEMPLATE_FIELDS] });
   useEffect(() => {
     if (createRequest === 0 || createRequest === handledCreateRequest.current) return;
     handledCreateRequest.current = createRequest;
@@ -354,6 +356,20 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       setError('');
     } catch (reason) { setError(`Template was not saved: ${reason instanceof Error ? reason.message : String(reason)}`); }
   };
+  const deleteSelectedTemplate = () => {
+    if (!selectedTemplate || selectedTemplate.id.startsWith('builtin:')) return;
+    if (!confirmDeleteTemplate) { setConfirmDeleteTemplate(true); return; }
+    const deletedId = selectedTemplate.id;
+    commit('Delete view template', (draft) => {
+      delete draft.views[deletedId];
+      draft.viewOrder = (draft.viewOrder ?? []).filter((id) => id !== deletedId);
+      Object.values(draft.dashboards).forEach((dashboard) => {
+        dashboard.widgets = dashboard.widgets.filter((widget) => widget.viewId !== deletedId);
+      });
+    });
+    setSelectedTemplateId('builtin:inbox');
+    setConfirmDeleteTemplate(false);
+  };
 
   const views = orderedSavedViews(workspace);
   const isExpanded = (view: SavedView) => viewExpansion[view.id] ?? readUiBoolean(`view:${view.id}`, true);
@@ -385,7 +401,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     >
       <Field label="Name"><Input value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></Field>
       <Field label="Renderer"><Select value={editing.renderer} onChange={(event) => setEditing({ ...editing, renderer: event.target.value as SavedView['renderer'] })}><option>list</option><option>table</option><option>calendar</option><option>board</option></Select></Field>
-      <ViewEditorSection sectionKey="templates" title="View templates"><fieldset className="view-template-picker"><div className="view-template-apply"><Field label="Template"><SearchableDisclosureList uiKey={`view-editor:templates:${editing.id}`} summary={selectedTemplate?.name ?? 'Choose template…'} items={availableTemplates} getSearchText={(template) => template.name} searchLabel="Search View templates" searchPlaceholder="Search templates" renderItem={(template) => <Button size="compact" variant="ghost" key={template.id} aria-pressed={template.id === selectedTemplateId} onClick={(event) => { setSelectedTemplateId(template.id); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.name}</Button>} /></Field>{selectedTemplateId === 'builtin:some-area' && <Field label="Area"><SearchableDisclosureList uiKey={`view-editor:template-area:${editing.id}`} summary={templateArea || 'Choose Area…'} items={orderedOrganizationNames(workspace, 'area')} getSearchText={(area) => area} searchLabel="Search Areas" searchPlaceholder="Search Areas" renderItem={(area) => <Button size="compact" variant="ghost" key={area} onClick={(event) => { setTemplateArea(area); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{area}</Button>} /></Field>}{selectedTemplateId === 'builtin:some-project' && <Field label="Project"><SearchableDisclosureList uiKey={`view-editor:template-project:${editing.id}`} summary={templateProject || 'Choose Project…'} items={orderedOrganizationNames(workspace, 'project')} getSearchText={(project) => project} searchLabel="Search Projects" searchPlaceholder="Search Projects" renderItem={(project) => <Button size="compact" variant="ghost" key={project} onClick={(event) => { setTemplateProject(project); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{project}</Button>} /></Field>}<Button size="compact" disabled={!selectedTemplate || (selectedTemplateId === 'builtin:some-area' && !templateArea) || (selectedTemplateId === 'builtin:some-project' && !templateProject)} onClick={applySelectedTemplate}>Apply template</Button></div><div className="view-template-save"><Field label="Save current View as template"><Input aria-label="Template name" value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Template name" /></Field><Button size="compact" disabled={!templateName.trim()} onClick={saveCurrentAsTemplate}>Save as template</Button></div></fieldset></ViewEditorSection>
+      <ViewEditorSection sectionKey="templates" title="View templates"><fieldset className="view-template-picker"><div className="view-template-apply"><Field label="Template"><SearchableDisclosureList uiKey={`view-editor:templates:${editing.id}`} summary={selectedTemplate?.name ?? 'Choose template…'} items={availableTemplates} getSearchText={(template) => template.name} searchLabel="Search View templates" searchPlaceholder="Search templates" renderItem={(template) => <Button size="compact" variant="ghost" key={template.id} aria-pressed={template.id === selectedTemplateId} onClick={(event) => { setSelectedTemplateId(template.id); setConfirmDeleteTemplate(false); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.name}</Button>} /></Field>{selectedTemplateId === 'builtin:some-area' && <Field label="Area"><SearchableDisclosureList uiKey={`view-editor:template-area:${editing.id}`} summary={templateArea || 'Choose Area…'} items={orderedOrganizationNames(workspace, 'area')} getSearchText={(area) => area} searchLabel="Search Areas" searchPlaceholder="Search Areas" renderItem={(area) => <Button size="compact" variant="ghost" key={area} onClick={(event) => { setTemplateArea(area); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{area}</Button>} /></Field>}{selectedTemplateId === 'builtin:some-project' && <Field label="Project"><SearchableDisclosureList uiKey={`view-editor:template-project:${editing.id}`} summary={templateProject || 'Choose Project…'} items={orderedOrganizationNames(workspace, 'project')} getSearchText={(project) => project} searchLabel="Search Projects" searchPlaceholder="Search Projects" renderItem={(project) => <Button size="compact" variant="ghost" key={project} onClick={(event) => { setTemplateProject(project); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{project}</Button>} /></Field>}<div className="view-template-actions"><Button size="compact" disabled={!selectedTemplate || (selectedTemplateId === 'builtin:some-area' && !templateArea) || (selectedTemplateId === 'builtin:some-project' && !templateProject)} onClick={applySelectedTemplate}>Apply template</Button>{selectedTemplate && !selectedTemplate.id.startsWith('builtin:') && <Button size="compact" variant="secondary" onClick={deleteSelectedTemplate}>{confirmDeleteTemplate ? 'Confirm delete template' : 'Delete template'}</Button>}</div></div><div className="view-template-save"><Field label="Save current View as template"><Input aria-label="Template name" value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Template name" /></Field><Button size="compact" disabled={!templateName.trim()} onClick={saveCurrentAsTemplate}>Save as template</Button></div></fieldset></ViewEditorSection>
       <ViewEditorSection sectionKey="color" title="View color"><fieldset className="view-accent-picker"><p className="builder-status">This color identifies the view and completed ticks. Each option stays readable in light and dark themes.</p><div className="view-accent-options"><Button size="compact" className={`view-accent-option view-accent-default${!editing.accent ? ' selected' : ''}`} aria-label="Default view color" aria-pressed={!editing.accent} onClick={() => { const { accent: _accent, ...withoutAccent } = editing; setEditing(withoutAccent); }}><span aria-hidden /></Button>{viewAccentOptions.map((option) => <Button size="compact" key={option.value} className={`view-accent-option${editing.accent === option.value ? ' selected' : ''}`} aria-label={`${option.label} view color`} aria-pressed={editing.accent === option.value} onClick={() => setEditing({ ...editing, accent: option.value })}><span aria-hidden style={{ backgroundColor: option.value }} /></Button>)}<label className="view-custom-accent" aria-label="Custom view color" style={{ backgroundColor: editing.accent ?? '#2864c7' }}><input type="color" value={editing.accent ?? '#2864c7'} onChange={(event) => setEditing({ ...editing, accent: event.target.value })} /></label></div></fieldset></ViewEditorSection>
       <SectionGuide title="How views work"><ul><li>A view is a saved, live list; it never copies items.</li><li>Use the visual setup below: first choose which items appear, then choose what is shown for each item.</li><li>The optional advanced filter code below is synchronized with ordinary rows whenever its logic can be represented visually.</li><li>An empty filter means all items except recurring source templates. Sorting only controls order.</li></ul></SectionGuide>
       <ViewEditorSection sectionKey="visual-setup" title="Visual setup"><fieldset className="query-builder visual-query-builder">

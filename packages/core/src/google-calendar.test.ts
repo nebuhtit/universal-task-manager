@@ -26,6 +26,16 @@ describe('Google Calendar workspace mirror', () => {
     expect(workspace.items[id]).toBeUndefined();
   });
 
+  it('does not rewrite an unchanged event with the same Google etag', () => {
+    const workspace = createWorkspace('Google unchanged');
+    const event = { id: 'same-event', etag: 'etag-1', summary: 'Stable', updated: '2026-08-31T12:00:00.000Z', start: { dateTime: '2026-09-07T15:00:00.000Z' }, end: { dateTime: '2026-09-07T16:00:00.000Z' } };
+    expect(applyGoogleCalendarSync(workspace, { connectionId: 'connection-1', calendarId: 'primary', events: [event], syncedAt: '2026-09-07T12:00:00.000Z', fullSync: true })).toEqual({ added: 1, updated: 0, removed: 0 });
+    const before = structuredClone(workspace.items['google:primary:same-event']);
+
+    expect(applyGoogleCalendarSync(workspace, { connectionId: 'connection-1', calendarId: 'primary', events: [event], syncedAt: '2026-09-07T12:05:00.000Z', fullSync: true })).toEqual({ added: 0, updated: 0, removed: 0 });
+    expect(workspace.items['google:primary:same-event']).toEqual(before);
+  });
+
   it('migrates optional Google metadata without keeping malformed credentials or provenance', () => {
     const workspace = createWorkspace('Migration');
     const item = createItem('Foreign');

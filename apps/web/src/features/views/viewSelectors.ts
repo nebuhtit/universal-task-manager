@@ -144,7 +144,7 @@ export function sortViewItems(workspace: WorkspaceDocument, view: SavedView, sou
   const sortSource = view.sortSource ?? (view.sort ?? []).map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n');
   if (sortSource.trim()) {
     const rules = cachedSortRules(sortSource);
-    const virtualSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['listOrder', 'organizationOrder', 'areaOrder', 'projectOrder', 'tagOrder', 'attentionOrder', 'durationOrder'].includes(expression)));
+    const virtualSorts = new Set(rules.map((rule) => rule.expression).filter((expression) => ['completionOrder', 'listOrder', 'organizationOrder', 'areaOrder', 'projectOrder', 'tagOrder', 'attentionOrder', 'durationOrder'].includes(expression)));
     if (!virtualSorts.size) {
       const comparator = compileSort(sortSource);
       items.sort((left, right) => comparator(selectionSource(left), selectionSource(right), now));
@@ -152,6 +152,7 @@ export function sortViewItems(workspace: WorkspaceDocument, view: SavedView, sou
     else {
       const expanded = serializeSortRules(rules.flatMap((rule) => {
         if (!virtualSorts.has(rule.expression)) return [rule];
+        if (rule.expression === 'completionOrder') return [{ ...rule, expression: 'custom.__utm_completion_order' }];
         if (rule.expression === 'organizationOrder') return [{ ...rule, expression: 'custom.__utm_organization_order' }];
         if (rule.expression === 'attentionOrder') return [
           { ...rule, expression: 'custom.__utm_attention_bucket' },
@@ -174,6 +175,7 @@ export function sortViewItems(workspace: WorkspaceDocument, view: SavedView, sou
         const attention = attentionSortValues(item, now);
         return { ...item, custom: {
           ...item.custom,
+          __utm_completion_order: item.state === 'open' ? 0 : 1,
           ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
           __utm_organization_order: index.organizationRankFor(item),
           __utm_attention_bucket: attention.bucket,

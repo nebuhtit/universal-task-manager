@@ -9,6 +9,13 @@ let worker: Worker | undefined;
 let nextRequestId = 1;
 const pending = new Map<number, PendingRequest>();
 
+function recurrenceWorkspaceSnapshot(workspace: WorkspaceDocument): WorkspaceDocument {
+  const items = Object.fromEntries(Object.entries(workspace.items).filter(([, item]) => item.role === 'series_template' || item.role === 'occurrence' || Boolean(item.recurrence) || Boolean(item.habit)));
+  const ids = new Set(Object.keys(items));
+  const tombstones = Object.fromEntries(Object.entries(workspace.tombstones).filter(([id]) => ids.has(id)));
+  return clean({ ...workspace, items, tombstones });
+}
+
 function rejectPending(message: string): void {
   const error = new Error(message);
   pending.forEach((request) => { clearTimeout(request.timeout); request.reject(error); });
@@ -43,9 +50,10 @@ function recurrenceWorker(): Worker | undefined {
  * the same compiled module and WASM/runtime setup.
  */
 export async function reconcileOffMainThread(workspace: WorkspaceDocument, now: Date): Promise<ReconcileResult> {
+  const snapshot = recurrenceWorkspaceSnapshot(workspace);
   const target = recurrenceWorker();
   if (!target) return await Promise.race([
-    Promise.resolve().then(() => reconcileRecurrences(clean(workspace), now)),
+    Promise.resolve().then(() => reconcileRecurrences(snapshot, now)),
     new Promise<ReconcileResult>((_, reject) => globalThis.setTimeout(() => reject(new Error('Recurrence reconciliation timed out')), WORKER_TIMEOUT_MS)),
   ]);
   const id = nextRequestId++;
@@ -56,7 +64,7 @@ export async function reconcileOffMainThread(workspace: WorkspaceDocument, now: 
       resetWorker();
     }, WORKER_TIMEOUT_MS);
     pending.set(id, { resolve, reject, timeout });
-    try { target.postMessage({ id, workspace: clean(workspace), now: now.toISOString() }); }
+    try { target.postMessage({ id, workspace: snapshot, now: now.toISOString() }); }
     catch (reason) {
       clearTimeout(timeout);
       pending.delete(id);
@@ -64,4 +72,3 @@ export async function reconcileOffMainThread(workspace: WorkspaceDocument, now: 
     }
   });
 }
-

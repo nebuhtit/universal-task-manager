@@ -30,6 +30,7 @@ describe('CalendarPage daily-list contract', () => {
     expect(markup).toContain('Timed item');
     expect(markup).toContain('calendar-day-list');
     expect(markup).toContain('calendar-day-panel is-week');
+    expect(markup).toContain('calendar-day-choice selected today');
     expect((markup.match(/calendar-day-choice/g) ?? [])).toHaveLength(7);
     expect(markup).not.toContain('full-calendar');
     expect(markup).not.toContain('timeGrid');

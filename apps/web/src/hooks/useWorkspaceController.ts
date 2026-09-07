@@ -6,7 +6,7 @@ import {
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
-  localWorkspaceMode, lock, passwordProtectionStatus, saveLocalWorkspace, saveMigratedLocalWorkspace,
+  localWorkspaceMode, lock, passwordProtectionStatus, saveMigratedLocalWorkspace,
   unlockLocalWorkspaceWithoutPassword, unlockUnencryptedLocalWorkspace,
   type PasswordProtectionStatus, type UnlockedWorkspace,
 } from '@utm/sdk';
@@ -99,12 +99,16 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       deliveredReminderIds.current.clear();
     let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
     const sourceVersion = String((unlocked.document as WorkspaceDocument).schemaVersion ?? '1.0.0');
-    const now = effectiveWorkspaceNow(unlocked.document as WorkspaceDocument); const migration = migrateWorkspace(clean(unlocked.document as WorkspaceDocument));
+    const now = effectiveWorkspaceNow(unlocked.document as WorkspaceDocument); const migration = migrateWorkspace(unlocked.document as WorkspaceDocument);
     const integrity = validateWorkspace(migration.value);
     if (!integrity.valid) throw new Error(`Workspace integrity check failed (${integrity.errors.length} issues)`);
-    const migratedDocument = Automerge.change(unlocked.document, 'Migrate workspace metadata and reminders', (draft) => {
+    const compactNormalizedDocument = sourceVersion === migration.value.schemaVersion && migration.warnings.length > 0;
+    const migrationBase = compactNormalizedDocument
+      ? Automerge.from(migration.value as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>
+      : unlocked.document;
+    const migratedDocument = Automerge.change(migrationBase, 'Migrate workspace metadata and reminders', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
-      if (targetWorkspace.schemaVersion !== migration.value.schemaVersion || migration.warnings.length > 0 || !targetWorkspace.calendarPreferences?.language || !Array.isArray(targetWorkspace.viewOrder)) { const target = targetWorkspace as unknown as Record<string, unknown>; Object.keys(target).forEach((key) => delete target[key]); Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); }); }
+      if (!compactNormalizedDocument && (targetWorkspace.schemaVersion !== migration.value.schemaVersion || migration.warnings.length > 0 || !targetWorkspace.calendarPreferences?.language || !Array.isArray(targetWorkspace.viewOrder))) { const target = targetWorkspace as unknown as Record<string, unknown>; Object.keys(target).forEach((key) => delete target[key]); Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); }); }
       if (selectedLanguage) targetWorkspace.calendarPreferences.language = selectedLanguage;
       backfillItemCreationVersions(targetWorkspace); Object.values(targetWorkspace.items).forEach(removeDuplicateReminders); consolidateHabitOccurrences(targetWorkspace, now);
     });
@@ -124,9 +128,10 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const groups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>(); const rank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) { if (item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } }
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
+    const changedDuringActivation = compactNormalizedDocument || Automerge.getHeads(updated).join('|') !== Automerge.getHeads(unlocked.document).join('|');
     if (sourceVersion !== migration.value.schemaVersion) await saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`);
-    else await saveLocalWorkspace(updated, unlocked.dataKey, unlocked.storageMode);
-    if (unlocked.storageMode !== 'plaintext') await persistObsidianWorkspace();
+    else if (changedDuringActivation) await persistWorkspace({ ...unlocked, document: updated });
+    else if (unlocked.storageMode !== 'plaintext') await persistObsidianWorkspace();
     finishActivationStage('persistence');
     persistenceQueue.current?.clearPending();
     const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated);

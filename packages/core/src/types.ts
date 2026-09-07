@@ -1,15 +1,17 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.99.7';
-export const APP_RELEASED_AT = '2026-09-07T11:03:28.386Z';
+export const APP_VERSION = '1.99.8';
+export const APP_RELEASED_AT = '2026-09-07T11:55:47.358Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
 export const LEGACY_STANDARD_VIEW_SORT_SOURCE = 'schedule.dueAt asc nulls last\nschedule.startAt asc nulls last\norganizationOrder asc nulls last';
-export const STANDARD_ATTENTION_VIEW_SORT_SOURCE = 'organizationOrder desc nulls last\nattentionOrder asc nulls last\ndurationOrder desc nulls last\ncreatedAt desc nulls last';
+export const PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE = 'organizationOrder desc nulls last\nattentionOrder asc nulls last\ndurationOrder desc nulls last\ncreatedAt desc nulls last';
+export const STANDARD_ATTENTION_VIEW_SORT_SOURCE = `completionOrder asc nulls last\n${PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE}`;
 
 export const standardAttentionViewSort = () => [
+  { field: 'completionOrder', direction: 'asc' as const, nulls: 'last' as const },
   { field: 'organizationOrder', direction: 'desc' as const, nulls: 'last' as const },
   { field: 'attentionOrder', direction: 'asc' as const, nulls: 'last' as const },
   { field: 'durationOrder', direction: 'desc' as const, nulls: 'last' as const },
@@ -725,10 +727,11 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         scheduleSources: ['event_open', 'event', 'active', 'due'],
         fields: [...defaultFields, 'schedule.estimatedDuration', 'external.provider'],
         sort: [
+          { expression: 'completionOrder', direction: 'asc', nulls: 'last' },
           { expression: 'schedule.startAt', direction: 'asc', nulls: 'first' },
           { expression: 'schedule.dueAt', direction: 'asc', nulls: 'first' },
         ],
-        sortSource: 'schedule.startAt asc nulls first\nschedule.dueAt asc nulls first',
+        sortSource: 'completionOrder asc nulls last\nschedule.startAt asc nulls first\nschedule.dueAt asc nulls first',
       },
       diagnosticsEnabled: true,
       showExplanations: false,
