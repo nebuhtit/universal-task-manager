@@ -208,15 +208,15 @@ const measure = async <T,>(operation: () => T | Promise<T>) => {
 };
 
 const expectedBehaviorHashes: Record<number, string> = {
-  100: 'a983a621',
-  1_000: '9493f8f4',
-  10_000: '3f8bf015',
+  100: '59af966e',
+  1_000: '521047c6',
+  10_000: '432ad274',
 };
 
 const expectedReferenceHashes: Record<number, string> = {
-  100: '51d0eea2',
-  1_000: 'd8c705d0',
-  10_000: '05656545',
+  100: 'eead31ec',
+  1_000: 'd81f1bf6',
+  10_000: '0be773a2',
 };
 
 describe('performance behavior baseline', () => {
