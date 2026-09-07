@@ -33,7 +33,7 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
       diagnosticStage = 'download';
       const result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
         diagnosticStage = progress.stage; setGoogleSyncStatus(progress.message); appendLog(progress.message);
-      });
+      }, { fullSync: true });
       diagnosticStage = 'save';
       setGoogleSyncStatus('Saving events to this workspace…'); appendLog('Saving downloaded events to this workspace.');
       commit('Sync Google Calendar', (draft) => {

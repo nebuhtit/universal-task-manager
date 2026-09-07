@@ -567,7 +567,7 @@ export default function App() {
     try {
       const token = await requestGoogleCalendarToken();
       const current: GoogleCalendarPreferences = google;
-      const result = await synchronizeGoogleCalendars(token.accessToken, current);
+      const result = await synchronizeGoogleCalendars(token.accessToken, current, undefined, { fullSync: true });
       commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {

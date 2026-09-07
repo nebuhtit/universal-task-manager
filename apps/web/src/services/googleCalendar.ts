@@ -76,7 +76,7 @@ async function googleJson<T>(url: string, accessToken: string): Promise<T> {
   const timeout = globalThis.setTimeout(() => controller.abort(), GOOGLE_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
+    response = await fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
   } catch (reason) {
     if (controller.signal.aborted) throw new Error('Google Calendar request timed out. Check the connection and try again.');
     throw reason;
@@ -158,7 +158,7 @@ export interface GoogleCalendarSyncProgress {
   fullSync?: boolean;
 }
 
-export async function synchronizeGoogleCalendars(accessToken: string, preferences: GoogleCalendarPreferences, onProgress?: (progress: GoogleCalendarSyncProgress) => void): Promise<GoogleCalendarSyncResult> {
+export async function synchronizeGoogleCalendars(accessToken: string, preferences: GoogleCalendarPreferences, onProgress?: (progress: GoogleCalendarSyncProgress) => void, options: { fullSync?: boolean } = {}): Promise<GoogleCalendarSyncResult> {
   onProgress?.({ stage: 'calendar-list', message: 'Loading Google calendar list…', completedCalendars: 0, totalCalendars: 0, eventCount: 0 });
   const rawCalendars = await listCalendars(accessToken);
   const prior = new Map(preferences.calendars.map((calendar) => [calendar.id, calendar]));
@@ -168,11 +168,13 @@ export async function synchronizeGoogleCalendars(accessToken: string, preference
     return [{ id: calendar.id, name: calendar.summary?.trim() || calendar.id, ...(calendar.primary ? { primary: true } : {}), selected: previous?.selected ?? Boolean(calendar.primary || calendar.selected) }];
   });
   const syncedAt = new Date().toISOString();
-  const priorWindow = reusableSyncWindow(preferences);
+  // A manual refresh reconciles the mirror even if a previous delta was lost.
+  const priorWindow = options.fullSync ? undefined : reusableSyncWindow(preferences);
   const syncWindow = priorWindow ?? freshSyncWindow();
   const syncTokens = priorWindow ? { ...preferences.syncTokens } : {};
   const batches: GoogleCalendarSyncBatch[] = [];
   const selectedCalendars = calendars.filter((entry) => entry.selected);
+  if (!selectedCalendars.length) throw new Error('No Google calendars are selected. Select calendars in Settings before syncing.');
   let eventCount = 0;
   let nextCalendarIndex = 0;
   let completedCalendars = 0;

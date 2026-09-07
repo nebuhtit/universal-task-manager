@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { GoogleCalendarPreferences } from '@utm/core';
+import { applyGoogleCalendarSync, createWorkspace, type GoogleCalendarPreferences } from '@utm/core';
 import { GOOGLE_CALENDAR_SYNC_CONCURRENCY, synchronizeGoogleCalendars } from './googleCalendar';
 
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -58,6 +58,36 @@ describe('Google Calendar browser synchronization', () => {
     await vi.advanceTimersByTimeAsync(30_000);
 
     await rejection;
+  });
+
+  it('manual refresh restores missing events despite an existing incremental cursor', async () => {
+    const current = preferences();
+    current.calendars = [{ id: 'primary', name: 'Main', selected: true }];
+    current.syncTokens = { primary: 'already-consumed' };
+    current.syncWindow = { timeMin: '2025-01-01T00:00:00Z', timeMax: '2027-01-01T00:00:00Z', refreshedAt: new Date().toISOString() };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ id: 'primary', primary: true }] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], nextPageToken: 'second-page' }))
+      .mockResolvedValueOnce(jsonResponse({ items: [{ id: 'missing', summary: 'New meeting', start: { dateTime: '2026-09-07T15:00:00Z' }, end: { dateTime: '2026-09-07T16:00:00Z' } }], nextSyncToken: 'fresh-cursor' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await synchronizeGoogleCalendars('access-token', current, undefined, { fullSync: true });
+    for (const [url, init] of fetchMock.mock.calls) {
+      expect(init.cache).toBe('no-store');
+      expect(new URL(String(url)).searchParams.has('syncToken')).toBe(false);
+    }
+    expect(new URL(String(fetchMock.mock.calls[2]![0])).searchParams.get('pageToken')).toBe('second-page');
+    const workspace = createWorkspace('Sync regression');
+    expect(applyGoogleCalendarSync(workspace, result.batches[0]!)).toMatchObject({ added: 1 });
+    expect(Object.values(workspace.items).some((item) => item.title === 'New meeting')).toBe(true);
+    expect(result.syncTokens.primary).toBe('fresh-cursor');
+    expect(current.syncTokens.primary).toBe('already-consumed');
+  });
+
+  it('reports an empty calendar selection instead of claiming a successful refresh', async () => {
+    const current = preferences();
+    current.calendars = [{ id: 'primary', name: 'Main', selected: false }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ items: [{ id: 'primary', primary: true }] })));
+    await expect(synchronizeGoogleCalendars('access-token', current)).rejects.toThrow('No Google calendars are selected');
   });
 
   it('downloads several calendars with bounded concurrency and deterministic batches', async () => {
