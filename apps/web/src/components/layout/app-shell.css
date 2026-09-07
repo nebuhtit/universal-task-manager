@@ -77,6 +77,7 @@
 .top-actions > .ui-icon-button { flex: 0 0 var(--control-height-compact); color: var(--color-text); }
 .views-add-button,
 .google-calendar-sync-button,
+.quick-backup-button,
 .notice-button,
 .mobile-menu-button { border-color: transparent; background: transparent; }
 .notice-button { position: relative; }
@@ -218,5 +219,5 @@
   .topbar { grid-template-columns: minmax(0, 1fr) auto; }
   .topbar > div:first-child { grid-column: 1; justify-content: flex-start; }
   .top-summary { text-align: left; }
-  .top-actions { grid-column: 2; }
+  .top-actions { grid-column: 2; gap: var(--space-1); }
 }

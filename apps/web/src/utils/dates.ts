@@ -33,6 +33,12 @@ export const formatHeaderDate = (value: Date, language: WorkspaceLanguage): stri
   return `${values.weekday} ${values.day} ${values.month} ${values.year} · ${values.hour}:${values.minute}:${values.second}`;
 };
 
+export const formatCompactHeaderDate = (value: Date, language: WorkspaceLanguage): string => {
+  const formatter = new Intl.DateTimeFormat(localeForLanguage(language), { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+  const values = Object.fromEntries(formatter.formatToParts(value).map((part) => [part.type, part.value.replace(/\./g, '')]));
+  return `${values.weekday} ${values.day} ${values.month?.slice(0, 3)} · ${values.hour}:${values.minute}:${values.second}`;
+};
+
 export const clockMinutes = (value: string) => { const [hours = 0, minutes = 0] = value.split(':').map(Number); return hours * 60 + minutes; };
 
 export const scheduledTheme = (lightAt: string, darkAt: string, now = new Date()) => {

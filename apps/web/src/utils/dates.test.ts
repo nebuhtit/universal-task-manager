@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dateInput, formatViewDate, fromDateInput, isSleepTime, scheduledTheme } from './dates';
+import { dateInput, formatCompactHeaderDate, formatHeaderDate, formatViewDate, fromDateInput, isSleepTime, scheduledTheme } from './dates';
 
 describe('date utilities', () => {
   it('round-trips the local datetime input representation', () => {
@@ -13,6 +13,13 @@ describe('date utilities', () => {
     const formatted = formatViewDate(value, true, 'ru');
     expect(formatted).not.toContain('.');
     expect(formatted).toContain(', 22:35');
+  });
+
+  it('keeps the Home clock compact without changing the full header clock', () => {
+    const value = new Date(2026, 8, 7, 13, 5, 9);
+    expect(formatCompactHeaderDate(value, 'en')).toBe('Monday 7 Sep · 13:05:09');
+    expect(formatCompactHeaderDate(value, 'en')).not.toContain('2026');
+    expect(formatHeaderDate(value, 'en')).toContain('September 2026');
   });
 
   it('handles scheduled themes and overnight sleep ranges', () => {

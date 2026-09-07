@@ -37,7 +37,7 @@ import {
   collectItemDependencies, createId, createItem, createPortablePackage,
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences, updateRecurrenceCompletionTime,
   runAutomationEvents, serializePortablePackage,
-  createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, migrateWorkspace, packageToTabular, parseCsv, tabularToPackage, toCsv, toICS,
+  createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, migrateWorkspace, packageToTabular, parseCsv, tabularToPackage, toCanonicalJSON, toCsv, toICS, workspaceForExport,
   type GoogleCalendarPreferences, type ItemPreset, type PortableImportPreview, type PortableSelection, type RecurrenceCompletionRecord, type SavedView, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
@@ -545,6 +545,7 @@ export default function App() {
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
   const [quickCompletion, setQuickCompletion] = useState<QuickCompletionRequest | null>(null);
   const [googleCalendarSyncing, setGoogleCalendarSyncing] = useState(false);
+  const [quickBackupBusy, setQuickBackupBusy] = useState(false);
   useLegacyModalDismiss(Boolean(portableImportSource), () => setPortableImportSource(null));
   useLegacyModalDismiss(transfer, () => setTransfer(false));
   const seenNoticeIds = useRef(new Set<string>());
@@ -630,6 +631,41 @@ export default function App() {
   }, [workspace]);
   const exportAfterFlush = (action: () => void | Promise<void>) => {
     void flushPersistence().then(action).catch((reason) => setToast(`Export stopped because the latest change could not be saved: ${reason instanceof Error ? reason.message : String(reason)}`));
+  };
+  const saveQuickBackup = async () => {
+    if (quickBackupBusy || !workspace || !session) return;
+    setQuickBackupBusy(true);
+    let savedEncrypted = session.storageMode !== 'plaintext';
+    try {
+      await flushPersistence();
+      if (session.storageMode === 'plaintext') {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const russian = workspace.calendarPreferences.language === 'ru';
+        const usePassword = window.confirm(russian
+          ? 'Сохранить резервную копию с паролем?\n\nOK — защищённая .utmb с паролем.\nОтмена — незашифрованная JSON-копия.'
+          : 'Save this backup with a password?\n\nOK — password-protected .utmb.\nCancel — unencrypted JSON backup.');
+        if (usePassword) {
+          const password = window.prompt(russian ? 'Введите пароль для резервной копии' : 'Enter a password for this backup');
+          if (!password) return;
+          const confirmation = window.prompt(russian ? 'Повторите пароль' : 'Repeat the password');
+          if (confirmation !== password) throw new Error(russian ? 'Пароли не совпадают' : 'Passwords do not match');
+          const source = await exportContainer(session.document, password);
+          downloadText(source, `${safeFilename(workspace.name)}-encrypted-backup-${stamp}.utmb`, 'application/octet-stream');
+          savedEncrypted = true;
+        } else {
+          downloadText(toCanonicalJSON(workspaceForExport(workspace), true), `${safeFilename(workspace.name)}-plaintext-backup-${stamp}.json`);
+        }
+      } else {
+        await downloadLockedRecoveryCopy();
+      }
+      setBackupReminder(false);
+      setToast(savedEncrypted ? 'Encrypted backup saved.' : 'Plaintext backup saved.');
+      commit('Record encrypted backup', (draft) => {
+        draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() };
+      });
+    } catch (reason) {
+      setToast(`Backup failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+    } finally { setQuickBackupBusy(false); }
   };
   useEffect(() => {
     if (!workspace || session?.storageMode === 'plaintext') { setFaceId('unsupported'); return; }
@@ -975,7 +1011,7 @@ export default function App() {
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
-  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} />}

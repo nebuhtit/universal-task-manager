@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { WorkspaceDocument } from '@utm/core';
 import { useWorkspaceNow } from '../../hooks/useClock';
-import { formatHeaderDate } from '../../utils/dates';
+import { formatCompactHeaderDate, formatHeaderDate } from '../../utils/dates';
 import { CloseIcon, LineIcon, type LineIconName } from '../ui/icons';
 import { Button, IconButton } from '../ui/primitives';
 import { UserDataText, useTranslation } from '../../i18n-react';
@@ -16,14 +16,16 @@ type Props = {
   notices: AppNotice[]; popupNoticeIds: string[]; noticeCenterOpen: boolean; mobileNavOpen: boolean;
   onNewView: () => void; onToggleNotices: () => void; onToggleNavigation: () => void; onCloseNavigation: () => void;
   onGoogleCalendarSync?: () => void; googleCalendarSyncing?: boolean;
+  onQuickBackup?: () => void; quickBackupBusy?: boolean; quickBackupPlaintext?: boolean;
   onDismissPopup: (id: string) => void; onDeleteNotice: (id: string) => void; onOpenNotice: (notice: AppNotice) => void;
   onTransfer: () => void; onLock: () => void;
   backupReminder: boolean; onBackupReminder: () => void; onDismissBackupReminder: () => void;
 };
 
-function HeaderClock({ workspace, fallback }: { workspace?: WorkspaceDocument; fallback?: string }) {
+function HeaderClock({ workspace, fallback, compact = false }: { workspace?: WorkspaceDocument; fallback?: string; compact?: boolean }) {
   const now = useWorkspaceNow(workspace);
-  return <span className="top-summary">{fallback ?? formatHeaderDate(now, workspace?.calendarPreferences.language ?? 'en')}</span>;
+  const language = workspace?.calendarPreferences.language ?? 'en';
+  return <span className="top-summary">{fallback ?? (compact ? formatCompactHeaderDate(now, language) : formatHeaderDate(now, language))}</span>;
 }
 
 const nav: NavItem[] = [['home', 'home', 'Home'], ['calendar', 'calendar', 'Calendar'], ['all', 'items', 'All items'], ['organization', 'views', 'PARA'], ['settings', 'settings', 'Settings']];
@@ -38,11 +40,12 @@ export function AppShell(props: Props) {
   const { page, onPage, activeDateLabel, workspace, openItems, children, notices, popupNoticeIds, noticeCenterOpen, mobileNavOpen } = props;
   const t = useTranslation(workspace?.calendarPreferences.language ?? 'en');
   const notificationCount = notices.length + Number(props.backupReminder);
+  const quickBackupLabel = props.quickBackupPlaintext ? t('Save plaintext backup') : t('Save encrypted backup');
   const backupNotice: AppNotice = { id: 'backup-reminder', title: t('Backup needs attention'), body: t('Create an encrypted .utmb backup to keep a portable copy of this workspace.'), at: new Date().toISOString() };
   return <div className={`app-shell page-${page}`}>
     <aside className="sidebar"><div className="sidebar-brand"><div className="brand-mark small">U</div><span>Universal</span></div><nav>{nav.map(([target, icon, label, beta]) => <Button variant="ghost" key={target} className={page === target ? 'active' : ''} onClick={() => onPage(target)}><LineIcon name={icon}/><span>{t(label)}</span>{beta && <em className="nav-beta" title={t('This area is still being tested and improved.')}>{t('Beta')}</em>}{target === 'all' && openItems > 0 && <b title={t(`${openItems} active ${openItems === 1 ? 'item' : 'items'}`)}>{openItems}</b>}</Button>)}</nav><div className="sidebar-bottom"><Button variant="ghost" onClick={props.onTransfer}><LineIcon name="transfer"/><span>{t('Transfer')}</span></Button><Button variant="ghost" onClick={props.onLock}><LineIcon name="lock"/><span>{t('Lock')}</span></Button></div></aside>
     <main className="content">
-      <header className="topbar"><div><HeaderClock {...(workspace ? { workspace } : {})} {...(activeDateLabel ? { fallback: activeDateLabel } : {})} /></div><div className="top-actions">{page === 'home' && <IconButton size="compact" variant="ghost" className="views-add-button" aria-label={t('New view')} title={t('New view')} onClick={props.onNewView}><LineIcon name="plus"/></IconButton>}{(page === 'home' || page === 'calendar') && workspace?.calendarPreferences.googleCalendar && props.onGoogleCalendarSync && <IconButton size="compact" variant="ghost" className="google-calendar-sync-button" aria-label={t('Google Calendar sync')} title={t('Google Calendar sync')} disabled={props.googleCalendarSyncing} onClick={props.onGoogleCalendarSync}><LineIcon name="calendarSync"/></IconButton>}<IconButton size="compact" variant="ghost" className="notice-button" aria-label={t('Notifications')} aria-expanded={noticeCenterOpen} onClick={props.onToggleNotices} title={t('Notifications')}><LineIcon name="bell"/>{notificationCount > 0 && <b>{notificationCount}</b>}</IconButton><IconButton size="compact" variant="ghost" className="mobile-menu-button" aria-label={t('Open navigation')} aria-expanded={mobileNavOpen} onClick={props.onToggleNavigation}><LineIcon name="menu"/></IconButton></div></header>
+      <header className="topbar"><div><HeaderClock {...(workspace ? { workspace } : {})} {...(activeDateLabel ? { fallback: activeDateLabel } : {})} compact={page === 'home'} /></div><div className="top-actions">{page === 'home' && <IconButton size="compact" variant="ghost" className="views-add-button" aria-label={t('New view')} title={t('New view')} onClick={props.onNewView}><LineIcon name="plus"/></IconButton>}{(page === 'home' || page === 'calendar') && workspace?.calendarPreferences.googleCalendar && props.onGoogleCalendarSync && <IconButton size="compact" variant="ghost" className="google-calendar-sync-button" aria-label={t('Google Calendar sync')} title={t('Google Calendar sync')} disabled={props.googleCalendarSyncing} onClick={props.onGoogleCalendarSync}><LineIcon name="calendarSync"/></IconButton>}{props.onQuickBackup && <IconButton size="compact" variant="ghost" className="quick-backup-button" aria-label={quickBackupLabel} title={quickBackupLabel} disabled={props.quickBackupBusy} onClick={props.onQuickBackup}><LineIcon name="save"/></IconButton>}<IconButton size="compact" variant="ghost" className="notice-button" aria-label={t('Notifications')} aria-expanded={noticeCenterOpen} onClick={props.onToggleNotices} title={t('Notifications')}><LineIcon name="bell"/>{notificationCount > 0 && <b>{notificationCount}</b>}</IconButton><IconButton size="compact" variant="ghost" className="mobile-menu-button" aria-label={t('Open navigation')} aria-expanded={mobileNavOpen} onClick={props.onToggleNavigation}><LineIcon name="menu"/></IconButton></div></header>
       {mobileNavOpen && <>
         <button type="button" className="overlay-dismiss-scrim mobile-nav-scrim" tabIndex={-1} aria-label={t('Close navigation')} onClick={(event) => { event.stopPropagation(); props.onCloseNavigation(); }} />
         <nav className="mobile-nav-menu" aria-label={t('Main navigation')}>{nav.map(([target, icon, label, beta]) => <Button variant="ghost" key={target} className={page === target ? 'active' : ''} onClick={() => { onPage(target); props.onCloseNavigation(); }}><LineIcon name={icon}/><span>{t(label)}</span>{beta && <em className="nav-beta">{t('Beta')}</em>}</Button>)}</nav>

@@ -17,7 +17,7 @@ type TranslationTable = Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary>;
 
 const en = {
   Home: 'Главная', 'All items': 'Все элементы', Settings: 'Настройки', Lock: 'Заблокировать', Transfer: 'Передача',
-  Notifications: 'Уведомления', 'No notifications': 'Нет уведомлений', 'Encrypted locally': 'Зашифровано локально',
+  Notifications: 'Уведомления', 'No notifications': 'Нет уведомлений', 'Encrypted locally': 'Зашифровано локально', 'Save encrypted backup': 'Сохранить зашифрованную копию', 'Save plaintext backup': 'Сохранить незашифрованную копию',
   'Add new task': 'Добавить новую задачу', 'Add new item': 'Добавить новый элемент', 'Add task': 'Добавить задачу', 'New item': 'Новый элемент', 'New view': 'Новый вид',
   'Edit view': 'Редактировать вид', 'Save view': 'Сохранить вид', Cancel: 'Отмена', Delete: 'Удалить', 'Delete view': 'Удалить вид',
   Active: 'Активные', Completed: 'Завершённые', 'Auto closed': 'Закрыты автоматически',

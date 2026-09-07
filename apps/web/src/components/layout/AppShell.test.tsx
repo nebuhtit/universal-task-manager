@@ -43,22 +43,26 @@ describe('AppShell', () => {
     const markup = renderToStaticMarkup(<AppShell
       page="home" workspace={workspace} onPage={noop} openItems={0}
       notices={[]} popupNoticeIds={[]} noticeCenterOpen={false} mobileNavOpen={false} backupReminder={false} onBackupReminder={noop} onDismissBackupReminder={noop}
-      onNewView={noop} onGoogleCalendarSync={noop} onToggleNotices={noop} onToggleNavigation={noop} onCloseNavigation={noop}
+      onNewView={noop} onGoogleCalendarSync={noop} onQuickBackup={noop} onToggleNotices={noop} onToggleNavigation={noop} onCloseNavigation={noop}
       onDismissPopup={noop} onDeleteNotice={noop} onOpenNotice={noop} onTransfer={noop} onLock={noop}
     ><p>Content</p></AppShell>);
 
     expect(markup).toContain('aria-label="Google Calendar sync"');
     expect(markup.indexOf('aria-label="New view"')).toBeLessThan(markup.indexOf('aria-label="Google Calendar sync"'));
     expect(markup.indexOf('aria-label="Google Calendar sync"')).toBeLessThan(markup.indexOf('aria-label="Notifications"'));
+    expect(markup).toContain('aria-label="Save encrypted backup"');
+    expect(markup.indexOf('aria-label="Google Calendar sync"')).toBeLessThan(markup.indexOf('aria-label="Save encrypted backup"'));
+    expect(markup.indexOf('aria-label="Save encrypted backup"')).toBeLessThan(markup.indexOf('aria-label="Notifications"'));
 
     const calendarMarkup = renderToStaticMarkup(<AppShell
       page="calendar" workspace={workspace} onPage={noop} openItems={0}
       notices={[]} popupNoticeIds={[]} noticeCenterOpen={false} mobileNavOpen={false} backupReminder={false} onBackupReminder={noop} onDismissBackupReminder={noop}
-      onNewView={noop} onGoogleCalendarSync={noop} onToggleNotices={noop} onToggleNavigation={noop} onCloseNavigation={noop}
+      onNewView={noop} onGoogleCalendarSync={noop} onQuickBackup={noop} onToggleNotices={noop} onToggleNavigation={noop} onCloseNavigation={noop}
       onDismissPopup={noop} onDeleteNotice={noop} onOpenNotice={noop} onTransfer={noop} onLock={noop}
     ><p>Content</p></AppShell>);
     expect(calendarMarkup).toContain('aria-label="Google Calendar sync"');
     expect(calendarMarkup).not.toContain('aria-label="New view"');
+    expect(calendarMarkup).toContain('aria-label="Save encrypted backup"');
   });
 
   it('places an inert tap shield behind the open mobile navigation', () => {
@@ -71,6 +75,17 @@ describe('AppShell', () => {
 
     expect(markup).toContain('mobile-nav-scrim');
     expect(markup).toContain('aria-label="Close navigation"');
+  });
+
+  it('labels quick backups honestly for a plaintext test workspace', () => {
+    const markup = renderToStaticMarkup(<AppShell
+      page="home" onPage={noop} openItems={0} onQuickBackup={noop} quickBackupPlaintext
+      notices={[]} popupNoticeIds={[]} noticeCenterOpen={false} mobileNavOpen={false} backupReminder={false} onBackupReminder={noop} onDismissBackupReminder={noop}
+      onNewView={noop} onToggleNotices={noop} onToggleNavigation={noop} onCloseNavigation={noop}
+      onDismissPopup={noop} onDeleteNotice={noop} onOpenNotice={noop} onTransfer={noop} onLock={noop}
+    ><p>Content</p></AppShell>);
+    expect(markup).toContain('aria-label="Save plaintext backup"');
+    expect(markup).not.toContain('aria-label="Save encrypted backup"');
   });
 
   it('renders ordinary toasts separately', () => {
