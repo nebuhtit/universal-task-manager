@@ -1,6 +1,6 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort } from './types.js';
+import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, standardAttentionViewSort } from './types.js';
 import { normalizedOrganizationPriorityOrder } from './organization.js';
 import { parseSortSource, serializeSortRules } from './dsl.js';
 import type { PortablePackage, SavedView, UniversalItem, ViewSortRule, WorkspaceDocument } from './types.js';
@@ -38,6 +38,7 @@ export const itemJsonSchema = {
     revision: { type: 'integer', minimum: 1 },
     role: { enum: ['standalone', 'series_template', 'occurrence'] },
     preset: { enum: ['task', 'event', 'habit', 'blank'] },
+    isNote: { type: 'boolean' },
     title: { type: 'string' }, bodyMarkdown: { type: 'string' }, location: { type: 'string' },
     state: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
@@ -288,7 +289,7 @@ export const workspaceJsonSchema = {
     tombstones: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } },
     calendarPreferences: {
       type: 'object', additionalProperties: false,
-      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'dayView', 'diagnosticsEnabled', 'showExplanations'],
+      required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'dayView', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews'],
       properties: {
         timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
         workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
@@ -312,6 +313,7 @@ export const workspaceJsonSchema = {
         },
         diagnosticsEnabled: { type: 'boolean' },
         showExplanations: { type: 'boolean' },
+        hideDuplicateItemsAcrossHomeViews: { type: 'boolean' },
         testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
         backupPreferences: { type: 'object', additionalProperties: false, required: ['reminderDays'], properties: { reminderDays: { type: 'integer', minimum: 0 }, lastBackupAt: { type: 'string', format: 'date-time' }, locationLabel: { type: 'string' } } },
         googleCalendar: {
@@ -643,6 +645,12 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       if (migrated.value.name === 'This week' && migrated.value.query.source === weekQuery) migrated.value.query.source = guardedWeekQuery;
       if (migrated.value.name === 'Today' && migrated.value.query.source === guardedTodayQuery) migrated.value.query.source = overdueAwareTodayQuery;
       if (migrated.value.name === 'This week' && migrated.value.query.source === guardedWeekQuery) migrated.value.query.source = overdueAwareWeekQuery;
+      if (migrated.value.name === 'Today' && migrated.value.query.source === overdueAwareTodayQuery) {
+        migrated.value.extensions = { ...migrated.value.extensions, [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'today' };
+      }
+      if (migrated.value.name === 'Tomorrow' && migrated.value.query.source === tomorrowQuery) {
+        migrated.value.extensions = { ...migrated.value.extensions, [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'tomorrow' };
+      }
       const manualOrder = migrated.value.extensions?.['utm:manualOrder'];
       if (migrated.value.renderer !== 'calendar' && !(Array.isArray(manualOrder) && manualOrder.length)) {
         try {
@@ -841,7 +849,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   source.calendarPreferences ??= {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     lastMode: 'month', weekStartsOn: 1, workingHours: { start: '08:00', end: '22:00' }, weekends: true,
-    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, overdueAgeIndicator: true, soundDefaultsVersion: 1 }, diagnosticsEnabled: true, showExplanations: false,
+    sleepSchedule: { wake: '08:00', sleep: '22:00' }, snapMinutes: 15, defaultDurationMinutes: 30, timeFormat: '24h', language: 'en', appearance: { mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, overdueAgeIndicator: true, soundDefaultsVersion: 1 }, diagnosticsEnabled: true, showExplanations: false, hideDuplicateItemsAcrossHomeViews: true,
   };
   const calendarPreferences = source.calendarPreferences as Record<string, unknown>;
   // Preferences are persisted locally and evolve faster than the workspace
@@ -851,7 +859,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'dayView', 'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'googleCalendar',
+    'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
@@ -914,6 +922,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   if (!['en', 'ru', 'es', 'de', 'fr', 'ko'].includes(String(calendarPreferences.language))) calendarPreferences.language = 'en';
   calendarPreferences.diagnosticsEnabled = calendarPreferences.diagnosticsEnabled !== false;
   calendarPreferences.showExplanations = calendarPreferences.showExplanations === true;
+  calendarPreferences.hideDuplicateItemsAcrossHomeViews = calendarPreferences.hideDuplicateItemsAcrossHomeViews !== false;
   if (calendarPreferences.googleCalendar !== undefined) {
     const raw = calendarPreferences.googleCalendar;
     const google = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;

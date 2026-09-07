@@ -208,7 +208,8 @@ const measure = async <T,>(operation: () => T | Promise<T>) => {
 };
 
 const expectedBehaviorHashes: Record<number, string> = {
-  100: '59af966e',
+  // Includes portable byte length: Home deduplication and noon defaults add metadata.
+  100: 'd1775e8f',
   1_000: '521047c6',
   10_000: '432ad274',
 };

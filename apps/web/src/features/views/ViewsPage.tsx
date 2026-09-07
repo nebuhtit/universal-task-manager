@@ -17,10 +17,10 @@ import { stateNames } from '../items';
 import { FieldIcon } from '../items/FieldIcon';
 import { ScriptsSection } from '../items/editor/sections/ScriptsSection';
 import { SavedViewSection } from './SavedViewSection';
-import { boardSettingsFor, defaultBoardStates, MANUAL_ORDER_EXTENSION, manualOrderFor, mergeManualOrder, type BoardSettings } from './viewSelectors';
+import { boardSettingsFor, defaultBoardStates, hiddenItemIdsByExpandedView, MANUAL_ORDER_EXTENSION, manualOrderFor, mergeManualOrder, type BoardSettings } from './viewSelectors';
 import { exampleViewFieldValue, viewFieldGroups, viewFieldLabel, viewFieldOptions } from './fieldCatalog';
 import { creationDefaultFieldOptions, defaultValueForPath } from './creationDefaults';
-import { defaultSchedulePeriodValue, defaultVisualConditionForField, isReminderVisualField, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterFieldLabel, visualFilterValueLabel, visualOperators, visualOptionsForField, type VisualConditionRow } from './visualFilterModel';
+import { defaultSchedulePeriodValue, defaultVisualConditionForField, isOrganizationChoiceField, isReminderVisualField, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterFieldLabel, visualFilterValueLabel, visualOperators, visualOptionsForField, type VisualConditionRow } from './visualFilterModel';
 import { ReminderPeriodEditor, SchedulePeriodEditor } from './SchedulePeriodEditor';
 import { DisplayedFieldsEditor } from './DisplayedFieldsEditor';
 import { ViewSortingEditor } from './ViewSortingEditor';
@@ -181,6 +181,20 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       return next;
     });
     syncRowsToDsl(rows);
+  };
+  const organizationFilterOptions = (field: string): string[] => {
+    if (field === 'area') return orderedOrganizationNames(workspace, 'area');
+    if (field === 'project') return orderedOrganizationNames(workspace, 'project');
+    if (field === 'list') return orderedListNames(workspace);
+    if (field === 'tags') return orderedTagEntries(workspace).filter((tag): tag is string => tag !== null);
+    return [];
+  };
+  const organizationFilterValue = (row: VisualConditionRow) => {
+    const selected = commaList(row.value);
+    const options = organizationFilterOptions(row.field);
+    const noun = row.field === 'area' ? 'Areas' : row.field === 'project' ? 'Projects' : row.field === 'list' ? 'Lists' : 'Tags';
+    const toggle = (value: string, checked: boolean) => updateVisualRow(row.id, { value: (checked ? [...selected, value] : selected.filter((entry) => entry !== value)).join(', ') });
+    return <SearchableDisclosureList uiKey={`view-editor:filter-values:${editing?.id}:${row.id}`} className="visual-filter-value-picker" summary={selected.length ? `${selected.length} selected` : `Choose ${noun}…`} items={options} getSearchText={(option) => option} searchLabel={`Search ${noun}`} searchPlaceholder={`Search ${noun}`} emptyText={`No ${noun.toLowerCase()} yet.`} noMatchesText={`No matching ${noun.toLowerCase()}.`} renderItem={(option) => <Checkbox checked={selected.includes(option)} onChange={(event) => toggle(option, event.target.checked)} label={option} />} />;
   };
   const updateSortRules = (next: ViewSortRule[]) => {
     setSortRules(next);
@@ -373,21 +387,15 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
 
   const views = orderedSavedViews(workspace);
   const isExpanded = (view: SavedView) => viewExpansion[view.id] ?? readUiBoolean(`view:${view.id}`, true);
-  const renderView = (view: SavedView, reorderHandle?: ReactNode) => <div className="saved-view-slot" key={view.id}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set(Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id))); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebrationColors={celebrationColors} showTechnicalSummary={false} reorderHandle={reorderHandle} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
-  const expandedViews = views.filter(isExpanded);
-  const collapsedViews = views.filter((view) => !isExpanded(view));
-  const collapsedViewReorder = useReorderList(collapsedViews, (next) => {
-    const movedIds = new Set(collapsedViews.map((view) => view.id));
-    commit('Reorder collapsed Views', (draft) => {
-      const current = [...(draft.viewOrder ?? []), ...Object.keys(draft.views).filter((id) => !(draft.viewOrder ?? []).includes(id))];
-      const replacement = next.map((view) => view.id);
-      let index = 0;
-      draft.viewOrder = current.map((id) => movedIds.has(id) ? replacement[index++]! : id);
-    });
-  });
+  const expandedViewIds = new Set(views.filter(isExpanded).map((view) => view.id));
+  const hiddenItemsByView = workspace.calendarPreferences.hideDuplicateItemsAcrossHomeViews
+    ? hiddenItemIdsByExpandedView(workspace, views, expandedViewIds, workspaceNow)
+    : new Map<string, ReadonlySet<string>>();
+  const viewReorder = useReorderList(views, (next) => commit('Reorder Home Views', (draft) => { draft.viewOrder = next.map((view) => view.id); }));
+  const renderView = (view: SavedView, index: number) => <div className={`saved-view-slot${isExpanded(view) ? '' : ' is-collapsed'}`} key={view.id} {...viewReorder.rowProps(index)}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} hiddenItemIds={hiddenItemsByView.get(view.id)} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set(Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id))); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebrationColors={celebrationColors} showTechnicalSummary={false} reorderHandle={viewReorder.handle(index, `view ${view.name}`)} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
 
   return <section className="page-section views-page">
-    <div className="views-stack"><div className="expanded-views-stack">{expandedViews.map((view) => renderView(view))}</div>{collapsedViews.length > 0 && <div className="collapsed-views-stack" ref={collapsedViewReorder.container}>{collapsedViews.map((view, index) => <div key={view.id} {...collapsedViewReorder.rowProps(index)}>{renderView(view, collapsedViewReorder.handle(index, `view ${view.name}`))}</div>)}</div>}</div>
+    <div className="views-stack" ref={viewReorder.container}>{views.map(renderView)}</div>
     {editing && <ResponsiveDialog
       open
       onOpenChange={(open) => { if (!open) { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'dialog-dismiss' }) }); closeEditor(); } }}
@@ -412,7 +420,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
           <Field className="condition-join" label={index === 0 ? 'Where' : 'Join'}>{index === 0 ? <span className="field-hint">First rule</span> : <Select value={row.join} onChange={(event) => updateVisualRow(row.id, { join: event.target.value as 'and' | 'or' })}><option value="and">AND</option><option value="or">OR</option></Select>}</Field>
           <Field label="Property"><Select value={row.field} onChange={(event) => updateVisualRow(row.id, { field: event.target.value })}><optgroup label="Time periods"><option value={schedulePeriodField}>Schedule in period</option><option value={reminderPeriodField}>Next reminder relative to period</option></optgroup>{[...new Set(viewFieldOptions(workspace).map((field) => field.group))].map((group) => <optgroup label={group} key={group}>{viewFieldOptions(workspace).filter((field) => field.group === group).map((field) => <option value={field.path} key={field.path}>{visualFilterFieldLabel(field.path, field.label)}</option>)}</optgroup>)}</Select></Field>
           {row.field === schedulePeriodField ? <Field className="schedule-period-condition" label="Match any selected condition (OR)"><SchedulePeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : row.field === reminderPeriodField ? <Field className="schedule-period-condition" label="Nearest active reminder"><ReminderPeriodEditor value={row.value} onChange={(value) => updateVisualRow(row.id, { value })} /></Field> : <><Field label="Operator"><Select value={row.operator} onChange={(event) => updateVisualRow(row.id, { operator: event.target.value })}>{visualOperators(row.field, workspace.customFields).map((operator) => <option key={operator} value={operator}>{operator}</option>)}</Select></Field>
-          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : visualOptionsForField(row.field, workspace.customFields) ? <Select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptionsForField(row.field, workspace.customFields)!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : visualFilterValueLabel(row.field, value)}</option>)}</Select> : <Input type={visualFieldKind(row.field, workspace.customFields) === 'date' ? 'datetime-local' : visualFieldKind(row.field, workspace.customFields) === 'number' ? 'number' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'tags' || row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'tags' || row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</Field></>}
+          <Field label="Value">{row.operator === 'is set' || row.operator === 'is not set' ? <span className="field-hint">No value needed</span> : isOrganizationChoiceField(row.field) ? organizationFilterValue(row) : visualOptionsForField(row.field, workspace.customFields) ? <Select value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })}>{visualOptionsForField(row.field, workspace.customFields)!.map((value) => <option key={value} value={value}>{row.field === 'state' ? stateNames[value as UniversalItem['state']] ?? value : visualFilterValueLabel(row.field, value)}</option>)}</Select> : <Input type={visualFieldKind(row.field, workspace.customFields) === 'date' ? 'datetime-local' : visualFieldKind(row.field, workspace.customFields) === 'number' ? 'number' : 'text'} list={row.field === 'title' ? 'view-title-values' : row.field === 'contexts' ? 'view-tag-values' : undefined} placeholder={row.field === 'contexts' ? 'Choose or type comma-separated values' : undefined} value={row.value} onChange={(event) => updateVisualRow(row.id, { value: event.target.value })} />}</Field></>}
           <IconButton size="compact" variant="ghost" className="visual-condition-remove" aria-label={`Remove filter rule ${index + 1}`} onClick={() => syncRowsToDsl(visualRows.filter((entry) => entry.id !== row.id))}><CloseIcon /></IconButton>
         </div>)}
         <datalist id="view-title-values">{[...new Set(Object.values(workspace.items).map((entry) => entry.title))].map((title) => <option value={title} key={title} />)}</datalist>

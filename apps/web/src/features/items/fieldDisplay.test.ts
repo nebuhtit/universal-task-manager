@@ -56,6 +56,11 @@ describe('item field display helpers', () => {
     expect(isItemTemplate(template)).toBe(true);
   });
 
+  it('lists Tags with Area, Project and List in the Organization filter group', () => {
+    const organization = viewFieldOptions(createWorkspace('Organization fields')).filter((field) => field.group === 'Organization').map((field) => field.path);
+    expect(organization).toEqual(['tags', 'area', 'project', 'list']);
+  });
+
   it('exposes every normal nested family and item script result to saved views', () => {
     const workspace = createWorkspace('View fields');
     const item = createItem('Computed');

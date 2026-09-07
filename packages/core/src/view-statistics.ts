@@ -45,10 +45,10 @@ function localParts(date: Date, timeZone: string): Record<string, number> {
   }
 }
 
-/** Resolves the start of a calendar date in an IANA timezone without relying on the host timezone. */
-export function zonedDateStart(key: string, timeZone: string): Date {
+/** Resolves a calendar date and time in an IANA timezone without relying on the host timezone. */
+export function zonedDateTime(key: string, hour: number, minute: number, timeZone: string): Date {
   const [year, month, day] = key.split('-').map(Number);
-  const wallClock = Date.UTC(year!, month! - 1, day!);
+  const wallClock = Date.UTC(year!, month! - 1, day!, hour, minute);
   let instant = new Date(wallClock);
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const displayed = localParts(instant, timeZone);
@@ -59,6 +59,9 @@ export function zonedDateStart(key: string, timeZone: string): Date {
   }
   return instant;
 }
+
+/** Resolves the start of a calendar date in an IANA timezone without relying on the host timezone. */
+export function zonedDateStart(key: string, timeZone: string): Date { return zonedDateTime(key, 0, 0, timeZone); }
 
 export function viewPeriodBoundsForDates(startDate: string, endDate: string, timeZone = 'UTC'): ViewPeriodBounds {
   return {

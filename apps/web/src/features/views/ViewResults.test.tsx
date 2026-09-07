@@ -40,6 +40,16 @@ describe('ViewResults manual ordering controls', () => {
     expect(renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer: 'table' }} />)).toContain('📌 Call mom 👩‍👦');
   });
 
+  it('omits item IDs claimed by a higher expanded Home View', () => {
+    const workspace = createWorkspace('Hidden duplicates');
+    const first = createItem('First'); const duplicate = createItem('Duplicate');
+    workspace.items[first.id] = first; workspace.items[duplicate.id] = duplicate;
+    const view: SavedView = { id: 'lower', name: 'Lower', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] };
+    const markup = renderToStaticMarkup(<ViewResults workspace={workspace} view={view} hiddenItemIds={new Set([duplicate.id])} onEdit={vi.fn()} onState={vi.fn()} />);
+    expect(markup).toContain('First');
+    expect(markup).not.toContain('Duplicate');
+  });
+
   it('shows the due-only overdue marker before configurable fields in every renderer', () => {
     const workspace = createWorkspace('Overdue marker');
     const item = createItem('Counters');
@@ -96,6 +106,22 @@ describe('ViewResults manual ordering controls', () => {
     for (const renderer of ['list', 'table', 'calendar', 'board'] as const) {
       const markup = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer }} />);
       expect(markup).toContain('item-state-placeholder');
+      expect(markup).not.toContain('state-toggle');
+    }
+  });
+
+  it('renders notes with a thin note marker instead of a completion control in every renderer', () => {
+    const workspace = createWorkspace('Notes');
+    const item = createItem('Reference note');
+    item.isNote = true;
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-04T10:00:00.000Z' };
+    workspace.items[item.id] = item;
+    const view: SavedView = { id: 'notes', name: 'Notes', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] };
+    const props = { workspace, onEdit: vi.fn(), onState: vi.fn() };
+    for (const renderer of ['list', 'table', 'calendar', 'board'] as const) {
+      const markup = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer }} />);
+      expect(markup).toContain('class="note-state-marker"');
+      expect(markup).toContain('aria-label="Note item: Reference note"');
       expect(markup).not.toContain('state-toggle');
     }
   });

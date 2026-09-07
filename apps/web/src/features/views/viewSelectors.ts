@@ -59,6 +59,19 @@ export function completionPhase(itemId: string, at = Date.now()): 'held' | 'exit
 export type AttentionSortValues = { bucket: number; at?: number; durationMs: number };
 export type ViewEvaluation = { items: UniversalItem[]; metrics: ViewTimeMetrics | null; now: Date };
 
+/** Assigns duplicates to the first expanded Home View without letting collapsed Views claim them. */
+export function hiddenItemIdsByExpandedView(workspace: WorkspaceDocument, views: SavedView[], expandedViewIds: ReadonlySet<string>, now = effectiveWorkspaceNow(workspace)): Map<string, ReadonlySet<string>> {
+  const claimed = new Set<string>();
+  const hidden = new Map<string, ReadonlySet<string>>();
+  for (const view of views) {
+    if (!expandedViewIds.has(view.id)) continue;
+    const matched = selectViewItems(workspace, view, now);
+    hidden.set(view.id, new Set(matched.filter((item) => claimed.has(item.id)).map((item) => item.id)));
+    matched.forEach((item) => claimed.add(item.id));
+  }
+  return hidden;
+}
+
 const displayedTimeFields = new Set(['activeRange', 'activeRangeWhenSet', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue']);
 
 function safeExpressionDependsOnTime(source: string): boolean {

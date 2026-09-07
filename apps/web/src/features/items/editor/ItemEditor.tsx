@@ -5,7 +5,7 @@ import {
   type RecurrenceCompletionRecord, type Schedule, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../../components/ui/CodeEditor';
-import { CloseIcon } from '../../../components/ui/icons';
+import { CloseIcon, LineIcon } from '../../../components/ui/icons';
 import { SearchableDisclosureList } from '../../../components/ui/SearchableDisclosureList';
 import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/primitives';
 import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
@@ -302,6 +302,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
       save({ dismissKeyboard: true });
     }}>
         <label className="item-title-field"><FieldIconLabel path="title" label="Title" /><input ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly={Boolean(googleEvent)} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
+        {!googleEvent && <div><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined })} label="Note" /><p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p></div>}
         <QuickItemTimer soundEnabled onRecord={(record) => patchItem({ timerHistory: [...(item.timerHistory ?? []), record] })} />
         {googleEvent && <section className="external-event-summary" aria-label="Google Calendar properties"><p>This event is read-only in Universal.</p><dl><div><dt>Event opens</dt><dd>{item.schedule?.startAt ? formatViewDate(item.schedule.startAt, !item.schedule.allDay, workspace.calendarPreferences.language) : '—'}</dd></div><div><dt>Event ends</dt><dd>{item.schedule?.endAt ? formatViewDate(item.schedule.endAt, !item.schedule.allDay, workspace.calendarPreferences.language) : '—'}</dd></div><div><dt>Availability</dt><dd>{googleEvent.transparency === 'transparent' ? 'Free' : 'Busy'}</dd></div><div><dt>Time statistics</dt><dd>{item.schedule?.allDay ? 'Excluded — all-day event' : googleEvent.transparency === 'transparent' ? 'Excluded — marked free' : 'Included — reserves its Event opens → Event ends interval'}</dd></div></dl><a className="secondary button-link" href={googleEvent.sourceUrl} target="_blank" rel="noreferrer">Open in Google Calendar</a></section>}
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
@@ -341,7 +342,17 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
 
         <details><summary><FieldIconLabel path="subtasks" label="Subtasks" /> {sectionMark(item.relations.some((relation) => relation.type === 'parent'))}</summary><div className="details-body">
           <p className="schedule-explainer">Add existing items as steps of this item. Subtasks remain independent universal items and can be completed or edited on their own.</p>
-          {item.relations.filter((relation) => relation.type === 'parent').map((relation) => { const subtask = workspace.items[relation.targetId]; const completed = subtask?.state === 'done'; return <div className={`subtask-row${completed ? ' completed' : ''}`} key={relation.id}><button type="button" className={`subtask-check${completed ? ' checked' : ''}`} aria-label={`${completed ? 'Reopen' : 'Complete'} subtask ${subtask?.title ?? relation.targetId}`} onClick={() => onToggleSubtask(relation.targetId)}>{completed ? '✓' : ''}</button><span>{subtask?.title ?? relation.targetId}</span><button type="button" aria-label="Remove subtask" onClick={() => patchItem({ relations: item.relations.filter((entry) => entry.id !== relation.id) })}><CloseIcon /></button></div>; })}
+          {item.relations.filter((relation) => relation.type === 'parent').map((relation) => {
+            const subtask = workspace.items[relation.targetId];
+            const completed = subtask?.state === 'done';
+            return <div className={`subtask-row${completed ? ' completed' : ''}`} key={relation.id}>
+              {subtask?.isNote
+                ? <span className="subtask-note-marker" aria-label={`Note: ${subtask.title}`}><LineIcon name="note" /></span>
+                : <button type="button" className={`subtask-check${completed ? ' checked' : ''}`} aria-label={`${completed ? 'Reopen' : 'Complete'} subtask ${subtask?.title ?? relation.targetId}`} onClick={() => onToggleSubtask(relation.targetId)}>{completed ? '✓' : ''}</button>}
+              <span className="subtask-title">{subtask?.title ?? relation.targetId}</span>
+              <button type="button" aria-label="Remove subtask" onClick={() => patchItem({ relations: item.relations.filter((entry) => entry.id !== relation.id) })}><CloseIcon /></button>
+            </div>;
+          })}
           <div className="inline-row"><input aria-label="New subtask title" value={newSubtaskTitle} onChange={(event) => setNewSubtaskTitle(event.target.value)} placeholder="New subtask title" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const title = newSubtaskTitle.trim(); if (!title) return; const subtask = onCreateSubtask(title, item.id); patchItem({ relations: [...item.relations, { id: createId(), targetId: subtask.id, type: 'parent' }] }); setNewSubtaskTitle(''); } }} /><button className="secondary" onClick={() => { const title = newSubtaskTitle.trim(); if (!title) return; const subtask = onCreateSubtask(title, item.id); patchItem({ relations: [...item.relations, { id: createId(), targetId: subtask.id, type: 'parent' }] }); setNewSubtaskTitle(''); }}>Add subtask</button></div>
         </div></details>
 

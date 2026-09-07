@@ -930,6 +930,7 @@ export default function App() {
     }, 0));
   };
   const changeItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)') => {
+    if (item.isNote) return;
     if (workspace && state === 'done' && usesCompletionAnchoredRecurrence(workspace, item)) {
       setQuickCompletion({ itemId: item.id, celebrationColor, completedAt: dateInput(currentWorkspaceNow().toISOString()) });
       return;

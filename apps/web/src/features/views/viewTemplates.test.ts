@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STANDARD_ATTENTION_VIEW_SORT_SOURCE, compileQuery, createItem } from '@utm/core';
+import { STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, compileQuery, createItem } from '@utm/core';
 import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
 
 describe('view templates', () => {
@@ -11,6 +11,8 @@ describe('view templates', () => {
     expect(BUILT_IN_VIEW_TEMPLATES[2]?.query.source).toContain('activeRangeWhenSetOrOverdue == true');
     expect(BUILT_IN_VIEW_TEMPLATES[4]?.query.source).toContain('activeRangeWhenSetOrOverdue == true');
     expect(BUILT_IN_VIEW_TEMPLATES[3]?.fields).toEqual(BUILT_IN_VIEW_TEMPLATES[2]?.fields);
+    expect(BUILT_IN_VIEW_TEMPLATES[2]?.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION]).toBe('today');
+    expect(BUILT_IN_VIEW_TEMPLATES[3]?.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION]).toBe('tomorrow');
     expect(BUILT_IN_VIEW_TEMPLATES.every(isViewTemplate)).toBe(true);
     expect(BUILT_IN_VIEW_TEMPLATES.every((view) => JSON.stringify(view.fields) === JSON.stringify(VIEW_TEMPLATE_FIELDS))).toBe(true);
     expect(BUILT_IN_VIEW_TEMPLATES.every((view) => view.sortSource === STANDARD_ATTENTION_VIEW_SORT_SOURCE)).toBe(true);

@@ -102,6 +102,24 @@
   grid-column: span 2;
 }
 
+.view-editor .visual-filter-value-picker > .ui-disclosure-summary {
+  min-height: var(--control-height-default);
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.view-editor .visual-filter-value-picker > .ui-disclosure-content {
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+}
+
+.view-editor .visual-filter-value-picker .check { margin: 0; padding: var(--space-2); }
+
 .schedule-period-editor,
 .schedule-period-sources,
 .schedule-custom-period {
@@ -298,16 +316,9 @@
   flex-direction: column;
 }
 
-.expanded-views-stack,
-.collapsed-views-stack {
-  display: grid;
-  gap: var(--space-3);
-}
+.views-page .views-stack { gap: var(--space-3); }
 
-.collapsed-views-stack {
-  margin-top: auto;
-  padding-top: var(--space-4);
-}
+.saved-view-slot.is-collapsed + .saved-view-slot.is-collapsed { margin-top: calc(-1 * var(--space-2)); }
 
 .saved-view-slot {
   width: 100%;

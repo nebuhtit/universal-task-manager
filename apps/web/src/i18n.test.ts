@@ -13,6 +13,12 @@ describe('Russian interface translation', () => {
     expect(translateInterfaceText('Duration can be planned without calendar dates.', 'ru')).toBe('Длительность можно запланировать без календарных дат.');
     expect(translateInterfaceText('Completed items', 'ru')).toBe('Выполнено');
     expect(translateInterfaceText('Nearest deadline', 'ru')).toBe('Ближайший срок');
+    expect(translateInterfaceText('Notes stay visible and editable, but cannot be marked completed.', 'ru')).toContain('нельзя отметить выполненными');
+    expect(translateInterfaceText('Choose Tags…', 'ru')).toBe('Выбрать теги…');
+    expect(translateInterfaceText('Search Projects', 'ru')).toBe('Поиск проектов');
+    expect(translateInterfaceText('No matching areas.', 'ru')).toBe('Подходящих сфер нет.');
+    expect(translateInterfaceText('Show each item only in its first expanded View', 'ru')).toContain('первом раскрытом виде');
+    expect(translateInterfaceText('Pin to Home', 'ru')).toBe('Закрепить на главной');
     expect(translateInterfaceText('Match any selected condition (OR)', 'ru')).toBe('Подходит любое выбранное условие (ИЛИ)');
     expect(translateInterfaceText('if you remove Universal from the Home Screen, clear website data, or delete the browser profile, the local workspace may be lost. Export an encrypted', 'ru')).toContain('если удалить Universal');
     expect(translateInterfaceText('backup regularly and keep it in Files, iCloud Drive, or another trusted cloud.', 'ru')).toContain('резервную копию');

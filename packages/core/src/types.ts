@@ -1,14 +1,15 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.99.8';
-export const APP_RELEASED_AT = '2026-09-07T11:55:47.358Z';
+export const APP_VERSION = '1.99.11';
+export const APP_RELEASED_AT = '2026-09-07T14:23:34.829Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
 export const LEGACY_STANDARD_VIEW_SORT_SOURCE = 'schedule.dueAt asc nulls last\nschedule.startAt asc nulls last\norganizationOrder asc nulls last';
 export const PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE = 'organizationOrder desc nulls last\nattentionOrder asc nulls last\ndurationOrder desc nulls last\ncreatedAt desc nulls last';
 export const STANDARD_ATTENTION_VIEW_SORT_SOURCE = `completionOrder asc nulls last\n${PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE}`;
+export const VIEW_CREATION_DUE_PERIOD_EXTENSION = 'utm:creationDuePeriod';
 
 export const standardAttentionViewSort = () => [
   { field: 'completionOrder', direction: 'asc' as const, nulls: 'last' as const },
@@ -219,6 +220,8 @@ export interface UniversalItem {
   revision: number;
   role: ItemRole;
   preset: ItemPreset;
+  /** Non-actionable reference item. Notes remain editable but have no completion control. */
+  isNote?: boolean;
   title: string;
   bodyMarkdown: string;
   /** Optional event/location hint for future calendar integrations. */
@@ -571,6 +574,8 @@ export interface CalendarPreferences {
   diagnosticsEnabled: boolean;
   /** Optional inline guides and explanatory copy; disabled by default for a compact interface. */
   showExplanations: boolean;
+  /** When enabled, an item is rendered only in the first expanded Home View that matches it. */
+  hideDuplicateItemsAcrossHomeViews: boolean;
   /** Optional accelerated clock for local recurrence testing; never enabled by default. */
   testClock?: TestClockPreferences;
   backupPreferences?: { reminderDays: number; lastBackupAt?: ISODateTime; locationLabel?: string };
@@ -691,6 +696,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
         fields: [...defaultFields],
+        extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'today' },
       },
       [weekId]: {
         id: weekId,
@@ -735,6 +741,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       },
       diagnosticsEnabled: true,
       showExplanations: false,
+      hideDuplicateItemsAcrossHomeViews: true,
       testClock: { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours', startedAt: now.toISOString(), virtualAt: now.toISOString() },
       backupPreferences: { reminderDays: 7 },
     },

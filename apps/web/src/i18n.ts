@@ -191,6 +191,11 @@ Object.assign(extraTranslations.ru, {
   'BACKUP SCHEDULE': 'РАСПИСАНИЕ РЕЗЕРВНОГО КОПИРОВАНИЯ', 'Backup reminders': 'Напоминания о резервной копии', 'Choose how often the app should remind you to export an encrypted .utmb backup. The browser will not write to a folder by itself.': 'Выберите, как часто приложение должно напоминать о сохранении зашифрованной копии .utmb. Браузер не может сам записывать её в папку.', 'Remind every (days; 0 disables)': 'Напоминать каждые (дни; 0 — выключить)', 'Backup location note (optional)': 'Заметка о папке для копии (необязательно)', 'Create encrypted backup now': 'Создать зашифрованную копию сейчас', 'Last backup:': 'Последняя копия:',
 });
 Object.assign(extraTranslations.ru, {
+  'Home screen': 'Главный экран', 'Items across Views': 'Элементы в видах',
+  'Show each item only in its first expanded View': 'Показывать элемент только в первом раскрытом виде',
+  'Collapsed Views do not claim items. An item moves to the next matching expanded View when the View above it is collapsed.': 'Свернутые виды не скрывают элементы в видах ниже. Если вид свернуть, элемент перейдет в следующий подходящий раскрытый вид.',
+});
+Object.assign(extraTranslations.ru, {
   APPEARANCE: 'ОФОРМЛЕНИЕ', INTERFACE: 'ИНТЕРФЕЙС', DIAGNOSTICS: 'ДИАГНОСТИКА', 'DEVICE UNLOCK': 'РАЗБЛОКИРОВКА УСТРОЙСТВА',
   RECOVERY: 'ВОССТАНОВЛЕНИЕ', COMPATIBILITY: 'СОВМЕСТИМОСТЬ', 'LOCAL WORKSPACE': 'ЛОКАЛЬНОЕ ПРОСТРАНСТВО',
   'PARA ORGANIZATION': 'ОРГАНИЗАЦИЯ PARA', 'PARA organization': 'Организация PARA', 'IF → THEN, LOCALLY': 'ЕСЛИ → ТО, ЛОКАЛЬНО',
@@ -445,6 +450,13 @@ Object.assign(extraTranslations.ko, {
 });
 
 Object.assign(extraTranslations.ru, { 'Choose completion time': 'Выберите время выполнения', 'Completed at': 'Выполнено в', 'Edit item': 'Редактировать элемент' });
+Object.assign(extraTranslations.ru, { Note: 'Заметка', 'Note item': 'Заметка', 'Notes stay visible and editable, but cannot be marked completed.': 'Заметки остаются видимыми и редактируемыми, но их нельзя отметить выполненными.', Pinned: 'Закреплено', 'Pin to Home': 'Закрепить на главной' });
+Object.assign(extraTranslations.ru, {
+  'Choose Areas…': 'Выбрать сферы…', 'Choose Projects…': 'Выбрать проекты…', 'Choose Lists…': 'Выбрать списки…', 'Choose Tags…': 'Выбрать теги…',
+  'Search Areas': 'Поиск сфер', 'Search Projects': 'Поиск проектов', 'Search Lists': 'Поиск списков', 'Search Tags': 'Поиск тегов',
+  'No areas yet.': 'Сфер пока нет.', 'No projects yet.': 'Проектов пока нет.', 'No lists yet.': 'Списков пока нет.', 'No tags yet.': 'Тегов пока нет.',
+  'No matching areas.': 'Подходящих сфер нет.', 'No matching projects.': 'Подходящих проектов нет.', 'No matching lists.': 'Подходящих списков нет.', 'No matching tags.': 'Подходящих тегов нет.',
+});
 Object.assign(extraTranslations.es, { 'Choose completion time': 'Elegir hora de finalización', 'Completed at': 'Completado el', 'Edit item': 'Editar elemento' });
 Object.assign(extraTranslations.de, { 'Choose completion time': 'Abschlusszeit wählen', 'Completed at': 'Abgeschlossen am', 'Edit item': 'Element bearbeiten' });
 Object.assign(extraTranslations.fr, { 'Choose completion time': 'Choisir l’heure de fin', 'Completed at': 'Terminé le', 'Edit item': 'Modifier l’élément' });

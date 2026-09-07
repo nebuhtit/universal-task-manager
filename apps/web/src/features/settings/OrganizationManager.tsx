@@ -148,7 +148,7 @@ function ViewActions({ view, workspace, commit }: { view: SavedView; workspace: 
   const pinned = Boolean(pinnedParaView(workspace, view));
   const label = pinned ? `Unpin ${view.name} from Home` : `Pin ${view.name} to Home`;
   const toggle = () => commit(pinned ? 'Unpin PARA view from Home' : 'Pin PARA view to Home', (draft) => { if (pinned) unpinParaView(draft, view); else pinParaView(draft, view); });
-  return <div className="organization-view-actions"><IconButton size="compact" variant="ghost" className={`organization-pin-home${pinned ? ' is-pinned' : ''}`} aria-label={label} aria-pressed={pinned} title={label} onClick={toggle}><span className="organization-pin-home-mark"><LineIcon name="pin"/><LineIcon name="home"/></span></IconButton></div>;
+  return <div className="organization-view-actions"><Button size="compact" variant={pinned ? 'primary' : 'secondary'} className={`organization-pin-home${pinned ? ' is-pinned' : ''}`} aria-label={label} aria-pressed={pinned} title={label} onClick={toggle}><LineIcon name="pin"/><span>{pinned ? 'Pinned' : 'Pin to Home'}</span></Button></div>;
 }
 
 function ScopedView({ view, workspace, commit, onEditItem, onState, onAddItem, onQuickAddItem, celebrationColors }: { view: SavedView; workspace: WorkspaceDocument; commit: Commit; onEditItem: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void; onAddItem: (view: SavedView) => void; onQuickAddItem: (view: SavedView, title: string) => void; celebrationColors?: ReadonlyMap<string, string> | undefined }) {

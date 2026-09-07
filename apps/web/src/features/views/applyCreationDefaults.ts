@@ -1,4 +1,4 @@
-import { createId, organizationDefinitionFor, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { VIEW_CREATION_DUE_PERIOD_EXTENSION, calendarDateKey, createId, organizationDefinitionFor, shiftCalendarDateKey, zonedDateTime, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { inferredPreset } from '../items';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -18,6 +18,15 @@ export const applyViewCreationDefaults = (item: UniversalItem, view: SavedView, 
   const next = clean(item) as unknown as Record<string, unknown>;
   for (const [path, value] of Object.entries(defaults)) setDefaultPath(next, path, value);
   const nextItem = next as unknown as UniversalItem;
+  const duePeriod = view.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION];
+  if ((duePeriod === 'today' || duePeriod === 'tomorrow') && !Object.hasOwn(defaults, 'schedule.dueAt')) {
+    const timezone = workspace?.calendarPreferences.timezone ?? nextItem.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const today = calendarDateKey(new Date(nextItem.createdAt), timezone);
+    const dueDate = duePeriod === 'tomorrow' ? shiftCalendarDateKey(today, 1) : today;
+    nextItem.schedule = { ...nextItem.schedule, timezone, dueAt: zonedDateTime(dueDate, 12, 0, timezone).toISOString() };
+    if (!Object.hasOwn(defaults, 'schedule.startAt')) delete nextItem.schedule.startAt;
+    if (!Object.hasOwn(defaults, 'schedule.endAt')) delete nextItem.schedule.endAt;
+  }
   if (Object.keys(defaults).some((path) => path.startsWith('recurrence.'))) {
     nextItem.role = 'series_template';
     nextItem.recurrence = {

@@ -133,9 +133,10 @@
 .reorderable-view-item > .item-card.is-optimistic-complete { background: transparent; animation: none; }
 .item-card.is-optimistic-reopen, .reorderable-view-item:has(> .item-card.is-optimistic-reopen) { background: transparent; animation: none; }
 .state-toggle { width: 26px; height: 26px; border: 1.5px solid #a3a3a3; border-radius: 50%; background: transparent; cursor: pointer; padding: 0; font-size: 14px; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-.item-state-placeholder, .external-calendar-state-marker { display: inline-flex; width: 26px; height: 26px; flex: 0 0 26px; align-items: center; justify-content: center; }
-.external-calendar-state-marker { border: 0; padding: 0; background: transparent; color: var(--color-text-muted); cursor: pointer; }
+.item-state-placeholder, .external-calendar-state-marker, .note-state-marker { display: inline-flex; width: 26px; height: 26px; flex: 0 0 26px; align-items: center; justify-content: center; }
+.external-calendar-state-marker, .note-state-marker { border: 0; padding: 0; background: transparent; color: var(--color-text-muted); cursor: pointer; }
 .external-calendar-state-marker .line-icon { width: 19px; height: 19px; stroke-width: 1.35; }
+.note-state-marker .line-icon { width: 18px; height: 18px; stroke-width: 1.15; }
 .state-done .state-toggle, .state-auto_closed .state-toggle { background: var(--color-text); color: var(--color-bg); border-color: var(--color-text); }
 .view-section .state-done .state-toggle, .view-section .state-auto_closed .state-toggle { background: var(--view-accent, var(--color-text)); border-color: var(--view-accent, var(--color-text)); color: #fff; }
 .view-section .state-toggle.is-optimistic-closed { background: var(--view-accent, var(--color-text)); border-color: var(--view-accent, var(--color-text)); color: var(--color-accent-contrast); }
@@ -342,10 +343,12 @@ label.check input { width: 18px; height: 18px; }
 .chip { display: inline-flex; align-items: center; gap: 7px; background: #eeeeee; padding: 5px 8px; border-radius: 8px; margin: 0 5px 7px 0; font-size: 11px; }
 .chip button { border: 0; background: transparent; cursor: pointer; }
 .subtask-row { display: flex; align-items: center; gap: 9px; min-height: 34px; padding: 4px 0; }
-.subtask-row > span { flex: 1; }
-.subtask-row.completed > span { color: var(--muted); text-decoration: line-through; }
+.subtask-row > .subtask-title { flex: 1; }
+.subtask-row.completed > .subtask-title { color: var(--muted); text-decoration: line-through; }
 .subtask-check { width: 22px; height: 22px; padding: 0; border: 1.5px solid var(--muted); border-radius: 50%; background: transparent; color: var(--fg); cursor: pointer; font-size: 14px; line-height: 1; }
 .subtask-check.checked { background: var(--fg); color: var(--card); border-color: var(--fg); }
+.subtask-note-marker { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; color: var(--muted); }
+.subtask-note-marker .line-icon { width: 17px; height: 17px; stroke-width: 1.15; }
 .subtask-row > button:last-child { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 5px; }
 .formula-output { display: block; padding: 11px; border-radius: 10px; background: var(--soft); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .item-scripts { display: grid; gap: 12px; }
@@ -505,6 +508,12 @@ label.check input { width: 18px; height: 18px; }
 .view-section-summary h2 { max-width: 100%; margin: 5px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section.is-collapsed .view-section-summary h2 { color: var(--view-accent, var(--muted)); font-weight: 400; opacity: .52; }
+.view-section.is-collapsed > .view-section-summary { padding-block: var(--space-1); }
+.view-section.is-collapsed .view-section-title { display: flex; align-items: center; justify-content: center; gap: var(--space-2); }
+.view-section.is-collapsed .view-section-summary h2 { margin: 0; font-size: var(--font-size-secondary); }
+.view-section.is-collapsed .view-metrics-summary { width: auto; margin: 0; white-space: nowrap; }
+.view-section.is-collapsed .view-section-actions,
+.view-section.is-collapsed .view-section-reorder { top: var(--space-1); }
 .view-section .state-toggle { border-color: var(--view-accent, var(--color-text)); color: var(--view-accent, var(--color-text)); }
 .view-section-actions { position: absolute; inset-inline-end: 0; top: 14px; display: flex; align-items: center; gap: 8px; min-width: max-content; flex: 0 0 auto; }
 .view-section-reorder { position: absolute; inset-inline-start: 0; top: 14px; z-index: 1; }

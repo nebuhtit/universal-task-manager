@@ -87,11 +87,8 @@
 .organization-scoped-project-controls > .organization-project-name { font-size: var(--font-size-section); }
 .organization-view-actions { display: flex; align-items: center; gap: var(--space-2); }
 .organization-pin-home { color: var(--color-text-secondary); }
-.organization-pin-home.is-pinned { background: var(--color-interactive-active); color: var(--view-accent, var(--color-accent)); }
-.organization-pin-home-mark { position: relative; display: block; width: var(--space-6); height: var(--space-5); }
-.organization-pin-home-mark .line-icon { position: absolute; width: var(--space-4); height: var(--space-4); }
-.organization-pin-home-mark .line-icon:first-child { inset: 0 auto auto 0; }
-.organization-pin-home-mark .line-icon:last-child { inset: auto 0 0 auto; }
+.organization-pin-home.is-pinned { color: var(--color-accent-contrast); }
+.organization-pin-home .line-icon { width: var(--space-4); height: var(--space-4); }
 .organization-scoped-view .view-section-summary { padding-bottom: calc(var(--control-height-compact) + var(--space-3)); }
 .organization-scoped-view .view-section-actions { top: auto; bottom: var(--space-2); }
 .organization-scoped-view .view-quick-add { padding-top: var(--space-3); }

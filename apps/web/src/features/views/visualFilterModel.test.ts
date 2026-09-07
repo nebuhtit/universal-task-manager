@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { compileQuery, createItem } from '@utm/core';
 import { defaultReminderPeriodValue, defaultSchedulePeriodValue, defaultVisualConditionForField, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterValueLabel, visualOperators, visualOptionsForField } from './visualFilterModel';
 
 describe('visual filter model', () => {
@@ -13,6 +14,22 @@ describe('visual filter model', () => {
     expect(visualOperators('priority')).toContain('>=');
     expect(visualOperators('tags')).toContain('has any');
     expect(toSqlExpression('state == "open" && priority >= 2')).toBe('state = "open" AND priority >= 2');
+  });
+
+  it('round-trips multi-selected Organization values and evaluates modern Area arrays', () => {
+    const source = serializeVisualRows([{ id: 'areas', join: 'and', field: 'area', operator: '==', value: 'Work, Home' }]);
+    expect(source).toBe('matchesAny(areas, "Work", "Home")');
+    expect(parseVisualRows(source)).toMatchObject([{ field: 'area', operator: '==', value: 'Work, Home' }]);
+    const item = createItem('Shared'); item.areas = ['Home'];
+    expect(compileQuery(source)(item)).toBe(true);
+    expect(compileQuery(serializeVisualRows([{ id: 'areas', join: 'and', field: 'area', operator: '!=', value: 'Work, Home' }]))(item)).toBe(false);
+  });
+
+  it('uses the same searchable multi-value syntax for Projects, Lists and Tags', () => {
+    expect(serializeVisualRows([{ id: 'projects', join: 'and', field: 'project', operator: '==', value: 'Alpha, Beta' }])).toBe('matchesAny(projects, "Alpha", "Beta")');
+    expect(serializeVisualRows([{ id: 'lists', join: 'and', field: 'list', operator: '!=', value: 'Inbox, Later' }])).toBe('matchesNone(list, "Inbox", "Later")');
+    expect(serializeVisualRows([{ id: 'tags', join: 'and', field: 'tags', operator: '==', value: 'urgent, focus' }])).toBe('matchesAny(tags, "urgent", "focus")');
+    expect(visualOperators('tags')).toEqual(expect.arrayContaining(['==', '!=']));
   });
 
   it('does not offer presence checks for values that are always defined', () => {

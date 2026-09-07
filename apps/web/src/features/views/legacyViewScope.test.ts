@@ -14,8 +14,8 @@ describe('modernizeLegacyViewScope', () => {
     expect(result).not.toHaveProperty('project');
     expect(result).not.toHaveProperty('list');
     expect(result.creationDefaults).toMatchObject({ area: 'Work', project: 'Launch', list: 'Next' });
-    expect(result.query.source).toContain('area == "Work"');
-    expect(result.query.source).toContain('project == "Launch"');
+    expect(result.query.source).toContain('includes(areas, "Work")');
+    expect(result.query.source).toContain('includes(projects, "Launch")');
     expect(result.query.source).toContain('list == "Next"');
   });
 

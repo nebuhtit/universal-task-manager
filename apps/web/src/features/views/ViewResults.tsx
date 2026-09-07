@@ -15,16 +15,17 @@ export const viewNeedsLiveClock = (view: Pick<SavedView, 'fields'> & Partial<Pic
   ? viewDependsOnCurrentTime(workspace, view as SavedView)
   : view.fields.some((field) => field === 'scripts' || field.startsWith('script.') || field === 'view_scripts' || field.startsWith('view_script.'));
 
-export function ViewResults({ view, workspace, evaluation, onEdit, onState, onReorder, celebrationColors = new Map<string, string>() }: {
+export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit, onState, onReorder, celebrationColors = new Map<string, string>() }: {
   view: SavedView; workspace: WorkspaceDocument; onEdit: (item: UniversalItem) => void;
-  evaluation?: ViewEvaluation; onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void; onReorder?: ((itemIds: string[]) => void) | undefined; celebrationColors?: ReadonlyMap<string, string> | undefined;
+  evaluation?: ViewEvaluation; hiddenItemIds?: ReadonlySet<string> | undefined; onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void; onReorder?: ((itemIds: string[]) => void) | undefined; celebrationColors?: ReadonlyMap<string, string> | undefined;
 }) {
   const t = useTranslation(workspace.calendarPreferences.language);
   const fallbackNow = useViewNow(workspace, view, evaluation?.now);
   const liveNow = evaluation?.now ?? fallbackNow;
   const renderWorkspace = workspace;
   const renderView = view;
-  const items = evaluation?.items ?? selectViewItems(renderWorkspace, renderView, liveNow);
+  const matchingItems = evaluation?.items ?? selectViewItems(renderWorkspace, renderView, liveNow);
+  const items = hiddenItemIds?.size ? matchingItems.filter((item) => !hiddenItemIds.has(item.id)) : matchingItems;
   const drag = useRef<{ itemId: string; targetId?: string | undefined; after?: boolean | undefined } | null>(null);
   const stateCommittedOnPointerDown = useRef(new Set<string>());
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -123,7 +124,7 @@ export function ViewResults({ view, workspace, evaluation, onEdit, onState, onRe
     onPointerUp={finishDrag}
     onPointerCancel={cancelDrag}
   ><span aria-hidden>⠿</span></button>;
-  const stateControl = (item: UniversalItem, stopPropagation = false) => <ItemStateMarker item={item} googleLabel={t('Read-only Google Calendar event')} onOpen={() => onEdit(item)}><button className="state-toggle" data-sound={isOpen(item) ? 'none' : undefined} aria-label={stateButtonLabel(item)} translate="no" data-utm-user-data onPointerDown={(event) => { if (stopPropagation) event.stopPropagation(); beginStateChange(item, event); }} onClick={(event) => { if (stopPropagation) event.stopPropagation(); finishStateChange(item); }}>{isOpen(item) ? '' : '✓'}</button></ItemStateMarker>;
+  const stateControl = (item: UniversalItem, stopPropagation = false) => <ItemStateMarker item={item} googleLabel={t('Read-only Google Calendar event')} noteLabel={t('Note item')} onOpen={() => onEdit(item)}><button className="state-toggle" data-sound={isOpen(item) ? 'none' : undefined} aria-label={stateButtonLabel(item)} translate="no" data-utm-user-data onPointerDown={(event) => { if (stopPropagation) event.stopPropagation(); beginStateChange(item, event); }} onClick={(event) => { if (stopPropagation) event.stopPropagation(); finishStateChange(item); }}>{isOpen(item) ? '' : '✓'}</button></ItemStateMarker>;
   const fieldContent = (item: UniversalItem, omit: string[] = []) => <span className="renderer-fields"><OverdueDueIndicator item={item} now={liveNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} />{visibleFields.filter((field) => !omit.includes(field)).map((field) => {
     if (field === 'title') return <strong key={field}><UserDataText>{item.title}</UserDataText></strong>;
     const value = displayViewValue(readItemField(item, field, renderWorkspace, liveNow, renderView.scripts), field, renderWorkspace.calendarPreferences.language);

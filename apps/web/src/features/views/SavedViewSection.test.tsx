@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { createItem, createWorkspace, type SavedView } from '@utm/core';
+import { VIEW_CREATION_DUE_PERIOD_EXTENSION, createItem, createWorkspace, type SavedView } from '@utm/core';
 import { SavedViewSection } from './SavedViewSection';
 
 describe('SavedViewSection metrics', () => {
@@ -37,5 +37,13 @@ describe('SavedViewSection metrics', () => {
     expect(markup).toContain('data-utm-user-data="true">Home</span>');
     expect(markup).not.toContain('>Главная</span>');
     expect(markup).toContain('aria-label="Развернуть Home');
+  });
+
+  it('shows Add item for a temporal template with an automatic deadline', () => {
+    const workspace = createWorkspace('Temporal add');
+    const view: SavedView = { id: 'tomorrow', name: 'Tomorrow', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [], extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'tomorrow' } };
+    const markup = renderToStaticMarkup(<SavedViewSection workspace={workspace} view={view} onEditItem={vi.fn()} onState={vi.fn()} onRendererChange={vi.fn()} onAddItem={vi.fn()} />);
+    expect(markup).toContain('class="view-add-item"');
+    expect(markup).toContain('+ Add item');
   });
 });

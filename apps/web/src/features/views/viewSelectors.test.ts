@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ACTIVE_ITEM_VIEW_QUERY, STANDARD_ATTENTION_VIEW_SORT_SOURCE, createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
-import { boardSettingsFor, completionPhase, evaluateView, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold, viewContinuouslyDependsOnCurrentTime, viewDependsOnCurrentTime } from './viewSelectors';
+import { boardSettingsFor, completionPhase, evaluateView, hiddenItemIdsByExpandedView, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold, viewContinuouslyDependsOnCurrentTime, viewDependsOnCurrentTime } from './viewSelectors';
 
 const view = (source = 'true'): SavedView => ({
   id: 'view-test', name: 'Test', query: { source }, renderer: 'table', fields: ['title'], sort: [],
@@ -38,6 +38,23 @@ describe('view selectors', () => {
     workspace.items[high.id] = high;
     const savedView = { ...view('priority >= 2'), sortSource: 'priority desc' };
     expect(selectViewItems(workspace, savedView).map((item) => item.title)).toEqual(['High']);
+  });
+
+  it('assigns a duplicate item to the first expanded Home View only', () => {
+    const workspace = createWorkspace('Home duplicates');
+    const shared = createItem('Shared'); workspace.items[shared.id] = shared;
+    const first = { ...view(), id: 'first' };
+    const second = { ...view(), id: 'second' };
+    const third = { ...view(), id: 'third' };
+    const allExpanded = hiddenItemIdsByExpandedView(workspace, [first, second, third], new Set(['first', 'second', 'third']));
+    expect(allExpanded.get('first')).toEqual(new Set());
+    expect(allExpanded.get('second')).toEqual(new Set([shared.id]));
+    expect(allExpanded.get('third')).toEqual(new Set([shared.id]));
+
+    const firstCollapsed = hiddenItemIdsByExpandedView(workspace, [first, second, third], new Set(['second', 'third']));
+    expect(firstCollapsed.has('first')).toBe(false);
+    expect(firstCollapsed.get('second')).toEqual(new Set());
+    expect(firstCollapsed.get('third')).toEqual(new Set([shared.id]));
   });
 
   it('shows the active occurrence of a recurring series in ordinary Saved Views', () => {

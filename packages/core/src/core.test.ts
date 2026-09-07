@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
+  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, expressionContinuouslyDependsOnCurrentTime, expressionDependsOnCurrentTime, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, reminderTime, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
@@ -54,6 +54,15 @@ describe('safe expression language', () => {
     expect(compileQuery('priority < 3')(withoutPriority)).toBe(false);
     expect(() => parseExpression('globalThis.fetch("https://example.com")')).not.toThrow();
     expect(() => compileQuery('globalThis.fetch("https://example.com")')(item)).toThrow('Function is not allowed');
+  });
+
+  it('keeps the optional note marker through migration and workspace validation', () => {
+    const workspace = createWorkspace('Notes');
+    const note = createItem('Reference note');
+    note.isNote = true;
+    workspace.items[note.id] = note;
+    expect(migrateItem(note).value.isNote).toBe(true);
+    expect(validateWorkspace(workspace)).toEqual({ valid: true, errors: [] });
   });
 
   it('filters Google Calendar all-day events without hiding local all-day items', () => {
@@ -143,6 +152,7 @@ describe('safe expression language', () => {
     const workspace = createWorkspace('Starter views', new Date(2026, 7, 26, 12));
     const views = Object.values(workspace.views);
     expect(views.map((view) => view.name)).toEqual(['All items', 'Today', 'This week']);
+    expect(views.find((view) => view.name === 'Today')?.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION]).toBe('today');
     expect(workspace.viewOrder.map((id) => workspace.views[id]?.name)).toEqual(['Today', 'This week', 'All items']);
     expect(views.every((view) => view.renderer === 'list')).toBe(true);
     const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
@@ -220,6 +230,7 @@ describe('safe expression language', () => {
     const workspace = createWorkspace('Legacy starter views');
     const today = Object.values(workspace.views).find((view) => view.name === 'Today')!;
     const week = Object.values(workspace.views).find((view) => view.name === 'This week')!;
+    delete today.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION];
     today.name = 'Today + overdue'; today.query.source = 'state == "open" && role != "series_template" && isTemplate != true && dueTodayOrOverdue == true';
     week.name = 'This week + overdue'; week.query.source = 'state == "open" && role != "series_template" && isTemplate != true && dueThisWeekOrOverdue == true';
     workspace.viewOrder = ['__all_items__', today.id, week.id];
@@ -229,6 +240,7 @@ describe('safe expression language', () => {
     expect(migrated.viewOrder.slice(0, 4)).toEqual([today.id, week.id, '__all_items__', 'custom']);
     expect(migrated.views[today.id]?.name).toBe('Today');
     expect(migrated.views[today.id]?.query.source).toContain('activeRangeWhenSetOrOverdue == true');
+    expect(migrated.views[today.id]?.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION]).toBe('today');
     expect(migrated.views[today.id]?.fields).toEqual(['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project']);
     expect(migrated.views[week.id]?.name).toBe('This week');
     expect(migrated.views.custom?.query.source).toBe('dueTodayOrOverdue == true');
@@ -930,6 +942,7 @@ describe('interoperability', () => {
     expect(migrated.calendarPreferences.language).toBe('en');
     expect(migrated.calendarPreferences.diagnosticsEnabled).toBe(true);
     expect(migrated.calendarPreferences.showExplanations).toBe(false);
+    expect(migrated.calendarPreferences.hideDuplicateItemsAcrossHomeViews).toBe(true);
     expect(migrated.calendarPreferences.appearance).toEqual({ mode: 'system', lightAt: '07:00', darkAt: '20:00', tickSound: true, uiSound: true, overdueAgeIndicator: true, soundDefaultsVersion: 1 });
     expect((migrated.calendarPreferences as typeof migrated.calendarPreferences & { staleUiFlag?: boolean }).staleUiFlag).toBeUndefined();
     expect(migrated.items[item.id]!.extensions?.['schema:1.0.0']).toEqual({ foreignFlag: 'preserve me' });
@@ -941,6 +954,12 @@ describe('interoperability', () => {
     const workspace = createWorkspace('Hidden overdue age');
     workspace.calendarPreferences.appearance.overdueAgeIndicator = false;
     expect(fromCanonicalJSON(JSON.stringify(workspace)).calendarPreferences.appearance.overdueAgeIndicator).toBe(false);
+  });
+
+  it('preserves an explicitly disabled Home View duplicate filter', () => {
+    const workspace = createWorkspace('Visible duplicates');
+    workspace.calendarPreferences.hideDuplicateItemsAcrossHomeViews = false;
+    expect(fromCanonicalJSON(JSON.stringify(workspace)).calendarPreferences.hideDuplicateItemsAcrossHomeViews).toBe(false);
   });
 
   it('adds a stable View order to workspaces created before View drag-and-drop', () => {

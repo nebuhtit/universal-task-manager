@@ -432,6 +432,18 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
         case 'today': return now.toISOString().slice(0, 10);
         case 'has': return args[0] !== undefined && args[0] !== null && args[0] !== '';
         case 'includes': return Array.isArray(args[0]) ? args[0].includes(scalar(args[1])) : String(args[0] ?? '').includes(String(args[1] ?? ''));
+        case 'matchesAny': {
+          const source = Array.isArray(args[0]) ? args[0] : args[0] === undefined || args[0] === null ? [] : [scalar(args[0])];
+          return args.slice(1).some((candidate) => source.includes(scalar(candidate)));
+        }
+        case 'matchesAll': {
+          const source = Array.isArray(args[0]) ? args[0] : args[0] === undefined || args[0] === null ? [] : [scalar(args[0])];
+          return args.slice(1).every((candidate) => source.includes(scalar(candidate)));
+        }
+        case 'matchesNone': {
+          const source = Array.isArray(args[0]) ? args[0] : args[0] === undefined || args[0] === null ? [] : [scalar(args[0])];
+          return args.slice(1).every((candidate) => !source.includes(scalar(candidate)));
+        }
         case 'startsWith': return String(args[0] ?? '').startsWith(String(args[1] ?? ''));
         case 'endsWith': return String(args[0] ?? '').endsWith(String(args[1] ?? ''));
         case 'lower': return String(args[0] ?? '').toLocaleLowerCase();
@@ -510,7 +522,7 @@ export interface QueryRelationContext {
  * filters can be interpreted as the user's boolean intent.
  */
 export const NON_NULLABLE_QUERY_BOOLEAN_FIELDS = [
-  'isHabit', 'isTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'activeDuration',
+  'isNote', 'isHabit', 'isTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'activeDuration',
   'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue', 'googleCalendarAllDay',
 ] as const;
 
@@ -556,7 +568,7 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
       const dueBuckets = relations.dueDateBuckets ?? dueDateBuckets(item, current, temporalOptions);
       const hasActiveReminderValue = relations.hasActiveReminders ?? activeReminders(item).length > 0;
       const nextReminderAtValue = relations.remindersIndexed ? relations.nextReminderAt : nextActiveReminderAt(item);
-      return Boolean(evaluateExpression(ast, { item, variables: { isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
+      return Boolean(evaluateExpression(ast, { item, variables: { isNote: item.isNote === true, isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

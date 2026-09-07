@@ -4,12 +4,13 @@ export function Icon({ children }: { children: ReactNode }) { return <span class
 
 export function CloseIcon() { return <svg className="close-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M4 4l12 12M16 4 4 16" /></svg>; }
 
-export type LineIconName = 'home' | 'pin' | 'calendar' | 'calendarSync' | 'save' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu' | 'plus' | 'sync' | 'chevronDown';
+export type LineIconName = 'home' | 'pin' | 'note' | 'calendar' | 'calendarSync' | 'save' | 'items' | 'views' | 'rules' | 'settings' | 'lock' | 'bell' | 'transfer' | 'menu' | 'plus' | 'sync' | 'chevronDown';
 
 export function LineIcon({ name }: { name: LineIconName }) {
   const paths: Record<LineIconName, ReactNode> = {
     home: <path d="M10.92 4.84a1.25 1.25 0 0 1 2.16 0l7.17 12.46A1.8 1.8 0 0 1 18.69 20H5.31a1.8 1.8 0 0 1-1.56-2.7l7.17-12.46Z"/>,
     pin: <><path d="m8 3 8 8M14 2l8 8-4 1-5 5-1 4-8-8 4-1 5-5 1-4Z"/><path d="m9 15-6 6"/></>,
+    note: <><path d="M5 3h10l4 4v14H5Z"/><path d="M15 3v5h4M8 12h8M8 16h8"/></>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></>,
     calendarSync: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M12 13v6m-3-3 3 3 3-3"/></>,
     save: <><path d="M5 3h12l4 4v14H3V3h2Z"/><path d="M7 3v6h10V3M7 21v-7h10v7"/></>,

@@ -8,6 +8,7 @@ const normalize = (overrides: Partial<Parameters<typeof normalizeItemForSave>[0]
 };
 describe('item editor normalization', () => {
   it('normalizes scalar editor drafts before save', () => { const result = normalize(); expect(result.title).toBe('Test item'); expect(result.tags).toEqual(['work', 'test']); expect(result.updatedAt).toBe('2026-08-26T12:00:00.000Z'); });
+  it('preserves the non-actionable note marker', () => { const item = createItem('Reference'); item.isNote = true; expect(normalize({ item }).isNote).toBe(true); });
   it('rejects an end before the opening date', () => { const item = createItem('Invalid'); item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:00Z', endAt: '2026-08-26T11:00:00Z' }; expect(() => normalize({ item })).toThrow('Event ends cannot be earlier'); });
   it('rejects a due date before the opening date', () => { const item = createItem('Invalid due'); item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:00Z', dueAt: '2026-08-26T11:00:00Z' }; expect(() => normalize({ item })).toThrow('Due / Active range ends cannot be earlier'); });
   it('materializes a stable recurring series rule', () => { const item = createItem('Weekly'); item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:00Z' }; const result = normalize({ item, recurring: true, repeatFrequency: 'WEEKLY', repeatIntervalDraft: '', repeatDays: ['MO'] }); expect(result.role).toBe('series_template'); expect(result.recurrence?.rrule).toContain('INTERVAL=1'); });

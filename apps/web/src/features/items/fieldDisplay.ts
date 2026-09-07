@@ -18,7 +18,7 @@ export type ViewFieldOption = { path: string; label: string; group: string };
 
 const builtInViewFields: ViewFieldOption[] = [
   { path: 'title', label: 'Title', group: 'Core' }, { path: 'bodyMarkdown', label: 'Description', group: 'Core' }, { path: 'location', label: 'Location', group: 'Core' },
-  { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' },
+  { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' }, { path: 'isNote', label: 'Note', group: 'Core' },
   { path: 'isHabit', label: 'Habit', group: 'Core' }, { path: 'activeRange', label: 'Inside active range now', group: 'Core' }, { path: 'activeRangeWhenSet', label: 'Inside active range now (if set)', group: 'Core' }, { path: 'activeRangeWhenSetOrOverdue', label: 'Inside active range now (if set), or overdue', group: 'Core' },
   { path: 'activeDuration', label: 'Has active range dates', group: 'Core' },
   { path: 'eventToday', label: 'Event overlaps today', group: 'Schedule' },
@@ -26,7 +26,8 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'dueTodayOrOverdue', label: 'Due today or overdue', group: 'Schedule' },
   { path: 'dueThisWeekOrOverdue', label: 'Due this week or overdue', group: 'Schedule' },
   { path: 'role', label: 'Role', group: 'Core' }, { path: 'priority', label: 'Priority', group: 'Core' },
-  { path: 'tags', label: 'Tags', group: 'Core' }, { path: 'contexts', label: 'Contexts', group: 'Core' },
+  { path: 'contexts', label: 'Contexts', group: 'Core' },
+  { path: 'tags', label: 'Tags', group: 'Organization' },
   { path: 'area', label: 'Areas', group: 'Organization' }, { path: 'project', label: 'Projects', group: 'Organization' }, { path: 'list', label: 'Task list', group: 'Organization' },
   { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Event opens', group: 'Schedule' },
   { path: 'schedule.endAt', label: 'Event ends', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Due / Active range ends', group: 'Schedule' },
