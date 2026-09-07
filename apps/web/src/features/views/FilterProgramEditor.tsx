@@ -48,7 +48,7 @@ function FilterBlock({ node, onChange, workspace, depth = 0 }: { node: Expressio
   return <div className="filter-block">
     {isGroup ? <>
       <Field label={t('Group', 'Группа')}><Select value={node.operator} onChange={(event) => onChange(fold(event.target.value, children))}><option value="&&">AND — {t('all conditions', 'все условия')}</option><option value="||">OR — {t('any condition', 'любое условие')}</option></Select></Field>
-      {children.map((entry, index) => <div className="filter-child" key={index}>{child(entry, (next) => onChange(fold(node.operator, children.map((value, at) => at === index ? next : value))))}<Button size="compact" onClick={() => onChange(fold(node.operator, children.filter((_, at) => at !== index)))}>{t('Remove condition', 'Удалить условие')}</Button></div>)}
+      {children.map((entry, index) => <div className="filter-child" key={index}>{index > 0 && <div className={`filter-join filter-join-${node.operator === '&&' ? 'and' : 'or'}`} aria-label={node.operator === '&&' ? 'AND' : 'OR'}><span>{node.operator === '&&' ? 'AND' : 'OR'}</span></div>}{child(entry, (next) => onChange(fold(node.operator, children.map((value, at) => at === index ? next : value))))}<Button size="compact" onClick={() => onChange(fold(node.operator, children.filter((_, at) => at !== index)))}>{t('Remove condition', 'Удалить условие')}</Button></div>)}
       <Button size="compact" onClick={() => onChange(fold(node.operator, [...children, rule()]))}>+ {t('Condition', 'Условие')}</Button>
     </> : node.type === 'call' && node.name === 'if' ? <>
       <strong>IF</strong>{child(node.args[0]!, (condition) => onChange(conditionalExpression(condition, node.args[1]!, node.args[2]!)))}

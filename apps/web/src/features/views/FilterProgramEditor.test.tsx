@@ -21,4 +21,11 @@ describe('shared filter editor', () => {
     expect(html).toContain('Блоки');
     expect(html).toContain('Свойство');
   });
+  it('shows explicit connectors between AND and OR conditions', () => {
+    const workspace = createWorkspace('Filters');
+    const andHtml = renderToStaticMarkup(<FilterProgramEditor workspace={workspace} source='state == "open" && includes(tags, "important")' onChange={vi.fn()} onValidityChange={vi.fn()} />);
+    const orHtml = renderToStaticMarkup(<FilterProgramEditor workspace={workspace} source='state == "open" || state == "done"' onChange={vi.fn()} onValidityChange={vi.fn()} />);
+    expect(andHtml).toContain('class="filter-join filter-join-and" aria-label="AND"');
+    expect(orHtml).toContain('class="filter-join filter-join-or" aria-label="OR"');
+  });
 });

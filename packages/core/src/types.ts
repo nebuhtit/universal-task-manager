@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.99.14';
-export const APP_RELEASED_AT = '2026-09-07T16:21:08.566Z';
+export const APP_VERSION = '1.99.15';
+export const APP_RELEASED_AT = '2026-09-07T16:46:01.817Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -638,6 +638,7 @@ export interface ReconcileResult {
   autoClosed: UniversalItem[];
   removedIds: string[];
   untouched: number;
+  errors?: Array<{ seriesId: string; message: string }>;
 }
 
 export function createId(): string {

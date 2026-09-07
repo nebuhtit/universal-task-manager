@@ -549,12 +549,14 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
   const updated: UniversalItem[] = [];
   const autoClosed: UniversalItem[] = [];
   const removedIds: string[] = [];
+  const errors: Array<{ seriesId: string; message: string }> = [];
   let untouched = 0;
   consolidateHabitOccurrences(workspace, now);
   const templates = Object.values(workspace.items).filter(
     (item) => item.role === 'series_template' && item.recurrence && (item.schedule?.startAt || item.schedule?.dueAt) && !item.deletedAt,
   );
   for (const series of templates) {
+    try {
     if (series.habit) {
       untouched += 1;
       continue;
@@ -616,9 +618,15 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
         autoClosed.push(occurrence);
       }
     });
+    } catch (reason) {
+      // One malformed legacy series must not block every other recurrence or
+      // keep the whole workspace on the unlock screen.
+      errors.push({ seriesId: series.id, message: reason instanceof Error ? reason.message : String(reason) });
+      untouched += 1;
+    }
   }
   if (created.length || updated.length || autoClosed.length || removedIds.length) workspace.updatedAt = now.toISOString();
-  return { created, updated, autoClosed, removedIds, untouched };
+  return { created, updated, autoClosed, removedIds, untouched, ...(errors.length ? { errors } : {}) };
 }
 
 export function makeSeries(item: UniversalItem, rrule: string, options?: Partial<UniversalItem['recurrence']>): UniversalItem {

@@ -126,8 +126,26 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     let reconciliation: ReconcileResult; let warning = '';
     try { reconciliation = await reconcileOffMainThread(migratedDocument as WorkspaceDocument, now); }
     catch (reason) { reconciliation = { created: [], updated: [], autoClosed: [], removedIds: [], untouched: 0 }; warning = reason instanceof Error ? reason.message : String(reason); }
+    if (reconciliation.errors?.length) warning = `${reconciliation.errors.length} incompatible recurring item${reconciliation.errors.length === 1 ? '' : 's'} skipped`;
     finishActivationStage('recurrence');
     let updated = applyReconciliationResult(migratedDocument as Automerge.Doc<WorkspaceDocument>, reconciliation, now, 'Unlock reconciliation');
+    if (reconciliation.errors?.length) updated = Automerge.change(updated, 'Quarantine incompatible recurrence', (draft) => {
+      const targetWorkspace = draft as unknown as WorkspaceDocument;
+      reconciliation.errors!.forEach(({ seriesId, message }) => {
+        const item = targetWorkspace.items[seriesId];
+        if (!item?.recurrence) return;
+        const quarantine = item.extensions?.quarantine && typeof item.extensions.quarantine === 'object' && !Array.isArray(item.extensions.quarantine)
+          ? item.extensions.quarantine as Record<string, unknown>
+          : {};
+        quarantine.recurrence = clean(item.recurrence);
+        item.extensions = { ...item.extensions, quarantine };
+        delete item.recurrence;
+        if (item.role === 'series_template') item.role = 'standalone';
+        item.updatedAt = now.toISOString(); item.revision += 1;
+        const code = /no recurrence start or deadline/i.test(message) ? 'recurrence_missing_anchor' : 'invalid_recurrence';
+        if (!targetWorkspace.migrationIssues.some((issue) => issue.entityId === seriesId && issue.code === code && issue.status !== 'resolved')) targetWorkspace.migrationIssues.push({ id: `activation:${seriesId}:${code}`, entityType: 'item', entityId: seriesId, sourceVersion, code, disabledCapability: 'recurrence', status: 'needs_repair', detectedAt: now.toISOString() });
+      });
+    });
     updated = Automerge.change(updated, 'Unlock scheduled events', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
       const events: DomainEvent[] = reconciliation.created.map((item) => ({ id: createId(), type: 'occurrence.activated', at: now.toISOString(), itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }));

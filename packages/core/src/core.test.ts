@@ -818,6 +818,22 @@ describe('recurrence and auto-renew', () => {
     expect(recurrenceIds.some((value) => value.startsWith('2026-02-28'))).toBe(false);
     expect(recurrenceIds.some((value) => value.startsWith('2026-03-31'))).toBe(true);
   });
+
+  it('isolates one incompatible series without blocking other recurrence work', () => {
+    const workspace = createWorkspace();
+    const brokenItem = createItem('Broken recurrence');
+    brokenItem.schedule = { timezone: 'UTC', startAt: '2026-09-01T09:00:00.000Z' };
+    const broken = makeSeries(brokenItem, 'NOT_A_VALID_RRULE');
+    const validItem = createItem('Valid recurrence');
+    validItem.schedule = { timezone: 'UTC', startAt: '2026-09-07T09:00:00.000Z' };
+    const valid = makeSeries(validItem, 'FREQ=DAILY;COUNT=2');
+    workspace.items[broken.id] = broken; workspace.items[valid.id] = valid;
+
+    const result = reconcileRecurrences(workspace, new Date('2026-09-07T12:00:00.000Z'));
+
+    expect(result.errors).toEqual([expect.objectContaining({ seriesId: broken.id })]);
+    expect(Object.values(workspace.items).some((item) => item.occurrence?.seriesId === valid.id)).toBe(true);
+  });
 });
 
 describe('calendar projection and mutations', () => {
