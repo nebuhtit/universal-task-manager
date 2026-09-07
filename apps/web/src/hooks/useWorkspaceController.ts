@@ -14,7 +14,7 @@ import type { AppNotice } from '../components/layout/AppShell';
 import { diagnosticFailureCode, recordDiagnostic } from '../services/diagnostics';
 import { clockService } from '../services/clockService';
 import { getWorkspaceIndex } from '../services/workspaceIndex';
-import { applyReconciliationResult, commitWorkspaceDocument } from '../services/workspaceLifecycle';
+import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDocument } from '../services/workspaceLifecycle';
 import { LatestPersistenceQueue, persistWorkspace, type PersistenceOperation } from '../services/workspacePersistence';
 import { reconcileOffMainThread } from '../services/recurrenceWorker';
 import { scheduleWorkspaceTime } from '../services/workspaceTimers';
@@ -90,6 +90,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const activationStartedAt = performance.now();
     let activationCheckpointAt = activationStartedAt;
     const activationStages: Record<string, number> = {};
+    let activationStage = 'prepare';
     const finishActivationStage = (stage: string) => {
       const now = performance.now();
       activationStages[stage] = Math.round(now - activationCheckpointAt);
@@ -98,14 +99,20 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     try {
       deliveredReminderIds.current.clear();
     let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
-    const sourceVersion = String((unlocked.document as WorkspaceDocument).schemaVersion ?? '1.0.0');
-    const now = effectiveWorkspaceNow(unlocked.document as WorkspaceDocument); const migration = migrateWorkspace(unlocked.document as WorkspaceDocument);
+    // A document returned by storage can already have been used by a previous
+    // activation attempt. Automerge deliberately makes such instances
+    // read-only; cloning gives every attempt an independent writable head and
+    // leaves the encrypted source untouched until persistence succeeds.
+    const activationDocument = writableWorkspaceDocument(unlocked.document as Automerge.Doc<WorkspaceDocument>);
+    const sourceVersion = String((activationDocument as WorkspaceDocument).schemaVersion ?? '1.0.0');
+    activationStage = 'migration';
+    const now = effectiveWorkspaceNow(activationDocument as WorkspaceDocument); const migration = migrateWorkspace(activationDocument as WorkspaceDocument);
     const integrity = validateWorkspace(migration.value);
     if (!integrity.valid) throw new Error(`Workspace integrity check failed (${integrity.errors.length} issues)`);
     const compactNormalizedDocument = sourceVersion === migration.value.schemaVersion && migration.warnings.length > 0;
     const migrationBase = compactNormalizedDocument
       ? Automerge.from(migration.value as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>
-      : unlocked.document;
+      : activationDocument;
     const migratedDocument = Automerge.change(migrationBase, 'Migrate workspace metadata and reminders', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
       if (!compactNormalizedDocument && (targetWorkspace.schemaVersion !== migration.value.schemaVersion || migration.warnings.length > 0 || !targetWorkspace.calendarPreferences?.language || !Array.isArray(targetWorkspace.viewOrder))) { const target = targetWorkspace as unknown as Record<string, unknown>; Object.keys(target).forEach((key) => delete target[key]); Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); }); }
@@ -128,11 +135,13 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const groups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>(); const rank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) { if (item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } }
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
-    const changedDuringActivation = compactNormalizedDocument || Automerge.getHeads(updated).join('|') !== Automerge.getHeads(unlocked.document).join('|');
+    activationStage = 'persistence';
+    const changedDuringActivation = compactNormalizedDocument || Automerge.getHeads(updated).join('|') !== Automerge.getHeads(activationDocument).join('|');
     if (sourceVersion !== migration.value.schemaVersion) await saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`);
     else if (changedDuringActivation) await persistWorkspace({ ...unlocked, document: updated });
     else if (unlocked.storageMode !== 'plaintext') await persistObsidianWorkspace();
     finishActivationStage('persistence');
+    activationStage = 'session';
     persistenceQueue.current?.clearPending();
     const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated);
     setPasswordProtection(unlocked.storageMode === 'plaintext' ? 'plaintext' : await passwordProtectionStatus());
@@ -143,7 +152,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
       if ('Notification' in window && Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
     } catch (reason) {
-      recordDiagnostic({ kind: 'error', message: 'Workspace activation failed', operation: 'Activate workspace', outcome: 'failed', durationMs: Math.round(performance.now() - activationStartedAt), details: diagnosticFailureCode(reason) });
+      recordDiagnostic({ kind: 'error', message: `Workspace activation failed at ${activationStage}`, operation: 'Activate workspace', outcome: 'failed', durationMs: Math.round(performance.now() - activationStartedAt), details: diagnosticFailureCode(reason) });
       throw reason;
     }
   };

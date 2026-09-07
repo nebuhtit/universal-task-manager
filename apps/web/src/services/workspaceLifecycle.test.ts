@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import * as Automerge from '@automerge/automerge';
 import { advanceCompletionAnchoredSeries, createItem, createOccurrence, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileRecurrences, recurrenceCompletionHistory, renameProjectDefinition, reorderTagSubset, updateRecurrenceCompletionTime, type WorkspaceDocument } from '@utm/core';
-import { applyReconciliationResult, commitWorkspaceDocument } from './workspaceLifecycle';
+import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDocument } from './workspaceLifecycle';
 
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
 
 describe('workspace lifecycle integration', () => {
+  it('clones an outdated Automerge instance before another activation attempt', () => {
+    const source = document();
+    commitWorkspaceDocument(source, 'First attempt', (draft) => { draft.name = 'First'; });
+    expect(() => commitWorkspaceDocument(source, 'Second attempt', (draft) => { draft.name = 'Second'; })).toThrow(/outdated document/i);
+    const retry = writableWorkspaceDocument(source);
+    expect(commitWorkspaceDocument(retry, 'Safe retry', (draft) => { draft.name = 'Recovered'; }).name).toBe('Recovered');
+  });
   it('commits a mutation and updates the workspace timestamp atomically', () => {
     const item = createItem('Persist me');
     const next = commitWorkspaceDocument(document(), 'Create item', (draft) => { draft.items[item.id] = item; }, new Date('2026-08-26T12:00:00Z'));

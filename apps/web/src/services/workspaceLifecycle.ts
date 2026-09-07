@@ -3,6 +3,11 @@ import type { ReconcileResult, WorkspaceDocument } from '@utm/core';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+/** Gives each activation attempt a writable Automerge head. */
+export function writableWorkspaceDocument(document: Automerge.Doc<WorkspaceDocument>): Automerge.Doc<WorkspaceDocument> {
+  return Automerge.clone(document);
+}
+
 export function commitWorkspaceDocument(document: Automerge.Doc<WorkspaceDocument>, message: string, mutation: (draft: WorkspaceDocument) => void, now = new Date()): Automerge.Doc<WorkspaceDocument> {
   return Automerge.change(document, message, (draft) => { mutation(draft as unknown as WorkspaceDocument); draft.updatedAt = now.toISOString(); });
 }

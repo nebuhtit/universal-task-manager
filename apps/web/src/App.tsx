@@ -71,9 +71,13 @@ const downloadText = (content: string, filename: string, type = 'application/jso
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
-const exportSafeDiagnostics = () => readDiagnostics().map(({ details: _details, ...entry }) => {
+const exportSafeDiagnostics = () => readDiagnostics().map(({ details, ...entry }) => {
   if (/google|calendar/i.test(`${entry.operation} ${entry.message}`)) return { ...entry, message: 'External calendar operation details omitted from export' };
-  return entry;
+  // Failure categories are intentionally finite and contain no workspace
+  // content. Preserve them so an exported log can identify the failing stage.
+  return details && ['password-or-encrypted-data', 'browser-storage', 'workspace-document', 'recurrence-processing', 'unexpected'].includes(details)
+    ? { ...entry, details }
+    : entry;
 });
 const downloadDiagnosticsFile = () => downloadText(JSON.stringify(exportSafeDiagnostics(), null, 2), 'utm-diagnostics.json');
 const downloadOfflineRecoveryKit = async () => {
