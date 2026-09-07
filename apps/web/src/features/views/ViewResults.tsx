@@ -8,6 +8,8 @@ import { useViewNow } from './useViewEvaluation';
 import { recordDiagnostic } from '../../services/diagnostics';
 import { previewCompletionSound } from '../../hooks/useUiSounds';
 import { UserDataText, useTranslation } from '../../i18n-react';
+import { ProjectResultLink } from './ProjectResultLink';
+import { evaluateView } from './viewSelectors';
 import { longListClass } from '../../performance/longList';
 
 export const VIEW_LIVE_TICK_MS = 1_000;
@@ -24,16 +26,23 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
   const liveNow = evaluation?.now ?? fallbackNow;
   const renderWorkspace = workspace;
   const renderView = view;
-  const matchingItems = evaluation?.items ?? selectViewItems(renderWorkspace, renderView, liveNow);
+  const resolved = evaluation ?? evaluateView(renderWorkspace, renderView, liveNow);
+  const matchingItems = resolved.items;
+  const results = (resolved.results ?? matchingItems.map((item) => ({ kind: 'item' as const, id: item.id, item }))).filter((entry) => !hiddenItemIds?.has(entry.id));
+  const projects = results.filter((entry) => entry.kind === 'project');
+  const projectLink = (project: typeof projects[number]) => <ProjectResultLink project={project} language={workspace.calendarPreferences.language} />;
   const items = hiddenItemIds?.size ? matchingItems.filter((item) => !hiddenItemIds.has(item.id)) : matchingItems;
   const drag = useRef<{ itemId: string; targetId?: string | undefined; after?: boolean | undefined } | null>(null);
   const stateCommittedOnPointerDown = useRef(new Set<string>());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  const itemIds = items.map((item) => item.id);
-  const itemSignature = itemIds.join('|');
+  const itemIds = results.map((entry) => entry.id);
+  // Project result IDs contain user-provided names and must not enter diagnostics.
+  const diagnosticItemIds = items.map((item) => item.id);
+  const itemSignature = diagnosticItemIds.join('|');
   const previousItemIds = useRef<string[] | null>(null);
   useEffect(() => {
+    const itemIds = diagnosticItemIds;
     const previous = previousItemIds.current;
     if (previous === null) {
       recordDiagnostic({
@@ -95,7 +104,7 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     drag.current = null; setDraggingId(null); setDropTargetId(null);
   };
-  const dragHandle = (item: UniversalItem) => <button
+  const dragHandle = (item: Pick<UniversalItem, 'id' | 'title'>) => <button
     type="button"
     className="view-drag-handle"
     aria-label={t(`Reorder ${item.title}`)}
@@ -131,7 +140,7 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
     const label = viewFieldLabel(renderWorkspace, field, renderView.scripts);
     return value ? <span key={field} aria-label={`${label}: ${value}`}><FieldIcon path={field} label={label} /><UserDataText>{value}</UserDataText></span> : null;
   })}</span>;
-  if (!items.length) return <p className="empty">{t('No items match this view.')}</p>;
+  if (!results.length) return <p className="empty">{t('No items match this view.')}</p>;
   if (renderView.renderer === 'calendar') {
     const dated = items.flatMap((item) => { const date = item.schedule?.startAt ?? item.schedule?.dueAt; return date ? [{ item, date }] : []; });
     return dated.length ? <div className="calendar-strip">{dated.map(({ item, date }) => <article className={`calendar-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}`} style={celebrationStyle(item)} key={item.id}>{stateControl(item)}<button className="calendar-main" onClick={() => onEdit(item)}><time dateTime={date}>{formatViewDate(date, false, renderWorkspace.calendarPreferences.language)}</time>{fieldContent(item, ['schedule.startAt', 'schedule.dueAt'])}</button></article>)}</div> : <p className="empty">{t('Matching items have no dates.')}</p>;
@@ -142,8 +151,8 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
       ? [...new Set(items.flatMap((item) => item.tags))].sort((a, b) => a.localeCompare(b)).map((tag) => ({ key: tag, label: `#${tag}`, userData: true, items: items.filter((item) => item.tags.includes(tag)) })).concat([{ key: '__untagged__', label: 'No tags', userData: false, items: items.filter((item) => item.tags.length === 0) }])
       : settings.states.map((state) => ({ key: state, label: stateNames[state], userData: false, items: items.filter((item) => item.state === state) }));
     const visibleColumns = columns.filter((column) => settings.showEmpty || column.items.length > 0);
-    return visibleColumns.length ? <div className="mini-board">{visibleColumns.map(({ key, label, userData, items: columnItems }) => <section key={key}><h4>{userData ? <UserDataText>{label}</UserDataText> : t(label)}</h4>{columnItems.map((item) => <article className={`board-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}`} style={celebrationStyle(item)} key={item.id}>{stateControl(item)}<button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}</div> : <p className="empty">{t('No items match this board.')}</p>;
+    return visibleColumns.length || projects.length ? <div className={`mini-board${items.length ? '' : ' project-only-board'}`}>{visibleColumns.map(({ key, label, userData, items: columnItems }) => <section key={key}><h4>{userData ? <UserDataText>{label}</UserDataText> : t(label)}</h4>{columnItems.map((item) => <article className={`board-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}`} style={celebrationStyle(item)} key={item.id}>{stateControl(item)}<button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}{projects.length > 0 && <section><h4>{t('No value')}</h4>{projects.map((project) => <article key={project.id} className="project-board-item">{projectLink(project)}</article>)}</section>}</div> : <p className="empty">{t('No items match this board.')}</p>;
   }
-  if (renderView.renderer === 'table') return <div className="table-wrap renderer-table-wrap"><table><thead><tr><th className="reorder-column"><span className="sr-only">{t('Manual order')}</span></th><th className="state-column"><span className="sr-only">{t('Complete')}</span></th>{overdueAgeIndicatorEnabled && <th className="item-system-status-column"><span className="sr-only">{t('Status')}</span></th>}{visibleFields.map((field) => { const label = viewFieldLabel(renderWorkspace, field, renderView.scripts); return <th key={field} aria-label={label} title={label}><FieldIcon path={field} label={label} /><span className="sr-only">{t(label)}</span></th>; })}</tr></thead><tbody>{items.map((item) => <tr data-view-item-id={item.id} className={`state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`} style={celebrationStyle(item)} key={item.id} onClick={() => onEdit(item)}><td className="reorder-column">{dragHandle(item)}</td><td className="state-column">{stateControl(item, true)}</td>{overdueAgeIndicatorEnabled && <td className="item-system-status-column"><OverdueDueIndicator item={item} now={liveNow} label={t('Overdue')} /></td>}{visibleFields.map((field) => { const value = displayViewValue(readItemField(item, field, renderWorkspace, liveNow, renderView.scripts), field, renderWorkspace.calendarPreferences.language); return <td key={field} data-field={field} translate="no" data-utm-user-data title={field === 'bodyMarkdown' ? value : undefined}>{value}</td>; })}</tr>)}</tbody></table></div>;
-  return <div className={longListClass('item-list reorderable-item-list', items.length)}>{items.map((item) => <div data-view-item-id={item.id} className={`view-item-exit-shell${isExiting(item) ? ' is-exiting' : ''}`} key={item.id}><div className={`reorderable-view-item${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}${isCelebrating(item) ? ' is-celebrating' : ''}`} style={celebrationStyle(item)}>{dragHandle(item)}<ItemCard item={item} celebrating={false} fields={visibleFields} workspace={renderWorkspace} now={liveNow} viewScripts={renderView.scripts ?? []} onEdit={() => onEdit(item)} onState={(state) => onState(item, state, view.accent ?? 'var(--color-text)')} /></div></div>)}</div>;
+  if (renderView.renderer === 'table') return <div className="table-wrap renderer-table-wrap"><table><thead><tr><th className="reorder-column"><span className="sr-only">{t('Manual order')}</span></th><th className="state-column"><span className="sr-only">{t('Complete')}</span></th>{overdueAgeIndicatorEnabled && <th className="item-system-status-column"><span className="sr-only">{t('Status')}</span></th>}{visibleFields.map((field) => { const label = viewFieldLabel(renderWorkspace, field, renderView.scripts); return <th key={field} aria-label={label} title={label}><FieldIcon path={field} label={label} /><span className="sr-only">{t(label)}</span></th>; })}</tr></thead><tbody>{results.map((entry) => { if (entry.kind === 'project') return <tr key={entry.id} data-view-item-id={entry.id}><td>{dragHandle({ id: entry.id, title: entry.name })}</td><td colSpan={visibleFields.length + 1 + (overdueAgeIndicatorEnabled ? 1 : 0)}>{projectLink(entry)}</td></tr>; const item = entry.item; return <tr data-view-item-id={item.id} className={`state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`} style={celebrationStyle(item)} key={item.id} onClick={() => onEdit(item)}><td className="reorder-column">{dragHandle(item)}</td><td className="state-column">{stateControl(item, true)}</td>{overdueAgeIndicatorEnabled && <td className="item-system-status-column"><OverdueDueIndicator item={item} now={liveNow} label={t('Overdue')} /></td>}{visibleFields.map((field) => { const value = displayViewValue(readItemField(item, field, renderWorkspace, liveNow, renderView.scripts), field, renderWorkspace.calendarPreferences.language); return <td key={field} data-field={field} translate="no" data-utm-user-data title={field === 'bodyMarkdown' ? value : undefined}>{value}</td>; })}</tr>; })}</tbody></table></div>;
+  return <div className={longListClass('item-list reorderable-item-list', items.length)}>{results.map((entry) => { if (entry.kind === 'project') return <div key={entry.id} data-view-item-id={entry.id} className="reorderable-view-item">{dragHandle({ id: entry.id, title: entry.name })}{projectLink(entry)}</div>; const item = entry.item; return <div data-view-item-id={item.id} className={`view-item-exit-shell${isExiting(item) ? ' is-exiting' : ''}`} key={item.id}><div className={`reorderable-view-item${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}${isCelebrating(item) ? ' is-celebrating' : ''}`} style={celebrationStyle(item)}>{dragHandle(item)}<ItemCard item={item} celebrating={false} fields={visibleFields} workspace={renderWorkspace} now={liveNow} viewScripts={renderView.scripts ?? []} onEdit={() => onEdit(item)} onState={(state) => onState(item, state, view.accent ?? 'var(--color-text)')} /></div></div>; })}</div>;
 }

@@ -166,6 +166,8 @@ export const viewJsonSchema = {
   title: 'Universal Task Manager saved view', type: 'object', additionalProperties: false,
   required: ['id', 'name', 'query', 'renderer', 'sort', 'fields'],
   properties: {
+    resultTypes: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['item', 'project'] } },
+    projectQuery: { type: 'object', additionalProperties: false, required: ['source'], properties: { source: { type: 'string' } } },
     id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, accent: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' },
     query: { type: 'object', additionalProperties: false, required: ['source'], properties: { source: { type: 'string' }, ast: { type: 'object', additionalProperties: true } } },
     renderer: { enum: ['list', 'table', 'calendar', 'board'] },
@@ -175,7 +177,7 @@ export const viewJsonSchema = {
     creationDefaults: { type: 'object', additionalProperties: true },
     statistics: {
       type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
-      properties: { showTime: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
+      properties: { showTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
     },
     scripts: scriptFieldSchema,
     extensions,
@@ -306,7 +308,7 @@ export const workspaceJsonSchema = {
             fields: stringArray,
             statistics: {
               type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
-              properties: { showTime: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
+              properties: { showTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
             },
             sort: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['expression', 'direction', 'nulls'], properties: { expression: { type: 'string' }, direction: { enum: ['asc', 'desc'] }, nulls: { enum: ['first', 'last'] } } } },
             sortSource: { type: 'string' },
@@ -525,7 +527,7 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
       warnings.push('Disabled invalid view statistics settings');
     } else {
       const reservedItemIds = [...new Set(record.reservedItemIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
-      const lossy = reservedItemIds.length !== record.reservedItemIds.length || Object.keys(record).some((key) => key !== 'showTime' && key !== 'reservedItemIds');
+      const lossy = reservedItemIds.length !== record.reservedItemIds.length || Object.keys(record).some((key) => !['showTime', 'reservedItemIds', 'includeHiddenCompleted'].includes(key));
       if (lossy) {
         const target = (view.extensions && typeof view.extensions === 'object' && !Array.isArray(view.extensions) ? view.extensions : {}) as Record<string, unknown>;
         target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), statisticsRaw: structuredClone(raw) };
@@ -535,6 +537,7 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
       view.statistics = {
         showTime: record.showTime,
         reservedItemIds,
+        ...(typeof record.includeHiddenCompleted === 'boolean' ? { includeHiddenCompleted: record.includeHiddenCompleted } : {}),
       };
     }
   }
@@ -916,6 +919,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const dayStatistics = dayView.statistics && typeof dayView.statistics === 'object' && !Array.isArray(dayView.statistics) ? dayView.statistics as Record<string, unknown> : {};
   dayView.statistics = {
     showTime: dayStatistics.showTime !== false,
+    ...(typeof dayStatistics.includeHiddenCompleted === 'boolean' ? { includeHiddenCompleted: dayStatistics.includeHiddenCompleted } : {}),
     reservedItemIds: Array.isArray(dayStatistics.reservedItemIds) ? [...new Set(dayStatistics.reservedItemIds.filter((id): id is string => typeof id === 'string' && id.length > 0))] : [],
   };
   const legacyWorkingHours = calendarPreferences.workingHours as { start?: string; end?: string } | undefined;

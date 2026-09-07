@@ -26,7 +26,7 @@ export function ViewStatisticsEditor({ workspace, view, rows, visualDirty, onVie
   const excluded = (item: UniversalItem) => visualDirty ? itemIsExcludedBySource(item, view.query.source) : itemIsExcludedByRows(item, rows);
   const updateStatistics = (showTime: boolean, reservedItemIds = statistics.reservedItemIds) => onViewChange({
     ...view,
-    statistics: { showTime, reservedItemIds: [...new Set(reservedItemIds)] },
+    statistics: { ...statistics, showTime, reservedItemIds: [...new Set(reservedItemIds)] },
   });
   const toggleExcluded = (item: UniversalItem, checked: boolean) => {
     if (visualDirty) onViewChange({ ...view, query: { source: setItemExcludedInSource(item, view.query.source, checked) } });
@@ -35,6 +35,8 @@ export function ViewStatisticsEditor({ workspace, view, rows, visualDirty, onVie
 
   return <ViewEditorSection sectionKey={`statistics:${view.id}`} title="Statistics"><fieldset className="view-statistics-settings">
     <Checkbox checked={statistics.showTime} onChange={(event) => updateStatistics(event.target.checked)} label="Show time statistics" />
+    <Checkbox checked={statistics.includeHiddenCompleted ?? false} onChange={(event) => onViewChange({ ...view, statistics: { ...statistics, includeHiddenCompleted: event.target.checked } })} label="Include completed items even when hidden" />
+    <small className="field-hint">Counts completed items that would match this view while open. Dates, tags and exclusions still apply; the displayed list does not change.</small>
     <p className="builder-status">Completion is weighted by Duration. Remaining time includes unfinished items in this view.</p>
     {fixedPeriodLabel ? <p className="view-statistics-period">Capacity period: <strong>{fixedPeriodLabel}</strong></p>
       : period ? <p className="view-statistics-period">Capacity period: <strong>{period.startDate === period.endDate ? period.startDate : `${period.startDate} – ${period.endDate}`}</strong></p>

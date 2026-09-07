@@ -1,4 +1,4 @@
-import { schedulePeriodBounds, type QueryTemporalOptions, type SchedulePeriod } from './dsl.js';
+import { compileQuery, schedulePeriodBounds, type QueryTemporalOptions, type SchedulePeriod } from './dsl.js';
 import { projectOccurrences } from './calendar.js';
 import { effectiveItemDurationMs, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
 import type { SavedView, UniversalItem, WorkspaceDocument } from './types.js';
@@ -174,8 +174,28 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
 }
 
 /** Computes view metrics on demand. Nothing derived here is persisted in the workspace. */
-export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: SavedView, matchingItems: Iterable<UniversalItem>, now = new Date()): ViewTimeMetrics {
+export function viewStatisticsItems(workspace: WorkspaceDocument, view: SavedView, matchingItems: Iterable<UniversalItem>, now = new Date(), matchesForStatistics?: (item: UniversalItem) => boolean): UniversalItem[] {
   const items = [...matchingItems];
+  if (view.statistics?.includeHiddenCompleted) {
+    const included = new Set(items.map((item) => item.id));
+    let predicate = matchesForStatistics;
+    if (!predicate) {
+      try {
+        const query = compileQuery(view.query.source || 'true', undefined, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
+        predicate = (item) => query(item, now);
+      } catch { predicate = () => false; }
+    }
+    for (const item of Object.values(workspace.items)) {
+      if (!['done', 'auto_closed'].includes(item.state) || item.deletedAt || item.role === 'series_template' || included.has(item.id)) continue;
+      if (view.area && !item.areas.includes(view.area) || view.project && !item.projects.includes(view.project) || view.list && item.list !== view.list) continue;
+      if (predicate({ ...item, state: 'open' })) { items.push(item); included.add(item.id); }
+    }
+  }
+  return items;
+}
+
+export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: SavedView, matchingItems: Iterable<UniversalItem>, now = new Date(), matchesForStatistics?: (item: UniversalItem) => boolean): ViewTimeMetrics {
+  const items = viewStatisticsItems(workspace, view, matchingItems, now, matchesForStatistics);
   const period = inferViewPeriod(view, now, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
   const accumulator = createViewTimeMetricsAccumulator(period ?? undefined);
   items.forEach((item) => accumulator.add(item));

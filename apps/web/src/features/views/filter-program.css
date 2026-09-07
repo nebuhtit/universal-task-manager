@@ -1,8 +1,9 @@
 .filter-program, .filter-block, .filter-condition, .filter-child { display: grid; gap: var(--space-3); min-width: 0; }
 .filter-block { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); }
-.filter-join { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .08em; }
+.filter-join { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); letter-spacing: .08em; }
 .filter-join::before, .filter-join::after { content: ''; border-top: 1px solid var(--color-border); }
 .filter-block-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.filter-block-heading { font-weight: var(--font-weight-semibold); font-size: var(--font-size-secondary); background: var(--color-surface-muted); padding: var(--space-2); border-radius: var(--radius-sm); }
 .filter-program pre, .filter-expression { white-space: pre-wrap; overflow-wrap: anywhere; }
 .filter-expression small { display: block; color: var(--color-text-secondary); }
 .filter-program textarea { font-family: monospace; }

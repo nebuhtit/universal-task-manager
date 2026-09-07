@@ -1,4 +1,5 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { consumeProjectNavigation } from '../../services/projectNavigation';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   ACTIVE_ITEM_VIEW_QUERY, calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries, organizationDeletionImpact, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort,
   orderedTagEntries, organizationAccentFor, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset,
@@ -96,9 +97,9 @@ const projectDuration = (milliseconds: number) => milliseconds > 0 ? formatCompu
 function ProjectMetricsPanel({ project, workspace, metrics }: { project: string; workspace: WorkspaceDocument; metrics: ProjectMetrics }) {
   const accent = organizationAccentFor(workspace, 'project', project) ?? 'var(--color-text)';
   return <div className="organization-project-metrics" style={{ '--project-progress-color': accent } as CSSProperties}>
-    <div className="organization-project-progress-summary"><strong>{metrics.completionPercent}%</strong><span>Completed items</span><span>{metrics.completedItems}/{metrics.totalItems}</span></div>
-    <div className="organization-project-progress" role="progressbar" aria-label={`Project ${project} completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={metrics.completionPercent}><span style={{ width: `${metrics.completionPercent}%` }} /></div>
-    <div className="organization-project-facts"><span><small>Planned time</small>{projectDuration(metrics.completedDurationMs)} / {projectDuration(metrics.totalDurationMs)}</span><span className={metrics.deadlineOverdue ? 'is-overdue' : undefined}><small>{metrics.deadlineOverdue ? 'Overdue' : 'Nearest deadline'}</small>{metrics.nearestDeadline ? formatViewDate(metrics.nearestDeadline, true, workspace.calendarPreferences.language) : 'No deadline'}</span></div>
+    <div className="organization-project-progress-summary"><strong>{metrics.totalDurationMs ? `${metrics.completionPercent}%` : '—'}</strong><span>Completion by time</span><span>{metrics.completedItems}/{metrics.totalItems}</span></div>
+    <div className="organization-project-progress" role="progressbar" aria-label={`Project ${project} completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={metrics.totalDurationMs ? metrics.completionPercent : undefined} aria-valuetext={metrics.totalDurationMs ? undefined : 'No duration available'}><span style={{ width: `${metrics.completionPercent}%` }} /></div>
+    <div className="organization-project-facts"><span><small>Remaining time</small>{projectDuration(Math.max(0, metrics.totalDurationMs - metrics.completedDurationMs))}</span><span><small>Planned time</small>{projectDuration(metrics.completedDurationMs)} / {projectDuration(metrics.totalDurationMs)}</span><span className={metrics.deadlineOverdue ? 'is-overdue' : undefined}><small>{metrics.deadlineOverdue ? 'Overdue' : 'Nearest deadline'}</small>{metrics.nearestDeadline ? formatViewDate(metrics.nearestDeadline, true, workspace.calendarPreferences.language) : 'No deadline'}</span></div>
   </div>;
 }
 
@@ -170,7 +171,12 @@ function TagCatalogRow({ tag, workspace, onOpen }: { tag?: string; workspace: Wo
 }
 
 export function OrganizationManager({ workspace, commit, onEditItem = () => {}, onState = () => {}, onAddItem = () => {}, onQuickAddItem = () => {}, onExport, celebrationColors }: { workspace: WorkspaceDocument; commit: Commit; onEditItem?: (item: UniversalItem) => void; onState?: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void; onAddItem?: (view: SavedView) => void; onQuickAddItem?: (view: SavedView, title: string) => void; onExport?: () => void; celebrationColors?: ReadonlyMap<string, string> }) {
-  const [route, setRoute] = useState<Route>({ kind: 'overview' });
+  const [route, setRoute] = useState<Route>(() => { const project = consumeProjectNavigation(); return project && workspace.projectDefinitions[project] ? { kind: 'project', project } : { kind: 'overview' }; });
+  useEffect(() => {
+    const open = () => { const project = consumeProjectNavigation(); if (project && workspace.projectDefinitions[project]) setRoute({ kind: 'project', project }); };
+    window.addEventListener('utm:project-route', open);
+    return () => window.removeEventListener('utm:project-route', open);
+  }, [workspace.projectDefinitions]);
   const [areaName, setAreaName] = useState(''); const [tagName, setTagName] = useState(''); const [orderDraft, setOrderDraft] = useState<OrganizationPreferences | null>(null);
   const orderWorkspace = orderDraft ? { ...workspace, organizationPreferences: orderDraft } : workspace;
   const workspaceNow = useWorkspaceBoundaryNow(workspace);

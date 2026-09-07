@@ -156,7 +156,10 @@ const visualClause = (row: Pick<VisualConditionRow, 'field' | 'operator' | 'valu
   if (row.operator === 'is set') return presenceExpression;
   if (row.operator === 'is not set') return fieldKind === 'multi' || fieldKind === 'text' ? `length(${filterField}) == 0` : `${filterField} == null`;
   if (organizationChoiceFields.has(row.field)) {
-    const values = commaList(row.value); if (!values.length) return 'true';
+    // Keep an empty choice editable instead of replacing the entire condition
+    // with a boolean Result block when the last selected value is removed.
+    const values = commaList(row.value);
+    if (!values.length) values.push('');
     const args = values.map((value) => JSON.stringify(value)).join(', ');
     const positive = row.operator === '==' || row.operator === 'has any';
     const all = row.operator === 'has all';

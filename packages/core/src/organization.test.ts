@@ -27,7 +27,7 @@ describe('PARA organization', () => {
     workspace.items = Object.fromEntries([done, open, malformed, cancelled, template, allDay].map((item) => [item.id, item]));
 
     expect(calculateProjectMetrics(workspace, new Date('2026-08-29T10:00:00.000Z'))).toMatchObject({
-      Launch: { totalItems: 3, completedItems: 1, completionPercent: 33, totalDurationMs: 105 * 60_000, completedDurationMs: 30 * 60_000, nearestDeadline: '2026-08-29T09:00:00.000Z', deadlineOverdue: true },
+      Launch: { totalItems: 3, completedItems: 1, completionPercent: 29, totalDurationMs: 105 * 60_000, completedDurationMs: 30 * 60_000, nearestDeadline: '2026-08-29T09:00:00.000Z', deadlineOverdue: true },
       Empty: { totalItems: 0, completedItems: 0, completionPercent: 0, totalDurationMs: 0, completedDurationMs: 0, deadlineOverdue: false },
     });
   });

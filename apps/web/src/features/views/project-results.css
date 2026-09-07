@@ -1,0 +1,6 @@
+.project-result-link { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-3); width: 100%; text-align: start; height: auto; min-height: var(--control-height-touch); padding: var(--space-3); scroll-margin-block: calc(var(--control-height-touch) * 3); }
+.project-result-link > span { display: grid; gap: var(--space-1); min-width: 0; overflow-wrap: anywhere; }
+.project-result-link small, .project-result-metrics { color: var(--color-text-secondary); font-size: var(--font-size-secondary); }
+.project-board-item { display: block; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); border-radius: var(--radius-sm); margin-block: var(--space-2); }
+.mini-board.project-only-board { grid-template-columns: minmax(0, 1fr); }
+.project-result-link svg { flex-shrink: 0; }

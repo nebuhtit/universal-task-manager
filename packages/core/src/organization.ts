@@ -1,4 +1,7 @@
 import { durationToMs, type AreaDefinition, type OrganizationPreferences, type OrganizationPriorityEntry, type ProjectDefinition, type UniversalItem, type WorkspaceDocument } from './types.js';
+import { parseExpression } from './dsl.js';
+import { expressionToDsl } from './filter-program.js';
+import type { Expression } from './types.js';
 
 export type OrganizationKind = 'area' | 'project';
 export type OrganizationAccentKind = OrganizationKind | 'tag';
@@ -107,7 +110,7 @@ export function calculateProjectMetrics(workspace: WorkspaceDocument, now = new 
     }
   }
   Object.values(metrics).forEach((target) => {
-    target.completionPercent = target.totalItems ? Math.round(target.completedItems / target.totalItems * 100) : 0;
+    target.completionPercent = target.totalDurationMs ? Math.round(target.completedDurationMs / target.totalDurationMs * 100) : 0;
     target.deadlineOverdue = Boolean(target.nearestDeadline && Date.parse(target.nearestDeadline) < now.getTime());
   });
   return metrics;
@@ -249,6 +252,19 @@ const replaceQuotedName = (source: string | undefined, from: string, to: string)
   return source.replace(new RegExp(`(["'])${escaped}\\1`, 'g'), (match, quote: string) => `${quote}${to}${quote}`);
 };
 const referencesQuotedName = (source: string | undefined, name: string) => replaceQuotedName(source, name, '__utm_deleted_reference__') !== source;
+
+/** Project selectors must not rename an identically named Area (or regex text). */
+function renameProjectSelector(source: string, kind: 'area' | 'project', from: string, to: string): string {
+  const field = (node: Expression | undefined) => node?.type === 'identifier' && [kind, `${kind}s`, ...(kind === 'project' ? ['title'] : [])].includes(node.path);
+  const literal = (node: Expression): Expression => node.type === 'literal' && node.value === from ? { ...node, value: to } : node;
+  const visit = (node: Expression): Expression => {
+    if (node.type === 'unary') return { ...node, argument: visit(node.argument) };
+    if (node.type === 'binary') return { ...node, left: field(node.right) ? literal(node.left) : visit(node.left), right: field(node.left) ? literal(node.right) : visit(node.right) };
+    if (node.type === 'call') return { ...node, args: node.args.map((arg, index) => index > 0 && field(node.args[0]) && ['includes', 'matchesAny', 'matchesAll', 'matchesNone'].includes(node.name) ? literal(arg) : visit(arg)) };
+    return node;
+  };
+  try { return expressionToDsl(visit(parseExpression(source || 'true'))); } catch { return source; }
+}
 const normalizedDeletionName = (kind: OrganizationDeletionKind, name: string) => kind === 'tag' ? name.trim().replace(/^#+/, '') : name.trim();
 const paraScope = (view: WorkspaceDocument['views'][string]): { kind?: string; area?: string | null; project?: string | null; tag?: string | null } | undefined => {
   const raw = view.extensions?.['utm:para-scope'];
@@ -367,6 +383,7 @@ export function renameAreaDefinition(workspace: WorkspaceDocument, rawFrom: stri
   });
   Object.values(workspace.views).forEach((view) => {
     if (view.area === from) view.area = to;
+    if (view.projectQuery) view.projectQuery.source = renameProjectSelector(view.projectQuery.source, 'area', from, to);
     renameDefault(view.creationDefaults, 'area', 'areas', from, to);
     view.query.source = replaceQuotedName(view.query.source, from, to) ?? '';
     if (view.sortSource !== undefined) view.sortSource = replaceQuotedName(view.sortSource, from, to) ?? '';
@@ -399,6 +416,9 @@ export function renameProjectDefinition(workspace: WorkspaceDocument, rawFrom: s
   });
   Object.values(workspace.views).forEach((view) => {
     if (view.project === from) view.project = to;
+    if (view.projectQuery) view.projectQuery.source = renameProjectSelector(view.projectQuery.source, 'project', from, to);
+    const order = view.extensions?.['utm:manualOrder'];
+    if (Array.isArray(order)) view.extensions!['utm:manualOrder'] = order.map((id) => id === `project:${encodeURIComponent(from)}` ? `project:${encodeURIComponent(to)}` : id);
     renameDefault(view.creationDefaults, 'project', 'projects', from, to);
     view.query.source = replaceQuotedName(view.query.source, from, to) ?? '';
     if (view.sortSource !== undefined) view.sortSource = replaceQuotedName(view.sortSource, from, to) ?? '';

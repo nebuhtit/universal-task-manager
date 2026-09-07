@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '1.99.15';
-export const APP_RELEASED_AT = '2026-09-07T16:46:01.817Z';
+export const APP_VERSION = '1.99.16';
+export const APP_RELEASED_AT = '2026-09-07T19:42:13.687Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -304,11 +304,15 @@ export interface ViewSortRule {
 export interface ViewStatisticsSettings {
   /** Shows duration-weighted completion, remaining work and capacity for finite periods. */
   showTime: boolean;
+  includeHiddenCompleted?: boolean;
   /** Scheduled or recurring source items that always reserve capacity in this view period. */
   reservedItemIds: string[];
 }
 
 export interface SavedView {
+  /** Missing means legacy item-only results. Projects are derived links, never stored items. */
+  resultTypes?: Array<'item' | 'project'>;
+  projectQuery?: { source: string };
   id: string;
   name: string;
   /** Optional accent used for the view title and completed ticks. */

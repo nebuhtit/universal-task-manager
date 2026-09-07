@@ -3,6 +3,18 @@ import { compileQuery, createItem } from '@utm/core';
 import { defaultReminderPeriodValue, defaultSchedulePeriodValue, defaultVisualConditionForField, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterValueLabel, visualOperators, visualOptionsForField } from './visualFilterModel';
 
 describe('visual filter model', () => {
+  it('keeps empty organization choices editable without selecting an arbitrary value', () => {
+    for (const field of ['tags', 'area', 'project', 'list']) {
+      for (const operator of ['==', '!=']) {
+        const source = serializeVisualRows([{ id: 'empty', join: 'and', field, operator, value: '' }]);
+        expect(source).not.toBe('true');
+        const rows = parseVisualRows(source);
+        expect(rows).toHaveLength(1);
+        expect(rows![0]!.value).toBe('');
+        expect(serializeVisualRows(rows!)).toBe(source);
+      }
+    }
+  });
   it('round-trips the existing visual DSL without changing its syntax', () => {
     const source = '(state == "open" && priority >= 2)';
     const rows = parseVisualRows(source);

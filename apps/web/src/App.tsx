@@ -531,6 +531,11 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
 
 export default function App() {
   const [page, setPage] = useState<Page>('home');
+  useEffect(() => {
+    const open = () => { setPage('organization'); window.dispatchEvent(new Event('utm:project-route')); };
+    window.addEventListener('utm:open-project', open);
+    return () => window.removeEventListener('utm:open-project', open);
+  }, []);
   const [editor, setEditor] = useState<UniversalItem | null>(null);
   const [editorIsNew, setEditorIsNew] = useState(false);
 

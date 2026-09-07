@@ -37,6 +37,26 @@ function rangeFor(sources: CalendarDayViewPreferences['scheduleSources']) {
 const idsByDay = (result: ReturnType<typeof rangeFor>) => Object.fromEntries(Object.entries(result.days).map(([key, day]) => [key, day.evaluation.items.map((item) => item.id)]));
 
 describe('calendar range evaluation', () => {
+  it('counts hidden completed items only on matching days without displaying them', () => {
+    const workspace = createWorkspace('Completed statistics', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    const done = createItem('Done', 'task', now);
+    done.state = 'done';
+    done.tags = ['important'];
+    done.schedule = { timezone: 'UTC', dueAt: '2026-08-31T10:00:00.000Z', estimatedDuration: 'PT1H' };
+    const excluded = { ...done, id: 'excluded', tags: ['other'] };
+    workspace.items = { [done.id]: done, excluded };
+    const prefs = settings(['due']);
+    prefs.filter.source = 'state == "open" && includes(tags, "important")';
+    prefs.statistics = { showTime: true, reservedItemIds: [], includeHiddenCompleted: true };
+    const result = evaluateCalendarRange(workspace, '2026-08-31', '2026-09-02', prefs, now);
+    expect(result.days['2026-08-31']!.evaluation.items).toEqual([]);
+    expect(result.days['2026-08-31']!.metrics.totalItems).toBe(1);
+    expect(result.days['2026-08-31']!.metrics.completedItems).toBe(1);
+    expect(result.days['2026-09-01']!.metrics.totalItems).toBe(0);
+    prefs.statistics.includeHiddenCompleted = false;
+    expect(evaluateCalendarRange(workspace, '2026-08-31', '2026-09-02', prefs, now).days['2026-08-31']!.metrics.totalItems).toBe(0);
+  });
   it('preserves each schedule source while distributing accepted items in one range evaluation', () => {
     expect(idsByDay(rangeFor(['event_open']))).toEqual({
       '2026-08-31': ['spanning'], '2026-09-01': [], '2026-09-02': [], '2026-09-03': [],

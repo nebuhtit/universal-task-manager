@@ -25,6 +25,7 @@ const bounded = (value: string | undefined, limit: number): string | undefined =
  */
 export const diagnosticFailureCode = (reason: unknown): string => {
   const message = reason instanceof Error ? reason.message.toLowerCase() : String(reason).toLowerCase();
+  if (/unreachable|memory access out of bounds|out of memory/.test(message)) return 'workspace-document';
   if (/wrong password|encrypted data|decrypt|damaged/.test(message)) return 'password-or-encrypted-data';
   if (/indexeddb|browser storage|transaction/.test(message)) return 'browser-storage';
   if (/automerge|outdated document|workspace document|schema/.test(message)) return 'workspace-document';

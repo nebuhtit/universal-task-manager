@@ -42,18 +42,17 @@ async function prepareOffMainThread(session: UnlockedWorkspace): Promise<Prepare
   const target = workspaceWorker();
   if (!target) return await prepareLocalWorkspaceSave(session.document, session.dataKey, session.storageMode);
   const id = nextRequestId++;
-  // getAllChanges preserves the complete Automerge history. The expensive full
-  // snapshot serialization, privacy-safe projection and Automerge round-trip
-  // validations happen in the worker.
-  const changes = Automerge.getAllChanges(session.document as Automerge.Doc<WorkspaceDocument>).map((change) => change.slice());
+  // Transfer the compressed document with its history instead of replaying
+  // every historical operation into an empty document on each save.
+  const binary = Automerge.save(session.document as Automerge.Doc<WorkspaceDocument>);
   const dataKey = session.dataKey.slice();
   try {
     const verified = await new Promise<{ binary: Uint8Array; exportSafeBinary?: Uint8Array }>((resolve, reject) => {
       requests.set(id, { resolve, reject });
       try {
         target.postMessage(
-          { id, changes },
-          changes.map((change) => change.buffer),
+          { id, binary },
+          [binary.buffer],
         );
       } catch (reason) {
         requests.delete(id);
@@ -71,7 +70,14 @@ async function prepareOffMainThread(session: UnlockedWorkspace): Promise<Prepare
   }
 }
 
-export async function persistWorkspace(session: UnlockedWorkspace): Promise<void> {
+let persistenceTail: Promise<void> = Promise.resolve();
+export function persistWorkspace(session: UnlockedWorkspace): Promise<void> {
+  const next = persistenceTail.then(() => persistWorkspaceInOrder(session));
+  persistenceTail = next.catch(() => undefined);
+  return next;
+}
+
+async function persistWorkspaceInOrder(session: UnlockedWorkspace): Promise<void> {
   const prepared = await prepareOffMainThread(session);
   await commitPreparedLocalWorkspaceSave(prepared);
   if (session.storageMode !== 'plaintext') await persistObsidianWorkspace();

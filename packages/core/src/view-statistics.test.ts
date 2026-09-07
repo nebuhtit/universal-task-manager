@@ -7,6 +7,19 @@ const periodView = (source = 'state == "open" && scheduleInPeriod("today", "even
 });
 
 describe('view time statistics', () => {
+  it('optionally counts hidden completed work while retaining date and tag restrictions', () => {
+    const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
+    const now = new Date('2026-08-31T12:00:00Z');
+    const view = periodView('state == "open" && dueTodayOrOverdue == true && includes(tags, "important")');
+    for (const [id, due, tags] of [['match', '2026-08-31T10:00:00Z', ['important']], ['future', '2026-09-01T10:00:00Z', ['important']], ['other', '2026-08-31T10:00:00Z', []]] as const) {
+      const item = createItem(id); item.state = 'done'; item.tags = [...tags];
+      item.schedule = { timezone: 'UTC', dueAt: due, estimatedDuration: 'PT30M' }; workspace.items[item.id] = item;
+    }
+    expect(calculateViewTimeMetrics(workspace, view, [], now).totalItems).toBe(0);
+    view.statistics!.includeHiddenCompleted = true;
+    expect(calculateViewTimeMetrics(workspace, view, [], now)).toMatchObject({ totalItems: 1, completedItems: 1, completionPercent: 100, remainingDurationMs: 0 });
+    expect(migrateView(view).value.statistics?.includeHiddenCompleted).toBe(true);
+  });
   it('infers finite visual and legacy periods but rejects ambiguous custom logic', () => {
     const now = new Date('2026-08-31T12:00:00.000Z');
     expect(inferViewPeriod(periodView(), now, { timeZone: 'UTC', weekStartsOn: 1 })).toMatchObject({ startDate: '2026-08-31', endDate: '2026-08-31', durationMs: 86_400_000 });

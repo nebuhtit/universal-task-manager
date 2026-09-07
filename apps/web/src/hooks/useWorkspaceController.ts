@@ -124,10 +124,12 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     finishActivationStage('migration');
     if (migration.warnings.length > 0) recordDiagnostic({ kind: 'result', message: 'Legacy workspace data normalized during entry', operation: 'Activate workspace', outcome: 'succeeded', details: JSON.stringify({ warningCount: migration.warnings.length, schemaVersion: migration.value.schemaVersion }) });
     let reconciliation: ReconcileResult; let warning = '';
+    activationStage = 'recurrence';
     try { reconciliation = await reconcileOffMainThread(migratedDocument as WorkspaceDocument, now); }
     catch (reason) { reconciliation = { created: [], updated: [], autoClosed: [], removedIds: [], untouched: 0 }; warning = reason instanceof Error ? reason.message : String(reason); }
     if (reconciliation.errors?.length) warning = `${reconciliation.errors.length} incompatible recurring item${reconciliation.errors.length === 1 ? '' : 's'} skipped`;
     finishActivationStage('recurrence');
+    activationStage = 'apply-recurrence';
     let updated = applyReconciliationResult(migratedDocument as Automerge.Doc<WorkspaceDocument>, reconciliation, now, 'Unlock reconciliation');
     if (reconciliation.errors?.length) updated = Automerge.change(updated, 'Quarantine incompatible recurrence', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
@@ -152,6 +154,9 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       events.push(...collectScheduledEvents(targetWorkspace, now)); notifications = runAutomationEvents(targetWorkspace, events, { now }).notifications;
     });
     finishActivationStage('scheduledEvents');
+    for (const [stage, durationMs] of Object.entries(activationStages)) {
+      recordDiagnostic({ kind: 'result', message: `Workspace entry stage: ${stage}`, operation: 'Activate workspace stage', outcome: 'succeeded', durationMs });
+    }
     const groups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>(); const rank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) { if (item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) if (!reminder.acknowledgedAt && reminder.at && new Date(reminder.at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } }
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
@@ -185,7 +190,9 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     setBoot('ready');
     const activationDurationMs = Math.round(performance.now() - activationStartedAt);
     if (warning || activationDurationMs >= 1_500) recordDiagnostic({ kind: 'result', message: warning ? 'Workspace activation completed with a recurrence warning' : 'Workspace activation was slow', operation: 'Activate workspace', outcome: 'succeeded', durationMs: activationDurationMs, details: JSON.stringify({ stages: activationStages, recurrenceWarning: Boolean(warning), created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
-    if (warning && !/timed out/i.test(warning)) onToast(`Workspace opened. Recurrence sync will retry in the background (${warning}).`);
+    if (warning && !/timed out/i.test(warning)) onToast(reconciliation.errors?.length
+      ? `Workspace opened. Recurrence disabled for ${reconciliation.errors.length} incompatible items; their data is retained. Review these items before re-enabling recurrence.`
+      : `Workspace opened. Recurrence sync will retry in the background (${warning}).`);
     setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
       if ('Notification' in window && Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
     } catch (reason) {

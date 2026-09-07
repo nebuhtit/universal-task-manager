@@ -9,16 +9,16 @@ import './filter-program.css';
 
 const yes: Expression = { type: 'literal', value: true };
 const no: Expression = { type: 'literal', value: false };
-const rule = (): Expression => parseExpression('state == "open"');
 const flatten = (node: Expression, operator: string): Expression[] => node.type === 'binary' && node.operator === operator ? [...flatten(node.left, operator), ...flatten(node.right, operator)] : [node];
 const fold = (operator: string, children: Expression[]): Expression => children.length ? children.slice(1).reduce<Expression>((left, right) => ({ type: 'binary', operator, left, right }), children[0]!) : operator === '&&' ? yes : no;
 
-function FilterBlock({ node, onChange, workspace, depth = 0 }: { node: Expression; onChange: (node: Expression) => void; workspace: WorkspaceDocument; depth?: number }) {
+function FilterBlock({ node, onChange, workspace, projectScope = false, depth = 0 }: { node: Expression; onChange: (node: Expression) => void; workspace: WorkspaceDocument; depth?: number; projectScope?: boolean }) {
   const uiId = useId();
+  const rule = () => parseExpression(projectScope ? 'length(project) > 0' : 'state == "open"');
   const ru = workspace.calendarPreferences.language === 'ru';
   const t = (en: string, russian: string) => ru ? russian : en;
-  const child = (value: Expression, update: (next: Expression) => void) => <FilterBlock node={value} onChange={update} workspace={workspace} depth={depth + 1} />;
-  const fields = viewFieldOptions(workspace);
+  const child = (value: Expression, update: (next: Expression) => void) => <FilterBlock node={value} onChange={update} workspace={workspace} depth={depth + 1} projectScope={projectScope} />;
+  const fields = viewFieldOptions(workspace).filter((field) => !projectScope || ['project', 'area'].includes(field.path));
   const parsed = parseVisualRows(expressionToDsl(node), workspace.customFields);
   const row = parsed?.length === 1 ? parsed[0] : undefined;
   const updateRow = (patch: Partial<VisualConditionRow>) => {
@@ -29,23 +29,19 @@ function FilterBlock({ node, onChange, workspace, depth = 0 }: { node: Expressio
   };
   const fieldSelect = (value: string, update: (value: string) => void, periods = true) => <Select aria-label={t('Property', 'Свойство')} value={value} onChange={(event) => update(event.target.value)}>
     {!fields.some((field) => field.path === value) && ![schedulePeriodField, reminderPeriodField].includes(value) && <option value={value}>{value}</option>}
-    {periods && <optgroup label={t('Time periods', 'Периоды')}><option value={schedulePeriodField}>Schedule in period</option><option value={reminderPeriodField}>Next reminder in period</option></optgroup>}
+    {periods && !projectScope && <optgroup label={t('Time periods', 'Периоды')}><option value={schedulePeriodField}>Schedule in period</option><option value={reminderPeriodField}>Next reminder in period</option></optgroup>}
     {[...new Set(fields.map((field) => field.group))].map((section) => <optgroup label={section} key={section}>{fields.filter((field) => field.group === section).map((field) => <option key={field.path} value={field.path}>{visualFilterFieldLabel(field.path, field.label)}</option>)}</optgroup>)}
   </Select>;
   const orgOptions = (field: string) => field === 'area' ? orderedOrganizationNames(workspace, 'area') : field === 'project' ? orderedOrganizationNames(workspace, 'project') : field === 'list' ? orderedListNames(workspace) : orderedTagEntries(workspace).filter((tag): tag is string => tag !== null);
   const updateOperator = (operator: string) => {
     if (!row) return;
-    const needsOrganizationValue = isOrganizationChoiceField(row.field) && !['is set', 'is not set'].includes(operator);
-    // An empty organization comparison serializes to `true`. Seed it with an
-    // existing choice so changing `Tags: is set` to `==` stays an editable
-    // condition instead of unexpectedly turning into a Result block.
-    const value = needsOrganizationValue && !row.value.trim() ? orgOptions(row.field)[0] ?? '' : row.value;
-    updateRow({ operator, value });
+    updateRow({ operator });
   };
   const regex = node.type === 'call' && node.name === 'regexMatch' ? node : undefined;
   const isGroup = node.type === 'binary' && ['&&', '||'].includes(node.operator);
   const children = isGroup ? flatten(node, node.operator) : [];
   return <div className="filter-block">
+    <div className="filter-block-heading">{isGroup ? (node.operator === '&&' ? 'AND' : 'OR') : node.type === 'call' && node.name === 'if' ? 'IF / THEN / ELSE' : node.type === 'unary' && node.operator === '!' ? 'NOT' : node.type === 'call' && node.name === 'anyWhere' ? 'ANY' : node.type === 'call' && node.name === 'allWhere' ? 'ALL' : t('Condition', 'Условие')} · {t('Level', 'Уровень')} {depth + 1}</div>
     {isGroup ? <>
       <Field label={t('Group', 'Группа')}><Select value={node.operator} onChange={(event) => onChange(fold(event.target.value, children))}><option value="&&">AND — {t('all conditions', 'все условия')}</option><option value="||">OR — {t('any condition', 'любое условие')}</option></Select></Field>
       {children.map((entry, index) => <div className="filter-child" key={index}>{index > 0 && <div className={`filter-join filter-join-${node.operator === '&&' ? 'and' : 'or'}`} aria-label={node.operator === '&&' ? 'AND' : 'OR'}><span>{node.operator === '&&' ? 'AND' : 'OR'}</span></div>}{child(entry, (next) => onChange(fold(node.operator, children.map((value, at) => at === index ? next : value))))}<Button size="compact" onClick={() => onChange(fold(node.operator, children.filter((_, at) => at !== index)))}>{t('Remove condition', 'Удалить условие')}</Button></div>)}
@@ -89,7 +85,7 @@ function FilterBlock({ node, onChange, workspace, depth = 0 }: { node: Expressio
   </div>;
 }
 
-export function FilterProgramEditor({ source, python, workspace, onChange, onValidityChange }: { source: string; python?: string | undefined; workspace: WorkspaceDocument; onChange: (source: string, python: string) => void; onValidityChange: (valid: boolean) => void }) {
+export function FilterProgramEditor({ source, python, workspace, onChange, onValidityChange, projectScope = false }: { source: string; python?: string | undefined; workspace: WorkspaceDocument; onChange: (source: string, python: string) => void; onValidityChange: (valid: boolean) => void; projectScope?: boolean }) {
   const ru = workspace.calendarPreferences.language === 'ru';
   const t = (en: string, russian: string) => ru ? russian : en;
   const [mode, setMode] = useState<'blocks' | 'python' | 'dsl'>('blocks');
@@ -122,7 +118,7 @@ export function FilterProgramEditor({ source, python, workspace, onChange, onVal
   return <div className="filter-program">
     <div className="filter-block-actions">{(['blocks', 'python', 'dsl'] as const).map((value) => <Button key={value} size="compact" aria-pressed={mode === value} disabled={Boolean(error) && mode !== value} onClick={() => setMode(value)}>{value === 'blocks' ? t('Blocks', 'Блоки') : value === 'python' ? t('Code (Python-like)', 'Код (как Python)') : 'Legacy DSL'}</Button>)}</div>
     <p className="field-hint">{t('Keep Schedule in period in a common AND group. Put state alternatives inside OR or IF. Only the first matching IF / ELIF branch is used. Completed items use their Schedule dates.', 'Оставьте Schedule in period в общей группе AND. Варианты статуса поместите внутрь OR или IF. Срабатывает только первая подходящая ветка IF / ELIF. Для завершённых используются даты Schedule.')}</p>
-    {mode === 'blocks' ? <FilterBlock workspace={workspace} node={node} onChange={(next) => { if (code.includes('#')) setNotice(t('Code regenerated from blocks; comments were removed.', 'Код пересоздан из блоков; комментарии удалены.')); publish(next); }} /> : <Field label={mode === 'python' ? t('Filter code', 'Код фильтра') : 'Legacy DSL'}><Textarea spellCheck={false} rows={12} value={mode === 'python' ? code : dsl} onChange={(event) => editCode(event.target.value, mode)} /></Field>}
+    {mode === 'blocks' ? <FilterBlock workspace={workspace} projectScope={projectScope} node={node} onChange={(next) => { if (code.includes('#')) setNotice(t('Code regenerated from blocks; comments were removed.', 'Код пересоздан из блоков; комментарии удалены.')); publish(next); }} /> : <Field label={mode === 'python' ? t('Filter code', 'Код фильтра') : 'Legacy DSL'}><Textarea spellCheck={false} rows={12} value={mode === 'python' ? code : dsl} onChange={(event) => editCode(event.target.value, mode)} /></Field>}
     {error && <p role="alert" className="error">{error}</p>}{notice && <p role="status">{notice}</p>}
     <details><summary>{t('Examples and limits', 'Примеры и ограничения')}</summary><p>{t('A safe subset, not a Python interpreter. No imports, assignments or unbounded loops. RE2 regex does not support lookaround or backreferences.', 'Безопасное подмножество, не интерпретатор Python. Без импортов, присваиваний и неограниченных циклов. RE2 не поддерживает обратные ссылки и lookaround.')}</p><pre>{'if not scheduleInPeriod("today", "event_open,event,active,due", True, 7, "", ""):\n    return False\nif state == "done":\n    return True\nelif state == "open":\n    return activeRangeWhenSetOrOverdue\nelse:\n    return False\n\n# Collection example:\n# return any(regexMatch(entry, "^work", True) for entry in tags)'}</pre></details>
   </div>;

@@ -68,8 +68,8 @@ describe('OrganizationManager', () => {
     const markup = renderToStaticMarkup(<OrganizationManager workspace={workspace} commit={vi.fn()} />);
     expect(markup.match(/class="organization-project-metrics"/g)).toHaveLength(2);
     expect(markup.match(/aria-label="Project Shared completion"/g)).toHaveLength(2);
-    expect(markup.match(/aria-valuenow="50"/g)).toHaveLength(2);
-    expect(markup.match(/Completed items/g)).toHaveLength(2);
+    expect(markup.match(/aria-valuenow="33"/g)).toHaveLength(2);
+    expect(markup.match(/Completion by time/g)).toHaveLength(2);
     expect(markup.match(/20 min \/ 1 h/g)).toHaveLength(2);
     expect(markup.match(/--project-progress-color:#2864c7/g)).toHaveLength(2);
     expect(markup).not.toContain('aria-label="Color for Project Shared"');
