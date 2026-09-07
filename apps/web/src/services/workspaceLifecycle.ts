@@ -13,6 +13,8 @@ export function commitWorkspaceDocument(document: Automerge.Doc<WorkspaceDocumen
 }
 
 export function applyReconciliationResult(document: Automerge.Doc<WorkspaceDocument>, result: ReconcileResult, now: Date, message = 'Workspace reconciliation'): Automerge.Doc<WorkspaceDocument> {
+  // An empty check must not grow CRDT history or request another full save.
+  if (!result.created.length && !result.updated.length && !result.autoClosed.length && !result.removedIds.length) return document;
   return commitWorkspaceDocument(document, message, (workspace) => {
     result.created.forEach((item) => { if (!workspace.items[item.id]) workspace.items[item.id] = clean(item); });
     [...result.updated, ...result.autoClosed].forEach((item) => { workspace.items[item.id] = clean(item); });

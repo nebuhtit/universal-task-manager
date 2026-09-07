@@ -3,11 +3,16 @@ import { useEffect } from 'react';
 type UiSoundKind = 'click' | 'confirm' | 'dismiss' | 'toggle' | 'expand' | 'reset';
 let sharedAudioContext: AudioContext | undefined;
 
+const resumeAudio = (context: AudioContext) => {
+  // Safari can report "interrupted" after a call, lock, or app switch.
+  if (context.state !== 'running' && context.state !== 'closed') void context.resume().catch(() => undefined);
+};
+
 const audioContext = () => {
   const Audio = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Audio) return undefined;
   if (!sharedAudioContext || sharedAudioContext.state === 'closed') sharedAudioContext = new Audio();
-  if (sharedAudioContext.state === 'suspended') void sharedAudioContext.resume();
+  resumeAudio(sharedAudioContext);
   return sharedAudioContext;
 };
 
@@ -41,7 +46,22 @@ export function startTimerAlarm(enabled = true): () => void {
     pulse.connect(pulseDepth).connect(gain.gain); tone.connect(gain).connect(context.destination);
     tone.start(); pulse.start();
     let stopped = false;
-    return () => { if (stopped) return; stopped = true; try { tone.stop(); pulse.stop(); } catch { /* Already stopped. */ } };
+    const recover = () => { if (!stopped) resumeAudio(context); };
+    // Retry only for a live alarm, including a fresh user gesture after an OS interruption.
+    document.addEventListener('visibilitychange', recover);
+    window.addEventListener('pageshow', recover);
+    window.addEventListener('pointerdown', recover);
+    window.addEventListener('keydown', recover);
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      document.removeEventListener('visibilitychange', recover);
+      window.removeEventListener('pageshow', recover);
+      window.removeEventListener('pointerdown', recover);
+      window.removeEventListener('keydown', recover);
+      try { tone.stop(); pulse.stop(); } catch { /* Already stopped. */ }
+      tone.disconnect(); pulse.disconnect(); gain.disconnect(); pulseDepth.disconnect();
+    };
   } catch { return () => undefined; }
 }
 

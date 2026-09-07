@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
   createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage, recurrenceCompletionHistory,
@@ -25,6 +25,7 @@ import { RecurrenceSection } from './sections/RecurrenceSection';
 import { RecurrenceHistorySection } from './sections/RecurrenceHistorySection';
 import { ScriptsSection } from './sections/ScriptsSection';
 import { TimerHistorySection } from './sections/TimerHistorySection';
+import './item-editor-heading.css';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -62,6 +63,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
   const [item, setItem] = useState(() => clean(initial));
+  const titleFieldId = useId();
   const [tags, setTags] = useState(item.tags.join(', '));
   const [areaDraft, setAreaDraft] = useState('');
   const [projectDraft, setProjectDraft] = useState('');
@@ -301,8 +303,11 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
       quickTitleSaveAllowed.current = false;
       save({ dismissKeyboard: true });
     }}>
-        <label className="item-title-field"><FieldIconLabel path="title" label="Title" /><input ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly={Boolean(googleEvent)} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" /></label>
-        {!googleEvent && <div><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined })} label="Note" /><p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p></div>}
+        <div className="item-title-field">
+          <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{!googleEvent && <Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined })} label="Note" />}</div>
+          <input id={titleFieldId} ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly={Boolean(googleEvent)} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" />
+          {!googleEvent && item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
+        </div>
         <QuickItemTimer soundEnabled onRecord={(record) => patchItem({ timerHistory: [...(item.timerHistory ?? []), record] })} />
         {googleEvent && <section className="external-event-summary" aria-label="Google Calendar properties"><p>This event is read-only in Universal.</p><dl><div><dt>Event opens</dt><dd>{item.schedule?.startAt ? formatViewDate(item.schedule.startAt, !item.schedule.allDay, workspace.calendarPreferences.language) : '—'}</dd></div><div><dt>Event ends</dt><dd>{item.schedule?.endAt ? formatViewDate(item.schedule.endAt, !item.schedule.allDay, workspace.calendarPreferences.language) : '—'}</dd></div><div><dt>Availability</dt><dd>{googleEvent.transparency === 'transparent' ? 'Free' : 'Busy'}</dd></div><div><dt>Time statistics</dt><dd>{item.schedule?.allDay ? 'Excluded — all-day event' : googleEvent.transparency === 'transparent' ? 'Excluded — marked free' : 'Included — reserves its Event opens → Event ends interval'}</dd></div></dl><a className="secondary button-link" href={googleEvent.sourceUrl} target="_blank" rel="noreferrer">Open in Google Calendar</a></section>}
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}

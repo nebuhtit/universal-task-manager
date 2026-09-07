@@ -21,6 +21,22 @@ test('project links survive reload and open PARA without completion controls', a
   await group.getByRole('button', { name: 'Launch', exact: true }).click();
   const quick = page.getByLabel('Quick add item to launch');
   await quick.fill('Launch task'); await quick.press('Enter');
+  const note = page.getByRole('checkbox', { name: 'Note', exact: true });
+  const title = page.getByLabel('Title', { exact: true });
+  await expect(note).toBeVisible();
+  expect((await note.boundingBox())!.y).toBeLessThan((await title.boundingBox())!.y);
+  const timer = page.getByLabel('Quick timer and stopwatch', { exact: true });
+  expect((await timer.boundingBox())!.height).toBeLessThanOrEqual(56);
+  await timer.locator('summary').focus(); await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Timer minutes', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: `/tmp/utm-timer-${test.info().project.name}.png` });
+  await timer.locator('summary').click();
+  await page.emulateMedia({ colorScheme: 'light' });
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
   await navigate(page, 'Home');
   await page.getByRole('button', { name: 'Edit All items', exact: true }).click();
@@ -57,4 +73,14 @@ test('project links survive reload and open PARA without completion controls', a
   await expect(link).toBeVisible();
   await link.evaluate((element) => element.scrollIntoView({ block: 'center' }));
   await page.screenshot({ path: `/tmp/utm-project-${test.info().project.name}.png`, fullPage: true });
+  // An unused project filter must not prevent saving an Items-only view.
+  await page.getByRole('button', { name: 'Edit All items', exact: true }).click();
+  if (!await page.getByLabel('Result types', { exact: true }).isVisible()) await page.getByText('Visual setup', { exact: true }).click();
+  await projectFilter.getByRole('button', { name: 'Code (Python-like)', exact: true }).click();
+  await projectFilter.getByLabel('Filter code', { exact: true }).fill('if (');
+  await expect(page.getByRole('button', { name: 'Save view', exact: true })).toBeDisabled();
+  await page.getByLabel('Result types', { exact: true }).selectOption('item');
+  await expect(page.getByRole('button', { name: 'Save view', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Save view', exact: true }).click();
+  await expect(link).toHaveCount(0);
 });

@@ -169,7 +169,7 @@ export function evaluateCalendarRange(
   const reservedIds = new Set(settings.statistics?.reservedItemIds ?? []);
   if (settings.statistics?.includeHiddenCompleted && predicate) {
     for (const { item } of projected) {
-      if (item.state !== 'done' || item.deletedAt || item.role === 'series_template' || !predicate(index.queryItemFor({ ...item, state: 'open' }), now)) continue;
+      if ((item.state !== 'done' && item.state !== 'auto_closed') || item.deletedAt || item.role === 'series_template' || !predicate(index.queryItemFor({ ...item, state: 'open' }), now)) continue;
       for (const key of scheduleDateKeysInRange(item, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone })) {
         const bucket = buckets.get(key);
         if (!bucket || bucket.entries.some((entry) => entry.item.id === item.id)) continue;

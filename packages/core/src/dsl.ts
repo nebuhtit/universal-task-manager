@@ -213,9 +213,20 @@ export interface QueryTemporalOptions { timeZone?: string | undefined; weekStart
 export type SchedulePeriod = 'today' | 'tomorrow' | 'this_week' | 'next_week' | 'next_days' | 'custom';
 export type ReminderPeriodRelation = 'before' | 'in' | 'after';
 
+const calendarDateFormatters = new Map<string, Intl.DateTimeFormat>();
+
 export function calendarDateKey(value: Date, timeZone?: string): string {
   try {
-    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(value);
+    let formatter = timeZone ? calendarDateFormatters.get(timeZone) : undefined;
+    if (!formatter) {
+      formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+      // Bound imported-zone memory use; leave the system default uncached.
+      if (timeZone) {
+        if (calendarDateFormatters.size >= 32) calendarDateFormatters.delete(calendarDateFormatters.keys().next().value!);
+        calendarDateFormatters.set(timeZone, formatter);
+      }
+    }
+    const parts = formatter.formatToParts(value);
     const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? '';
     return `${part('year')}-${part('month')}-${part('day')}`;
   } catch {

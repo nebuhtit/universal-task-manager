@@ -6,6 +6,15 @@ import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDo
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
 
 describe('workspace lifecycle integration', () => {
+  it('does not grow history or update timestamps for empty recurrence checks', () => {
+    const source = document();
+    const heads = Automerge.getHeads(source);
+    const next = applyReconciliationResult(source, { created: [], updated: [], autoClosed: [], removedIds: [], untouched: 12 }, new Date('2026-09-07T15:00:00Z'));
+    expect(next).toBe(source);
+    expect(Automerge.getHeads(next)).toEqual(heads);
+    expect(next.updatedAt).toBe(source.updatedAt);
+    expect(commitWorkspaceDocument(next, 'Subsequent edit', (draft) => { draft.name = 'Changed'; }).name).toBe('Changed');
+  });
   it('clones an outdated Automerge instance before another activation attempt', () => {
     const source = document();
     commitWorkspaceDocument(source, 'First attempt', (draft) => { draft.name = 'First'; });

@@ -68,6 +68,8 @@ export function createPerformanceWorkspace(itemCount: number): WorkspaceDocument
     const durationMinutes = [10, 20, 30, 45, 60, 90, 120][index % 7]!;
     const event = index % 4 === 0;
     let item = createItem(`Item ${pad(index)}`, event ? 'event' : 'task', new Date(PERFORMANCE_NOW.getTime() - index * 60_000));
+    // Keep export-byte baselines independent of the current release number.
+    item = { ...item, createdWithVersion: '1.99.16' };
     item.id = id;
     item.createdAt = iso(PERFORMANCE_NOW.getTime() - index * 60_000);
     item.updatedAt = item.createdAt;

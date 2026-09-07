@@ -1,0 +1,5 @@
+.item-title-field { display: grid; gap: var(--space-1); margin-bottom: var(--space-2); }
+.item-title-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.item-title-heading > label { margin: 0; }
+.item-title-heading > .ui-checkbox { width: auto; flex: none; font-size: var(--font-size-secondary); }
+.item-title-field > .schedule-explainer { margin: 0; }

@@ -37,11 +37,11 @@ function rangeFor(sources: CalendarDayViewPreferences['scheduleSources']) {
 const idsByDay = (result: ReturnType<typeof rangeFor>) => Object.fromEntries(Object.entries(result.days).map(([key, day]) => [key, day.evaluation.items.map((item) => item.id)]));
 
 describe('calendar range evaluation', () => {
-  it('counts hidden completed items only on matching days without displaying them', () => {
+  it.each(['done', 'auto_closed'] as const)('counts hidden %s items only on matching days without displaying them', (state) => {
     const workspace = createWorkspace('Completed statistics', now);
     workspace.calendarPreferences.timezone = 'UTC';
     const done = createItem('Done', 'task', now);
-    done.state = 'done';
+    done.state = state;
     done.tags = ['important'];
     done.schedule = { timezone: 'UTC', dueAt: '2026-08-31T10:00:00.000Z', estimatedDuration: 'PT1H' };
     const excluded = { ...done, id: 'excluded', tags: ['other'] };
