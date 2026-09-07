@@ -80,7 +80,11 @@ export function QuickItemTimer({ soundEnabled = true, onRecord }: { soundEnabled
     prepareTimerAlarm();
     stopAlarm();
     if (finished) { setElapsedBeforeStart(0); setStartedAt(Date.now()); setRunning(true); return; }
-    if (running) { if (mode === 'stopwatch') record(elapsed); setElapsedBeforeStart(elapsed); setRunning(false); return; }
+    if (running) {
+      const pausedElapsed = elapsedBeforeStart + Math.max(0, Date.now() - startedAt);
+      if (mode === 'stopwatch') record(pausedElapsed);
+      setElapsedBeforeStart(pausedElapsed); setRunning(false); return;
+    }
     intervalCueCountRef.current = Math.floor(elapsed / intervalMilliseconds);
     setStartedAt(Date.now()); setRunning(true);
   };

@@ -50,6 +50,9 @@ function recurrenceWorker(): Worker | undefined {
  * the same compiled module and WASM/runtime setup.
  */
 export async function reconcileOffMainThread(workspace: WorkspaceDocument, now: Date): Promise<ReconcileResult> {
+  if (!Object.values(workspace.items).some((item) => item.role === 'series_template' || item.role === 'occurrence' || item.recurrence || item.habit)) {
+    return { created: [], updated: [], autoClosed: [], removedIds: [], untouched: 0 };
+  }
   const snapshot = recurrenceWorkspaceSnapshot(workspace);
   const target = recurrenceWorker();
   if (!target) return await Promise.race([
@@ -61,7 +64,7 @@ export async function reconcileOffMainThread(workspace: WorkspaceDocument, now: 
     const timeout = globalThis.setTimeout(() => {
       pending.delete(id);
       reject(new Error('Recurrence worker timed out'));
-      resetWorker();
+      resetWorker('Recurrence worker timed out');
     }, WORKER_TIMEOUT_MS);
     pending.set(id, { resolve, reject, timeout });
     try { target.postMessage({ id, workspace: snapshot, now: now.toISOString() }); }

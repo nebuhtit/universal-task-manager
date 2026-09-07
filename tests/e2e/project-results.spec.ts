@@ -31,6 +31,7 @@ test('project links survive reload and open PARA without completion controls', a
   await expect(page.getByLabel('Timer minutes', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+  await expect(timer.locator('output')).not.toHaveText('10:00');
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
   await page.getByRole('button', { name: 'Reset', exact: true }).click();
   await page.emulateMedia({ colorScheme: 'dark' });

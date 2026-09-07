@@ -148,10 +148,14 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
         if (!targetWorkspace.migrationIssues.some((issue) => issue.entityId === seriesId && issue.code === code && issue.status !== 'resolved')) targetWorkspace.migrationIssues.push({ id: `activation:${seriesId}:${code}`, entityType: 'item', entityId: seriesId, sourceVersion, code, disabledCapability: 'recurrence', status: 'needs_repair', detectedAt: now.toISOString() });
       });
     });
+    let disabledAutomations = 0;
     updated = Automerge.change(updated, 'Unlock scheduled events', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
       const events: DomainEvent[] = reconciliation.created.map((item) => ({ id: createId(), type: 'occurrence.activated', at: now.toISOString(), itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }));
-      events.push(...collectScheduledEvents(targetWorkspace, now)); notifications = runAutomationEvents(targetWorkspace, events, { now }).notifications;
+      const enabledBefore = Object.values(targetWorkspace.automations).filter((rule) => rule.enabled).length;
+      events.push(...collectScheduledEvents(targetWorkspace, now));
+      disabledAutomations = enabledBefore - Object.values(targetWorkspace.automations).filter((rule) => rule.enabled).length;
+      notifications = runAutomationEvents(targetWorkspace, events, { now }).notifications;
     });
     finishActivationStage('scheduledEvents');
     for (const [stage, durationMs] of Object.entries(activationStages)) {
@@ -188,6 +192,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated);
     setPasswordProtection(unlocked.storageMode === 'plaintext' ? 'plaintext' : await passwordProtectionStatus());
     setBoot('ready');
+    if (disabledAutomations) onToast(`Workspace opened. ${disabledAutomations} invalid automation schedules disabled; their settings are retained for repair.`);
     const activationDurationMs = Math.round(performance.now() - activationStartedAt);
     if (warning || activationDurationMs >= 1_500) recordDiagnostic({ kind: 'result', message: warning ? 'Workspace activation completed with a recurrence warning' : 'Workspace activation was slow', operation: 'Activate workspace', outcome: 'succeeded', durationMs: activationDurationMs, details: JSON.stringify({ stages: activationStages, recurrenceWarning: Boolean(warning), created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
     if (warning && !/timed out/i.test(warning)) onToast(reconciliation.errors?.length

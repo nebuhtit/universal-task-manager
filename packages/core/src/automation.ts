@@ -177,17 +177,29 @@ export function collectScheduledEvents(workspace: WorkspaceDocument, now = new D
   const events: DomainEvent[] = [];
   for (const rule of Object.values(workspace.automations)) {
     if (!rule.enabled || rule.trigger.type !== 'time.schedule' || !rule.trigger.rrule) continue;
+    if (rule.missedPolicy === 'skip') continue;
+    try {
     const since = rule.lastRunAt ? new Date(rule.lastRunAt) : new Date(workspace.createdAt);
+    if (!Number.isFinite(since.getTime()) || !Number.isFinite(now.getTime())) throw new Error('Invalid schedule date');
     const recurrence = rrulestr(rule.trigger.rrule, {
       dtstart: since,
       ...(rule.trigger.timezone ? { tzid: rule.trigger.timezone } : {}),
-      compatible: true,
+      // rrule's compatible mode adds the DTSTART parsed from the text; it
+      // throws for ordinary FREQ-only rules even when options.dtstart exists.
+      compatible: /(?:^|\n)DTSTART[;:]/i.test(rule.trigger.rrule),
     });
-    let dates = recurrence.between(since, now, false);
-    if (rule.missedPolicy === 'skip') dates = [];
-    if (rule.missedPolicy === 'run_once' && dates.length) dates = [dates.at(-1)!];
+    const last = rule.missedPolicy === 'run_once' ? recurrence.before(now, false) : null;
+    const dates = rule.missedPolicy === 'run_once'
+      ? last && last > since ? [last] : []
+      : recurrence.between(since, now, false, (_date, count) => count < 1_000);
     for (const date of dates.slice(0, 1_000)) {
       events.push({ id: `${rule.id}:${date.toISOString()}`, type: 'time.schedule', at: date.toISOString(), causationId: createId(), depth: 0 });
+    }
+    } catch {
+      // A malformed rule must not prevent opening the other workspace data.
+      // Retain its definition so the user can repair and re-enable it.
+      rule.enabled = false;
+      rule.disabledReason = 'Invalid automation schedule; repair it before enabling again.';
     }
   }
   return events;
