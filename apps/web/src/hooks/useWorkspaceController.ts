@@ -21,6 +21,8 @@ import { scheduleWorkspaceTime } from '../services/workspaceTimers';
 import { nativeReminderSchedule } from '../services/nativeReminders';
 import { acknowledgeObsidianFlush, persistObsidianWorkspace, syncObsidianReminders } from '../services/obsidianBridge';
 
+const ACTIVATION_PERSISTENCE_WAIT_MS = 5_000;
+
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 type Options = { onToast: (message: string) => void; setNotices: Dispatch<SetStateAction<AppNotice[]>> };
@@ -137,9 +139,26 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
     activationStage = 'persistence';
     const changedDuringActivation = compactNormalizedDocument || Automerge.getHeads(updated).join('|') !== Automerge.getHeads(activationDocument).join('|');
-    if (sourceVersion !== migration.value.schemaVersion) await saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`);
-    else if (changedDuringActivation) await persistWorkspace({ ...unlocked, document: updated });
-    else if (unlocked.storageMode !== 'plaintext') await persistObsidianWorkspace();
+    const activationPersistence = sourceVersion !== migration.value.schemaVersion
+      ? saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`)
+      : changedDuringActivation
+        ? persistWorkspace({ ...unlocked, document: updated })
+        : unlocked.storageMode !== 'plaintext'
+          ? persistObsidianWorkspace()
+          : Promise.resolve();
+    let persistenceTimer: ReturnType<typeof setTimeout> | undefined;
+    const persistenceOutcome = await Promise.race([
+      activationPersistence.then(() => 'saved' as const, (reason) => ({ failed: reason } as const)),
+      new Promise<'pending'>((resolve) => { persistenceTimer = setTimeout(() => resolve('pending'), ACTIVATION_PERSISTENCE_WAIT_MS); }),
+    ]);
+    if (persistenceTimer) clearTimeout(persistenceTimer);
+    if (persistenceOutcome === 'pending') {
+      warning = warning || 'Initial save is still running and will finish in the background';
+      void activationPersistence.catch((reason) => recordDiagnostic({ kind: 'error', message: 'Background activation save failed', operation: 'Activate workspace persistence', outcome: 'failed', details: diagnosticFailureCode(reason) }));
+    } else if (typeof persistenceOutcome === 'object') {
+      warning = warning || 'Initial save failed and will retry after the next change';
+      recordDiagnostic({ kind: 'error', message: 'Activation save failed without blocking entry', operation: 'Activate workspace persistence', outcome: 'failed', details: diagnosticFailureCode(persistenceOutcome.failed) });
+    }
     finishActivationStage('persistence');
     activationStage = 'session';
     persistenceQueue.current?.clearPending();
