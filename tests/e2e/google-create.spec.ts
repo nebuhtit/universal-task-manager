@@ -24,7 +24,7 @@ test('edits one Google occurrence with conflict recovery and keeps local journal
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  const navigate = async (name: string) => { if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); } else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click(); };
+  const navigate = async (name: string) => { if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click(); } else await page.locator('.sidebar').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click(); };
   await navigate('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
   await navigate('Calendar'); await page.getByText('Editable meeting', { exact: true }).first().click();
   const properties = page.getByRole('dialog', { name: 'Google Calendar properties', exact: true });
@@ -36,7 +36,6 @@ test('edits one Google occurrence with conflict recovery and keeps local journal
   const edit = page.getByRole('dialog', { name: 'Edit Google event', exact: true });
   await edit.getByRole('button', { name: 'Load event for editing' }).click();
   await edit.getByLabel('Title', { exact: true }).fill('Changed in UTM');
-  await edit.getByRole('button', { name: 'Preview changes' }).click();
   remote = { ...remote, etag: 'v2', description: 'Edited on another device' };
   await edit.getByRole('button', { name: 'Save in Google', exact: true }).click();
   await expect(edit.getByRole('alert')).toContainText('changed in Google'); expect(patches).toBe(0);
@@ -44,7 +43,6 @@ test('edits one Google occurrence with conflict recovery and keeps local journal
   await expect(edit.getByLabel('Title', { exact: true })).toHaveValue('Changed in UTM');
   // Keep the independently changed description while retaining our title edit.
   await expect(edit.getByLabel('Description', { exact: true })).toHaveValue('Edited on another device');
-  await edit.getByRole('button', { name: 'Preview changes' }).click();
   for (const colorScheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme }); await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, colorScheme); await page.screenshot({ animations: 'disabled', path: test.info().outputPath(`google-edit-${colorScheme}.png`) }); expect((await edit.boundingBox())!.width).toBeLessThanOrEqual(page.viewportSize()!.width); }
   await edit.getByRole('button', { name: 'Save in Google', exact: true }).click(); await expect(edit.getByRole('alert')).toBeVisible();
   await edit.getByRole('button', { name: 'Check / retry save' }).click(); await expect(edit).toBeHidden(); expect(patches).toBe(1);
@@ -91,8 +89,8 @@ test('creates one Google copy after preview and recovers a lost response', async
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   const navigate = async (name: string) => {
-    if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); }
-    else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click();
+    if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click(); }
+    else await page.locator('.sidebar').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click();
   };
   await navigate('Settings');
   await page.getByText('Calendar and Google Calendar', { exact: true }).click();
@@ -103,13 +101,11 @@ test('creates one Google copy after preview and recovers a lost response', async
   await page.getByPlaceholder('Add new item').press('Enter');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
   await page.getByText('Create from UTM', { exact: true }).first().click();
-  await page.getByRole('button', { name: 'Create Google Calendar copy', exact: true }).click();
-  const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Create Google Calendar copy' }) });
-  await dialog.getByRole('button', { name: 'Authorize event creation' }).click();
+  await page.getByRole('button', { name: 'Create linked Google event', exact: true }).click();
+  const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: 'Create linked Google event' }) });
   await dialog.getByLabel('Title', { exact: true }).fill('One Google meeting');
-  await dialog.getByRole('button', { name: 'Preview', exact: true }).click();
   expect(inserts).toBe(0);
-  await expect(dialog.getByText('One Google meeting', { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue('One Google meeting');
   await page.emulateMedia({ colorScheme: 'light' });
   await page.screenshot({ animations: 'disabled', path: test.info().outputPath('google-preview-light.png') });
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -125,22 +121,24 @@ test('creates one Google copy after preview and recovers a lost response', async
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await page.getByText('Create from UTM', { exact: true }).first().click();
-  await page.getByRole('button', { name: 'Create Google Calendar copy', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Authorize event creation' }).click();
-  await expect(dialog.getByText('One Google meeting', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Create linked Google event', exact: true }).click();
+  await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue('One Google meeting');
   await dialog.getByRole('button', { name: 'Check / retry creation' }).click();
-  await expect(dialog.getByRole('status')).toHaveText('Event created and added to UTM.');
+  await expect(dialog).toBeHidden();
   expect(inserts).toBe(2);
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Item editor' })).not.toBeVisible();
+  await navigate('All items');
+  await expect(page.locator('.all-sections').getByText('Create from UTM', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('One Google meeting', { exact: true })).toHaveCount(0);
+  await page.locator('.all-sections').getByText('Create from UTM', { exact: true }).click();
+  const linkedEditor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await expect(linkedEditor.getByRole('button', { name: 'Edit Google event', exact: true })).toBeVisible();
+  await linkedEditor.getByRole('button', { name: 'Save item', exact: true }).click();
   await navigate('Calendar');
-  await page.getByText('One Google meeting', { exact: true }).first().click();
-  const properties = page.getByRole('dialog', { name: 'Google Calendar properties', exact: true });
-  await expect(properties).toBeVisible();
-  await expect(properties.getByText('Event opens', { exact: true })).toBeVisible();
-  await expect(properties.getByText('Event ends', { exact: true })).toBeVisible();
-  await expect(properties.getByRole('link', { name: 'Open in Google Calendar' })).toHaveAttribute('href', 'https://calendar.google.com/event?eid=test');
+  await page.getByText('Create from UTM', { exact: true }).first().click();
+  await expect(linkedEditor).toBeVisible();
+  await expect(linkedEditor.getByRole('button', { name: 'Edit Google event', exact: true })).toBeVisible();
   expect(page.context().pages()).toHaveLength(1);
 });

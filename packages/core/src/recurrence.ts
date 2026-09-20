@@ -122,6 +122,9 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
   // a new item would create forbidden cross-document references, so occurrences
   // are always materialized from a detached snapshot.
   const detached = JSON.parse(JSON.stringify(series)) as UniversalItem;
+  // Calendar links and pending writes belong to a single cycle.
+  delete detached.external;
+  for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey']) delete detached.extensions?.[key];
   const originalAnchorValue = detached.schedule?.startAt ?? detached.schedule?.dueAt;
   if (!originalAnchorValue) throw new Error(`Series ${series.id} has no recurrence start or deadline`);
   const originalAnchor = new Date(originalAnchorValue).getTime();
@@ -459,6 +462,14 @@ function reconcileRollingSeries(
   }
 
   const sameCycle = rolling.occurrence?.recurrenceId === latestAnchor.toISOString();
+  const calendarState = sameCycle ? {
+    ...(rolling.external ? { external: JSON.parse(JSON.stringify(rolling.external)) } : {}),
+    extensions: {
+      ...fresh.extensions,
+      ...JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(rolling.extensions ?? {}).filter(([key]) =>
+        ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey'].includes(key))))),
+    },
+  } : {};
   const visibleUntil = new Date(rolling.schedule?.endAt ?? rolling.schedule?.dueAt ?? rolling.schedule?.startAt ?? 0);
   const closedAt = rolling.closure?.at ? new Date(rolling.closure.at) : undefined;
   const prematurelyAutoClosed = sameCycle
@@ -485,7 +496,7 @@ function reconcileRollingSeries(
       ...retainedItemHistory(rolling),
     };
     Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
-    Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
+    Object.assign(rolling, fresh, stable, calendarState, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
     rollingChanged = true;
   } else if (!sameCycle) {
     if (rolling.state === 'done' || rolling.state === 'cancelled' || rolling.state === 'auto_closed') {
@@ -501,7 +512,7 @@ function reconcileRollingSeries(
       ...retainedItemHistory(rolling),
     };
     Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
-    Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
+    Object.assign(rolling, fresh, stable, calendarState, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
     rollingChanged = true;
   } else if (rolling.state === 'open' && rolling.occurrence?.templateRevision !== series.revision) {
     // The View renders the materialized rolling item, while Edit item opens
@@ -519,7 +530,7 @@ function reconcileRollingSeries(
       ...retainedItemHistory(rolling),
     };
     Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
-    Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
+    Object.assign(rolling, fresh, stable, calendarState, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
     rollingChanged = true;
   }
 

@@ -1,7 +1,7 @@
 import { calculateViewTimeMetrics, compileQuery, compileSort, effectiveItemDurationMs, effectiveWorkspaceNow, expressionContinuouslyDependsOnCurrentTime, expressionDependsOnCurrentTime, itemAreas, itemProjects, parseSortSource, participatesInTimeStatistics, serializeSortRules, type SavedView, type UniversalItem, type ViewSortRule, type ViewTimeMetrics, type WorkspaceDocument } from '@utm/core';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { isItemTemplate } from '../items/fieldDisplay';
-import { viewStatisticsItems, evaluateExpression, parseExpression } from '@utm/core';
+import { googleCalendarProjection, viewStatisticsItems, evaluateExpression, parseExpression } from '@utm/core';
 import { projectResults, type ViewResult } from './projectResults';
 
 export const COMPLETION_EXIT_MS = 200;
@@ -50,7 +50,7 @@ function completionHoldFor(itemId: string, at = Date.now()): CompletionHold | un
   return hold;
 }
 
-export const viewItemForEvaluation = (item: UniversalItem): UniversalItem => completionHoldFor(item.id)?.previous ?? item;
+export const viewItemForEvaluation = (item: UniversalItem): UniversalItem => googleCalendarProjection(completionHoldFor(item.id)?.previous ?? item);
 
 export function completionPhase(itemId: string, at = Date.now()): 'held' | 'exiting' | undefined {
   const hold = completionHoldFor(itemId, at);

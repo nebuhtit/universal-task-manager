@@ -1,5 +1,6 @@
 import {
   compileQuery,
+  googleCalendarProjection,
   createOccurrence,
   createViewTimeMetricsAccumulator,
   itemDurationInsidePeriod,
@@ -82,8 +83,9 @@ export function evaluateCalendarRange(
   const timeZone = workspace.calendarPreferences.timezone;
   const rangeStart = zonedDateStart(rangeStartKey, timeZone);
   const rangeEnd = zonedDateStart(rangeEndKey, timeZone);
-  const projected = projectOccurrences(workspace, rangeStart, rangeEnd)
-    .map((row) => ({ row, item: itemForRow(workspace, row) }))
+  const calendarWorkspace = { ...workspace, items: Object.fromEntries(Object.values(workspace.items).map((item) => [item.id, googleCalendarProjection(item)])) };
+  const projected = projectOccurrences(calendarWorkspace, rangeStart, rangeEnd)
+    .map((row) => ({ row, item: itemForRow(calendarWorkspace, row) }))
     .filter((entry): entry is CalendarProjectedEntry => Boolean(entry.item));
   const projectedWorkspace = {
     ...workspace,

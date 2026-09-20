@@ -115,6 +115,11 @@ const eligible = (item: UniversalItem) => !item.deletedAt
   && participatesInTimeStatistics(item);
 
 export function itemDurationInsidePeriod(item: UniversalItem, period: ViewPeriodBounds): number {
+  if (item.external?.readOnly === false) {
+    const start = Date.parse(item.external.startAt ?? ''); const end = Date.parse(item.external.endAt ?? '');
+    if (item.external.allDay || !Number.isFinite(start) || !Number.isFinite(end)) return 0;
+    return Math.max(0, Math.min(end, period.endExclusive.getTime()) - Math.max(start, period.start.getTime()));
+  }
   const duration = effectiveItemDurationMs(item);
   if (duration <= 0) return 0;
   const start = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
@@ -136,7 +141,7 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
   let actualDurationMs = 0;
   const seen = new Set<string>();
   const apply = (item: UniversalItem, direction: 1 | -1) => {
-    if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && participatesInTimeStatistics(item) && (!item.external || item.external.transparency !== 'transparent')) actualDurationMs += direction * actualTimeMs(item);
+    if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && participatesInTimeStatistics(item) && (!item.external?.readOnly || item.external.transparency !== 'transparent')) actualDurationMs += direction * actualTimeMs(item);
     const duration = effectiveItemDurationMs(item);
     if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && !item.external?.readOnly && participatesInTimeStatistics(item)) {
       totalItems += direction;

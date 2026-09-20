@@ -25,8 +25,9 @@ declare global {
 
 let scriptPromise: Promise<void> | null = null;
 let cachedGoogleCalendarToken: { accessToken: string; expiresAt: number } | null = null;
-const GOOGLE_WRITE_SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'];
+const GOOGLE_WRITE_SCOPES = [GOOGLE_SCOPE, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'];
 let cachedScopes = new Set<string>();
+export function hasGoogleWriteAuthorization(): boolean { return Boolean(cachedGoogleCalendarToken && cachedGoogleCalendarToken.expiresAt > Date.now() + 60_000 && GOOGLE_WRITE_SCOPES.every((scope) => cachedScopes.has(scope))); }
 export function forgetGoogleCalendarAuthorization(): void { cachedGoogleCalendarToken = null; cachedScopes.clear(); }
 function loadGoogleIdentityServices(): Promise<void> {
   if (window.google?.accounts?.oauth2) return Promise.resolve();

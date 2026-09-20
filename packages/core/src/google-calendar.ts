@@ -118,20 +118,92 @@ export function googleCalendarEventToItem(event: GoogleCalendarEvent, calendarId
   return item;
 }
 
-/** Applies one full or incremental calendar response in-place and tombstones removed Google events. */
+/** Remove only the calendar association; the UTM task and all its data survive. */
+export function detachGoogleCalendar(item: UniversalItem): void {
+  delete item.external;
+  if (item.extensions) { delete item.extensions['utm:googleCreate']; delete item.extensions['utm:googleEdit']; }
+}
+
+function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mirror: UniversalItem): void {
+  if (!mirror.external) return;
+  if (target.role === 'series_template') {
+    const occurrence = Object.values(workspace.items).find((item) => !item.deletedAt && item.occurrence?.seriesId === target.id);
+    if (occurrence) {
+      occurrence.extensions ??= {};
+      for (const key of ['utm:googleCreate', 'utm:googleLinkKey']) if (target.extensions?.[key] !== undefined) {
+        occurrence.extensions[key] = JSON.parse(JSON.stringify(target.extensions[key])); delete target.extensions[key];
+      }
+      target = occurrence;
+    }
+  }
+  target.external = { ...mirror.external, readOnly: false,
+    ...(mirror.schedule?.startAt ? { startAt: mirror.schedule.startAt } : {}),
+    ...(mirror.schedule?.endAt ? { endAt: mirror.schedule.endAt } : {}),
+    ...(mirror.schedule?.timezone ? { timezone: mirror.schedule.timezone } : {}), allDay: mirror.schedule?.allDay === true };
+  for (const field of ['actualTimeEntries', 'completionEntries', 'timerHistory'] as const) {
+    const incoming = mirror[field];
+    if (incoming?.length) (target as unknown as Record<string, unknown>)[field] = JSON.parse(JSON.stringify([...(target[field] ?? []), ...incoming.filter((entry) => !target[field]?.some((existing) => existing.id === entry.id))]));
+  }
+  syncActualDuration(target);
+  // Only legacy stored copies can have references to remap. Normal sync updates
+  // must not scan every task and view for each linked event.
+  if (mirror.id === target.id || !workspace.items[mirror.id]) return;
+  for (const item of Object.values(workspace.items)) for (const relation of item.relations) if (relation.targetId === mirror.id) relation.targetId = target.id;
+  for (const view of Object.values(workspace.views)) {
+    if (view.statistics) view.statistics.reservedItemIds = [...new Set(view.statistics.reservedItemIds.map((id) => id === mirror.id ? target.id : id))];
+    const order = view.extensions?.['utm:manualOrder'];
+    if (Array.isArray(order)) view.extensions!['utm:manualOrder'] = [...new Set(order.map((id) => id === mirror.id ? target.id : id))];
+  }
+  delete workspace.items[mirror.id]; delete workspace.tombstones[mirror.id];
+}
+
+/** Match only the persisted creation operation, never a title or approximate date. */
+export function mergeGoogleCalendarCopies(workspace: WorkspaceDocument): void {
+  for (const target of Object.values(workspace.items)) {
+    if (target.deletedAt || target.external?.readOnly) continue;
+    const operation = target.extensions?.['utm:googleCreate'] as { calendarId?: string; eventId?: string; accountEmail?: string } | undefined;
+    if (!operation?.calendarId || !operation.eventId) continue;
+    const account = workspace.calendarPreferences.googleCalendar?.accountEmail;
+    if (account && operation.accountEmail?.toLowerCase() !== account.toLowerCase()) continue;
+    const mirror = workspace.items[externalId(operation.calendarId, operation.eventId)];
+    if (mirror?.external?.readOnly) linkGoogleCopy(workspace, target, mirror);
+  }
+}
+
+/** Calendar-only projection keeps the UTM estimate, identity and state intact. */
+export function googleCalendarProjection(item: UniversalItem): UniversalItem {
+  const link = item.external;
+  if (!link || link.readOnly || !link.startAt || !link.endAt) return item;
+  return { ...item, schedule: { ...item.schedule, startAt: link.startAt, endAt: link.endAt, allDay: link.allDay ?? false, timezone: link.timezone ?? item.schedule?.timezone ?? 'UTC' } };
+}
+
+/** Applies one full or incremental calendar response in-place. */
 export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: GoogleCalendarSyncBatch): { added: number; updated: number; removed: number } {
   const seen = new Set<string>();
+  const linkedByEvent = new Map<string, UniversalItem>();
+  const restoredByKey = new Map<string, UniversalItem>();
+  for (const item of Object.values(workspace.items)) if (!item.deletedAt && !item.external?.readOnly) {
+    if (item.external) linkedByEvent.set(externalId(item.external.calendarId, item.external.eventId), item);
+    const key = item.extensions?.['utm:googleLinkKey'];
+    if (typeof key === 'string') restoredByKey.set(key, item);
+  }
   let added = 0; let updated = 0; let removed = 0;
   for (const event of batch.events) {
     const id = externalId(batch.calendarId, event.id);
     seen.add(id);
+    const linked = linkedByEvent.get(id);
+    if (linked) seen.add(linked.id);
     if (event.status === 'cancelled') {
+      if (linked) detachGoogleCalendar(linked);
       const existing = workspace.items[id];
       if (existing) { delete workspace.items[id]; delete workspace.tombstones[id]; removed += 1; }
       continue;
     }
     const next = googleCalendarEventToItem(event, batch.calendarId, batch.connectionId, batch.syncedAt, workspace.calendarPreferences.timezone);
     if (!next) continue;
+    const restored = event.localHistoryKey ? restoredByKey.get(event.localHistoryKey) : undefined;
+    if (restored && !linked) { linkGoogleCopy(workspace, restored, next); seen.add(restored.id); updated += 1; continue; }
+    if (linked) { linkGoogleCopy(workspace, linked, next); updated += 1; continue; }
     const existing = workspace.items[id];
     if (!existing && event.localHistoryKey && workspace.calendarPreferences.localTimeJournals?.[event.localHistoryKey]) {
       next.actualTimeEntries = JSON.parse(JSON.stringify(workspace.calendarPreferences.localTimeJournals[event.localHistoryKey]));
@@ -154,8 +226,14 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
   if (batch.fullSync) {
     for (const item of Object.values(workspace.items)) {
       if (item.external?.provider !== 'google_calendar' || item.external.connectionId !== batch.connectionId || item.external.calendarId !== batch.calendarId || seen.has(item.id)) continue;
-      delete workspace.items[item.id]; delete workspace.tombstones[item.id]; removed += 1;
+      if (item.external.readOnly) { delete workspace.items[item.id]; delete workspace.tombstones[item.id]; removed += 1; }
     }
+  }
+  mergeGoogleCalendarCopies(workspace);
+  const linkedAfterSync = new Map(Object.values(workspace.items).filter((item) => item.external?.readOnly === false).map((item) => [externalId(item.external!.calendarId, item.external!.eventId), item]));
+  for (const event of batch.events) if (event.localHistoryKey) {
+    const item = linkedAfterSync.get(externalId(batch.calendarId, event.id));
+    if (item) { item.extensions ??= {}; item.extensions['utm:googleLinkKey'] = event.localHistoryKey; }
   }
   return { added, updated, removed };
 }

@@ -3,6 +3,10 @@ import type { UniversalItem } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 
 export function ItemStateMarker({ item, googleLabel, noteLabel, onOpen, children }: { item: UniversalItem; googleLabel: string; noteLabel: string; onOpen: () => void; children: ReactNode }) {
+  if (item.external?.readOnly === false) {
+    const { external: _link, ...local } = item;
+    return <><ItemStateMarker item={local} googleLabel={googleLabel} noteLabel={noteLabel} onOpen={onOpen}>{children}</ItemStateMarker><button type="button" className="external-calendar-state-marker" aria-label={item.external?.readOnly === false ? 'UTM + Google Calendar' : googleLabel} title={item.external?.readOnly === false ? 'UTM + Google Calendar' : googleLabel} onClick={(event) => { event.stopPropagation(); onOpen(); }}><LineIcon name="calendar" /></button></>;
+  }
   if (item.external?.provider === 'google_calendar') {
     return <button type="button" className="external-calendar-state-marker" aria-label={googleLabel} title={googleLabel} onClick={(event) => { event.stopPropagation(); onOpen(); }}><LineIcon name="calendar" /></button>;
   }

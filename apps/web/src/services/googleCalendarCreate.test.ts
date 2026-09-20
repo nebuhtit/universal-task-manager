@@ -69,6 +69,8 @@ describe('Single Google event creation', () => {
     await requestGoogleCalendarToken('client', 'create');
     await requestGoogleCalendarToken('client', 'create');
     expect(initTokenClient).toHaveBeenCalledTimes(3);
-    expect(initTokenClient.mock.calls[1]![0].scope).toBe('https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly');
+    expect(initTokenClient.mock.calls[1]![0].scope).toBe('https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly');
+    await requestGoogleCalendarToken('client');
+    expect(initTokenClient).toHaveBeenCalledTimes(3);
   });
 });

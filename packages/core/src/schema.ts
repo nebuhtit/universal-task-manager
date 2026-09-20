@@ -1,5 +1,6 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import { initializeItemHistory } from './item-history.js';
+import { mergeGoogleCalendarCopies } from './google-calendar.js';
 import addFormats from 'ajv-formats';
 import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, standardAttentionViewSort } from './types.js';
 import { normalizedOrganizationPriorityOrder } from './organization.js';
@@ -157,7 +158,8 @@ export const itemJsonSchema = {
       properties: {
         provider: { const: 'google_calendar' }, connectionId: { type: 'string', minLength: 1 },
         calendarId: { type: 'string', minLength: 1 }, eventId: { type: 'string', minLength: 1 },
-        sourceUrl: { type: 'string', format: 'uri' }, readOnly: { const: true }, transparency: { enum: ['opaque', 'transparent'] }, etag: { type: 'string' },
+        sourceUrl: { type: 'string', format: 'uri' }, readOnly: { type: 'boolean' }, transparency: { enum: ['opaque', 'transparent'] }, etag: { type: 'string' },
+        startAt: { type: 'string', format: 'date-time' }, endAt: { type: 'string', format: 'date-time' }, timezone: { type: 'string' }, allDay: { type: 'boolean' },
         syncedAt: { type: 'string', format: 'date-time' },
       },
     },
@@ -336,7 +338,7 @@ export const workspaceJsonSchema = {
         googleCalendar: {
           type: 'object', additionalProperties: false, required: ['connectionId', 'calendars', 'syncTokens'],
           properties: {
-            connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' },
+            connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' }, defaultCalendarId: { type: 'string' },
             calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, selected: { type: 'boolean' } } } },
             syncTokens: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
             syncWindow: { type: 'object', additionalProperties: false, required: ['timeMin', 'timeMax', 'refreshedAt'], properties: { timeMin: { type: 'string', format: 'date-time' }, timeMax: { type: 'string', format: 'date-time' }, refreshedAt: { type: 'string', format: 'date-time' } } },
@@ -449,7 +451,7 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
     const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
     const valid = record?.provider === 'google_calendar' && typeof record.connectionId === 'string' && Boolean(record.connectionId)
       && typeof record.calendarId === 'string' && Boolean(record.calendarId) && typeof record.eventId === 'string' && Boolean(record.eventId)
-      && typeof record.sourceUrl === 'string' && /^https?:\/\//.test(record.sourceUrl) && record.readOnly === true
+      && typeof record.sourceUrl === 'string' && /^https?:\/\//.test(record.sourceUrl) && typeof record.readOnly === 'boolean'
       && typeof record.syncedAt === 'string' && Number.isFinite(Date.parse(record.syncedAt));
     if (!valid) {
       const target = (item.extensions && typeof item.extensions === 'object' && !Array.isArray(item.extensions) ? item.extensions : {}) as Record<string, unknown>;
@@ -960,6 +962,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
         ? Object.fromEntries(Object.entries(google.syncTokens as Record<string, unknown>).filter((entry): entry is [string, string] => Boolean(entry[0]) && typeof entry[1] === 'string' && Boolean(entry[1]))) : {};
       calendarPreferences.googleCalendar = {
         connectionId: google.connectionId,
+        ...(typeof google.defaultCalendarId === 'string' ? { defaultCalendarId: google.defaultCalendarId } : {}),
         ...(typeof google.accountEmail === 'string' ? { accountEmail: google.accountEmail } : {}),
         calendars, syncTokens: tokens,
         ...(google.syncWindow && typeof google.syncWindow === 'object' && !Array.isArray(google.syncWindow)
@@ -1015,6 +1018,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   if (backupPreferences.locationLabel !== undefined && typeof backupPreferences.locationLabel !== 'string') delete backupPreferences.locationLabel;
   const validation = validateWorkspace(source);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
+  mergeGoogleCalendarCopies(source as unknown as WorkspaceDocument);
   if (previous !== SCHEMA_VERSION) warnings.unshift(`Migrated workspace schema ${previous} to ${SCHEMA_VERSION}`);
   return { value: source as unknown as WorkspaceDocument, warnings };
 }

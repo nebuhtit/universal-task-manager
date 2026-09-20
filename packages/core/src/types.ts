@@ -225,7 +225,12 @@ export interface ExternalCalendarSource {
   calendarId: string;
   eventId: string;
   sourceUrl: string;
-  readOnly: true;
+  readOnly: boolean;
+  /** Calendar timing is separate from the UTM estimate and schedule. */
+  startAt?: ISODateTime;
+  endAt?: ISODateTime;
+  timezone?: string;
+  allDay?: boolean;
   transparency?: 'opaque' | 'transparent';
   etag?: string;
   syncedAt: ISODateTime;
@@ -563,6 +568,7 @@ export interface GoogleCalendarDefinition {
   selected: boolean;
 }
 export interface GoogleCalendarPreferences {
+  defaultCalendarId?: string;
   connectionId: string;
   accountEmail?: string;
   calendars: GoogleCalendarDefinition[];

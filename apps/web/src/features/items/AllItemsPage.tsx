@@ -123,8 +123,8 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
   const fields = view.fields ?? ['title', 'state'];
   const visibleItems = workspaceIndex.visibleItems.filter((item) => !isItemTemplate(item) && !isHabitOccurrence(workspace, item));
   const statusItems = workspaceIndex.visibleItems.filter((item) => !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item));
-  const googleCalendarItems = statusItems.filter((item) => item.external?.provider === 'google_calendar');
-  const utmItems = statusItems.filter((item) => item.external?.provider !== 'google_calendar');
+  const googleCalendarItems = statusItems.filter((item) => item.external?.readOnly === true);
+  const utmItems = statusItems.filter((item) => item.external?.readOnly !== true);
   const utmItemCount = new Set([...utmItems, ...templateItems, ...recurringItems].map((item) => item.id)).size;
   const metrics = calculateItemSetMetrics(visibleItems);
   return <section className="page-section">

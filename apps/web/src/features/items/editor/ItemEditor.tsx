@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { initializeItemHistory, recordCompletionTransition } from '@utm/core';
+import { googleActionItem } from './itemEditorSource';
 import { ItemHistoryJournals } from './sections/ItemHistoryJournals';
 import { EditGoogleEventDialog, type GoogleEditingCallbacks } from '../../calendar/EditGoogleEventDialog';
 import {
@@ -85,7 +86,9 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const [jsonDirty, setJsonDirty] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
-  const googleEvent = item.external?.provider === 'google_calendar' ? item.external : undefined;
+  const googleItem = googleActionItem(workspace, item);
+  const googleLink = googleItem.external?.provider === 'google_calendar' ? googleItem.external : undefined;
+  const googleEvent = googleLink?.readOnly ? googleLink : undefined;
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const suppressFocusRestore = useRef(false);
@@ -308,7 +311,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     patchItem({ habit: { ...rest, timerSessions: [...(habit.timerSessions ?? []), { id: createId(), startedAt, endedAt, durationSeconds }] } });
   };
 
-  if (googleEvent && editingGoogle && onGoogleEditDraft && onGoogleUpdated) return <EditGoogleEventDialog item={workspace.items[item.id] ?? item} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleUpdated={async (event) => { await onGoogleUpdated(event); onClose(); }} />;
+  if (googleLink && editingGoogle && onGoogleEditDraft && onGoogleUpdated) return <EditGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleUpdated={async (event) => { await onGoogleUpdated(event); if (googleEvent) onClose(); else setEditingGoogle(false); }} />;
   if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<><Button onClick={onClose}>Close</Button>{onGoogleEditDraft && onGoogleUpdated && <Button disabled={!workspace.items[item.id]?.extensions?.[GOOGLE_EDIT_EXTENSION] && (!item.schedule?.endAt || Date.now() > Date.parse(item.schedule.endAt) + 3 * 3600_000)} onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Редактировать' : 'Edit event'}</Button>}</>}>
     <h2>{item.title}</h2><p style={{ whiteSpace: 'pre-wrap' }}>{item.bodyMarkdown}</p>
     <dl className="google-create-preview">
@@ -340,9 +343,10 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           <input id={titleFieldId} ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly={Boolean(googleEvent)} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" />
           {!googleEvent && item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
-        {!googleEvent && workspace.calendarPreferences.googleCalendar && <Button disabled={isNew || !onPrepareGoogleCreate || !onGoogleCreated} onClick={() => setCreatingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Создать копию в Google Календаре' : 'Create Google Calendar copy'}</Button>}
+        {!googleLink && workspace.calendarPreferences.googleCalendar && <Button disabled={isNew || !onPrepareGoogleCreate || !onGoogleCreated} onClick={() => setCreatingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Создать связанное событие Google' : 'Create linked Google event'}</Button>}
         {!googleEvent && isNew && workspace.calendarPreferences.googleCalendar && <p>{workspace.calendarPreferences.language === 'ru' ? 'Сначала сохраните элемент UTM.' : 'Save the UTM item first.'}</p>}
-        {creatingGoogle && onPrepareGoogleCreate && onGoogleCreated && <CreateGoogleEventDialog item={item} workspace={workspace} onClose={() => setCreatingGoogle(false)} onPrepareGoogleCreate={async (operation) => { await onPrepareGoogleCreate(operation); setItem((current) => ({ ...current, extensions: { ...current.extensions, [GOOGLE_CREATE_EXTENSION]: JSON.parse(JSON.stringify(operation)) } })); }} onGoogleCreated={onGoogleCreated} />}
+        {googleLink && !googleEvent && <div><Button onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Изменить событие Google' : 'Edit Google event'}</Button><p>{workspace.calendarPreferences.language === 'ru' ? 'Оценка UTM независима от календарной занятости. Изменения события отправляются отдельно.' : 'The UTM estimate is independent of calendar occupancy. Save event changes separately.'}</p></div>}
+        {creatingGoogle && onPrepareGoogleCreate && onGoogleCreated && <CreateGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setCreatingGoogle(false)} onPrepareGoogleCreate={async (operation) => { await onPrepareGoogleCreate(operation); if (googleItem.id === item.id) setItem((current) => ({ ...current, extensions: { ...current.extensions, [GOOGLE_CREATE_EXTENSION]: JSON.parse(JSON.stringify(operation)) } })); }} onGoogleCreated={async (operation, event) => { const linked = await onGoogleCreated(operation, event); if (linked?.external && linked.id === item.id) setItem((current) => ({ ...current, external: linked.external! })); return linked; }} />}
         <QuickItemTimer soundEnabled onRecord={(record) => {
           const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
           if (owner && onHistorySave) void Promise.resolve(onHistorySave({ ...clean(owner), timerHistory: [...(owner.timerHistory ?? []), { ...record, recurrenceId: owner.occurrence!.recurrenceId }] })).catch((reason) => setError(String(reason)));

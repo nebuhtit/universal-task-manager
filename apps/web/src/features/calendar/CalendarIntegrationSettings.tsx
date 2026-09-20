@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { applyGoogleCalendarSync, createId, type GoogleCalendarPreferences, type WorkspaceDocument } from '@utm/core';
+import { applyGoogleCalendarSync, detachGoogleCalendar, createId, type GoogleCalendarPreferences, type WorkspaceDocument } from '@utm/core';
 import { Button, Checkbox, Disclosure, Field, Input, Select } from '../../components/ui/primitives';
 import { recordDiagnostic } from '../../services/diagnostics';
 import { forgetGoogleCalendarAuthorization, GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from '../../services/googleCalendar';
@@ -39,9 +39,10 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
       commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {
-          connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
+          ...current, connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
           ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
         };
+        delete draft.calendarPreferences.googleCalendar.lastError;
       });
       const eventCount = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);
@@ -66,6 +67,7 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
     delete google.syncTokens[calendarId];
     if (!calendar.selected) Object.values(draft.items).forEach((item) => {
       if (item.external?.provider !== 'google_calendar' || item.external.connectionId !== google.connectionId || item.external.calendarId !== calendarId) return;
+      if (!item.external.readOnly) { detachGoogleCalendar(item); return; }
       delete draft.items[item.id]; delete draft.tombstones[item.id];
     });
   });
@@ -82,6 +84,7 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
     commit('Disconnect Google Calendar', (draft) => {
       for (const item of Object.values(draft.items)) {
         if (item.external?.provider !== 'google_calendar' || item.external.connectionId !== connectionId) continue;
+        if (!item.external.readOnly) { detachGoogleCalendar(item); continue; }
         delete draft.items[item.id]; delete draft.tombstones[item.id];
       }
       delete draft.calendarPreferences.googleCalendar;
@@ -94,7 +97,8 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
     <Field label="Week starts"><Select value={preferences.weekStartsOn} onChange={(event) => commit('Change first weekday', (draft) => { draft.calendarPreferences.weekStartsOn = Number(event.target.value) as 0 | 1; })}><option value="1">Monday</option><option value="0">Sunday</option></Select></Field>
     <hr />
     <section className="calendar-google-settings" aria-label="Google Calendar sync">
-      <div><strong>Google Calendar</strong><small>Read-only. Events are mirrored into this workspace; editing opens Google Calendar.</small></div>
+      <div><strong>Google Calendar</strong><small>{preferences.language === 'ru' ? 'Изменения отправляются только по кнопке сохранения. Связанные UTM-задачи сохраняются при отключении.' : 'Changes are sent only when you save in Google. Linked UTM tasks survive disconnection.'}</small></div>
+      {preferences.googleCalendar && <><Field label={preferences.language === 'ru' ? 'Календарь по умолчанию для новых событий' : 'Default calendar for new events'}><Select value={preferences.googleCalendar.defaultCalendarId ?? ''} onChange={(event) => commit('Set default Google calendar', (draft) => { draft.calendarPreferences.googleCalendar!.defaultCalendarId = event.target.value; })}><option value="">{preferences.language === 'ru' ? 'Основной календарь' : 'Primary calendar'}</option>{preferences.googleCalendar.calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</Select></Field><Button disabled={googleBusy} onClick={() => { setGoogleBusy(true); setGoogleError(''); void requestGoogleCalendarToken(undefined, 'create').catch((reason) => setGoogleError(String(reason))).finally(() => setGoogleBusy(false)); }}>{preferences.language === 'ru' ? 'Разрешить создание и изменение событий' : 'Authorize event creation and editing'}</Button></>}
       {!GOOGLE_CALENDAR_CLIENT_ID && <p className="hint">This build needs a Google OAuth client ID before connection is available.</p>}
       {preferences.googleCalendar?.accountEmail && <small>Connected as {preferences.googleCalendar.accountEmail}</small>}
       {preferences.googleCalendar?.calendars.length ? <div className="calendar-google-list">{preferences.googleCalendar.calendars.map((calendar) => <Checkbox key={calendar.id} label={`${calendar.name}${calendar.primary ? ' · primary' : ''}`} checked={calendar.selected} onChange={() => selectGoogleCalendar(calendar.id)} />)}</div> : null}

@@ -37,6 +37,17 @@ function rangeFor(sources: CalendarDayViewPreferences['scheduleSources']) {
 const idsByDay = (result: ReturnType<typeof rangeFor>) => Object.fromEntries(Object.entries(result.days).map(([key, day]) => [key, day.evaluation.items.map((item) => item.id)]));
 
 describe('calendar range evaluation', () => {
+  it('places a linked UTM task on its Google date without changing the saved UTM schedule', () => {
+    const workspace = createWorkspace('Linked'); workspace.calendarPreferences.timezone = 'UTC';
+    const item = createItem('Linked task'); item.schedule = { timezone: 'UTC', estimatedDuration: 'PT20M' };
+    item.external = { provider: 'google_calendar', readOnly: false, calendarId: 'calendar', eventId: 'event', connectionId: 'connection', sourceUrl: 'https://calendar.google.com/', syncedAt: now.toISOString(), startAt: '2026-08-31T12:00:00Z', endAt: '2026-08-31T13:00:00Z', transparency: 'opaque' };
+    workspace.items[item.id] = item;
+    const result = evaluateCalendarRange(workspace, '2026-08-31', '2026-09-02', settings(['event']), now);
+    expect(result.days['2026-08-31']?.entries.map((entry) => entry.item.id)).toEqual([item.id]);
+    expect(result.days['2026-08-31']?.metrics.remainingDurationMs).toBe(20 * 60000);
+    expect(result.days['2026-08-31']?.metrics.freeDurationMs).toBe(23 * 3600000);
+    expect(item.schedule.startAt).toBeUndefined();
+  });
   it.each(['done', 'auto_closed'] as const)('counts hidden %s items only on matching days without displaying them', (state) => {
     const workspace = createWorkspace('Completed statistics', now);
     workspace.calendarPreferences.timezone = 'UTC';
