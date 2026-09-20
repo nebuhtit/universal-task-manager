@@ -11,6 +11,16 @@ describe('Python-like filter programs', () => {
     expect(run('if False:\n    return daysUntil("invalid") > 0\nreturn True')).toBe(true);
     expect(run('if not True:\n    return True\nelse:\n    return False')).toBe(false);
   });
+  it('distinguishes saved templates from recurring series and occurrences', () => {
+    const saved = createItem('Saved'); saved.extensions = { 'utm:template': true };
+    const series = createItem('Series'); series.role = 'series_template';
+    const occurrence = createItem('Occurrence'); occurrence.role = 'occurrence';
+    expect(compileQuery('itemKind == "saved_item_template"')(saved)).toBe(true);
+    expect(compileQuery('itemKind == "repeating_series"')(series)).toBe(true);
+    expect(compileQuery('itemKind == "repeat_occurrence"')(occurrence)).toBe(true);
+    expect(compileQuery('isSavedTemplate == true')(saved)).toBe(true);
+    expect(compileQuery('isTemplate == true')(saved)).toBe(true);
+  });
   it('applies a common Schedule boundary to completed items', () => {
     const source = pythonToFilter('if not scheduleInPeriod("today", "due", False, 7, "", ""):\n    return False\nif state == "done":\n    return True\nelif state == "open":\n    return True\nelse:\n    return False');
     const query = compileQuery(source, undefined, { timeZone: 'Europe/Moscow' });

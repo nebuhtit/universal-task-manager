@@ -48,6 +48,9 @@ describe('visual filter model', () => {
     expect(visualOperators('activeRange')).toEqual(['==', '!=']);
     expect(visualOperators('activeRangeWhenSet')).toEqual(['==', '!=']);
     expect(visualOperators('isHabit')).toEqual(['==', '!=']);
+    expect(visualOperators('itemKind')).toEqual(['==', '!=']);
+    expect(defaultVisualConditionForField('itemKind')).toEqual({ operator: '==', value: 'regular_item' });
+    expect(visualFilterValueLabel('itemKind', 'repeating_series', true)).toBe('Повторяющаяся серия');
     expect(visualOperators('state')).toEqual(['==', '!=']);
     expect(visualOperators('schedule.startAt')).toContain('is set');
     expect(visualOperators('schedule.allDay')).toContain('is set');

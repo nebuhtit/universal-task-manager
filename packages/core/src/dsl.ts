@@ -564,7 +564,7 @@ export interface QueryRelationContext {
  * filters can be interpreted as the user's boolean intent.
  */
 export const NON_NULLABLE_QUERY_BOOLEAN_FIELDS = [
-  'isNote', 'isHabit', 'isTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'activeDuration',
+  'isNote', 'isHabit', 'isTemplate', 'isSavedTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'activeDuration',
   'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue', 'googleCalendarAllDay',
 ] as const;
 
@@ -610,7 +610,13 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
       const dueBuckets = relations.dueDateBuckets ?? dueDateBuckets(item, current, temporalOptions);
       const hasActiveReminderValue = relations.hasActiveReminders ?? activeReminders(item).length > 0;
       const nextReminderAtValue = relations.remindersIndexed ? relations.nextReminderAt : nextActiveReminderAt(item);
-      return Boolean(evaluateExpression(ast, { item, variables: { isNote: item.isNote === true, isHabit: Boolean(item.habit), isTemplate: item.extensions?.['utm:template'] === true, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
+      const isSavedTemplate = item.extensions?.['utm:template'] === true;
+      const itemKind = isSavedTemplate
+        ? 'saved_item_template'
+        : item.role === 'series_template' ? 'repeating_series'
+          : item.role === 'occurrence' ? 'repeat_occurrence'
+            : 'regular_item';
+      return Boolean(evaluateExpression(ast, { item, variables: { isNote: item.isNote === true, isHabit: Boolean(item.habit), isTemplate: isSavedTemplate, isSavedTemplate, itemKind, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

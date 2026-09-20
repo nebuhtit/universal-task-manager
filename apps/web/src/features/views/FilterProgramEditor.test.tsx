@@ -28,6 +28,13 @@ describe('shared filter editor', () => {
     expect(html).toContain('Блоки');
     expect(html).toContain('Свойство');
   });
+  it('offers a separate item-kind section while retaining legacy filters', () => {
+    const workspace = createWorkspace('Filters');
+    const html = renderToStaticMarkup(<FilterProgramEditor workspace={workspace} source='itemKind == "regular_item"' onChange={vi.fn()} onValidityChange={vi.fn()} />);
+    expect(html).toContain('<optgroup label="Item kind">');
+    expect(html).toContain('Saved item template');
+    expect(html).toContain('Technical recurrence role');
+  });
   it('shows explicit connectors between AND and OR conditions', () => {
     const workspace = createWorkspace('Filters');
     const andHtml = renderToStaticMarkup(<FilterProgramEditor workspace={workspace} source='state == "open" && includes(tags, "important")' onChange={vi.fn()} onValidityChange={vi.fn()} />);

@@ -52,19 +52,19 @@ export const parseReminderPeriodValue = (value: string): ReminderPeriodValue => 
 export type VisualFieldKind = 'enum' | 'boolean' | 'number' | 'date' | 'text' | 'multi';
 
 export const visualOptions: Record<string, string[]> = {
-  state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'],
-  isNote: ['true', 'false'], isHabit: ['true', 'false'], isTemplate: ['true', 'false'], isSubtask: ['true', 'false'], isParent: ['true', 'false'], activeRange: ['true', 'false'], activeRangeWhenSet: ['true', 'false'], activeRangeWhenSetOrOverdue: ['true', 'false'], activeDuration: ['true', 'false'], hasActiveReminders: ['true', 'false'], eventToday: ['true', 'false'], eventThisWeek: ['true', 'false'], dueTodayOrOverdue: ['true', 'false'], dueThisWeekOrOverdue: ['true', 'false'], googleCalendarAllDay: ['true', 'false'], 'schedule.allDay': ['true', 'false'], 'recurrence.autoRenew': ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'], 'external.provider': ['google_calendar'], 'external.transparency': ['opaque', 'transparent'], 'external.readOnly': ['true', 'false'],
+  state: ['open', 'done', 'auto_closed', 'cancelled', 'archived'], preset: ['task', 'event', 'habit', 'blank'], itemKind: ['regular_item', 'saved_item_template', 'repeating_series', 'repeat_occurrence'],
+  isNote: ['true', 'false'], isHabit: ['true', 'false'], isTemplate: ['true', 'false'], isSavedTemplate: ['true', 'false'], isSubtask: ['true', 'false'], isParent: ['true', 'false'], activeRange: ['true', 'false'], activeRangeWhenSet: ['true', 'false'], activeRangeWhenSetOrOverdue: ['true', 'false'], activeDuration: ['true', 'false'], hasActiveReminders: ['true', 'false'], eventToday: ['true', 'false'], eventThisWeek: ['true', 'false'], dueTodayOrOverdue: ['true', 'false'], dueThisWeekOrOverdue: ['true', 'false'], googleCalendarAllDay: ['true', 'false'], 'schedule.allDay': ['true', 'false'], 'recurrence.autoRenew': ['true', 'false'], role: ['standalone', 'series_template', 'occurrence'], priority: ['0', '1', '2', '3', '4'], 'external.provider': ['google_calendar'], 'external.transparency': ['opaque', 'transparent'], 'external.readOnly': ['true', 'false'],
   'progress.mode': ['boolean', 'percent', 'counter'], 'habit.streakMode': ['manual_only', 'any_closed'], 'recurrence.closeAt': ['next_activation', 'due', 'never'], 'recurrence.anchor': ['schedule', 'completion'], 'closure.actor': ['user', 'system', 'automation', 'import'], 'closure.reason': ['manual', 'auto_renew', 'rule', 'cancelled', 'import'], 'recurrenceOverride.kind': ['this_occurrence', 'future_split'],
 };
 export const visualFieldKinds: Record<string, VisualFieldKind> = {
-  state: 'enum', preset: 'enum', role: 'enum', isNote: 'boolean', isHabit: 'boolean', isTemplate: 'boolean', isSubtask: 'boolean', isParent: 'boolean', activeRange: 'boolean', activeRangeWhenSet: 'boolean', activeRangeWhenSetOrOverdue: 'boolean', activeDuration: 'boolean', hasActiveReminders: 'boolean', eventToday: 'boolean', eventThisWeek: 'boolean', dueTodayOrOverdue: 'boolean', dueThisWeekOrOverdue: 'boolean', googleCalendarAllDay: 'boolean', 'schedule.allDay': 'boolean', priority: 'number', 'external.provider': 'enum', 'external.transparency': 'enum', 'external.readOnly': 'boolean',
+  state: 'enum', preset: 'enum', role: 'enum', itemKind: 'enum', isNote: 'boolean', isHabit: 'boolean', isTemplate: 'boolean', isSavedTemplate: 'boolean', isSubtask: 'boolean', isParent: 'boolean', activeRange: 'boolean', activeRangeWhenSet: 'boolean', activeRangeWhenSetOrOverdue: 'boolean', activeDuration: 'boolean', hasActiveReminders: 'boolean', eventToday: 'boolean', eventThisWeek: 'boolean', dueTodayOrOverdue: 'boolean', dueThisWeekOrOverdue: 'boolean', googleCalendarAllDay: 'boolean', 'schedule.allDay': 'boolean', priority: 'number', 'external.provider': 'enum', 'external.transparency': 'enum', 'external.readOnly': 'boolean',
   'recurrence.autoRenew': 'boolean', 'progress.mode': 'enum', 'habit.streakMode': 'enum', 'recurrence.closeAt': 'enum', 'recurrence.anchor': 'enum', 'closure.actor': 'enum', 'closure.reason': 'enum', 'recurrenceOverride.kind': 'enum',
   'progress.current': 'number', 'progress.target': 'number', 'habit.target': 'number', 'occurrence.sequence': 'number', 'occurrence.templateRevision': 'number', parentDepth: 'number', childDepth: 'number', revision: 'number',
   'schedule.startAt': 'date', 'schedule.endAt': 'date', 'schedule.dueAt': 'date', 'schedule.availableFrom': 'date', nextReminderAt: 'date', 'closure.at': 'date', 'occurrence.recurrenceId': 'date', 'recurrenceOverride.recurrenceId': 'date', createdAt: 'date', updatedAt: 'date', deletedAt: 'date', 'external.syncedAt': 'date',
   title: 'text', bodyMarkdown: 'text', description: 'text', location: 'text', area: 'text', project: 'text', list: 'text', tags: 'multi', contexts: 'multi', reminders: 'multi', subtasks: 'multi', relations: 'multi', attachments: 'multi', 'recurrence.rdates': 'multi', 'recurrence.exdates': 'multi', 'habit.completedDates': 'multi', cycleHistory: 'multi', timerHistory: 'multi', scripts: 'multi', parent: 'text', 'external.calendarId': 'text', 'external.connectionId': 'text', 'external.eventId': 'text', 'external.sourceUrl': 'text',
 };
 const nonNullableBooleanFields = new Set<string>(NON_NULLABLE_QUERY_BOOLEAN_FIELDS);
-const nonNullableEnumFields = new Set(['state', 'preset', 'role']);
+const nonNullableEnumFields = new Set(['state', 'preset', 'role', 'itemKind']);
 const nonNullableNumberFields = new Set(['parentDepth', 'childDepth', 'revision']);
 const presenceOnlyFields = new Set(['reminders', 'subtasks', 'relations', 'attachments', 'cycleHistory', 'timerHistory', 'scripts']);
 const organizationChoiceFields = new Set(['area', 'project', 'list', 'tags']);
@@ -130,7 +130,11 @@ export const visualFilterFieldLabel = (field: string, fallback: string): string 
   return fallback;
 };
 
-export const visualFilterValueLabel = (field: string, value: string): string => {
+export const visualFilterValueLabel = (field: string, value: string, russian = false): string => {
+  if (field === 'itemKind') return ((russian
+    ? { regular_item: 'Обычный item', saved_item_template: 'Сохранённый шаблон item', repeating_series: 'Повторяющаяся серия', repeat_occurrence: 'Повтор серии' }
+    : { regular_item: 'Regular item', saved_item_template: 'Saved item template', repeating_series: 'Repeating series', repeat_occurrence: 'Repeat occurrence' }
+  ) as Record<string, string>)[value] ?? value;
   if (field === 'external.provider' && value === 'google_calendar') return 'Google Calendar';
   if (field === 'external.transparency') return value === 'opaque' ? 'Busy' : value === 'transparent' ? 'Free' : value;
   if (visualFieldKind(field) === 'boolean') return value === 'true' ? 'True' : value === 'false' ? 'False' : value;
