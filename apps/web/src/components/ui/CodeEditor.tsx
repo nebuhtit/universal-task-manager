@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button } from './primitives';
 
-export type CodeLanguage = 'dsl' | 'json';
+export type CodeLanguage = 'dsl' | 'json' | 'python';
 
 async function writeClipboardText(value: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
@@ -28,7 +28,7 @@ async function writeClipboardText(value: string): Promise<void> {
 function highlightedCode(source: string, language: CodeLanguage): ReactNode[] {
   const pattern = language === 'json'
     ? /("(?:\\.|[^"\\])*")(?=\s*:)|("(?:\\.|[^"\\])*")|\b(true|false|null)\b|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|[{}[\],:]|\s+|[^\s{}[\],:]+/g
-    : /("(?:\\.|[^"\\])*")|\b(true|false|null|in)\b|-?\b\d+(?:\.\d+)?\b|&&|\|\||==|!=|>=|<=|[><!+*/%-]|[()[\],.]|\s+|[A-Za-z_][\w.]*/g;
+    : /#[^\n]*|r?(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\b(?:True|False|None|return|if|elif|else|and|or|not|for|true|false|null|in)\b|-?\b\d+(?:\.\d+)?\b|&&|\|\||==|!=|>=|<=|[><!+*/%-]|[()[\],.:]|\s+|[A-Za-z_][\w.]*|[^\s]/g;
   const tokens = source.match(pattern) ?? [source];
   let cursor = 0;
   return tokens.map((token) => {
@@ -36,17 +36,18 @@ function highlightedCode(source: string, language: CodeLanguage): ReactNode[] {
     const rest = source.slice(cursor);
     let kind = 'plain';
     if (/^\s+$/.test(token)) kind = 'space';
-    else if (/^"/.test(token)) kind = language === 'json' && /^\s*:/.test(rest) ? 'key' : 'string';
-    else if (/^(?:true|false|null|in)$/.test(token)) kind = 'keyword';
+    else if (/^#/.test(token)) kind = 'comment';
+    else if (/^r?["']/.test(token)) kind = language === 'json' && /^\s*:/.test(rest) ? 'key' : 'string';
+    else if (/^(?:True|False|None|return|if|elif|else|and|or|not|for|true|false|null|in)$/.test(token)) kind = 'keyword';
     else if (/^-?\d/.test(token)) kind = 'number';
     else if (/^(?:&&|\|\||==|!=|>=|<=|[><!+*/%\-]|[{}[\],:().])$/.test(token)) kind = 'operator';
-    else if (language === 'dsl' && /^[A-Za-z_]/.test(token)) kind = rest.trimStart().startsWith('(') ? 'function' : 'identifier';
+    else if (language !== 'json' && /^[A-Za-z_]/.test(token)) kind = rest.trimStart().startsWith('(') ? 'function' : 'identifier';
     return <span className={`syntax-${kind}`} key={`${cursor}-${token}`}>{token}</span>;
   });
 }
 
-export function CodeEditor({ value, onChange, language, rows = 8, ariaLabel, id }: {
-  value: string; onChange: (value: string) => void; language: CodeLanguage; rows?: number; ariaLabel?: string; id?: string;
+export function CodeEditor({ value, onChange, language, rows = 8, ariaLabel, id, readOnly = false }: {
+  value: string; onChange?: (value: string) => void; language: CodeLanguage; rows?: number; ariaLabel?: string; id?: string; readOnly?: boolean;
 }) {
   const backdrop = useRef<HTMLPreElement>(null);
   const feedbackTimer = useRef<number | undefined>(undefined);
@@ -63,13 +64,13 @@ export function CodeEditor({ value, onChange, language, rows = 8, ariaLabel, id 
     window.clearTimeout(feedbackTimer.current);
     feedbackTimer.current = window.setTimeout(() => setCopyState('idle'), 1_800);
   };
-  return <div className={`syntax-editor syntax-${language}`}>
+  return <div className={`syntax-editor syntax-${language}${readOnly ? ' syntax-readonly' : ''}`}>
     <div className="syntax-editor-toolbar">
       <Button className="syntax-editor-copy" size="compact" variant="ghost" aria-label={copyLabel} title={copyLabel} disabled={!value} onClick={() => void copy()}>{copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'}</Button>
     </div>
     <div className="syntax-editor-body">
-      <pre ref={backdrop} aria-hidden>{highlightedCode(value, language)}{value.endsWith('\n') ? ' ' : null}</pre>
-      <textarea id={id} aria-label={ariaLabel} spellCheck={false} rows={rows} value={value} onChange={(event) => onChange(event.target.value)} onScroll={(event) => { if (backdrop.current) { backdrop.current.scrollTop = event.currentTarget.scrollTop; backdrop.current.scrollLeft = event.currentTarget.scrollLeft; } }} />
+      <pre ref={backdrop} aria-hidden={!readOnly} aria-label={readOnly ? ariaLabel : undefined}>{highlightedCode(value, language)}{value.endsWith('\n') ? ' ' : null}</pre>
+      {!readOnly && <textarea id={id} aria-label={ariaLabel} spellCheck={false} autoCapitalize="off" autoCorrect="off" rows={rows} value={value} onChange={(event) => onChange?.(event.target.value)} onScroll={(event) => { if (backdrop.current) { backdrop.current.scrollTop = event.currentTarget.scrollTop; backdrop.current.scrollLeft = event.currentTarget.scrollLeft; } }} />}
     </div>
   </div>;
 }

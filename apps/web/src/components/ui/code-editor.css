@@ -1,0 +1,33 @@
+/* Shared code surfaces, including the dark-mode editing overlay. */
+:root .syntax-editor.syntax-editor {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+:root .syntax-editor.syntax-editor pre {
+  display: block;
+  background: transparent;
+  color: var(--color-text);
+}
+:root .syntax-editor.syntax-editor textarea {
+  background: transparent;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  caret-color: var(--color-text);
+}
+:root .syntax-editor.syntax-editor pre .syntax-key,
+:root .syntax-editor.syntax-editor pre .syntax-keyword { color: var(--color-code-keyword); }
+:root .syntax-editor.syntax-editor pre .syntax-string { color: var(--color-code-string); }
+:root .syntax-editor.syntax-editor pre .syntax-number { color: var(--color-code-number); }
+:root .syntax-editor.syntax-editor pre .syntax-function { color: var(--color-code-function); }
+:root .syntax-editor.syntax-editor pre .syntax-identifier,
+:root .syntax-editor.syntax-editor pre .syntax-operator,
+:root .syntax-editor.syntax-editor pre .syntax-plain,
+:root .syntax-editor.syntax-editor pre .syntax-space { color: var(--color-text); }
+:root .syntax-editor.syntax-editor pre .syntax-comment { color: var(--color-text-secondary); }
+:root .syntax-readonly.syntax-editor pre {
+  position: relative;
+  pointer-events: auto;
+  max-height: 24rem;
+}

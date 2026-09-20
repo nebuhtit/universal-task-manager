@@ -36,6 +36,10 @@
   --control-height-touch: 44px;
 
   /* Semantic colors */
+  --color-code-keyword: #7542a3;
+  --color-code-string: #246b40;
+  --color-code-number: #99591b;
+  --color-code-function: #2465a4;
   color: #0d0d0d;
   background: #ffffff;
   --color-background: #ffffff;
@@ -102,6 +106,10 @@
 }
 
 :root[data-theme='dark'] {
+  --color-code-keyword: #c6a5ed;
+  --color-code-string: #96d2a7;
+  --color-code-number: #edbd82;
+  --color-code-function: #9ec9f0;
   color-scheme: dark;
   color: #f1f1f1;
   background: #000000;

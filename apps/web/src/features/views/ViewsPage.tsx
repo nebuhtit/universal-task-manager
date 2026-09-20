@@ -3,11 +3,12 @@ import {
   validateFilterProgram, compileSort, createId, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort, validateScriptDefinitions, validateViewCreationDefaults,
   type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
 } from '@utm/core';
+import { CodeEditor } from '../../components/ui/CodeEditor';
 import { FilterProgramEditor } from './FilterProgramEditor';
 import { CloseIcon } from '../../components/ui/icons';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
-import { Button, Checkbox, Disclosure, Field, IconButton, Input, Select, Textarea } from '../../components/ui/primitives';
+import { Button, Checkbox, Disclosure, Field, IconButton, Input, Select } from '../../components/ui/primitives';
 import { SectionGuide } from '../../components/ui/SectionGuide';
 import { readUiBoolean } from '../../components/ui/PersistedDetails';
 import { useReorderList } from '../../components/ui/useReorderList';
@@ -213,7 +214,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const creationDefaultControl = (path: string, value: unknown): ReactNode => {
     const custom = path.startsWith('custom.') ? workspace.customFields[path.slice(7)] : undefined;
     const json = ['reminders', 'attachments', 'recurrence.rdates', 'recurrence.exdates'].includes(path);
-    if (json) return <Textarea className="mono creation-default-json" aria-label={`Default value for ${path}`} defaultValue={JSON.stringify(value, null, 2)} onBlur={(event) => { try { setCreationDefaultValue(path, JSON.parse(event.currentTarget.value)); setError(''); } catch { setError(`${viewFieldLabel(workspace, path)} must contain valid JSON.`); } }} />;
+    if (json) return <JsonDefaultEditor key={path} value={value} label={`Default value for ${path}`} onApply={(parsed) => { setCreationDefaultValue(path, parsed); setError(''); }} onInvalid={() => setError(`${viewFieldLabel(workspace, path)} must contain valid JSON.`)} />;
     if (path === 'state') return <Select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}>{Object.entries(stateNames).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</Select>;
     if (path === 'progress.mode') return <Select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="boolean">Boolean</option><option value="percent">Percent</option><option value="counter">Counter</option></Select>;
     if (path === 'habit.streakMode') return <Select value={String(value)} onChange={(event) => setCreationDefaultValue(path, event.target.value)}><option value="manual_only">Manual only</option><option value="any_closed">Any closed</option></Select>;
@@ -413,4 +414,13 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       {error && <p className="error">{error}</p>}
     </ResponsiveDialog>}
   </section>;
+}
+
+function JsonDefaultEditor({ value, label, onApply, onInvalid }: { value: unknown; label: string; onApply: (value: unknown) => void; onInvalid: () => void }) {
+  const [source, setSource] = useState(() => JSON.stringify(value, null, 2));
+  useEffect(() => setSource(JSON.stringify(value, null, 2)), [value]);
+  return <div onBlur={(event) => {
+    if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget)) return;
+    try { onApply(JSON.parse(source)); } catch { onInvalid(); }
+  }}><CodeEditor language="json" ariaLabel={label} value={source} onChange={setSource} rows={4} /></div>;
 }

@@ -59,6 +59,29 @@ describe('Python-like filter programs', () => {
   it('handles comments and quoted hashes without changing data', () => {
     expect(run('# example\nreturn "#work" == "#work" # trailing')).toBe(true);
   });
+  it('accepts readable expressions split across parenthesized lines', () => {
+    const source = `return (
+    state == "open"
+    and role == "standalone"
+    and isSavedTemplate != True
+    and external.transparency ==
+        None
+    and (
+        length(areas) == 0
+        and length(projects) ==
+            0
+    )
+)`;
+    expect(run(source)).toBe(true);
+  });
+  it('accepts a parenthesized condition before an indented branch', () => {
+    expect(run(`if (
+    state == "open"
+    and role == "standalone"
+):
+    return True
+return False`)).toBe(true);
+  });
   it.each([
     'if state == "done":\n    return True\nelif state == "open":\n    return has(schedule.dueAt)\nelse:\n    return False',
     'return any(regexMatch(entry, "^work", True) for entry in tags)',

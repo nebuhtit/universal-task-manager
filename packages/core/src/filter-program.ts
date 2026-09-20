@@ -92,7 +92,7 @@ export function pythonExpression(source: string): Expression {
 /** A bounded, expression-only language. No Python runtime, imports or mutation. */
 export function pythonToFilter(source: string): string {
   if (source.length > 32768) throw new Error('Filter code exceeds 32768 characters');
-  const lines = source.split('\n').map((text, index) => {
+  const physicalLines = source.split('\n').map((text, index) => {
     // Comments are ignored only outside quoted strings.
     let quote = ''; let escaped = false; let end = text.length;
     for (let i = 0; i < text.length; i++) {
@@ -105,7 +105,42 @@ export function pythonToFilter(source: string): string {
     }
     if (/^\s*\t/.test(text)) throw new Error(`Line ${index + 1}: use spaces, not tabs`);
     return { text: text.slice(0, end).trim(), indent: text.length - text.trimStart().length, number: index + 1 };
-  }).filter((line) => line.text);
+  });
+  // Python permits an expression to continue over physical lines while it is
+  // enclosed in parentheses. Keep the editor's readable formatting without
+  // making the expression parser depend on line breaks or indentation inside
+  // that expression.
+  const parenthesisDelta = (text: string) => {
+    let quote = ''; let escaped = false; let delta = 0;
+    for (const character of text) {
+      if (escaped) { escaped = false; continue; }
+      if (character === '\\' && quote) { escaped = true; continue; }
+      if (quote) { if (character === quote) quote = ''; }
+      else if (character === '"' || character === "'") quote = character;
+      else if (character === '(') delta++;
+      else if (character === ')') delta--;
+    }
+    return delta;
+  };
+  const lines: { text: string; indent: number; number: number }[] = [];
+  let continuation: { text: string; indent: number; number: number } | undefined;
+  let parenthesisDepth = 0;
+  for (const line of physicalLines) {
+    if (!line.text) continue;
+    if (!continuation) {
+      continuation = { ...line };
+      parenthesisDepth = parenthesisDelta(line.text);
+    } else {
+      continuation.text += ` ${line.text}`;
+      parenthesisDepth += parenthesisDelta(line.text);
+    }
+    if (parenthesisDepth < 0) throw new Error(`Line ${line.number}: unexpected closing parenthesis`);
+    if (parenthesisDepth === 0) {
+      lines.push(continuation);
+      continuation = undefined;
+    }
+  }
+  if (continuation) throw new Error(`Line ${continuation.number}: unclosed parenthesis`);
   let cursor = 0;
   type Statement = { result: Expression } | { condition: Expression; yes: Statement[]; no: Statement[] };
   const block = (indent: number, depth: number): Statement[] => {
