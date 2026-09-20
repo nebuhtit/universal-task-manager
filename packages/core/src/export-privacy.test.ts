@@ -14,6 +14,7 @@ describe('Google Calendar export privacy', () => {
       start: { dateTime: '2026-08-31T10:00:00.000Z' }, end: { dateTime: '2026-08-31T11:00:00.000Z' },
     }, 'private-account@example.com', 'private-connection', '2026-08-31T09:00:00.000Z')!;
     const normal = createItem('Ordinary task');
+    normal.extensions = { 'utm:googleCreate': { accountEmail: 'private-account@example.com', calendarId: 'private-calendar', eventId: 'private-event-id', draft: { description: 'google_calendar' } } };
     normal.relations = [{ id: 'relation', type: 'related', targetId: google.id }];
     normal.custom = { linked: google.id };
     workspace.items[google.id] = google;
@@ -32,6 +33,7 @@ describe('Google Calendar export privacy', () => {
     expect(safe.items[google.id]).toBeUndefined();
     expect(safe.items[normal.id]?.relations).toEqual([]);
     expect(safe.items[normal.id]?.custom).toEqual({});
+    expect(safe.items[normal.id]?.extensions).not.toHaveProperty('utm:googleCreate');
     expect(safe.calendarPreferences.googleCalendar).toBeUndefined();
     expect(view.id && safe.views[view.id]?.statistics?.reservedItemIds).toEqual([]);
     expect(safe.views[view.id]?.extensions?.['utm:manualOrder']).toEqual([normal.id]);

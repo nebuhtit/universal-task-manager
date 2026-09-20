@@ -32,6 +32,7 @@ import { clockService } from './services/clockService';
 import { isNativeICloudBackupAvailable, requestNativeICloudImport, writeNativeICloudBackup } from './services/nativeICloudBackup';
 import { isNativeReminderAvailable, requestNativeReminderPermission, syncNativeReminders } from './services/nativeReminders';
 import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from './services/googleCalendar';
+import { GOOGLE_CREATE_EXTENSION } from './services/googleCalendarCreate';
 import {
   APP_VERSION, SCHEMA_VERSION, applyGoogleCalendarSync, applyPortableImport, buildPortableImportPreview,
   collectItemDependencies, createId, createItem, createPortablePackage,
@@ -820,8 +821,8 @@ export default function App() {
     const itemId = new URLSearchParams(window.location.search).get('item');
     if (!itemId || !workspace?.items[itemId]) return;
     const item = workspace.items[itemId]!;
-    if (item.external?.readOnly) window.open(item.external.sourceUrl, '_blank', 'noopener,noreferrer');
-    else setEditor(itemEditorSource(workspace, item));
+    setEditorIsNew(false);
+    setEditor(itemEditorSource(workspace, item));
     window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
   }, [workspace]);
   useEffect(() => {
@@ -861,7 +862,7 @@ export default function App() {
   };
 
   const applyItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)', completionAt?: string) => {
-    if (item.external?.readOnly) { window.open(item.external.sourceUrl, '_blank', 'noopener,noreferrer'); return; }
+    if (item.external?.readOnly) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); return; }
     const occurredAt = currentWorkspaceNow().toISOString();
     const completedAt = completionAt ?? occurredAt;
     const completionExpiresAt = Date.now() + UNDO_WINDOW_MS;
@@ -968,8 +969,7 @@ export default function App() {
   };
   const openNoticeItem = (notice: Notice) => {
     const item = notice.itemId ? workspace?.items[notice.itemId] : Object.values(workspace?.items ?? {}).find((candidate) => candidate.title === notice.title);
-    if (item?.external?.readOnly) window.open(item.external.sourceUrl, '_blank', 'noopener,noreferrer');
-    else if (item) setEditor(itemEditorSource(workspace, item));
+    if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
   };
 
   if (recovery) return <RecoveryShell session={recovery.session} reason={recovery.reason} onRetry={() => { setRecovery(null); setPendingUpgrade(null); }} />;
@@ -979,8 +979,8 @@ export default function App() {
   if (!workspace || !session) return null;
   const allItemsView = allItemsViewFor(workspace);
   const openWorkspaceItem = (item: UniversalItem) => {
-    if (item.external?.readOnly) window.open(item.external.sourceUrl, '_blank', 'noopener,noreferrer');
-    else setEditor(itemEditorSource(workspace, item));
+    setEditorIsNew(false);
+    setEditor(itemEditorSource(workspace, item));
   };
 
   const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
@@ -1057,7 +1057,32 @@ export default function App() {
         if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
       }}
     />}
-    <Suspense fallback={null}>{editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew} onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportAfterFlush(() => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata))} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onUpdateRecurrenceCompletion={(record: RecurrenceCompletionRecord, completedAt) => {
+    <Suspense fallback={null}>{editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew}
+      onPrepareGoogleCreate={async (operation) => {
+        const saved = commit('Prepare Google Calendar creation', (draft) => {
+          const target = draft.items[editor.id];
+          if (!target || target.deletedAt) throw new Error('Save the item before creating a Google event.');
+          const previous = target.extensions?.[GOOGLE_CREATE_EXTENSION];
+          const stable = (value: unknown): string => JSON.stringify(value, (_key, entry: unknown) => entry && typeof entry === 'object' && !Array.isArray(entry) ? Object.fromEntries(Object.entries(entry).sort(([left], [right]) => left.localeCompare(right))) : entry);
+          if (previous && stable(previous) !== stable(operation)) throw new Error('A Google creation operation already exists for this item.');
+          target.extensions = { ...target.extensions, [GOOGLE_CREATE_EXTENSION]: clean(operation) };
+        });
+        if (!saved) throw new Error('Could not save the Google creation operation.');
+        await flushPersistence();
+      }}
+      onGoogleCreated={async (operation, event) => {
+        const saved = commit('Import created Google event', (draft) => {
+          const google = draft.calendarPreferences.googleCalendar;
+          if (!google || google.accountEmail !== operation.accountEmail) throw new Error('Google connection changed. Reconnect the original account and retry.');
+          applyGoogleCalendarSync(draft, { connectionId: google.connectionId, calendarId: operation.calendarId, events: [event], syncedAt: new Date().toISOString(), fullSync: false });
+          const calendar = google.calendars.find((entry) => entry.id === operation.calendarId);
+          if (calendar) calendar.selected = true;
+          else google.calendars.push({ id: operation.calendarId, name: operation.calendarId, selected: true });
+        });
+        if (!saved) throw new Error('Google event created; retry to restore its local copy.');
+        await flushPersistence();
+      }}
+      onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportAfterFlush(() => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata))} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onUpdateRecurrenceCompletion={(record: RecurrenceCompletionRecord, completedAt) => {
       const actionNow = currentWorkspaceNow();
       let result = { changed: false, rescheduled: false };
       let series: UniversalItem | undefined;

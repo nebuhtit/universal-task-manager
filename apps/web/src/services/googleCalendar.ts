@@ -10,9 +10,9 @@ const SUSPICIOUS_RECURRING_DURATION_MS = 86_400_000;
 export const GOOGLE_CALENDAR_SYNC_CONCURRENCY = 3;
 export const GOOGLE_CALENDAR_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ?? '';
 
-interface GoogleTokenResponse { access_token?: string; expires_in?: number; error?: string; error_description?: string }
+interface GoogleTokenResponse { access_token?: string; expires_in?: number; scope?: string; error?: string; error_description?: string }
 interface GoogleTokenClient { requestAccessToken: (options?: { prompt?: string }) => void }
-interface GoogleCalendarListEntry { id?: string; summary?: string; primary?: boolean; selected?: boolean; accessRole?: string }
+export interface GoogleCalendarListEntry { id?: string; summary?: string; primary?: boolean; selected?: boolean; accessRole?: string }
 interface GoogleCalendarListResponse { items?: GoogleCalendarListEntry[]; nextPageToken?: string }
 interface GoogleEventsResponse { items?: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string }
 
@@ -24,7 +24,9 @@ declare global {
 
 let scriptPromise: Promise<void> | null = null;
 let cachedGoogleCalendarToken: { accessToken: string; expiresAt: number } | null = null;
-export function forgetGoogleCalendarAuthorization(): void { cachedGoogleCalendarToken = null; }
+const GOOGLE_WRITE_SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'];
+let cachedScopes = new Set<string>();
+export function forgetGoogleCalendarAuthorization(): void { cachedGoogleCalendarToken = null; cachedScopes.clear(); }
 function loadGoogleIdentityServices(): Promise<void> {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
@@ -46,9 +48,10 @@ function loadGoogleIdentityServices(): Promise<void> {
   return loading;
 }
 
-export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIENT_ID): Promise<{ accessToken: string; expiresAt: number }> {
+export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIENT_ID, access: 'read' | 'create' = 'read'): Promise<{ accessToken: string; expiresAt: number }> {
   if (!clientId) throw new Error('Google Calendar is not configured for this build. Add VITE_GOOGLE_CLIENT_ID.');
-  if (cachedGoogleCalendarToken && cachedGoogleCalendarToken.expiresAt > Date.now() + 60_000) return cachedGoogleCalendarToken;
+  const scopes = access === 'create' ? GOOGLE_WRITE_SCOPES : [GOOGLE_SCOPE];
+  if (cachedGoogleCalendarToken && cachedGoogleCalendarToken.expiresAt > Date.now() + 60_000 && scopes.every((scope) => cachedScopes.has(scope))) return cachedGoogleCalendarToken;
   await loadGoogleIdentityServices();
   return new Promise((resolve, reject) => {
     const oauth2 = window.google?.accounts?.oauth2;
@@ -56,10 +59,13 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
     const timeout = globalThis.setTimeout(() => reject(new Error('Google authorization timed out. Return to the app and try Connect again.')), GOOGLE_AUTH_TIMEOUT_MS);
     const finish = <T,>(callback: () => T): T => { globalThis.clearTimeout(timeout); return callback(); };
     const client = oauth2.initTokenClient({
-      client_id: clientId, scope: GOOGLE_SCOPE,
+      client_id: clientId, scope: scopes.join(' '),
       callback: (response) => {
         if (!response.access_token) { finish(() => reject(new Error(response.error_description || response.error || 'Google sign-in was cancelled.'))); return; }
+        const granted = new Set((response.scope ?? '').split(/\s+/));
+        if (access === 'create' && !scopes.every((scope) => granted.has(scope))) { finish(() => reject(new Error('Google event creation permission was not granted.'))); return; }
         finish(() => {
+          cachedScopes = granted;
           cachedGoogleCalendarToken = { accessToken: response.access_token!, expiresAt: Date.now() + Math.max(60, response.expires_in ?? 3_600) * 1_000 };
           resolve(cachedGoogleCalendarToken);
         });
@@ -72,17 +78,18 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
   });
 }
 
-async function googleJson<T>(url: string, accessToken: string): Promise<T> {
+export async function googleJson<T>(url: string, accessToken: string, body?: unknown): Promise<T> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), GOOGLE_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
+    response = await fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, signal: controller.signal, ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}) });
   } catch (reason) {
     if (controller.signal.aborted) throw new Error('Google Calendar request timed out. Check the connection and try again.');
     throw reason;
   } finally { globalThis.clearTimeout(timeout); }
   if (!response.ok) {
+    if (response.status === 401) forgetGoogleCalendarAuthorization();
     const body = await response.text().catch(() => '');
     const error = new Error(response.status === 401 ? 'Google access expired. Connect again.' : `Google Calendar request failed (${response.status}).`);
     Object.assign(error, { status: response.status, details: body.slice(0, 500) });
@@ -91,7 +98,7 @@ async function googleJson<T>(url: string, accessToken: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function listCalendars(accessToken: string): Promise<GoogleCalendarListEntry[]> {
+export async function listCalendars(accessToken: string): Promise<GoogleCalendarListEntry[]> {
   const result: GoogleCalendarListEntry[] = [];
   let pageToken = '';
   do {

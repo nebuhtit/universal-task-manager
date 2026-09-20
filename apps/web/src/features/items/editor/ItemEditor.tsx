@@ -26,6 +26,8 @@ import { RecurrenceHistorySection } from './sections/RecurrenceHistorySection';
 import { ScriptsSection } from './sections/ScriptsSection';
 import { TimerHistorySection } from './sections/TimerHistorySection';
 import './item-editor-heading.css';
+import { CreateGoogleEventDialog, type GoogleCreationCallbacks } from '../../calendar/CreateGoogleEventDialog';
+import { GOOGLE_CREATE_EXTENSION } from '../../../services/googleCalendarCreate';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -57,12 +59,13 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onUpdateRecurrenceCompletion, onReadPortableFile, onExportItem, onClose }: {
+export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onUpdateRecurrenceCompletion, onReadPortableFile, onExportItem, onClose, onPrepareGoogleCreate, onGoogleCreated }: Partial<GoogleCreationCallbacks> & {
   initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string }) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
   const [item, setItem] = useState(() => clean(initial));
+  const [creatingGoogle, setCreatingGoogle] = useState(false);
   const titleFieldId = useId();
   const [tags, setTags] = useState(item.tags.join(', '));
   const [areaDraft, setAreaDraft] = useState('');
@@ -292,7 +295,21 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     patchItem({ habit: { ...rest, timerSessions: [...(habit.timerSessions ?? []), { id: createId(), startedAt, endedAt, durationSeconds }] } });
   };
 
-  return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{googleEvent ? 'Google Calendar event' : workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{!googleEvent && workspace.items[item.id] && <Button variant="secondary" onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" onClick={onClose}>{googleEvent ? 'Close' : 'Cancel'}</button>{!googleEvent && <button className="primary" onClick={() => save()}>Save item</button>}</div>}>
+  if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<Button onClick={onClose}>Close</Button>}>
+    <h2>{item.title}</h2><p style={{ whiteSpace: 'pre-wrap' }}>{item.bodyMarkdown}</p>
+    <dl className="google-create-preview">
+      <dt>Location</dt><dd>{item.location || '—'}</dd>
+      <dt>Calendar</dt><dd>{workspace.calendarPreferences.googleCalendar?.calendars.find((calendar) => calendar.id === googleEvent.calendarId)?.name || googleEvent.calendarId}</dd>
+      <dt>Event opens</dt><dd>{item.schedule?.startAt ? formatViewDate(item.schedule.startAt, !item.schedule.allDay, workspace.calendarPreferences.language) : '—'}</dd>
+      <dt>{item.schedule?.allDay ? 'First day after the event' : 'Event ends'}</dt><dd>{item.schedule?.endAt ? formatViewDate(item.schedule.endAt, !item.schedule.allDay, workspace.calendarPreferences.language) : '—'}</dd>
+      <dt>Timezone</dt><dd>{Intl.DateTimeFormat().resolvedOptions().timeZone}</dd>
+      <dt>All day</dt><dd>{item.schedule?.allDay ? 'Yes' : 'No'}</dd>
+      <dt>Availability</dt><dd>{googleEvent.transparency === 'transparent' ? 'Free' : 'Busy'}</dd>
+      <dt>Time statistics</dt><dd>{item.schedule?.allDay ? 'Excluded — all-day event' : googleEvent.transparency === 'transparent' ? 'Excluded — marked free' : 'Included — reserves its Event opens → Event ends interval'}</dd>
+    </dl><a className="secondary button-link" href={googleEvent.sourceUrl} target="_blank" rel="noreferrer">Open in Google Calendar</a>
+  </ResponsiveDialog>;
+
+  return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
     <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
       if (event.target === titleInputRef.current) quickTitleWasFocused.current = true;
       else if (quickTitleWasFocused.current) quickTitleSaveAllowed.current = false;
@@ -308,8 +325,10 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           <input id={titleFieldId} ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly={Boolean(googleEvent)} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" />
           {!googleEvent && item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
+        {!googleEvent && workspace.calendarPreferences.googleCalendar && <Button disabled={isNew || !onPrepareGoogleCreate || !onGoogleCreated} onClick={() => setCreatingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Создать копию в Google Календаре' : 'Create Google Calendar copy'}</Button>}
+        {!googleEvent && isNew && workspace.calendarPreferences.googleCalendar && <p>{workspace.calendarPreferences.language === 'ru' ? 'Сначала сохраните элемент UTM.' : 'Save the UTM item first.'}</p>}
+        {creatingGoogle && onPrepareGoogleCreate && onGoogleCreated && <CreateGoogleEventDialog item={item} workspace={workspace} onClose={() => setCreatingGoogle(false)} onPrepareGoogleCreate={async (operation) => { await onPrepareGoogleCreate(operation); setItem((current) => ({ ...current, extensions: { ...current.extensions, [GOOGLE_CREATE_EXTENSION]: JSON.parse(JSON.stringify(operation)) } })); }} onGoogleCreated={onGoogleCreated} />}
         <QuickItemTimer soundEnabled onRecord={(record) => patchItem({ timerHistory: [...(item.timerHistory ?? []), record] })} />
-        {googleEvent && <section className="external-event-summary" aria-label="Google Calendar properties"><p>This event is read-only in Universal.</p><dl><div><dt>Event opens</dt><dd>{item.schedule?.startAt ? formatViewDate(item.schedule.startAt, !item.schedule.allDay, workspace.calendarPreferences.language) : '—'}</dd></div><div><dt>Event ends</dt><dd>{item.schedule?.endAt ? formatViewDate(item.schedule.endAt, !item.schedule.allDay, workspace.calendarPreferences.language) : '—'}</dd></div><div><dt>Availability</dt><dd>{googleEvent.transparency === 'transparent' ? 'Free' : 'Busy'}</dd></div><div><dt>Time statistics</dt><dd>{item.schedule?.allDay ? 'Excluded — all-day event' : googleEvent.transparency === 'transparent' ? 'Excluded — marked free' : 'Included — reserves its Event opens → Event ends interval'}</dd></div></dl><a className="secondary button-link" href={googleEvent.sourceUrl} target="_blank" rel="noreferrer">Open in Google Calendar</a></section>}
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
         <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />

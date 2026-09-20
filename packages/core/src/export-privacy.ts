@@ -48,6 +48,9 @@ export function workspaceForExport(workspace: WorkspaceDocument): WorkspaceDocum
   safe.views = safe.views && typeof safe.views === 'object' && !Array.isArray(safe.views) ? safe.views : {};
   safe.tombstones = safe.tombstones && typeof safe.tombstones === 'object' && !Array.isArray(safe.tombstones) ? safe.tombstones : {};
   safe.automations = safe.automations && typeof safe.automations === 'object' && !Array.isArray(safe.automations) ? safe.automations : {};
+  // Strip creation metadata before classifying mirrored events: the draft is
+  // local user text and must never turn its source item into an external item.
+  for (const item of Object.values(safe.items)) if (item.extensions) delete item.extensions['utm:googleCreate'];
   const removedIds = new Set(Object.entries(safe.items)
     .filter(([id, item]) => id.startsWith('google:') || isGoogleCalendarItem(item) || JSON.stringify(item.extensions ?? {}).includes('google_calendar'))
     .map(([id]) => id));
