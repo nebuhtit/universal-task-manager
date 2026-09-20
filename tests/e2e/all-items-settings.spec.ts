@@ -15,6 +15,10 @@ async function createWorkspace(page: import('@playwright/test').Page) {
 
 test('All Items settings uses accessible dialog behavior and preserves fields', async ({ page }) => {
   await createWorkspace(page);
+  const sourceSections = page.locator('.all-items-source-section');
+  await expect(sourceSections).toHaveCount(2);
+  await expect(sourceSections.nth(0).locator(':scope > summary')).toContainText('Google Calendar items');
+  await expect(sourceSections.nth(1).locator(':scope > summary')).toContainText('UTM items');
   const trigger = page.getByRole('button', { name: 'Customize' });
   await trigger.click();
   const dialog = page.getByRole('dialog', { name: 'Customize all items' });

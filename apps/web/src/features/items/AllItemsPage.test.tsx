@@ -26,4 +26,20 @@ describe('AllItemsPage metrics', () => {
     expect(markup).toContain('>25мин</span>');
     expect(markup).not.toContain('50%');
   });
+  it('separates Google Calendar and UTM items while retaining status sections', () => {
+    const workspace = createWorkspace('Sources');
+    const local = createItem('Local task');
+    const google = createItem('Calendar meeting', 'event');
+    google.external = { provider: 'google_calendar', connectionId: 'connection', calendarId: 'primary', eventId: 'event', sourceUrl: 'https://calendar.google.com/', readOnly: true, syncedAt: '2026-09-08T08:00:00.000Z' };
+    workspace.items = { [local.id]: local, [google.id]: google };
+    const markup = renderToStaticMarkup(<AllItemsPage workspace={workspace} view={allItemsViewFor(workspace)} onEdit={vi.fn()} onState={vi.fn()} onSaveView={vi.fn()} onRestore={vi.fn()} onClearTrash={vi.fn()} onDelete={vi.fn()} />);
+    const googleStart = markup.indexOf('Google Calendar items');
+    const utmStart = markup.indexOf('UTM items');
+    expect(googleStart).toBeGreaterThan(-1);
+    expect(utmStart).toBeGreaterThan(googleStart);
+    expect(markup.indexOf('Calendar meeting')).toBeGreaterThan(googleStart);
+    expect(markup.indexOf('Calendar meeting')).toBeLessThan(utmStart);
+    expect(markup.indexOf('Local task')).toBeGreaterThan(utmStart);
+    expect(markup.match(/all-items-source-section/g)).toHaveLength(2);
+  });
 });

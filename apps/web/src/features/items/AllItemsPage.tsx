@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ACTIVE_ITEM_VIEW_QUERY, calculateItemSetMetrics, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { Button, Checkbox, Disclosure, Surface } from '../../components/ui/primitives';
@@ -82,6 +82,28 @@ function AllItemsCollections({ items, fields, workspace, now, onEdit, onState }:
   </PersistedDetails>;
 }
 
+const allItemStates = ['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const;
+
+function ItemSourceSection({ name, uiKey, items, count = items.length, fields, workspace, now, onEdit, onState, children }: {
+  name: string; uiKey: string; items: UniversalItem[]; count?: number; fields: string[]; workspace: WorkspaceDocument; now: Date;
+  onEdit: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state']) => void; children?: ReactNode;
+}) {
+  return <PersistedDetails uiKey={uiKey} defaultOpen className="all-items-source-section">
+    <summary><span>{name}</span><b>{count}</b></summary>
+    <div className="all-items-source-content">
+      {allItemStates.map((state) => {
+        const stateItems = items.filter((item) => item.state === state);
+        const stateUiKey = `${uiKey}:${state}`;
+        return <details key={state} open={readUiBoolean(stateUiKey, state === 'open' || state === 'auto_closed')} onToggle={(event) => persistUiBoolean(stateUiKey, event.currentTarget.open)}>
+          <summary><span>{stateNames[state]}</span><b>{stateItems.length}</b></summary>
+          <div className={longListClass('item-list', stateItems.length)}>{stateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</div>
+        </details>;
+      })}
+      {children}
+    </div>
+  </PersistedDetails>;
+}
+
 export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onRestore, onClearTrash, onDelete }: {
   workspace: WorkspaceDocument;
   view: SavedView;
@@ -100,13 +122,19 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
   const deletedItems = workspaceIndex.items.filter((item) => Boolean(item.deletedAt));
   const fields = view.fields ?? ['title', 'state'];
   const visibleItems = workspaceIndex.visibleItems.filter((item) => !isItemTemplate(item) && !isHabitOccurrence(workspace, item));
+  const statusItems = workspaceIndex.visibleItems.filter((item) => !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item));
+  const googleCalendarItems = statusItems.filter((item) => item.external?.provider === 'google_calendar');
+  const utmItems = statusItems.filter((item) => item.external?.provider !== 'google_calendar');
+  const utmItemCount = new Set([...utmItems, ...templateItems, ...recurringItems].map((item) => item.id)).size;
   const metrics = calculateItemSetMetrics(visibleItems);
   return <section className="page-section">
     <header className="all-items-toolbar"><div><p className="eyebrow">EVERYTHING</p><h1>All items</h1><ViewMetricsSummary metrics={metrics} language={workspace.calendarPreferences.language} /></div><Button onClick={() => setSettingsOpen(true)}>Customize</Button></header>
     <div className="all-sections">
-      {(['open', 'done', 'auto_closed', 'cancelled', 'archived'] as const).map((state) => { const items = workspaceIndex.visibleItems.filter((item) => item.state === state && !isItemTemplate(item) && (item.role !== 'series_template' || Boolean(item.habit)) && !isHabitOccurrence(workspace, item)); const uiKey = `all:${state}`; return <details key={state} open={readUiBoolean(uiKey, state === 'open' || state === 'auto_closed')} onToggle={(event) => persistUiBoolean(uiKey, event.currentTarget.open)}><summary><span>{stateNames[state]}</span><b>{items.length}</b></summary><div className={longListClass('item-list', items.length)}>{items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</div></details>; })}
-      <details open={readUiBoolean('all:templates', templateItems.length > 0)} onToggle={(event) => persistUiBoolean('all:templates', event.currentTarget.open)} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className={longListClass('item-list', templateItems.length)}>{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></details>
-      <details open={readUiBoolean('all:recurring', recurringItems.length > 0)} onToggle={(event) => persistUiBoolean('all:recurring', event.currentTarget.open)} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.</p><div className={longListClass('item-list', recurringItems.length)}>{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details>
+      <ItemSourceSection name="Google Calendar items" uiKey="all:source:google-calendar" items={googleCalendarItems} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState} />
+      <ItemSourceSection name="UTM items" uiKey="all:source:utm" items={utmItems} count={utmItemCount} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState}>
+        <details open={readUiBoolean('all:templates', templateItems.length > 0)} onToggle={(event) => persistUiBoolean('all:templates', event.currentTarget.open)} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className={longListClass('item-list', templateItems.length)}>{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></details>
+        <details open={readUiBoolean('all:recurring', recurringItems.length > 0)} onToggle={(event) => persistUiBoolean('all:recurring', event.currentTarget.open)} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.</p><div className={longListClass('item-list', recurringItems.length)}>{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></details>
+      </ItemSourceSection>
     </div>
     <AllItemsCollections items={visibleItems} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState} />
     <DeletedItemsList items={deletedItems} onRestore={onRestore} onClear={onClearTrash} onDelete={onDelete} />
