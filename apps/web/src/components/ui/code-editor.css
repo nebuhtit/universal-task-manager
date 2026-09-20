@@ -1,4 +1,19 @@
 /* Shared code surfaces, including the dark-mode editing overlay. */
+:root .syntax-editor.syntax-editor pre,
+:root .syntax-editor.syntax-editor textarea {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-body) !important;
+  font-weight: var(--font-weight-regular);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  padding: var(--space-3);
+}
+@media (max-width: 620px) {
+  :root .syntax-editor.syntax-editor pre,
+  :root .syntax-editor.syntax-editor textarea { font-size: max(16px, var(--font-size-body)) !important; }
+}
 :root .syntax-editor.syntax-editor {
   background: var(--color-surface-muted);
   color: var(--color-text);

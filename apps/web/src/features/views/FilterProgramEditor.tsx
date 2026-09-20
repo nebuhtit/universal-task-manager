@@ -89,7 +89,7 @@ function FilterBlock({ node, onChange, workspace, projectScope = false, depth = 
   </div>;
 }
 
-export function FilterProgramEditor({ source, python, workspace, onChange, onValidityChange, projectScope = false }: { source: string; python?: string | undefined; workspace: WorkspaceDocument; onChange: (source: string, python: string) => void; onValidityChange: (valid: boolean) => void; projectScope?: boolean }) {
+export function FilterProgramEditor({ source, python, workspace, onChange, onValidityChange, onApply, projectScope = false }: { source: string; python?: string | undefined; workspace: WorkspaceDocument; onChange: (source: string, python: string) => void; onValidityChange: (valid: boolean) => void; onApply?: ((source: string, python: string) => void) | undefined; projectScope?: boolean }) {
   const ru = workspace.calendarPreferences.language === 'ru';
   const t = (en: string, russian: string) => ru ? russian : en;
   const [mode, setMode] = useState<'blocks' | 'python' | 'dsl'>('blocks');
@@ -115,6 +115,7 @@ export function FilterProgramEditor({ source, python, workspace, onChange, onVal
     } catch (reason) { setError((reason as Error).message); onValidityChange(false); }
   };
   const editCode = (value: string, language: 'python' | 'dsl') => {
+    setNotice('');
     if (language === 'python') setCode(value); else setDsl(value);
     try { publish(parseExpression(language === 'python' ? pythonToFilter(value) : value || 'true'), language === 'python' ? value : undefined); if (language === 'dsl') setDsl(value); }
     catch (reason) { setError((reason as Error).message); onValidityChange(false); }
@@ -123,6 +124,16 @@ export function FilterProgramEditor({ source, python, workspace, onChange, onVal
     <div className="filter-block-actions">{(['blocks', 'python', 'dsl'] as const).map((value) => <Button key={value} size="compact" aria-pressed={mode === value} disabled={Boolean(error) && mode !== value} onClick={() => setMode(value)}>{value === 'blocks' ? t('Blocks', 'Блоки') : value === 'python' ? t('Code (Python-like)', 'Код (как Python)') : 'Legacy DSL'}</Button>)}</div>
     <p className="field-hint">{t('Keep Schedule in period in a common AND group. Put state alternatives inside OR or IF. Only the first matching IF / ELIF branch is used. Completed items use their Schedule dates.', 'Оставьте Schedule in period в общей группе AND. Варианты статуса поместите внутрь OR или IF. Срабатывает только первая подходящая ветка IF / ELIF. Для завершённых используются даты Schedule.')}</p>
     {mode === 'blocks' ? <FilterBlock workspace={workspace} projectScope={projectScope} node={node} onChange={(next) => { if (code.includes('#')) setNotice(t('Code regenerated from blocks; comments were removed.', 'Код пересоздан из блоков; комментарии удалены.')); publish(next); }} /> : <div><p>{mode === 'python' ? t('Filter code', 'Код фильтра') : 'Legacy DSL'}</p><CodeEditor language={mode} ariaLabel={mode === 'python' ? t('Filter code', 'Код фильтра') : 'Legacy DSL'} rows={12} value={mode === 'python' ? code : dsl} onChange={(value) => editCode(value, mode)} /></div>}
+    {mode !== 'blocks' && <Button size="compact" disabled={Boolean(error)} onClick={() => {
+      try {
+        const parsed = parseExpression(mode === 'python' ? pythonToFilter(code) : dsl || 'true');
+        validateFilterProgram(parsed);
+        const nextSource = expressionToDsl(parsed);
+        const nextPython = mode === 'python' ? code : filterToPython(nextSource);
+        onApply?.(nextSource, nextPython);
+        setNotice(onApply ? t('Filter applied.', 'Фильтр применён.') : t('Filter applied to draft. Save view to create it.', 'Фильтр применён к черновику. Сохраните вид, чтобы создать его.'));
+      } catch (reason) { setError((reason as Error).message); }
+    }}>{t('Apply', 'Применить')}</Button>}
     {error && <p role="alert" className="error">{error}</p>}{notice && <p role="status">{notice}</p>}
     <details><summary>{t('Examples and limits', 'Примеры и ограничения')}</summary><p>{t('A safe subset, not a Python interpreter. No imports, assignments or unbounded loops. RE2 regex does not support lookaround or backreferences.', 'Безопасное подмножество, не интерпретатор Python. Без импортов, присваиваний и неограниченных циклов. RE2 не поддерживает обратные ссылки и lookaround.')}</p><CodeEditor readOnly language="python" ariaLabel="Filter example" value={'if not scheduleInPeriod("today", "event_open,event,active,due", True, 7, "", ""):\n    return False\nif state == "done":\n    return True\nelif state == "open":\n    return activeRangeWhenSetOrOverdue\nelse:\n    return False\n\n# Collection example:\n# return any(regexMatch(entry, "^work", True) for entry in tags)'} /></details>
   </div>;
