@@ -17,6 +17,9 @@ export interface GoogleCalendarEvent {
   created?: string;
   updated?: string;
   transparency?: 'opaque' | 'transparent';
+  recurringEventId?: string;
+  /** Duration of the recurring series source, populated by the browser sync. */
+  seriesDurationMilliseconds?: number;
   start?: GoogleCalendarEventDate;
   end?: GoogleCalendarEventDate;
   attachments?: Array<{ fileId?: string; fileUrl?: string; title?: string; mimeType?: string }>;
@@ -74,7 +77,17 @@ export function googleCalendarEventToItem(event: GoogleCalendarEvent, calendarId
   const endAt = allDay ? dateOnlyInstant(event.end?.date, timezone) : event.end?.dateTime;
   if (!startAt || !Number.isFinite(Date.parse(startAt))) return null;
   const start = Date.parse(startAt);
-  const end = endAt && Number.isFinite(Date.parse(endAt)) && Date.parse(endAt) > start ? Date.parse(endAt) : start;
+  const receivedEnd = endAt && Number.isFinite(Date.parse(endAt)) && Date.parse(endAt) > start ? Date.parse(endAt) : start;
+  const receivedDuration = receivedEnd - start;
+  const seriesDuration = event.seriesDurationMilliseconds;
+  // Some recurring Google instances have been observed with the next
+  // occurrence boundary in `end`. Only repair clearly suspicious timed spans;
+  // shorter edited instances keep their own Google-provided end time.
+  const repairedDuration = !allDay && event.recurringEventId && receivedDuration >= 86_400_000
+    && Number.isFinite(seriesDuration) && seriesDuration! > 0 && seriesDuration! < receivedDuration
+    ? seriesDuration!
+    : receivedDuration;
+  const end = start + repairedDuration;
   const estimatedDuration = isoDuration(end - start);
   const timestamp = validIso(event.updated, syncedAt);
   const sourceUrl = event.htmlLink && /^https?:\/\//.test(event.htmlLink) ? event.htmlLink : `https://calendar.google.com/calendar/u/0/r/eventedit/${encodeURIComponent(event.id)}`;
@@ -116,7 +129,11 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
     const next = googleCalendarEventToItem(event, batch.calendarId, batch.connectionId, batch.syncedAt, workspace.calendarPreferences.timezone);
     if (!next) continue;
     const existing = workspace.items[id];
-    if (existing && event.etag && existing.external?.etag === event.etag) continue;
+    const nextSchedule = next.schedule;
+    if (existing && event.etag && existing.external?.etag === event.etag
+      && existing.schedule?.startAt === nextSchedule?.startAt
+      && existing.schedule?.endAt === nextSchedule?.endAt
+      && existing.schedule?.estimatedDuration === nextSchedule?.estimatedDuration) continue;
     if (existing) { next.createdAt = existing.createdAt; next.revision = existing.revision + 1; updated += 1; }
     else added += 1;
     workspace.items[id] = next;

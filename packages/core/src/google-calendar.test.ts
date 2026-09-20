@@ -15,6 +15,15 @@ describe('Google Calendar workspace mirror', () => {
     expect(allDay).toMatchObject({ title: 'Busy', schedule: { allDay: true, timezone: 'Europe/Moscow', startAt: '2026-08-31T21:00:00.000Z', endAt: '2026-09-02T21:00:00.000Z', estimatedDuration: 'P2D' } });
   });
 
+  it('repairs a recurring interval mistaken for event duration', () => {
+    const recurring = googleCalendarEventToItem({
+      id: 'weekly_20260923', recurringEventId: 'weekly', summary: 'Family meeting',
+      start: { dateTime: '2026-09-23T19:30:00+03:00', timeZone: 'Europe/Moscow' },
+      end: { dateTime: '2026-09-30T19:30:00+03:00' }, seriesDurationMilliseconds: 105 * 60_000,
+    }, 'primary', 'connection-1', syncedAt, 'UTC');
+    expect(recurring?.schedule).toMatchObject({ endAt: '2026-09-23T18:15:00.000Z', estimatedDuration: 'PT1H45M' });
+  });
+
   it('updates deterministically and removes missing or cancelled events', () => {
     const workspace = createWorkspace('Google');
     const event = { id: 'event-1', summary: 'Planning', htmlLink: 'https://calendar.google.com/event?eid=1', start: { dateTime: '2026-08-31T10:00:00.000Z' }, end: { dateTime: '2026-08-31T11:00:00.000Z' } };
@@ -34,6 +43,24 @@ describe('Google Calendar workspace mirror', () => {
 
     expect(applyGoogleCalendarSync(workspace, { connectionId: 'connection-1', calendarId: 'primary', events: [event], syncedAt: '2026-09-07T12:05:00.000Z', fullSync: true })).toEqual({ added: 0, updated: 0, removed: 0 });
     expect(workspace.items['google:primary:same-event']).toEqual(before);
+  });
+
+  it('repairs an already mirrored recurring item even when its Google etag is unchanged', () => {
+    const workspace = createWorkspace('Google repair');
+    const event = {
+      id: 'weekly_20260923', recurringEventId: 'weekly', etag: 'etag-1', summary: 'Family meeting',
+      start: { dateTime: '2026-09-23T19:30:00+03:00' }, end: { dateTime: '2026-09-30T19:30:00+03:00' },
+    };
+    applyGoogleCalendarSync(workspace, { connectionId: 'connection-1', calendarId: 'primary', events: [event], syncedAt, fullSync: true });
+    expect(workspace.items['google:primary:weekly_20260923']?.schedule.estimatedDuration).toBe('P7D');
+
+    const repaired = applyGoogleCalendarSync(workspace, {
+      connectionId: 'connection-1', calendarId: 'primary',
+      events: [{ ...event, seriesDurationMilliseconds: 105 * 60_000 }], syncedAt, fullSync: true,
+    });
+
+    expect(repaired).toMatchObject({ updated: 1 });
+    expect(workspace.items['google:primary:weekly_20260923']?.schedule.estimatedDuration).toBe('PT1H45M');
   });
 
   it('migrates optional Google metadata without keeping malformed credentials or provenance', () => {

@@ -6,6 +6,7 @@ const GOOGLE_AUTH_TIMEOUT_MS = 90_000;
 const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
 const GOOGLE_SYNC_WINDOW_REFRESH_MS = 7 * 86_400_000;
 const GOOGLE_EVENTS_PAGE_SIZE = '500';
+const SUSPICIOUS_RECURRING_DURATION_MS = 86_400_000;
 export const GOOGLE_CALENDAR_SYNC_CONCURRENCY = 3;
 export const GOOGLE_CALENDAR_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ?? '';
 
@@ -116,6 +117,43 @@ function reusableSyncWindow(preferences: GoogleCalendarPreferences, now = new Da
   return window;
 }
 
+function timedEventDuration(event: GoogleCalendarEvent): number | undefined {
+  if (!event.start?.dateTime || !event.end?.dateTime) return undefined;
+  const start = Date.parse(event.start.dateTime);
+  const end = Date.parse(event.end.dateTime);
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? end - start : undefined;
+}
+
+async function attachRecurringSeriesDurations(accessToken: string, calendarId: string, events: GoogleCalendarEvent[]): Promise<GoogleCalendarEvent[]> {
+  const seriesIds = [...new Set(events.flatMap((event) => {
+    const duration = timedEventDuration(event);
+    return event.recurringEventId && duration !== undefined && duration >= SUSPICIOUS_RECURRING_DURATION_MS
+      ? [event.recurringEventId]
+      : [];
+  }))];
+  if (!seriesIds.length) return events;
+
+  const durations = new Map<string, number>();
+  let nextIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const seriesId = seriesIds[nextIndex++];
+      if (!seriesId) return;
+      const master = await googleJson<GoogleCalendarEvent>(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(seriesId)}`,
+        accessToken,
+      );
+      const duration = timedEventDuration(master);
+      if (duration !== undefined) durations.set(seriesId, duration);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(GOOGLE_CALENDAR_SYNC_CONCURRENCY, seriesIds.length) }, () => worker()));
+  return events.map((event) => {
+    const seriesDurationMilliseconds = event.recurringEventId ? durations.get(event.recurringEventId) : undefined;
+    return seriesDurationMilliseconds === undefined ? event : { ...event, seriesDurationMilliseconds };
+  });
+}
+
 async function listEvents(accessToken: string, calendarId: string, syncWindow: GoogleSyncWindow, syncToken?: string, onPage?: (page: number, eventCount: number) => void): Promise<{ events: GoogleCalendarEvent[]; nextSyncToken: string; fullSync: boolean }> {
   const run = async (token?: string) => {
     const result: GoogleCalendarEvent[] = [];
@@ -130,7 +168,7 @@ async function listEvents(accessToken: string, calendarId: string, syncWindow: G
       onPage?.(pageNumber, result.length);
     } while (pageToken);
     if (!nextSyncToken) throw new Error(`Google did not return a sync token for ${calendarId}.`);
-    return { events: result, nextSyncToken };
+    return { events: await attachRecurringSeriesDurations(accessToken, calendarId, result), nextSyncToken };
   };
   try { const result = await run(syncToken); return { ...result, fullSync: !syncToken }; }
   catch (reason) {

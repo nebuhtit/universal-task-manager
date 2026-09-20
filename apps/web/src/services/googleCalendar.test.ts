@@ -47,6 +47,27 @@ describe('Google Calendar browser synchronization', () => {
     expect(eventsUrl.searchParams.has('timeMax')).toBe(false);
   });
 
+  it('uses the recurring series duration when Google returns the next occurrence as the end', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ id: 'primary', summary: 'Main', primary: true }] }))
+      .mockResolvedValueOnce(jsonResponse({
+        items: [{
+          id: 'weekly_20260923', recurringEventId: 'weekly', summary: 'Family meeting',
+          start: { dateTime: '2026-09-23T19:30:00+03:00' }, end: { dateTime: '2026-09-30T19:30:00+03:00' },
+        }],
+        nextSyncToken: 'sync-1',
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        id: 'weekly', start: { dateTime: '2026-09-23T19:30:00+03:00' }, end: { dateTime: '2026-09-23T21:15:00+03:00' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await synchronizeGoogleCalendars('access-token', preferences());
+
+    expect(result.batches[0]?.events[0]?.seriesDurationMilliseconds).toBe(105 * 60_000);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/calendars/primary/events/weekly');
+  });
+
   it('turns a stalled Google request into a visible timeout error', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
