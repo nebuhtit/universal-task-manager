@@ -40,7 +40,7 @@ function FilterBlock({ node, onChange, workspace, projectScope = false, depth = 
   const regex = node.type === 'call' && node.name === 'regexMatch' ? node : undefined;
   const isGroup = node.type === 'binary' && ['&&', '||'].includes(node.operator);
   const children = isGroup ? flatten(node, node.operator) : [];
-  return <div className="filter-block">
+  return <div className="filter-block" data-depth-tone={depth === 0 ? 0 : ((depth - 1) % 4) + 1}>
     <div className="filter-block-heading">{isGroup ? (node.operator === '&&' ? 'AND' : 'OR') : node.type === 'call' && node.name === 'if' ? 'IF / THEN / ELSE' : node.type === 'unary' && node.operator === '!' ? 'NOT' : node.type === 'call' && node.name === 'anyWhere' ? 'ANY' : node.type === 'call' && node.name === 'allWhere' ? 'ALL' : t('Condition', 'Условие')} · {t('Level', 'Уровень')} {depth + 1}</div>
     {isGroup ? <>
       <Field label={t('Group', 'Группа')}><Select value={node.operator} onChange={(event) => onChange(fold(event.target.value, children))}><option value="&&">AND — {t('all conditions', 'все условия')}</option><option value="||">OR — {t('any condition', 'любое условие')}</option></Select></Field>

@@ -4,6 +4,13 @@ import { createWorkspace, pythonToFilter } from '@utm/core';
 import { FilterProgramEditor } from './FilterProgramEditor';
 
 describe('shared filter editor', () => {
+  it('assigns neutral root and distinct surface tones to nested levels', () => {
+    const workspace = createWorkspace('Filters');
+    const html = renderToStaticMarkup(<FilterProgramEditor workspace={workspace} source='state == "open" || (state == "done" && includes(tags, "important"))' onChange={vi.fn()} onValidityChange={vi.fn()} />);
+    expect(html).toContain('class="filter-block" data-depth-tone="0"');
+    expect(html).toContain('class="filter-block" data-depth-tone="1"');
+    expect(html).toContain('class="filter-block" data-depth-tone="2"');
+  });
   it('renders grouped rules, branches and collection predicates as native controls', () => {
     const workspace = createWorkspace('Filters');
     const source = pythonToFilter('if state == "done":\n    return True\nelif state == "open":\n    return any(entry == "work" for entry in tags)\nelse:\n    return False');

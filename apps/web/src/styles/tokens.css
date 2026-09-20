@@ -42,6 +42,11 @@
   --color-surface: #ffffff;
   --color-surface-elevated: #ffffff;
   --color-surface-muted: #f7f7f8;
+  /* Nested editor surfaces: blue, lavender, sage, sand. */
+  --color-surface-depth-1: #edf4fa;
+  --color-surface-depth-2: #f2eef8;
+  --color-surface-depth-3: #edf5ef;
+  --color-surface-depth-4: #f8f3e9;
   --color-surface-translucent: rgba(255, 255, 255, 0.92);
   --color-text: #0d0d0d;
   --color-text-secondary: #676767;
@@ -104,6 +109,10 @@
   --color-surface: #000000;
   --color-surface-elevated: #111111;
   --color-surface-muted: #080808;
+  --color-surface-depth-1: #16212b;
+  --color-surface-depth-2: #221d2d;
+  --color-surface-depth-3: #19271f;
+  --color-surface-depth-4: #2a251b;
   --color-surface-translucent: rgba(0, 0, 0, 0.92);
   --color-text: #f1f1f1;
   --color-text-secondary: #a7a7a7;

@@ -21,6 +21,15 @@ test('completed statistics option persists and nested filter operators are label
   await page.getByRole('button', { name: 'IF', exact: true }).first().click();
   await expect(page.locator('.filter-block-heading').filter({ hasText: /^AND · Level 1$/ })).toBeVisible();
   await expect(page.locator('.filter-block-heading').filter({ hasText: /^IF \/ THEN \/ ELSE · Level 2$/ })).toBeVisible();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+    const colors = await page.evaluate(() => [0, 1, 2].map((tone) =>
+      getComputedStyle(document.querySelector(`.filter-block[data-depth-tone="${tone}"]`)!).backgroundColor));
+    expect(new Set(colors).size).toBe(3);
+    expect(colors[0]).toBe(theme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)');
+    await page.locator('.filter-block-heading').first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath(`filter-depth-${theme}.png`) });
+  }
   await page.getByRole('button', { name: 'Save view', exact: true }).click();
   await page.reload();
   const unlock = page.getByRole('button', { name: 'Unlock', exact: true });
