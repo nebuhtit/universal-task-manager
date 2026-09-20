@@ -195,6 +195,7 @@ export function evaluateCalendarRange(
     const entriesById = new Map(bucket.entries.map((entry) => [entry.item.id, entry]));
     const entries = items.map((item) => entriesById.get(item.id)).filter((entry): entry is CalendarProjectedEntry => Boolean(entry));
     const metrics = bucket.metrics.finish(bucket.reservedDurationMs);
+    if (!bucket.view.statistics?.showActualTime) delete metrics.actualDurationMs;
     return [key, { entries, view: bucket.view, metrics, evaluation: { items, metrics, now } }];
   }));
 

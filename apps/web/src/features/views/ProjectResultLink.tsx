@@ -12,6 +12,6 @@ export function ProjectResultLink({ project, language }: { project: ProjectViewR
   const duration = formatCompactRemainingDuration(project.remainingDurationMs, language) || (ru ? '0 мин' : '0 min');
   return <Button variant="ghost" className="project-result-link" onClick={() => requestProjectNavigation(project.name)} aria-label={`${ru ? 'Открыть проект' : 'Open project'} ${project.name}`}>
     <FieldIcon path="project" label={ru ? 'Проект' : 'Project'} />
-    <span><strong><UserDataText>{project.name}</UserDataText></strong><span className="project-result-metrics">{project.completionPercent === null ? '—' : `${project.completionPercent}%`} · {duration} {ru ? 'осталось' : 'remaining'}</span><small>{ru ? 'Для текущего view' : 'For this view'}</small></span>
+    <span><strong><UserDataText>{project.name}</UserDataText></strong><span className="project-result-metrics">{project.completionPercent === null ? '—' : `${project.completionPercent}%`} · {duration} {ru ? 'осталось' : 'remaining'}</span>{project.actualDurationMs !== undefined && <span className="project-result-metrics">{ru ? 'Фактически затрачено' : 'Actual time'}: {formatCompactRemainingDuration(project.actualDurationMs, language) || '0 min'}</span>}<small>{ru ? 'Для текущего view' : 'For this view'}</small></span>
   </Button>;
 }

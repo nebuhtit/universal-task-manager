@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.1.0';
-export const APP_RELEASED_AT = '2026-09-20T14:12:52.727Z';
+export const APP_VERSION = '2.2.0';
+export const APP_RELEASED_AT = '2026-09-20T15:14:36.714Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -191,11 +191,31 @@ export interface ItemRelation { id: string; targetId: string; type: RelationType
 export interface LinkAttachment { id: string; url: string; title?: string; mimeType?: string }
 export interface ItemTimerSession {
   id: string;
+  recurrenceId?: ISODateTime;
   mode: 'timer' | 'stopwatch';
   startedAt: ISODateTime;
   endedAt: ISODateTime;
   durationSeconds: number;
   targetSeconds?: number;
+}
+
+export interface ActualTimeEntry {
+  id: string;
+  at?: ISODateTime;
+  durationSeconds: number;
+  comment: string;
+  source: 'manual' | 'timer' | 'stopwatch' | 'imported';
+  sourceSessionId?: string;
+  recurrenceId?: ISODateTime;
+}
+
+export interface CompletionEntry {
+  id: string;
+  at: ISODateTime;
+  kind: 'manual' | 'automatic';
+  comment: string;
+  recurrenceId?: ISODateTime;
+  revokedAt?: ISODateTime;
 }
 
 /** Provenance for an immutable event mirrored from an external calendar. */
@@ -257,6 +277,8 @@ export interface UniversalItem {
   attachments: LinkAttachment[];
   /** Completed quick timer and stopwatch sessions; active controls remain editor-local. */
   timerHistory?: ItemTimerSession[];
+  actualTimeEntries?: ActualTimeEntry[];
+  completionEntries?: CompletionEntry[];
   /** External events are edited only in their source calendar. */
   external?: ExternalCalendarSource;
   custom: Record<string, CustomValue>;
@@ -305,6 +327,7 @@ export interface ViewStatisticsSettings {
   /** Shows duration-weighted completion, remaining work and capacity for finite periods. */
   showTime: boolean;
   includeHiddenCompleted?: boolean;
+  showActualTime?: boolean;
   /** Scheduled or recurring source items that always reserve capacity in this view period. */
   reservedItemIds: string[];
 }
@@ -383,6 +406,7 @@ export interface OrganizationPriorityEntry {
 }
 
 export interface OrganizationPreferences {
+  showActualTime?: boolean;
   /** Top-to-bottom order. A single null is the movable unassigned row. */
   areaOrder: Array<string | null>;
   projectOrder: Array<string | null>;
@@ -564,6 +588,8 @@ export interface CalendarDayViewPreferences {
   sortSource?: string;
 }
 export interface CalendarPreferences {
+  /** User-authored journals indexed by an opaque event fingerprint, independent of Google mirrors. */
+  localTimeJournals?: Record<string, ActualTimeEntry[]>;
   timezone: string;
   lastMode: CalendarViewMode;
   weekStartsOn: 0 | 1;

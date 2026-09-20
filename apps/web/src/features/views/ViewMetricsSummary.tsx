@@ -91,6 +91,10 @@ function formatAccessibleDuration(milliseconds: number, language: WorkspaceLangu
 export function formatViewMetricsSummary(metrics: ItemSetMetrics | ViewTimeMetrics, language: WorkspaceLanguage): { text: string; ariaLabel: string } | null {
   const visible: string[] = [];
   const accessible: string[] = [];
+  if (metrics.actualDurationMs !== undefined) {
+    const label = `${language === 'ru' ? 'факт' : 'actual'} ${formatCompactRemainingDuration(metrics.actualDurationMs, language) || '0'}`;
+    visible.push(label); accessible.push(label);
+  }
   if (metrics.completionPercent > 0) {
     visible.push(`${metrics.completionPercent}%`);
     accessible.push(summaryPhrases[language].completion(metrics.completionPercent));

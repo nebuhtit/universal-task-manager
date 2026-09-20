@@ -1,0 +1,9 @@
+.item-journals, .item-journal-body, .item-journal-form { display: grid; gap: var(--space-3); min-width: 0; }
+.item-journals { padding: 0; margin: 0; border: 0; }
+.item-journal-body { padding-block: var(--space-3); }
+.item-journal-entry { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-small); overflow-wrap: anywhere; }
+.item-journal-entry p { margin: 0; white-space: pre-wrap; }
+.item-journal-entry small { color: var(--color-text-secondary); }
+.item-journal-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.item-journal-duration { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.item-journal-duration input { min-width: 0; width: 100%; }

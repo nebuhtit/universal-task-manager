@@ -66,6 +66,8 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'recurrenceOverride.recurrenceId', label: 'Override occurrence date', group: 'History' },
   { path: 'cycleHistory', label: 'Cycle history', group: 'History' },
   { path: 'timerHistory', label: 'Timer history', group: 'History' },
+  { path: 'actualTimeEntries', label: 'Actual time entries', group: 'History' },
+  { path: 'completionEntries', label: 'Completion entries', group: 'History' },
   { path: 'createdAt', label: 'Created at', group: 'System' }, { path: 'updatedAt', label: 'Last modified', group: 'System' },
   { path: 'deletedAt', label: 'Deleted at', group: 'System' },
   { path: 'createdWithAppName', label: 'Created with app', group: 'System' }, { path: 'createdWithVersion', label: 'Created with version', group: 'System' },

@@ -1,4 +1,5 @@
 import * as rruleModule from 'rrule';
+import { initializeItemHistory, recordCompletionTransition } from './item-history.js';
 import { evaluateExpression, parseExpression } from './dsl.js';
 import { createId, createItem } from './types.js';
 import type {
@@ -70,17 +71,21 @@ function applyAction(
   switch (action.type) {
     case 'set_field': {
       const target = requireItem();
+      initializeItemHistory(target);
       const before = structuredClone(target);
       setPath(target, action.path, action.value);
+      recordCompletionTransition(target, before.state, now);
       target.updatedAt = now; target.revision += 1;
       emitted.push({ id: createId(), type: 'item.updated', at: now, itemId: target.id, before, after: structuredClone(target), causationId: event.causationId, depth: event.depth + 1 });
       break;
     }
     case 'close': {
       const target = requireItem();
+      initializeItemHistory(target);
       const before = structuredClone(target);
       target.state = action.state;
       target.closure = { at: now, actor: 'automation', reason: action.state === 'auto_closed' ? 'auto_renew' : action.state === 'cancelled' ? 'cancelled' : 'rule', automationId: rule.id };
+      recordCompletionTransition(target, before.state, now);
       target.updatedAt = now; target.revision += 1;
       emitted.push({ id: createId(), type: 'status.changed', at: now, itemId: target.id, before, after: structuredClone(target), causationId: event.causationId, depth: event.depth + 1 });
       break;

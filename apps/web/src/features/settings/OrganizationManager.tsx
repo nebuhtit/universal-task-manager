@@ -5,7 +5,7 @@ import {
   orderedTagEntries, organizationAccentFor, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset,
   type OrganizationPreferences, type OrganizationPriorityEntry, type ProjectMetrics, type SavedView, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
-import { Button, Field, IconButton, Input, Select, Surface } from '../../components/ui/primitives';
+import { Button, Checkbox, Field, IconButton, Input, Select, Surface } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { CloseIcon, LineIcon } from '../../components/ui/icons';
 import { useReorderList } from '../../components/ui/useReorderList';
@@ -94,9 +94,11 @@ function DraggablePriorityRows({ entries, onReorder, render }: { entries: Organi
 const emptyProjectMetrics = (): ProjectMetrics => ({ totalItems: 0, completedItems: 0, completionPercent: 0, totalDurationMs: 0, completedDurationMs: 0, deadlineOverdue: false });
 const projectDuration = (milliseconds: number) => milliseconds > 0 ? formatComputedDuration(milliseconds) : '0 min';
 
-function ProjectMetricsPanel({ project, workspace, metrics }: { project: string; workspace: WorkspaceDocument; metrics: ProjectMetrics }) {
+function ProjectMetricsPanel({ project, workspace, metrics, commit }: { project: string; workspace: WorkspaceDocument; metrics: ProjectMetrics; commit?: Commit }) {
   const accent = organizationAccentFor(workspace, 'project', project) ?? 'var(--color-text)';
   return <div className="organization-project-metrics" style={{ '--project-progress-color': accent } as CSSProperties}>
+    {commit && <Checkbox label={workspace.calendarPreferences.language === 'ru' ? 'Показывать фактически затраченное время' : 'Show actual time spent'} checked={workspace.organizationPreferences.showActualTime ?? false} onChange={(event) => commit('Change PARA time statistics', (draft) => { draft.organizationPreferences.showActualTime = event.target.checked; })} />}
+    {workspace.organizationPreferences.showActualTime && <span>{workspace.calendarPreferences.language === 'ru' ? 'Фактически затрачено' : 'Actual time spent'}: {projectDuration(metrics.actualDurationMs ?? 0)}</span>}
     <div className="organization-project-progress-summary"><strong>{metrics.totalDurationMs ? `${metrics.completionPercent}%` : '—'}</strong><span>Completion by time</span><span>{metrics.completedItems}/{metrics.totalItems}</span></div>
     <div className="organization-project-progress" role="progressbar" aria-label={`Project ${project} completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={metrics.totalDurationMs ? metrics.completionPercent : undefined} aria-valuetext={metrics.totalDurationMs ? undefined : 'No duration available'}><span style={{ width: `${metrics.completionPercent}%` }} /></div>
     <div className="organization-project-facts"><span><small>Remaining time</small>{projectDuration(Math.max(0, metrics.totalDurationMs - metrics.completedDurationMs))}</span><span><small>Planned time</small>{projectDuration(metrics.completedDurationMs)} / {projectDuration(metrics.totalDurationMs)}</span><span className={metrics.deadlineOverdue ? 'is-overdue' : undefined}><small>{metrics.deadlineOverdue ? 'Overdue' : 'Nearest deadline'}</small>{metrics.nearestDeadline ? formatViewDate(metrics.nearestDeadline, true, workspace.calendarPreferences.language) : 'No deadline'}</span></div>
@@ -197,7 +199,7 @@ export function OrganizationManager({ workspace, commit, onEditItem = () => {}, 
   }
   if (route.kind === 'project') {
     const project = route.project; const view = paraProjectView(project);
-    return <section className="organization-detail-page"><header className="organization-detail-header"><Button variant="ghost" onClick={() => setRoute({ kind: 'overview' })}>‹ PARA</Button><h2 style={{ color: organizationAccentFor(workspace, 'project', project) }}><FieldIcon path="project" label="Project" /><UserDataText>{project}</UserDataText></h2><EntityControls kind="project" name={project} workspace={workspace} commit={commit} onRenamed={(next) => setRoute({ kind: 'project', project: next })} onDeleted={() => { setOrderDraft(null); setRoute({ kind: 'overview' }); }} /></header><ProjectAreaLinks project={project} workspace={workspace} commit={commit} /><ProjectMetricsPanel project={project} workspace={workspace} metrics={projectMetrics[project] ?? emptyProjectMetrics()} /><ScopedView view={view} workspace={workspace} commit={commit} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} celebrationColors={celebrationColors} /></section>;
+    return <section className="organization-detail-page"><header className="organization-detail-header"><Button variant="ghost" onClick={() => setRoute({ kind: 'overview' })}>‹ PARA</Button><h2 style={{ color: organizationAccentFor(workspace, 'project', project) }}><FieldIcon path="project" label="Project" /><UserDataText>{project}</UserDataText></h2><EntityControls kind="project" name={project} workspace={workspace} commit={commit} onRenamed={(next) => setRoute({ kind: 'project', project: next })} onDeleted={() => { setOrderDraft(null); setRoute({ kind: 'overview' }); }} /></header><ProjectAreaLinks project={project} workspace={workspace} commit={commit} /><ProjectMetricsPanel project={project} workspace={workspace} metrics={projectMetrics[project] ?? emptyProjectMetrics()} commit={commit} /><ScopedView view={view} workspace={workspace} commit={commit} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} celebrationColors={celebrationColors} /></section>;
   }
   if (route.kind === 'tag') {
     const tag = route.tag; const view = paraTagView(tag);

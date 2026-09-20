@@ -3,6 +3,9 @@ import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
 import { CloseIcon } from './components/ui/icons';
 import { SectionGuide } from './components/ui/SectionGuide';
+import { initializeItemHistory, recordCompletionTransition, syncActualDuration } from '@utm/core';
+import { GOOGLE_EDIT_EXTENSION } from './services/googleCalendarEdit';
+import { googleHistoryKey } from './services/googleHistoryKey';
 import {
   AllItemsPage,
   ALL_ITEMS_VIEW_ID,
@@ -893,14 +896,19 @@ export default function App() {
     window.requestAnimationFrame(() => window.setTimeout(() => {
       const changed = commit('Change item state', (draft) => {
         let target = draft.items[item.id]; if (!target) return;
+        initializeItemHistory(target);
+        const previousState = target.state;
         if (item.habit || (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]?.habit)) {
           if (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]) target = draft.items[item.occurrence.seriesId]!;
           target.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
           target.habit.completedDates ??= [];
           const date = (item.occurrence?.recurrenceId ?? completedAt).slice(0, 10);
           if (state === 'done' && !target.habit.completedDates.includes(date)) {
+            initializeItemHistory(target);
             target.habit.completedDates.push(date);
             const recurrenceId = item.occurrence?.recurrenceId ?? `${date}T00:00:00.000Z`;
+            target.completionEntries ??= [];
+            target.completionEntries.push({ id: createId(), at: completedAt, kind: 'manual', comment: '', recurrenceId });
             target.cycleHistory ??= [];
             if (!target.cycleHistory.some((entry) => entry.recurrenceId === recurrenceId && entry.state === 'done')) target.cycleHistory.push({
               recurrenceId,
@@ -913,6 +921,9 @@ export default function App() {
             });
           }
           if (state === 'open') {
+            initializeItemHistory(target);
+            const entry = [...(target.completionEntries ?? [])].reverse().find((record) => !record.revokedAt && record.recurrenceId?.slice(0, 10) === date);
+            if (entry) entry.revokedAt = occurredAt;
             const index = target.habit.completedDates.indexOf(date);
             if (index >= 0) target.habit.completedDates.splice(index, 1);
             if (target.cycleHistory) target.cycleHistory = target.cycleHistory.filter((entry) => !(entry.state === 'done' && entry.reason === 'manual' && entry.closedAt.slice(0, 10) === date));
@@ -924,6 +935,7 @@ export default function App() {
         target.state = state; target.updatedAt = occurredAt; target.revision += 1;
         if (state === 'open') delete target.closure;
         else target.closure = { at: state === 'done' ? completedAt : target.updatedAt, actor: 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' };
+        recordCompletionTransition(target, previousState, occurredAt);
         if ((state === 'done' || state === 'cancelled') && target.occurrence && target.closure) advanceCompletionAnchoredSeries(draft, target, target.closure.at);
         const event = { id: createId(), type: 'status.changed' as const, at: target.updatedAt, itemId: target.id, before: clean(item), after: clean(target as unknown as UniversalItem), causationId: createId(), depth: 0 };
         const result = runAutomationEvents(draft, [event]);
@@ -1058,6 +1070,41 @@ export default function App() {
       }}
     />}
     <Suspense fallback={null}>{editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew}
+      onHistorySave={async (item) => {
+        const key = item.external ? await googleHistoryKey(item.external.calendarId, item.external.eventId) : undefined;
+        const saved = commit('Update item history', (draft) => {
+          const target = draft.items[item.id]; if (!target || target.deletedAt) throw new Error('Item no longer exists.');
+          if (item.actualTimeEntries) target.actualTimeEntries = clean(item.actualTimeEntries);
+          if (item.completionEntries) target.completionEntries = clean(item.completionEntries);
+          if (item.timerHistory) target.timerHistory = clean(item.timerHistory);
+          if (key && item.actualTimeEntries) {
+            draft.calendarPreferences.localTimeJournals ??= {};
+            draft.calendarPreferences.localTimeJournals[key] = clean(item.actualTimeEntries.map((entry, index) => ({ ...entry, id: entry.source === 'imported' ? `local:${key}:${index}` : entry.id })));
+          }
+          syncActualDuration(target); target.revision += 1; target.updatedAt = new Date().toISOString();
+        });
+        if (!saved) throw new Error('Could not save item history.');
+        await flushPersistence();
+      }}
+      onGoogleEditDraft={async (operation) => {
+        const saved = commit('Save Google event draft', (draft) => {
+          const target = draft.items[editor.id]; if (!target?.external) throw new Error('Google event no longer exists.');
+          target.extensions ??= {};
+          if (operation) target.extensions[GOOGLE_EDIT_EXTENSION] = clean(operation); else delete target.extensions[GOOGLE_EDIT_EXTENSION];
+        });
+        if (!saved) throw new Error('Could not save the event draft.');
+        await flushPersistence();
+      }}
+      onGoogleUpdated={async (event) => {
+        const saved = commit('Update Google event', (draft) => {
+          const external = draft.items[editor.id]?.external;
+          if (!external || draft.calendarPreferences.googleCalendar?.connectionId !== external.connectionId) throw new Error('Google connection changed.');
+          applyGoogleCalendarSync(draft, { connectionId: external.connectionId, calendarId: external.calendarId, events: [event], syncedAt: new Date().toISOString(), fullSync: false });
+          const target = draft.items[editor.id]; if (target?.extensions) delete target.extensions[GOOGLE_EDIT_EXTENSION];
+        });
+        if (!saved) throw new Error('Google saved the event; retry to restore its local copy.');
+        await flushPersistence();
+      }}
       onPrepareGoogleCreate={async (operation) => {
         const saved = commit('Prepare Google Calendar creation', (draft) => {
           const target = draft.items[editor.id];

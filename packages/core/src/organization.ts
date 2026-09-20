@@ -1,4 +1,5 @@
 import { durationToMs, type AreaDefinition, type OrganizationPreferences, type OrganizationPriorityEntry, type ProjectDefinition, type UniversalItem, type WorkspaceDocument } from './types.js';
+import { actualTimeMs } from './item-history.js';
 import { parseExpression } from './dsl.js';
 import { expressionToDsl } from './filter-program.js';
 import type { Expression } from './types.js';
@@ -11,6 +12,7 @@ export const DEFAULT_PROJECT_ACCENT = '#147a55';
 export const DEFAULT_TAG_ACCENT = '#6b7280';
 
 export interface ProjectMetrics {
+  actualDurationMs?: number;
   totalItems: number;
   completedItems: number;
   completionPercent: number;
@@ -21,6 +23,7 @@ export interface ProjectMetrics {
 }
 
 export interface ItemSetMetrics {
+  actualDurationMs?: number;
   totalItems: number;
   completedItems: number;
   completionPercent: number;
@@ -105,6 +108,7 @@ export function calculateProjectMetrics(workspace: WorkspaceDocument, now = new 
       const target = metrics[project] ??= { totalItems: 0, completedItems: 0, completionPercent: 0, totalDurationMs: 0, completedDurationMs: 0, deadlineOverdue: false };
       target.totalItems += 1;
       target.totalDurationMs += duration;
+      target.actualDurationMs = (target.actualDurationMs ?? 0) + actualTimeMs(item);
       if (completed) { target.completedItems += 1; target.completedDurationMs += duration; }
       if (deadline && (!target.nearestDeadline || Date.parse(deadline) < Date.parse(target.nearestDeadline))) target.nearestDeadline = deadline;
     }

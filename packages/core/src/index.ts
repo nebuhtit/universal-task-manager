@@ -1,4 +1,5 @@
 export * from './types.js';
+export * from './item-history.js';
 export * from './schema.js';
 export * from './dsl.js';
 export * from './filter-program.js';

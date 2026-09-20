@@ -1,4 +1,5 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
+import { initializeItemHistory } from './item-history.js';
 import addFormats from 'ajv-formats';
 import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, standardAttentionViewSort } from './types.js';
 import { normalizedOrganizationPriorityOrder } from './organization.js';
@@ -130,11 +131,21 @@ export const itemJsonSchema = {
         properties: { id: { type: 'string' }, url: { type: 'string' }, title: { type: 'string' }, mimeType: { type: 'string' } },
       },
     },
+    actualTimeEntries: {
+      type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'durationSeconds', 'comment', 'source'], properties: {
+        id: { type: 'string', minLength: 1 }, at: { type: 'string', format: 'date-time' }, durationSeconds: { type: 'number', minimum: 0 }, comment: { type: 'string' }, source: { enum: ['manual', 'timer', 'stopwatch', 'imported'] }, sourceSessionId: { type: 'string' }, recurrenceId: { type: 'string', format: 'date-time' },
+      } },
+    },
+    completionEntries: {
+      type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'at', 'kind', 'comment'], properties: {
+        id: { type: 'string', minLength: 1 }, at: { type: 'string', format: 'date-time' }, kind: { enum: ['manual', 'automatic'] }, comment: { type: 'string' }, recurrenceId: { type: 'string', format: 'date-time' }, revokedAt: { type: 'string', format: 'date-time' },
+      } },
+    },
     timerHistory: {
       type: 'array', items: {
         type: 'object', additionalProperties: false, required: ['id', 'mode', 'startedAt', 'endedAt', 'durationSeconds'],
         properties: {
-          id: { type: 'string', minLength: 1 }, mode: { enum: ['timer', 'stopwatch'] },
+          id: { type: 'string', minLength: 1 }, recurrenceId: { type: 'string', format: 'date-time' }, mode: { enum: ['timer', 'stopwatch'] },
           startedAt: { type: 'string', format: 'date-time' }, endedAt: { type: 'string', format: 'date-time' },
           durationSeconds: { type: 'number', minimum: 0 }, targetSeconds: { type: 'number', exclusiveMinimum: 0 },
         },
@@ -177,7 +188,7 @@ export const viewJsonSchema = {
     creationDefaults: { type: 'object', additionalProperties: true },
     statistics: {
       type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
-      properties: { showTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
+      properties: { showTime: { type: 'boolean' }, showActualTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
     },
     scripts: scriptFieldSchema,
     extensions,
@@ -244,6 +255,7 @@ export const portablePackageJsonSchema = {
         areaOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         projectOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         tagOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        showActualTime: { type: 'boolean' },
         tagAccents: { type: 'object', additionalProperties: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' } },
         priorityOrder: { type: 'array', items: organizationPriorityEntrySchema },
       },
@@ -280,6 +292,7 @@ export const workspaceJsonSchema = {
         areaOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         projectOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
         tagOrder: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] } },
+        showActualTime: { type: 'boolean' },
         tagAccents: { type: 'object', additionalProperties: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' } },
         priorityOrder: { type: 'array', items: organizationPriorityEntrySchema },
       },
@@ -293,6 +306,7 @@ export const workspaceJsonSchema = {
       type: 'object', additionalProperties: false,
       required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'dayView', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews'],
       properties: {
+        localTimeJournals: { type: 'object', propertyNames: { pattern: '^[a-f0-9]{64}$' }, additionalProperties: itemJsonSchema.properties.actualTimeEntries },
         timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
         workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
         sleepSchedule: { type: 'object', additionalProperties: false, required: ['wake', 'sleep'], properties: { wake: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, sleep: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' } } },
@@ -308,7 +322,7 @@ export const workspaceJsonSchema = {
             fields: stringArray,
             statistics: {
               type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
-              properties: { showTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
+              properties: { showTime: { type: 'boolean' }, showActualTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
             },
             sort: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['expression', 'direction', 'nulls'], properties: { expression: { type: 'string' }, direction: { enum: ['asc', 'desc'] }, nulls: { enum: ['first', 'last'] } } } },
             sortSource: { type: 'string' },
@@ -486,6 +500,7 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   }
   const validation = validateItem(item);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
+  initializeItemHistory(item as unknown as UniversalItem);
   return { value: item as unknown as UniversalItem, warnings };
 }
 
@@ -527,7 +542,7 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
       warnings.push('Disabled invalid view statistics settings');
     } else {
       const reservedItemIds = [...new Set(record.reservedItemIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
-      const lossy = reservedItemIds.length !== record.reservedItemIds.length || Object.keys(record).some((key) => !['showTime', 'reservedItemIds', 'includeHiddenCompleted'].includes(key));
+      const lossy = reservedItemIds.length !== record.reservedItemIds.length || Object.keys(record).some((key) => !['showTime', 'reservedItemIds', 'includeHiddenCompleted', 'showActualTime'].includes(key));
       if (lossy) {
         const target = (view.extensions && typeof view.extensions === 'object' && !Array.isArray(view.extensions) ? view.extensions : {}) as Record<string, unknown>;
         target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), statisticsRaw: structuredClone(raw) };
@@ -538,6 +553,7 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
         showTime: record.showTime,
         reservedItemIds,
         ...(typeof record.includeHiddenCompleted === 'boolean' ? { includeHiddenCompleted: record.includeHiddenCompleted } : {}),
+        ...(typeof record.showActualTime === 'boolean' ? { showActualTime: record.showActualTime } : {}),
       };
     }
   }
@@ -825,7 +841,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       ...(raw.kind === 'project' && raw.name !== null && Object.prototype.hasOwnProperty.call(raw, 'area') ? { area: typeof raw.area === 'string' ? raw.area.trim() || null : null } : {}),
     });
   }
-  source.organizationPreferences = { areaOrder, projectOrder, tagOrder, tagAccents, priorityOrder: priorityOrder.length ? priorityOrder : [
+  source.organizationPreferences = { ...(typeof rawOrganizationPreferences.showActualTime === 'boolean' ? { showActualTime: rawOrganizationPreferences.showActualTime } : {}), areaOrder, projectOrder, tagOrder, tagAccents, priorityOrder: priorityOrder.length ? priorityOrder : [
     ...areaOrder.map((name) => ({ kind: 'area' as const, name })),
     ...projectOrder.map((name) => ({ kind: 'project' as const, name })),
     ...tagOrder.map((name) => ({ kind: 'tag' as const, name })),
@@ -863,7 +879,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'dayView', 'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar',
+    'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
@@ -920,6 +936,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   dayView.statistics = {
     showTime: dayStatistics.showTime !== false,
     ...(typeof dayStatistics.includeHiddenCompleted === 'boolean' ? { includeHiddenCompleted: dayStatistics.includeHiddenCompleted } : {}),
+    ...(typeof dayStatistics.showActualTime === 'boolean' ? { showActualTime: dayStatistics.showActualTime } : {}),
     reservedItemIds: Array.isArray(dayStatistics.reservedItemIds) ? [...new Set(dayStatistics.reservedItemIds.filter((id): id is string => typeof id === 'string' && id.length > 0))] : [],
   };
   const legacyWorkingHours = calendarPreferences.workingHours as { start?: string; end?: string } | undefined;

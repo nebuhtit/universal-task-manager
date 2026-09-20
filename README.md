@@ -152,9 +152,18 @@ The calendar is a responsive one-day list over the same universal items.
 - Choose which schedule relationships count for the day: Event opens, Event opens → Event ends overlap, Event opens → Due overlap, and Due. Enabled relationships are combined with `OR`.
 - Configure week start, timezone, and Google Calendar synchronization from the collapsed Calendar settings section.
 - Show scheduled items, deadlines, and projected recurring occurrences.
-- Mirror selected Google calendars into the encrypted workspace with read-only provenance; source events open in Google Calendar.
+- Mirror selected Google calendars into the encrypted workspace; source events open their properties in UTM with a separate Google Calendar link. Explicit editing affects only the selected event or occurrence, up to three hours after its end.
 - Keep Google OAuth access tokens in memory only. Incremental sync tokens contain no account access credential and may be stored in the workspace.
 - Treat mirrored Google events as a local cache: every JSON, CSV, Excel, iCalendar and encrypted `.utmb` export removes the events, connection metadata, sync tokens and dangling item references. Reconnect and sync after restoring a backup.
+- User-authored actual-time journals are workspace data, not Google cache: backups retain them with a hashed calendar/event association and reattach them after reconnecting the same calendar. Google event drafts are excluded from exports.
+
+### Actual time and completion journals
+
+- **Edit item → History** contains editable actual-time entries (date, hours/minutes/seconds, comment) and completion entries. Plan and actual time remain separate.
+- Timer history is separate. **Count as actual time** explicitly imports elapsed session time once; stopwatch sessions must exceed 30 seconds.
+- Completing or automatically closing a UTM item records its outcome. Reopening marks the previous completion revoked. Editing journal entries never changes status or advances recurrence.
+- Series history includes cycle-labelled entries; new cycles start with zero actual time. Legacy actual duration becomes an undated imported entry, and closure history is retained.
+- Enable **Actual time** in view statistics or PARA to display it separately. Expected duration still drives progress, remaining time and free time; actual totals use the same exclusions and deduplication.
 
 Calendar and calendar-driven automations are currently marked **beta** and receive stricter regression testing before releases.
 
@@ -305,7 +314,7 @@ Google Calendar connection needs a Google OAuth Web client configured with the l
 VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 ```
 
-For GitHub Pages, add the same value as the repository Actions secret `GOOGLE_CALENDAR_CLIENT_ID`. Reading requests `calendar.readonly`. Explicitly authorizing event creation requests `calendar.events` and `calendar.calendarlist.readonly`; access tokens remain in browser memory. Add these scopes to Google Auth Platform → Data Access. A saved UTM item offers **Create Google Calendar copy**: choose a writable calendar, review title, description, location, start/end and availability, then explicitly create a single event. This creates an independent copy, so both rows may contribute to statistics. Recurrence and guests are not copied. Existing Google events open their properties in UTM with a separate Google link. No Google update or delete operation is implemented. Creation saves an operation before sending, uses a deterministic event ID and reads back a matching conflict after a lost response. The connected account is checked before writing.
+For GitHub Pages, add the same value as the repository Actions secret `GOOGLE_CALENDAR_CLIENT_ID`. Reading requests `calendar.readonly`. Explicitly authorizing event creation requests `calendar.events` and `calendar.calendarlist.readonly`; access tokens remain in browser memory. Add these scopes to Google Auth Platform → Data Access. A saved UTM item offers **Create Google Calendar copy**: choose a writable calendar, review title, description, location, start/end and availability, then explicitly create a single event. This creates an independent copy, so both rows may contribute to statistics. Recurrence and guests are not copied. Existing Google events open their properties in UTM with a separate Google link. Editing uses a reviewed, changed-fields-only PATCH and ETag conflict protection; the current end and write permission are checked again before saving. Only an individual occurrence is changed. Drafts survive network failures and uncertain writes are read back before retrying. Google deletion is not implemented. Creation saves an operation before sending, uses a deterministic event ID and reads back a matching conflict after a lost response. The connected account is checked before writing.
 
 The first event download is bounded to one year behind and one year ahead, then Google sync tokens fetch changes incrementally; the moving two-year window is refreshed weekly. Per-request timeouts and an on-device sync log keep a stalled mobile connection diagnosable without recording event contents. Mirrored events and Google connection/creation metadata are excluded from every export, including encrypted recovery copies, so a restored workspace must reconnect and sync again.
 

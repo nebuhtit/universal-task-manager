@@ -1,4 +1,5 @@
 import { compileQuery, schedulePeriodBounds, type QueryTemporalOptions, type SchedulePeriod } from './dsl.js';
+import { actualTimeMs } from './item-history.js';
 import { projectOccurrences } from './calendar.js';
 import { effectiveItemDurationMs, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
 import type { SavedView, UniversalItem, WorkspaceDocument } from './types.js';
@@ -132,8 +133,10 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
   let completedDurationMs = 0;
   let remainingDurationMs = 0;
   let plannedDurationMs = 0;
+  let actualDurationMs = 0;
   const seen = new Set<string>();
   const apply = (item: UniversalItem, direction: 1 | -1) => {
+    if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && participatesInTimeStatistics(item) && (!item.external || item.external.transparency !== 'transparent')) actualDurationMs += direction * actualTimeMs(item);
     const duration = effectiveItemDurationMs(item);
     if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && !item.external?.readOnly && participatesInTimeStatistics(item)) {
       totalItems += direction;
@@ -162,6 +165,7 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
         completionPercent: totalDurationMs ? Math.round(completedDurationMs / totalDurationMs * 100) : 0,
         remainingDurationMs,
         reservedDurationMs,
+        actualDurationMs,
       };
       if (!period) return base;
       return {
@@ -198,8 +202,13 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
   const items = viewStatisticsItems(workspace, view, matchingItems, now, matchesForStatistics);
   const period = inferViewPeriod(view, now, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
   const accumulator = createViewTimeMetricsAccumulator(period ?? undefined);
+  const finish = (reserved = 0) => {
+    const metrics = accumulator.finish(reserved);
+    if (!view.statistics?.showActualTime) delete metrics.actualDurationMs;
+    return metrics;
+  };
   items.forEach((item) => accumulator.add(item));
-  if (!period) return accumulator.finish();
+  if (!period) return finish();
 
   const matchingIds = new Set(items.filter(eligible).map((item) => item.id));
   let reservedDurationMs = 0;
@@ -223,5 +232,5 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
       if (occurrenceDuration > 0) reservedDurationMs += occurrenceDuration;
     }
   }
-  return accumulator.finish(reservedDurationMs);
+  return finish(reservedDurationMs);
 }

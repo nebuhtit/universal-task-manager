@@ -35,6 +35,7 @@ export function ViewStatisticsEditor({ workspace, view, rows, visualDirty, onVie
 
   return <ViewEditorSection sectionKey={`statistics:${view.id}`} title="Statistics"><fieldset className="view-statistics-settings">
     <Checkbox checked={statistics.showTime} onChange={(event) => updateStatistics(event.target.checked)} label="Show time statistics" />
+    <Checkbox checked={statistics.showActualTime ?? false} onChange={(event) => onViewChange({ ...view, statistics: { ...statistics, showActualTime: event.target.checked } })} label={workspace.calendarPreferences.language === 'ru' ? 'Показывать фактически затраченное время' : 'Show actual time spent'} />
     <Checkbox checked={statistics.includeHiddenCompleted ?? false} onChange={(event) => onViewChange({ ...view, statistics: { ...statistics, includeHiddenCompleted: event.target.checked } })} label="Include completed items even when hidden" />
     <small className="field-hint">Counts completed items that would match this view while open. Dates, tags and exclusions still apply; the displayed list does not change.</small>
     <p className="builder-status">Completion is weighted by Duration. Remaining time includes unfinished items in this view.</p>

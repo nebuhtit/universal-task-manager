@@ -1,4 +1,5 @@
 import type { GoogleCalendarDefinition, GoogleCalendarEvent, GoogleCalendarPreferences, GoogleCalendarSyncBatch } from '@utm/core';
+import { googleHistoryKey } from './googleHistoryKey';
 
 const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
 const GOOGLE_SCRIPT_TIMEOUT_MS = 20_000;
@@ -12,7 +13,7 @@ export const GOOGLE_CALENDAR_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.
 
 interface GoogleTokenResponse { access_token?: string; expires_in?: number; scope?: string; error?: string; error_description?: string }
 interface GoogleTokenClient { requestAccessToken: (options?: { prompt?: string }) => void }
-export interface GoogleCalendarListEntry { id?: string; summary?: string; primary?: boolean; selected?: boolean; accessRole?: string }
+export interface GoogleCalendarListEntry { id?: string; summary?: string; primary?: boolean; selected?: boolean; accessRole?: string; timeZone?: string }
 interface GoogleCalendarListResponse { items?: GoogleCalendarListEntry[]; nextPageToken?: string }
 interface GoogleEventsResponse { items?: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string }
 
@@ -78,12 +79,12 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
   });
 }
 
-export async function googleJson<T>(url: string, accessToken: string, body?: unknown): Promise<T> {
+export async function googleJson<T>(url: string, accessToken: string, body?: unknown, options?: { method?: 'PATCH'; etag?: string }): Promise<T> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), GOOGLE_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, signal: controller.signal, ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}) });
+    response = await fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(options?.etag ? { 'If-Match': options.etag } : {}) }, signal: controller.signal, ...(body ? { method: options?.method ?? 'POST', body: JSON.stringify(body) } : {}) });
   } catch (reason) {
     if (controller.signal.aborted) throw new Error('Google Calendar request timed out. Check the connection and try again.');
     throw reason;
@@ -248,7 +249,8 @@ export async function synchronizeGoogleCalendars(accessToken: string, preference
   for (const result of results) {
     if (!result) continue;
     syncTokens[result.calendar.id] = result.response.nextSyncToken;
-    batches.push({ connectionId: preferences.connectionId, calendarId: result.calendar.id, events: result.response.events, syncedAt, fullSync: result.response.fullSync });
+    const events = await Promise.all(result.response.events.map(async (event) => ({ ...event, localHistoryKey: await googleHistoryKey(result.calendar.id, event.id) })));
+    batches.push({ connectionId: preferences.connectionId, calendarId: result.calendar.id, events, syncedAt, fullSync: result.response.fullSync });
   }
   for (const calendarId of Object.keys(syncTokens)) if (!calendars.some((calendar) => calendar.id === calendarId && calendar.selected)) delete syncTokens[calendarId];
   onProgress?.({ stage: 'complete', message: `Google download complete: ${eventCount} events.`, completedCalendars: selectedCalendars.length, totalCalendars: selectedCalendars.length, eventCount });

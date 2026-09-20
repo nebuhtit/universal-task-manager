@@ -2,7 +2,7 @@ import { calculateViewTimeMetrics, compileQuery, effectiveItemDurationMs, itemPr
 
 export type ProjectViewResult = {
   kind: 'project'; id: string; name: string; areas: string[];
-  items: UniversalItem[]; completionPercent: number | null; remainingDurationMs: number;
+  items: UniversalItem[]; completionPercent: number | null; remainingDurationMs: number; actualDurationMs?: number;
 };
 export type ViewResult = { kind: 'item'; id: string; item: UniversalItem } | ProjectViewResult;
 export const projectResultId = (name: string) => `project:${encodeURIComponent(name)}`;
@@ -22,9 +22,9 @@ export function projectResults(workspace: WorkspaceDocument, view: SavedView, ca
       if (!predicate(projection, now)) return [];
       const items = byProject.get(project.name) ?? [];
       if (!items.length) return [];
-      const metrics = calculateViewTimeMetrics(workspace, { ...view, statistics: { showTime: true, reservedItemIds: [] } }, items, now);
+      const metrics = calculateViewTimeMetrics(workspace, { ...view, statistics: { showTime: true, showActualTime: Boolean(view.statistics?.showActualTime), reservedItemIds: [] } }, items, now);
       const hasDuration = items.some((item) => !item.deletedAt && !item.external?.readOnly && item.role !== 'series_template' && !['archived', 'cancelled'].includes(item.state) && participatesInTimeStatistics(item) && effectiveItemDurationMs(item) > 0);
-      return [{ kind: 'project' as const, id: projectResultId(project.name), name: project.name, areas: project.areas, items, completionPercent: hasDuration ? metrics.completionPercent : null, remainingDurationMs: metrics.remainingDurationMs }];
+      return [{ kind: 'project' as const, id: projectResultId(project.name), name: project.name, areas: project.areas, items, completionPercent: hasDuration ? metrics.completionPercent : null, remainingDurationMs: metrics.remainingDurationMs, ...(metrics.actualDurationMs !== undefined ? { actualDurationMs: metrics.actualDurationMs } : {}) }];
     });
   } catch { return []; }
 }

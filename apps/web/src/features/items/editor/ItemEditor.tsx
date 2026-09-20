@@ -1,7 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { initializeItemHistory, recordCompletionTransition } from '@utm/core';
+import { ItemHistoryJournals } from './sections/ItemHistoryJournals';
+import { EditGoogleEventDialog, type GoogleEditingCallbacks } from '../../calendar/EditGoogleEventDialog';
 import {
-  createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage, recurrenceCompletionHistory,
+  createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage,
   type RecurrenceCompletionRecord, type Schedule, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../../components/ui/CodeEditor';
@@ -22,12 +25,12 @@ import { DateTimeField } from './fields/DateTimeField';
 import { DatesSection } from './sections/DatesSection';
 import { RemindersSection } from './sections/RemindersSection';
 import { RecurrenceSection } from './sections/RecurrenceSection';
-import { RecurrenceHistorySection } from './sections/RecurrenceHistorySection';
 import { ScriptsSection } from './sections/ScriptsSection';
 import { TimerHistorySection } from './sections/TimerHistorySection';
 import './item-editor-heading.css';
 import { CreateGoogleEventDialog, type GoogleCreationCallbacks } from '../../calendar/CreateGoogleEventDialog';
 import { GOOGLE_CREATE_EXTENSION } from '../../../services/googleCalendarCreate';
+import { GOOGLE_EDIT_EXTENSION } from '../../../services/googleCalendarEdit';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -59,13 +62,15 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onUpdateRecurrenceCompletion, onReadPortableFile, onExportItem, onClose, onPrepareGoogleCreate, onGoogleCreated }: Partial<GoogleCreationCallbacks> & {
+export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onPrepareGoogleCreate, onGoogleCreated, onHistorySave, onGoogleEditDraft, onGoogleUpdated }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
+  onHistorySave?: (item: UniversalItem) => void | Promise<void>;
   initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string }) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
-  const [item, setItem] = useState(() => clean(initial));
+  const [item, setItem] = useState(() => { const next = clean(initial); initializeItemHistory(next); return next; });
   const [creatingGoogle, setCreatingGoogle] = useState(false);
+  const [editingGoogle, setEditingGoogle] = useState(false);
   const titleFieldId = useId();
   const [tags, setTags] = useState(item.tags.join(', '));
   const [areaDraft, setAreaDraft] = useState('');
@@ -81,7 +86,6 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
   const googleEvent = item.external?.provider === 'google_calendar' ? item.external : undefined;
-  const recurrenceHistory = recurring ? recurrenceCompletionHistory(workspace, item.id) : [];
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const suppressFocusRestore = useRef(false);
@@ -100,6 +104,13 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     const identity = { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, revision: item.revision, createdWithAppId: item.createdWithAppId, createdWithAppName: item.createdWithAppName, createdWithVersion: item.createdWithVersion };
     const next = clean({ ...template, ...identity, state: 'open' as const, role: 'standalone' as const, extensions: { ...template.extensions } });
     const cleanNext = withoutTemplateMarker(next);
+    delete cleanNext.actualTimeEntries;
+    delete cleanNext.completionEntries;
+    delete cleanNext.timerHistory;
+    delete cleanNext.cycleHistory;
+    delete cleanNext.closure;
+    delete cleanNext.occurrence;
+    if (cleanNext.schedule) delete cleanNext.schedule.actualDuration;
     setItem(cleanNext); setTags(cleanNext.tags.join(', ')); setContexts(cleanNext.contexts.join(', ')); setRecurring(false); setIsTemplate(false); setJsonDraft(JSON.stringify(cleanNext, null, 2)); setJsonDirty(false);
   };
   const importJsonRef = useRef<HTMLInputElement>(null);
@@ -253,7 +264,9 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         suppressFocusRestore.current = true;
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
-      onSave(normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now }), convertedProject ? { convertedProject } : undefined);
+      const normalized = normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now });
+      recordCompletionTransition(normalized, initial.state, now.toISOString());
+      onSave(normalized, convertedProject ? { convertedProject } : undefined);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   useEffect(() => {
@@ -295,7 +308,8 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     patchItem({ habit: { ...rest, timerSessions: [...(habit.timerSessions ?? []), { id: createId(), startedAt, endedAt, durationSeconds }] } });
   };
 
-  if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<Button onClick={onClose}>Close</Button>}>
+  if (googleEvent && editingGoogle && onGoogleEditDraft && onGoogleUpdated) return <EditGoogleEventDialog item={workspace.items[item.id] ?? item} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleUpdated={async (event) => { await onGoogleUpdated(event); onClose(); }} />;
+  if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<><Button onClick={onClose}>Close</Button>{onGoogleEditDraft && onGoogleUpdated && <Button disabled={!workspace.items[item.id]?.extensions?.[GOOGLE_EDIT_EXTENSION] && (!item.schedule?.endAt || Date.now() > Date.parse(item.schedule.endAt) + 3 * 3600_000)} onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Редактировать' : 'Edit event'}</Button>}</>}>
     <h2>{item.title}</h2><p style={{ whiteSpace: 'pre-wrap' }}>{item.bodyMarkdown}</p>
     <dl className="google-create-preview">
       <dt>Location</dt><dd>{item.location || '—'}</dd>
@@ -307,6 +321,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
       <dt>Availability</dt><dd>{googleEvent.transparency === 'transparent' ? 'Free' : 'Busy'}</dd>
       <dt>Time statistics</dt><dd>{item.schedule?.allDay ? 'Excluded — all-day event' : googleEvent.transparency === 'transparent' ? 'Excluded — marked free' : 'Included — reserves its Event opens → Event ends interval'}</dd>
     </dl><a className="secondary button-link" href={googleEvent.sourceUrl} target="_blank" rel="noreferrer">Open in Google Calendar</a>
+    <ItemHistoryJournals item={item} workspace={workspace} onChange={async (next) => { await onHistorySave?.(next); setItem(next); }} />
   </ResponsiveDialog>;
 
   return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
@@ -328,7 +343,11 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         {!googleEvent && workspace.calendarPreferences.googleCalendar && <Button disabled={isNew || !onPrepareGoogleCreate || !onGoogleCreated} onClick={() => setCreatingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Создать копию в Google Календаре' : 'Create Google Calendar copy'}</Button>}
         {!googleEvent && isNew && workspace.calendarPreferences.googleCalendar && <p>{workspace.calendarPreferences.language === 'ru' ? 'Сначала сохраните элемент UTM.' : 'Save the UTM item first.'}</p>}
         {creatingGoogle && onPrepareGoogleCreate && onGoogleCreated && <CreateGoogleEventDialog item={item} workspace={workspace} onClose={() => setCreatingGoogle(false)} onPrepareGoogleCreate={async (operation) => { await onPrepareGoogleCreate(operation); setItem((current) => ({ ...current, extensions: { ...current.extensions, [GOOGLE_CREATE_EXTENSION]: JSON.parse(JSON.stringify(operation)) } })); }} onGoogleCreated={onGoogleCreated} />}
-        <QuickItemTimer soundEnabled onRecord={(record) => patchItem({ timerHistory: [...(item.timerHistory ?? []), record] })} />
+        <QuickItemTimer soundEnabled onRecord={(record) => {
+          const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
+          if (owner && onHistorySave) void Promise.resolve(onHistorySave({ ...clean(owner), timerHistory: [...(owner.timerHistory ?? []), { ...record, recurrenceId: owner.occurrence!.recurrenceId }] })).catch((reason) => setError(String(reason)));
+          else patchItem({ timerHistory: [...(item.timerHistory ?? []), { ...record, ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) }] });
+        }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
         <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
@@ -360,6 +379,10 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           <div className="description-file-links"><FieldIconLabel path="attachments" label="Files (links only)" />{item.attachments.map((attachment) => <div className="chip" key={attachment.id}><a href={attachment.url} target="_blank" rel="noreferrer">{attachment.title ?? attachment.url}</a><button aria-label="Remove file link" onClick={() => patchItem({ attachments: item.attachments.filter((entry) => entry.id !== attachment.id) })}><CloseIcon /></button></div>)}<button className="secondary" onClick={() => { const url = window.prompt('File URL'); if (url) patchItem({ attachments: [...item.attachments, { id: createId(), url }] }); }}>+ Add file link</button></div>
         </div></details>
 
+        <ItemSection sectionKey="history" title="History" iconPath="cycleHistory">
+          <TimerHistorySection records={[...(item.timerHistory ?? []), ...Object.values(workspace.items).filter((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id).flatMap((entry) => entry.timerHistory ?? [])]} language={workspace.calendarPreferences.language} />
+          <ItemHistoryJournals item={item} workspace={workspace} onChange={setItem} {...(onHistorySave ? { onOwnerChange: onHistorySave } : {})} />
+        </ItemSection>
         <ItemSection sectionKey="more" title="More" iconPath="custom">
           <details><summary><FieldIconLabel path="location" label="Location" /> {sectionMark(Boolean(item.location))}</summary><div className="details-body"><Field label="Location" optional hint="Reserved for future calendar event data."><Input aria-label="Location" value={item.location ?? ''} onChange={(event) => patchItem({ location: event.target.value || undefined })} placeholder="Add a location" /></Field></div></details>
         <ItemSection sectionKey="template" title="Template" iconPath="isTemplate" filledMark={sectionMark(isTemplate)}><Checkbox checked={isTemplate} onChange={(event) => setIsTemplate(event.target.checked)} label="Save this item as a template" /><p className="schedule-explainer">Templates are kept in the same workspace but do not appear in ordinary lists. They can be selected only while creating a new item.</p></ItemSection>
@@ -392,12 +415,6 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         <ScriptsSection scripts={item.scripts ?? []} onChange={(scripts) => patchItem({ scripts: scripts.length ? scripts : undefined })} scriptResults={scriptResults} />
         {definitions.length > 0 && <details><summary><FieldIconLabel path="custom" label="Custom fields" /> {sectionMark(Object.keys(item.custom).length > 0)}</summary><div className="details-body">{definitions.map((field) => <label key={field.id}><FieldIconLabel path={`custom.${field.key}`} label={field.label} />{field.kind === 'formula' ? <output className="formula-output">{String(formulas.values[field.key] ?? formulas.errors[field.key] ?? '—')}</output> : <input value={String(item.custom[field.key] ?? '')} onChange={(event) => patchItem({ custom: { ...item.custom, [field.key]: field.kind === 'number' ? Number(event.target.value) : field.kind === 'boolean' ? event.target.value === 'true' : event.target.value } })} />}</label>)}</div></details>}
         <details><summary><FieldIconLabel path="system.json" label="Item JSON" /> {sectionMark(jsonDirty)}</summary><div className="details-body json-editor"><p className="hint">Edit the same item draft as the form. Protected identity, provenance, timestamps and occurrence fields are preserved when updating an existing item.</p><SectionGuide title="JSON safety"><p>Apply JSON updates the form first; only Save item writes it to the workspace. Import as new item always creates a separate copy. Exported data is readable, so do not share it accidentally.</p></SectionGuide><CodeEditor language="json" ariaLabel="Item JSON" rows={18} value={jsonDraft} onChange={(value) => { setJsonDraft(value); setJsonDirty(true); }} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => { setJsonDraft(JSON.stringify(item, null, 2)); setJsonDirty(false); }}>Refresh from form</button><button className="secondary compact-action" onClick={applyJson}>Apply JSON to form</button><details className="inline-menu"><summary>Export…</summary><div><button onClick={exportItemJson}>JSON</button><button onClick={() => exportItem('csv')}>CSV</button><button onClick={() => exportItem('xlsx')}>Excel</button><button onClick={() => exportItem('ics')}>iCalendar</button><button onClick={() => exportItem('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary compact-action" onClick={() => importJsonRef.current?.click()}>Import as new item</button><input ref={importJsonRef} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => event.target.files?.[0] && void importAsNew(event.target.files[0])} /></div></div></details>
-        {recurring && <RecurrenceHistorySection records={recurrenceHistory} language={workspace.calendarPreferences.language} onSave={(record, completedAt) => {
-          const result = onUpdateRecurrenceCompletion(record, completedAt);
-          if (result.series?.id === item.id) setItem((current) => ({ ...current, ...(result.series!.schedule ? { schedule: clean(result.series!.schedule) } : {}), updatedAt: result.series!.updatedAt, revision: result.series!.revision }));
-          return result;
-        }} />}
-        <TimerHistorySection records={item.timerHistory ?? []} language={workspace.calendarPreferences.language} />
         <details><summary><FieldIconLabel path="system" label="System metadata" /></summary><div className="details-body metadata-grid"><div><span>Created at</span><output><time dateTime={item.createdAt}>{formatViewDate(item.createdAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Last modified</span><output><time dateTime={item.updatedAt}>{formatViewDate(item.updatedAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Created by application</span><output>{item.createdWithAppName} v{item.createdWithVersion}</output></div><div><span>Application ID</span><output className="mono">{item.createdWithAppId}</output></div><div><span>Item schema</span><output>{item.schemaVersion}</output></div><div><span>Item ID</span><output>{item.id}</output></div></div></details>
         </ItemSection>
       {error && <p className="editor-error error" role="alert">{error}</p>}

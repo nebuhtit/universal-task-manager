@@ -1,4 +1,5 @@
 import * as rruleModule from 'rrule';
+import { retainedItemHistory, recordCompletionTransition, syncActualDuration } from './item-history.js';
 import type { RRuleSet as RRuleSetType } from 'rrule';
 import { durationToMs } from './dsl.js';
 import { APP_ID, APP_NAME, APP_VERSION } from './types.js';
@@ -137,7 +138,8 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
       ? { dueAt: new Date(anchor.getTime() + dueOffset).toISOString() }
       : detached.schedule?.dueAt ? { dueAt: shiftIso(detached.schedule.dueAt, delta)! } : {}),
   };
-  const { recurrence: _recurrence, occurrence: _occurrence, closure: _closure, ...snapshot } = detached;
+  delete schedule.actualDuration;
+  const { recurrence: _recurrence, occurrence: _occurrence, closure: _closure, actualTimeEntries: _actual, completionEntries: _completions, timerHistory: _timers, ...snapshot } = detached;
   const reminders = detached.reminders.map((reminder) => reminder.mode === 'absolute' && reminder.at
     ? { ...reminder, at: shiftIso(reminder.at, delta)! }
     : reminder);
@@ -336,6 +338,10 @@ function appendCycleHistory(item: UniversalItem, entry: CycleHistoryEntry): bool
   item.cycleHistory ??= [];
   if (item.cycleHistory.some((candidate) => candidate.recurrenceId === entry.recurrenceId)) return false;
   item.cycleHistory.push(entry);
+  if ((entry.state === 'done' || entry.state === 'auto_closed') && !item.completionEntries?.some((record) => record.recurrenceId === entry.recurrenceId && !record.revokedAt)) {
+    item.completionEntries ??= [];
+    item.completionEntries.push({ id: `cycle:${item.id}:${entry.recurrenceId}`, at: entry.closedAt, kind: entry.actor === 'user' && entry.state === 'done' ? 'manual' : 'automatic', comment: '', recurrenceId: entry.recurrenceId });
+  }
   // Automerge list proxies intentionally do not expose Array#sort. Reorder the
   // list through splice and detached values so this helper works for both plain
   // workspace objects and live Automerge drafts.
@@ -400,6 +406,12 @@ function reconcileRollingSeries(
     const closedAt = legacy.closure?.at ?? legacy.schedule?.dueAt ?? legacy.updatedAt;
     const history = cycleHistoryFrom(legacy, state, closedAt);
     if (rolling) rollingChanged = appendCycleHistory(rolling, history) || rollingChanged; else pendingHistory.push(history);
+    if (rolling) {
+      const history = retainedItemHistory(legacy);
+      if (history.timerHistory?.length) rolling.timerHistory = [...(rolling.timerHistory ?? []), ...history.timerHistory];
+      if (history.actualTimeEntries?.length) rolling.actualTimeEntries = [...(rolling.actualTimeEntries ?? []), ...history.actualTimeEntries];
+      if (history.completionEntries?.length) rolling.completionEntries = [...(rolling.completionEntries ?? []), ...history.completionEntries.filter((entry) => !rolling!.completionEntries?.some((existing) => existing.recurrenceId === entry.recurrenceId && existing.at === entry.at))];
+    }
     delete workspace.items[legacy.id];
     removedIds.push(legacy.id);
     rollingChanged = true;
@@ -470,6 +482,7 @@ function reconcileRollingSeries(
       createdWithAppName: rolling.createdWithAppName,
       createdWithVersion: rolling.createdWithVersion,
       cycleHistory: detachedCycleHistory(rolling, latestAnchor.toISOString()),
+      ...retainedItemHistory(rolling),
     };
     Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
     Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
@@ -485,6 +498,7 @@ function reconcileRollingSeries(
       createdWithAppName: rolling.createdWithAppName,
       createdWithVersion: rolling.createdWithVersion,
       cycleHistory: detachedCycleHistory(rolling),
+      ...retainedItemHistory(rolling),
     };
     Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
     Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
@@ -502,6 +516,7 @@ function reconcileRollingSeries(
       createdWithAppName: rolling.createdWithAppName,
       createdWithVersion: rolling.createdWithVersion,
       cycleHistory: detachedCycleHistory(rolling),
+      ...retainedItemHistory(rolling),
     };
     Object.keys(rolling).forEach((key) => { delete (rolling as unknown as Record<string, unknown>)[key]; });
     Object.assign(rolling, fresh, stable, { updatedAt: now.toISOString(), revision: fresh.revision + 1 });
@@ -517,6 +532,7 @@ function reconcileRollingSeries(
     autoClosed.push(rolling);
     rollingChanged = true;
   }
+  if (rollingChanged) syncActualDuration(rolling);
   if (rollingChanged && !updated.includes(rolling)) updated.push(rolling);
   return rolling;
 }
@@ -533,6 +549,10 @@ export function consolidateHabitOccurrences(workspace: WorkspaceDocument, now = 
     const legacyOccurrences = Object.values(workspace.items).filter((item) => item.occurrence?.seriesId === series.id);
     for (const occurrence of legacyOccurrences) {
       if (occurrence.state === 'done') series.habit.completedDates.push(occurrence.occurrence!.recurrenceId.slice(0, 10));
+      const history = retainedItemHistory(occurrence);
+      if (history.timerHistory?.length) series.timerHistory = [...(series.timerHistory ?? []), ...history.timerHistory];
+      if (history.actualTimeEntries?.length) series.actualTimeEntries = [...(series.actualTimeEntries ?? []), ...history.actualTimeEntries];
+      if (history.completionEntries?.length) series.completionEntries = [...(series.completionEntries ?? []), ...history.completionEntries];
       workspace.tombstones[occurrence.id] = now.toISOString();
       delete workspace.items[occurrence.id];
       removed += 1;
@@ -614,6 +634,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
         occurrence.updatedAt = now.toISOString();
         occurrence.revision += 1;
         occurrence.closure = { at: boundary.toISOString(), actor: 'system', reason: 'auto_renew' };
+        recordCompletionTransition(occurrence, 'open', now.toISOString());
         advanceCompletionAnchoredSeries(workspace, occurrence, boundary.toISOString());
         autoClosed.push(occurrence);
       }

@@ -1,4 +1,5 @@
 import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, type UniversalItem, type WorkspaceDocument } from './types.js';
+import { retainedItemHistory, syncActualDuration } from './item-history.js';
 
 export interface GoogleCalendarEventDate {
   date?: string;
@@ -7,6 +8,8 @@ export interface GoogleCalendarEventDate {
 }
 
 export interface GoogleCalendarEvent {
+  /** Computed locally, never sent to Google. */
+  localHistoryKey?: string;
   id: string;
   etag?: string;
   status?: 'confirmed' | 'tentative' | 'cancelled';
@@ -18,6 +21,7 @@ export interface GoogleCalendarEvent {
   updated?: string;
   transparency?: 'opaque' | 'transparent';
   recurringEventId?: string;
+  recurrence?: string[];
   /** Duration of the recurring series source, populated by the browser sync. */
   seriesDurationMilliseconds?: number;
   start?: GoogleCalendarEventDate;
@@ -129,12 +133,20 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
     const next = googleCalendarEventToItem(event, batch.calendarId, batch.connectionId, batch.syncedAt, workspace.calendarPreferences.timezone);
     if (!next) continue;
     const existing = workspace.items[id];
+    if (!existing && event.localHistoryKey && workspace.calendarPreferences.localTimeJournals?.[event.localHistoryKey]) {
+      next.actualTimeEntries = JSON.parse(JSON.stringify(workspace.calendarPreferences.localTimeJournals[event.localHistoryKey]));
+      syncActualDuration(next);
+    }
     const nextSchedule = next.schedule;
     if (existing && event.etag && existing.external?.etag === event.etag
       && existing.schedule?.startAt === nextSchedule?.startAt
       && existing.schedule?.endAt === nextSchedule?.endAt
       && existing.schedule?.estimatedDuration === nextSchedule?.estimatedDuration) continue;
-    if (existing) { next.createdAt = existing.createdAt; next.revision = existing.revision + 1; updated += 1; }
+    if (existing) {
+      Object.assign(next, retainedItemHistory(existing)); syncActualDuration(next);
+      if (existing.extensions?.['utm:googleEdit']) next.extensions = { 'utm:googleEdit': JSON.parse(JSON.stringify(existing.extensions['utm:googleEdit'])) };
+      next.createdAt = existing.createdAt; next.revision = existing.revision + 1; updated += 1;
+    }
     else added += 1;
     workspace.items[id] = next;
     delete workspace.tombstones[id];
