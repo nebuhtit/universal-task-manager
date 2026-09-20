@@ -16,6 +16,7 @@ type Dictionary = Record<string, string>;
 type TranslationTable = Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary>;
 
 const en = {
+  'Add time to History': 'Добавить время в историю', 'Added to History': 'Добавлено в историю',
   Home: 'Главная', 'All items': 'Все элементы', Settings: 'Настройки', Lock: 'Заблокировать', Transfer: 'Передача',
   Notifications: 'Уведомления', 'No notifications': 'Нет уведомлений', 'Encrypted locally': 'Зашифровано локально', 'Save encrypted backup': 'Сохранить зашифрованную копию', 'Save plaintext backup': 'Сохранить незашифрованную копию',
   'Add new task': 'Добавить новую задачу', 'Add new item': 'Добавить новый элемент', 'Add task': 'Добавить задачу', 'New item': 'Новый элемент', 'New view': 'Новый вид',

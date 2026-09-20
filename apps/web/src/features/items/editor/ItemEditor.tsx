@@ -1,7 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition } from '@utm/core';
+import { addTimerActualTime, canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition } from '@utm/core';
 import { googleActionItem } from './itemEditorSource';
+import type { GoogleCalendarEvent } from '@utm/core';
 import { ItemHistoryJournals } from './sections/ItemHistoryJournals';
 import { EditGoogleEventDialog, type GoogleEditingCallbacks } from '../../calendar/EditGoogleEventDialog';
 import {
@@ -75,9 +76,9 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [googleBaseline, setGoogleBaseline] = useState(() => clean(initial));
-  const [googleConflict, setGoogleConflict] = useState(false);
+  const [googleConflict, setGoogleConflict] = useState(() => /changed in Google/.test(String((initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { blocked?: string } | undefined)?.blocked ?? '')));
   const [googleRebased, setGoogleRebased] = useState(false);
-  const [googleBusyValue, setGoogleBusyValue] = useState(initial.external?.transparency !== 'transparent');
+  const [googleBusyValue, setGoogleBusyValue] = useState((initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { draft?: { busy: boolean } } | undefined)?.draft?.busy ?? initial.external?.transparency !== 'transparent');
   const googlePreferences = workspace.calendarPreferences.googleCalendar;
   const [googleCalendarId, setGoogleCalendarId] = useState((initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { destination?: string } | undefined)?.destination || initial.external?.calendarId || googlePreferences?.defaultCalendarId || googlePreferences?.calendars.find((c) => c.primary)?.id || '');
   const [calendarChoices, setCalendarChoices] = useState((googlePreferences?.calendars ?? []).filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer' || (!c.accessRole && c.primary)).map((c) => ({ id: c.id, summary: c.name })));
@@ -328,7 +329,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   };
 
   if (googleLink && editingGoogle && onGoogleEditDraft && onGoogleUpdated) return <EditGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleUpdated={async (event) => { await onGoogleUpdated(event); if (googleEvent) onClose(); else setEditingGoogle(false); }} />;
-  if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<><Button onClick={onClose}>Close</Button>{onGoogleEditDraft && onGoogleUpdated && <Button disabled={!workspace.items[item.id]?.extensions?.[GOOGLE_EDIT_EXTENSION] && (!item.schedule?.endAt || Date.now() > Date.parse(item.schedule.endAt) + 3 * 3600_000)} onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Редактировать' : 'Edit event'}</Button>}</>}>
+  if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<><Button onClick={onClose}>Close</Button>{onGoogleEditDraft && onGoogleUpdated && <Button disabled={!workspace.calendarPreferences.googleCalendar?.allowPastEventEditing && !workspace.items[item.id]?.extensions?.[GOOGLE_EDIT_EXTENSION] && (!item.schedule?.endAt || Date.now() > Date.parse(item.schedule.endAt) + 3 * 3600_000)} onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Редактировать' : 'Edit event'}</Button>}</>}>
     <h2>{item.title}</h2><p style={{ whiteSpace: 'pre-wrap' }}>{item.bodyMarkdown}</p>
     <dl className="google-create-preview">
       <dt>Location</dt><dd>{item.location || '—'}</dd>
@@ -368,11 +369,15 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           <Button variant="ghost" disabled={saving} onClick={() => void refreshCalendars()}>Refresh calendars</Button>
           <Checkbox label="Busy" checked={googleBusyValue} onChange={(event) => setGoogleBusyValue(event.target.checked)} />
         </>}
-        {!googleEvent && isNew && workspace.calendarPreferences.googleCalendar && <p>{workspace.calendarPreferences.language === 'ru' ? 'Сначала сохраните элемент UTM.' : 'Save the UTM item first.'}</p>}
-        <QuickItemTimer soundEnabled onRecord={(record) => {
+        {Boolean(item.extensions?.['utm:googleSave']) && <p role="status">{workspace.calendarPreferences.language === 'ru' ? 'Сохранено в UTM, ожидает синхронизации.' : 'Saved in UTM, waiting for sync.'}{String((item.extensions!['utm:googleSave'] as { blocked?: string }).blocked ?? '')}</p>}
+        <QuickItemTimer soundEnabled onCountTime={async (record) => {
           const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
-          if (owner && onHistorySave) void Promise.resolve(onHistorySave({ ...clean(owner), timerHistory: [...(owner.timerHistory ?? []), { ...record, recurrenceId: owner.occurrence!.recurrenceId }] })).catch((reason) => setError(String(reason)));
-          else patchItem({ timerHistory: [...(item.timerHistory ?? []), { ...record, ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) }] });
+          const target = clean(owner ?? item); addTimerActualTime(target, record);
+          if (owner && onHistorySave) await onHistorySave(target); else patchItem({ actualTimeEntries: target.actualTimeEntries, schedule: target.schedule });
+        }} onRecord={(record) => {
+          const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
+          if (owner && onHistorySave) void Promise.resolve(onHistorySave({ ...clean(owner), timerHistory: [...(owner.timerHistory ?? []).filter((entry) => entry.id !== record.id), { ...record, recurrenceId: owner.occurrence!.recurrenceId }] })).catch((reason) => setError(String(reason)));
+          else patchItem({ timerHistory: [...(item.timerHistory ?? []).filter((entry) => entry.id !== record.id), { ...record, ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) }] });
         }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
         <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} applyDurationPreset={applyDurationPreset}>
@@ -449,7 +454,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         try {
           const token = await requestGoogleCalendarToken(undefined, 'create');
           const { event, timeZone } = await loadEditableGoogleEvent(token.accessToken, link.calendarId, link.eventId, googlePreferences.accountEmail ?? '');
-          const merged = rebaseGoogleEdit({ calendarId: link.calendarId, eventId: link.eventId, accountEmail: googlePreferences.accountEmail ?? '', baseline: itemGoogleBaseline(googleBaseline), draft: itemGoogleDraft(item, googleBusyValue) }, event, timeZone);
+          const merged = rebaseGoogleEdit({ calendarId: link.calendarId, eventId: link.eventId, accountEmail: googlePreferences.accountEmail ?? '', baseline: (workspace.items[item.id]?.extensions?.[GOOGLE_SAVE_EXTENSION] as { baseline?: GoogleCalendarEvent } | undefined)?.baseline ?? itemGoogleBaseline(googleBaseline), draft: itemGoogleDraft(item, googleBusyValue) }, event, timeZone);
           const remote = googleCalendarEventToItem(event, link.calendarId, link.connectionId, new Date().toISOString(), timeZone)!;
           setGoogleBaseline({ ...googleBaseline, title: remote.title, bodyMarkdown: remote.bodyMarkdown, location: remote.location ?? '', schedule: { ...googleBaseline.schedule, ...remote.schedule, timezone: timeZone }, external: { ...link, etag: event.etag!, startAt: remote.schedule!.startAt!, endAt: remote.schedule!.endAt!, timezone: timeZone, allDay: merged.allDay, transparency: event.transparency ?? 'opaque' } });
           const mergedEvent = googleCalendarEventToItem({ id: event.id, summary: merged.title, description: merged.description, location: merged.location, start: merged.allDay ? { date: merged.start, timeZone: merged.timeZone } : { dateTime: merged.start, timeZone: merged.timeZone }, end: merged.allDay ? { date: merged.end, timeZone: merged.timeZone } : { dateTime: merged.end, timeZone: merged.timeZone } }, link.calendarId, link.connectionId, new Date().toISOString(), merged.timeZone)!;

@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.2.1';
-export const APP_RELEASED_AT = '2026-09-20T18:41:22.338Z';
+export const APP_VERSION = '2.2.2';
+export const APP_RELEASED_AT = '2026-09-20T19:50:00.000Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -200,6 +200,7 @@ export interface ItemTimerSession {
 }
 
 export interface ActualTimeEntry {
+  completionId?: string;
   id: string;
   at?: ISODateTime;
   durationSeconds: number;
@@ -562,6 +563,10 @@ export interface TestClockPreferences {
 /** UI language is a workspace preference; item data itself remains language-neutral. */
 export type WorkspaceLanguage = 'en' | 'ru' | 'es' | 'de' | 'fr' | 'ko';
 export interface GoogleCalendarDefinition {
+  color?: string;
+  managedTag?: string;
+  areas?: string[];
+  projects?: string[];
   accessRole?: string;
   id: string;
   name: string;
@@ -569,6 +574,7 @@ export interface GoogleCalendarDefinition {
   selected: boolean;
 }
 export interface GoogleCalendarPreferences {
+  allowPastEventEditing?: boolean;
   defaultCalendarId?: string;
   connectionId: string;
   accountEmail?: string;

@@ -17,10 +17,10 @@ const eventUrl = (calendarId: string, eventId: string) => `https://www.googleapi
 export function googleEventDraft(event: GoogleCalendarEvent, timeZone: string): GoogleEventDraft {
   return { title: event.summary ?? '', description: event.description ?? '', location: event.location ?? '', start: event.start?.dateTime ?? event.start?.date ?? '', end: event.end?.dateTime ?? event.end?.date ?? '', allDay: Boolean(event.start?.date), busy: event.transparency !== 'transparent', timeZone: event.start?.timeZone ?? event.end?.timeZone ?? timeZone };
 }
-export function canEditGoogleEvent(event: GoogleCalendarEvent, timeZone: string, now = Date.now()): boolean {
+export function canEditGoogleEvent(event: GoogleCalendarEvent, timeZone: string, now = Date.now(), allowPast = false): boolean {
   if (event.status === 'cancelled' || event.recurrence?.length) return false;
   const end = event.end?.dateTime ? Date.parse(event.end.dateTime) : event.end?.date ? zonedDateStart(event.end.date, event.end.timeZone ?? timeZone).getTime() : NaN;
-  return Number.isFinite(end) && now <= end + GOOGLE_EDIT_WINDOW_MS;
+  return Number.isFinite(end) && (allowPast || now <= end + GOOGLE_EDIT_WINDOW_MS);
 }
 export async function loadEditableGoogleEvent(token: string, calendarId: string, eventId: string, accountEmail: string): Promise<{ event: GoogleCalendarEvent; timeZone: string }> {
   const calendars = await writableGoogleCalendars(token, accountEmail);
@@ -57,13 +57,13 @@ export function rebaseGoogleEdit(operation: GoogleEditOperation, event: GoogleCa
   if ('start' in changes || 'end' in changes) { next.allDay = operation.draft.allDay; next.timeZone = operation.draft.timeZone; }
   return next;
 }
-export async function updateSingleGoogleEvent(token: string, operation: GoogleEditOperation, now: () => number = Date.now): Promise<GoogleCalendarEvent> {
+export async function updateSingleGoogleEvent(token: string, operation: GoogleEditOperation, now: () => number = Date.now, allowPast = false): Promise<GoogleCalendarEvent> {
   const changes = googleEventChanges(operation);
   const { event, timeZone } = await loadEditableGoogleEvent(token, operation.calendarId, operation.eventId, operation.accountEmail);
   // After an uncertain response, read back exactly the fields we attempted before sending again.
   const remaining = googleEventChanges({ ...operation, baseline: event });
   if (operation.attempted && Object.keys(changes).every((key) => !(key in remaining))) return event;
-  if (!canEditGoogleEvent(event, timeZone, now())) throw new Error('Editing is available until 3 hours after the event ends.');
+  if (!canEditGoogleEvent(event, timeZone, now(), allowPast)) throw new Error('Editing is available until 3 hours after the event ends.');
   if (!operation.baseline.etag || event.etag !== operation.baseline.etag) throw new GoogleEditConflict();
   if (!Object.keys(changes).length) return event;
   try { return await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}?sendUpdates=all`, token, changes, { method: 'PATCH', etag: event.etag }); }

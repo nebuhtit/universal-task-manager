@@ -11,6 +11,14 @@ function mockRemote(remote = event, accessRole = 'owner', patchStatus = 200) {
   return requests;
 }
 describe('Google event editing', () => {
+  it('allows old occurrences only with the explicit beta switch and retains access checks', async () => {
+    const later = () => Date.parse('2030-01-01T12:00:00Z');
+    mockRemote();
+    await expect(updateSingleGoogleEvent('token', operation(), later)).rejects.toThrow('3 hours');
+    await expect(updateSingleGoogleEvent('token', operation(), later, true)).resolves.toMatchObject({ summary: 'Updated' });
+    mockRemote(event, 'reader');
+    await expect(updateSingleGoogleEvent('token', operation(), later, true)).rejects.toThrow('not writable');
+  });
   it('includes exactly 3 hours and excludes one millisecond later, masters, and cancelled events', () => {
     expect(canEditGoogleEvent(event, 'UTC', Date.parse('2026-09-20T16:00:00Z'))).toBe(true);
     expect(canEditGoogleEvent(event, 'UTC', Date.parse('2026-09-20T16:00:00.001Z'))).toBe(false);

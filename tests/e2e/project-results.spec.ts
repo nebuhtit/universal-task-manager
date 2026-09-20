@@ -58,6 +58,11 @@ test('project links survive reload and open PARA without completion controls', a
   await expect(link).toContainText('For this view');
   await link.focus(); await page.keyboard.press('Enter');
   await expect(page.locator('.organization-detail-header').getByRole('heading', { name: 'Launch', exact: true })).toBeVisible();
+  // Lock waits for the asynchronous persistence queue before reloading.
+  const viewport = page.viewportSize()!; await page.setViewportSize({ width: 1280, height: 800 });
+  await page.locator('.sidebar').getByRole('button', { name: 'Lock', exact: true }).click();
+  await page.setViewportSize(viewport);
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
   await page.reload();
   await page.getByLabel('Password', { exact: true }).fill('test-only-project-password');
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();

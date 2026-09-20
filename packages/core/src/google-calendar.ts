@@ -1,5 +1,6 @@
 import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, type UniversalItem, type WorkspaceDocument } from './types.js';
 import { retainedItemHistory, syncActualDuration } from './item-history.js';
+import { reconcileCalendarOrganization } from './calendar-organization.js';
 
 export interface GoogleCalendarEventDate {
   date?: string;
@@ -181,6 +182,7 @@ export function mergeGoogleCalendarCopies(workspace: WorkspaceDocument): void {
 /** Calendar-only projection keeps the UTM estimate, identity and state intact. */
 export function googleCalendarProjection(item: UniversalItem): UniversalItem {
   const link = item.external;
+  if (item.extensions?.['utm:googleSave']) return item;
   if (!link || link.readOnly || !link.startAt || !link.endAt) return item;
   return { ...item, schedule: { ...item.schedule, startAt: link.startAt, endAt: link.endAt, allDay: link.allDay ?? false, timezone: link.timezone ?? item.schedule?.timezone ?? 'UTC' } };
 }
@@ -192,6 +194,11 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
   const restoredByKey = new Map<string, UniversalItem>();
   for (const item of Object.values(workspace.items)) if (!item.deletedAt && !item.external?.readOnly) {
     if (item.external) linkedByEvent.set(externalId(item.external.calendarId, item.external.eventId), item);
+    const pending = item.extensions?.['utm:googleSave'] as { calendarId?: string; destination?: string; eventId?: string; accountEmail?: string } | undefined;
+    if (pending?.eventId && pending.calendarId && pending.accountEmail === workspace.calendarPreferences.googleCalendar?.accountEmail) {
+      linkedByEvent.set(externalId(pending.calendarId, pending.eventId), item);
+      if (pending.destination) linkedByEvent.set(externalId(pending.destination, pending.eventId), item);
+    }
     const key = item.extensions?.['utm:googleLinkKey'];
     if (typeof key === 'string') restoredByKey.set(key, item);
   }
@@ -211,7 +218,7 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
     if (!next) continue;
     const restored = event.localHistoryKey ? restoredByKey.get(event.localHistoryKey) : undefined;
     if (restored && !linked) { linkGoogleCopy(workspace, restored, next); seen.add(restored.id); updated += 1; continue; }
-    if (linked) { linkGoogleCopy(workspace, linked, next); updated += 1; continue; }
+    if (linked) { if (!linked.extensions?.['utm:googleSave']) { linkGoogleCopy(workspace, linked, next); updated += 1; } continue; }
     const existing = workspace.items[id];
     if (!existing && event.localHistoryKey && workspace.calendarPreferences.localTimeJournals?.[event.localHistoryKey]) {
       next.actualTimeEntries = JSON.parse(JSON.stringify(workspace.calendarPreferences.localTimeJournals[event.localHistoryKey]));
@@ -223,8 +230,9 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
       && existing.schedule?.endAt === nextSchedule?.endAt
       && existing.schedule?.estimatedDuration === nextSchedule?.estimatedDuration) continue;
     if (existing) {
+      next.areas = [...existing.areas]; next.projects = [...existing.projects]; next.tags = [...existing.tags];
+      next.extensions = JSON.parse(JSON.stringify(existing.extensions ?? {}));
       Object.assign(next, retainedItemHistory(existing)); syncActualDuration(next);
-      if (existing.extensions?.['utm:googleEdit']) next.extensions = { 'utm:googleEdit': JSON.parse(JSON.stringify(existing.extensions['utm:googleEdit'])) };
       next.createdAt = existing.createdAt; next.revision = existing.revision + 1; updated += 1;
     }
     else added += 1;
@@ -243,5 +251,6 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
     const item = linkedAfterSync.get(externalId(batch.calendarId, event.id));
     if (item) { item.extensions ??= {}; item.extensions['utm:googleLinkKey'] = event.localHistoryKey; }
   }
+  reconcileCalendarOrganization(workspace);
   return { added, updated, removed };
 }

@@ -13,6 +13,7 @@ export interface GoogleSaveOperation {
   draft: GoogleEventDraft;
   baseline?: GoogleCalendarEvent;
   attempted?: boolean;
+  blocked?: string;
 }
 export interface GoogleSaveOptions { calendarId: string; busy: boolean; baseline: UniversalItem; rebased?: boolean }
 const eventUrl = (calendar: string, id: string) => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(id)}`;
@@ -42,8 +43,23 @@ export function needsGoogleSave(item: UniversalItem, options: GoogleSaveOptions)
 }
 
 /** Persist every attempted stage before writing; recover uncertain responses by reading back. */
+export async function prepareGoogleSave(args: { workspaceId: string; accountEmail: string; item: UniversalItem; options: GoogleSaveOptions }): Promise<GoogleSaveOperation> {
+  const { item, options } = args;
+  const pending = item.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
+  if (pending) return pending;
+  const link = options.baseline.external;
+  const operation: GoogleSaveOperation = {
+    kind: link ? 'edit' : 'create', calendarId: link?.calendarId ?? options.calendarId, destination: options.calendarId,
+    eventId: link?.eventId ?? await googleCreationId(args.workspaceId, item.occurrence ? `${item.id}:${item.occurrence.recurrenceId}` : item.id),
+    accountEmail: args.accountEmail, draft: itemGoogleDraft(item, options.busy), ...(link ? { baseline: itemGoogleBaseline(options.baseline) } : {}),
+  };
+  googleEventBody(operation);
+  return operation;
+}
+
 export async function saveGoogleItem(args: {
   token: string; workspaceId: string; accountEmail: string; item: UniversalItem; options: GoogleSaveOptions;
+  allowPast?: boolean;
   persist: (operation: GoogleSaveOperation) => Promise<void>;
   apply: (calendarId: string, event: GoogleCalendarEvent, finished: boolean) => Promise<void>;
 }): Promise<void> {
@@ -69,7 +85,7 @@ export async function saveGoogleItem(args: {
     const edit = operation as GoogleEditOperation;
     const retrying = operation.attempted === true;
     await persist({ ...operation, attempted: true });
-    const event = await updateSingleGoogleEvent(token, { ...edit, attempted: retrying });
+    const event = await updateSingleGoogleEvent(token, { ...edit, attempted: retrying }, Date.now, args.allowPast);
     if (operation.destination === operation.calendarId) { await apply(operation.calendarId, event, true); return; }
     operation = { ...operation, kind: 'move', baseline: event, attempted: false };
     await persist(operation);
@@ -85,7 +101,7 @@ export async function saveGoogleItem(args: {
   }
   const current = await googleJson<GoogleCalendarEvent>(eventUrl(operation.calendarId, operation.eventId), token);
   if (current.eventType && current.eventType !== 'default') throw new Error('Google only allows moving ordinary calendar events.');
-  if (!canEditGoogleEvent(current, item.schedule?.timezone ?? 'UTC')) throw new Error('Editing is available until 3 hours after the event ends.');
+  if (!canEditGoogleEvent(current, item.schedule?.timezone ?? 'UTC', Date.now(), args.allowPast)) throw new Error('Editing is available until 3 hours after the event ends.');
   if (!operation.baseline?.etag || current.etag !== operation.baseline.etag) throw new GoogleEditConflict();
   operation = { ...operation, baseline: current, attempted: true };
   await persist(operation);

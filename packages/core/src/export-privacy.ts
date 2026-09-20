@@ -52,10 +52,26 @@ export function workspaceForExport(workspace: WorkspaceDocument): WorkspaceDocum
   // local user text and must never turn its source item into an external item.
   for (const item of Object.values(safe.items)) {
     if (item.external?.readOnly === false) delete item.external;
-    if (item.extensions) { delete item.extensions['utm:googleCreate']; delete item.extensions['utm:googleEdit']; delete item.extensions['utm:googleSave']; }
+    if (item.extensions) {
+      delete item.extensions['utm:googleCreate']; delete item.extensions['utm:googleEdit'];
+      const pending = item.extensions['utm:googleSave'];
+      if (pending && typeof pending === 'object' && !Array.isArray(pending)) {
+        // Explicit whitelist: retain the user's durable outbox, never OAuth state.
+        const source = pending as Record<string, unknown>;
+        const safeOperation = Object.fromEntries(['kind', 'calendarId', 'destination', 'eventId', 'accountEmail', 'attempted', 'blocked'].filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
+        for (const key of ['draft', 'baseline']) {
+          const value = source[key];
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const fields = key === 'draft' ? ['title', 'description', 'location', 'start', 'end', 'allDay', 'timeZone', 'busy'] : ['id', 'etag', 'iCalUID', 'eventType', 'status', 'summary', 'description', 'location', 'start', 'end', 'transparency'];
+            safeOperation[key] = Object.fromEntries(fields.filter((field) => (value as Record<string, unknown>)[field] !== undefined).map((field) => [field, (value as Record<string, unknown>)[field]]));
+          }
+        }
+        item.extensions['utm:googleSave'] = safeOperation as typeof pending;
+      }
+    }
   }
   const removedIds = new Set(Object.entries(safe.items)
-    .filter(([id, item]) => id.startsWith('google:') || isGoogleCalendarItem(item) || JSON.stringify(item.extensions ?? {}).includes('google_calendar'))
+    .filter(([id, item]) => id.startsWith('google:') || isGoogleCalendarItem(item))
     .map(([id]) => id));
   // Interrupted syncs can leave only a tombstone. Google-generated item IDs
   // use this reserved prefix, which must not leak a calendar or event ID.

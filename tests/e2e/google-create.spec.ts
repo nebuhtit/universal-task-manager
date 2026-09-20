@@ -1,5 +1,32 @@
 import { expect, test } from '@playwright/test';
 
+test('queues offline saves, retries silently, colors calendars and applies PARA bindings', async ({ page }) => {
+  test.setTimeout(120_000);
+  let inserts = 0; let name = 'Work calendar'; let color = '#345678'; let remote: any;
+  await page.addInitScript(() => { (window as any).authCount = 0; (window as any).google = { accounts: { oauth2: { initTokenClient: (options: any) => ({ requestAccessToken: () => { (window as any).authCount++; options.callback({ access_token: 'test', expires_in: 3600, scope: options.scope }); } }) } } }; });
+  await page.route('https://www.googleapis.com/calendar/v3/**', async (route) => {
+    if (route.request().url().includes('calendarList')) return route.fulfill({ json: { items: [{ id: 'test@example.com', primary: true, summary: name, backgroundColor: color, accessRole: 'owner', timeZone: 'UTC' }] } });
+    if (route.request().method() === 'POST') { inserts++; if (inserts === 1) return route.abort('failed'); remote = { ...route.request().postDataJSON(), etag: 'v1' }; return route.fulfill({ json: remote }); }
+    return route.fulfill({ json: { items: remote ? [remote] : [], nextSyncToken: 'sync' } });
+  });
+  await page.goto('/'); await page.getByLabel('Workspace name').fill('Outbox'); await page.getByLabel('Password', { exact: true }).fill('test-only-outbox-password'); await page.getByLabel('Confirm password').fill('test-only-outbox-password'); await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  const nav = async (name: string) => { if (page.viewportSize()!.width <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); } else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click(); };
+  await nav('PARA'); await page.getByLabel('New Area', { exact: true }).fill('Office'); await page.getByRole('button', { name: 'Add Area', exact: true }).click();
+  await nav('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Beta: edit events older than three hours' })).not.toBeChecked();
+  await page.getByText('Work calendar · PARA', { exact: true }).click(); await page.locator('summary').filter({ hasText: /^Areas ·/ }).click(); await page.getByRole('checkbox', { name: 'Office', exact: true }).check();
+  await nav('Home'); await page.getByPlaceholder('Add new item').fill('Offline event'); await page.getByPlaceholder('Add new item').press('Enter');
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await editor.locator('[data-editor-section="dates"] > summary').click(); await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(1);
+  const authorizations = await page.evaluate(() => (window as any).authCount);
+  await page.getByPlaceholder('Add new item').fill('Unrelated task'); await page.getByPlaceholder('Add new item').press('Enter'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); await expect.poll(() => inserts).toBe(2);
+  expect(await page.evaluate(() => (window as any).authCount)).toBe(authorizations);
+  await expect(page.locator('.external-calendar-state-marker').first()).toHaveCSS('color', 'rgb(52, 86, 120)');
+  name = 'Renamed calendar'; color = '#987654'; await page.getByRole('button', { name: 'Google Calendar sync', exact: true }).click(); await expect(page.locator('.external-calendar-state-marker').first()).toHaveCSS('color', 'rgb(152, 118, 84)');
+  await nav('PARA'); await page.getByRole('button', { name: 'Office', exact: true }).first().click(); await expect(page.getByText('Offline event', { exact: true })).toBeVisible();
+  for (const theme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: theme }); await page.screenshot({ path: test.info().outputPath(`outbox-para-${theme}.png`) }); }
+});
+
 test('edits one Google occurrence with conflict recovery and keeps local journals', async ({ page }) => {
   test.setTimeout(120_000);
   let patches = 0;
@@ -28,7 +55,8 @@ test('edits one Google occurrence with conflict recovery and keeps local journal
   await navigate('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
   await navigate('Calendar'); await page.getByText('Editable meeting', { exact: true }).first().click();
   const properties = page.getByRole('dialog', { name: 'Google Calendar properties', exact: true });
-  await properties.locator('summary').filter({ hasText: 'Actual time' }).click();
+  await properties.locator('summary').filter({ hasText: 'Completions and actual time' }).click();
+  await properties.locator('summary').filter({ hasText: /^Actual time/ }).click();
   await properties.getByRole('button', { name: 'Add time entry' }).click();
   await properties.getByLabel('Minutes', { exact: true }).fill('25'); await properties.getByLabel('Comment', { exact: true }).fill('Measured preparation');
   await properties.getByRole('button', { name: 'Apply entry' }).click(); await expect(properties.getByText('Measured preparation', { exact: true })).toBeVisible();
@@ -47,20 +75,23 @@ test('edits one Google occurrence with conflict recovery and keeps local journal
   await edit.getByRole('button', { name: 'Save in Google', exact: true }).click(); await expect(edit.getByRole('alert')).toBeVisible();
   await edit.getByRole('button', { name: 'Check / retry save' }).click(); await expect(edit).toBeHidden(); expect(patches).toBe(1);
   await page.getByText('Changed in UTM', { exact: true }).first().click();
-  await properties.locator('summary').filter({ hasText: 'Actual time' }).click(); await expect(properties.getByText('Measured preparation', { exact: true })).toBeVisible();
+  await properties.locator('summary').filter({ hasText: 'Completions and actual time' }).click();
+  await properties.locator('summary').filter({ hasText: /^Actual time/ }).click(); await expect(properties.getByText('Measured preparation', { exact: true })).toBeVisible();
   await properties.getByRole('button', { name: 'Close', exact: true }).click();
   await navigate('Home'); await page.getByPlaceholder('Add new item').fill('Journal task'); await page.getByPlaceholder('Add new item').press('Enter');
   const itemEditor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   await itemEditor.locator('summary').filter({ hasText: /^History/ }).click();
-  await itemEditor.locator('summary').filter({ hasText: 'Actual time' }).click(); await itemEditor.getByRole('button', { name: 'Add time entry' }).click();
+  await itemEditor.locator('summary').filter({ hasText: 'Completions and actual time' }).click();
+  await itemEditor.locator('summary').filter({ hasText: /^Actual time/ }).click(); await itemEditor.getByRole('button', { name: 'Add time entry' }).click();
   await itemEditor.getByLabel('Hours', { exact: true }).fill('1'); await itemEditor.getByLabel('Minutes', { exact: true }).fill('5'); await itemEditor.getByLabel('Comment', { exact: true }).fill('Focused work'); await itemEditor.getByRole('button', { name: 'Apply entry' }).click();
-  await itemEditor.locator('summary').filter({ hasText: 'Completions' }).click(); await itemEditor.getByRole('button', { name: 'Add completion entry' }).click(); await itemEditor.getByLabel('Comment', { exact: true }).fill('Reviewed outcome'); await itemEditor.getByRole('button', { name: 'Apply entry' }).click();
+  await itemEditor.locator('summary').filter({ hasText: /^Completions ·/ }).click(); await itemEditor.getByRole('button', { name: 'Add completion entry' }).click(); await itemEditor.getByLabel('Comment', { exact: true }).fill('Reviewed outcome'); await itemEditor.getByRole('button', { name: 'Apply entry' }).click();
   await itemEditor.getByRole('button', { name: 'Save item', exact: true }).click();
   await page.getByText('Journal task', { exact: true }).first().click();
   const history = itemEditor.locator('summary').filter({ hasText: /^History/ });
   if (!await history.evaluate((element) => element.parentElement?.hasAttribute('open'))) await history.click();
-  await itemEditor.locator('summary').filter({ hasText: 'Actual time' }).click(); await expect(itemEditor.getByText('Focused work', { exact: true })).toBeVisible();
-  await itemEditor.locator('summary').filter({ hasText: 'Completions' }).click(); await expect(itemEditor.getByText('Reviewed outcome', { exact: true })).toBeVisible();
+  await itemEditor.locator('summary').filter({ hasText: 'Completions and actual time' }).click();
+  await itemEditor.locator('summary').filter({ hasText: /^Actual time/ }).click(); await expect(itemEditor.getByText('Focused work', { exact: true })).toBeVisible();
+  await itemEditor.locator('summary').filter({ hasText: /^Completions ·/ }).click(); await expect(itemEditor.getByText('Reviewed outcome', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape'); await expect(itemEditor).toBeHidden();
 });
 
@@ -104,8 +135,8 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await editor.getByLabel('Event ends', { exact: true }).fill('2030-09-23T13:00');
   await expect(editor.getByRole('combobox', { name: 'Google Calendar', exact: true })).toHaveValue('test@example.com');
   for (const theme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: theme }); await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme); await page.screenshot({ path: test.info().outputPath('unified-' + theme + '.png') }); }
-  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor.getByRole('alert')).toBeVisible(); expect(inserts).toBe(1);
-  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(1);
+  await expect(page.getByText(/Saved in UTM, waiting for sync/)).toBeVisible();
   await page.reload(); await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple'); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await navigate('All items'); await page.locator('.all-sections').getByText('Create from UTM', { exact: true }).click();
   await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(2);

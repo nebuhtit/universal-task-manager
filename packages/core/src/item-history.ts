@@ -34,6 +34,8 @@ export function recordCompletionTransition(item: UniversalItem, previousState: U
     item.completionEntries ??= [];
     const at = item.closure?.at ?? now;
     item.completionEntries.push({ id: `completion:${item.id}:${now}:${item.completionEntries.length}`, at, kind: item.state === 'auto_closed' || item.closure?.actor !== 'user' ? 'automatic' : 'manual', comment: '', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) });
+    const completion = item.completionEntries[item.completionEntries.length - 1]!;
+    for (const entry of item.actualTimeEntries ?? []) if (!entry.completionId && entry.recurrenceId === item.occurrence?.recurrenceId) entry.completionId = completion.id;
   } else if (item.state === 'open' && (previousState === 'done' || previousState === 'auto_closed')) {
     const last = [...(item.completionEntries ?? [])].reverse().find((entry) => !entry.revokedAt && entry.recurrenceId === item.occurrence?.recurrenceId);
     if (last) last.revokedAt = now;
@@ -43,7 +45,8 @@ export function recordCompletionTransition(item: UniversalItem, previousState: U
 export function addTimerActualTime(item: UniversalItem, session: ItemTimerSession): void {
   initializeItemHistory(item);
   item.actualTimeEntries ??= [];
-  if (item.actualTimeEntries.some((entry) => entry.sourceSessionId === session.id)) return;
+  const existing = item.actualTimeEntries.find((entry) => entry.sourceSessionId === session.id);
+  if (existing) { existing.durationSeconds = session.durationSeconds; syncActualDuration(item); return; }
   if (session.mode === 'stopwatch' && session.durationSeconds <= 30) return;
   const recurrenceId = session.recurrenceId ?? item.occurrence?.recurrenceId;
   item.actualTimeEntries.push({ id: `timer:${session.id}`, sourceSessionId: session.id, source: session.mode, at: session.startedAt, durationSeconds: session.durationSeconds, comment: '', ...(recurrenceId ? { recurrenceId } : {}) });

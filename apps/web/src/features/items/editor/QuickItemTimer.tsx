@@ -26,7 +26,10 @@ const formatClock = (milliseconds: number, includeMilliseconds = false) => {
     : [minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
 };
 
-export function QuickItemTimer({ soundEnabled = true, onRecord }: { soundEnabled?: boolean; onRecord?: (session: ItemTimerSession) => void }) {
+export function QuickItemTimer({ soundEnabled = true, onRecord, onCountTime }: { soundEnabled?: boolean; onRecord?: (session: ItemTimerSession) => void; onCountTime?: (session: ItemTimerSession) => void | Promise<void> }) {
+  const [recorded, setRecorded] = useState<ItemTimerSession>();
+  const [counted, setCounted] = useState(false);
+  const [countError, setCountError] = useState('');
   const [mode, setMode] = useState<TimerMode>('timer');
   const [minutes, setMinutes] = useState(10);
   const [running, setRunning] = useState(false);
@@ -37,6 +40,7 @@ export function QuickItemTimer({ soundEnabled = true, onRecord }: { soundEnabled
   const [intervalValue, setIntervalValue] = useState(5);
   const [intervalUnit, setIntervalUnit] = useState<'minutes' | 'seconds'>('minutes');
   const intervalCueCountRef = useRef(0);
+  const sessionIdRef = useRef<string | undefined>(undefined);
   const stopAlarmRef = useRef<() => void>(() => undefined);
   const now = useClockMilliseconds(mode === 'stopwatch' ? 50 : 250, running);
   const elapsed = elapsedBeforeStart + (running ? Math.max(0, now - startedAt) : 0);
@@ -69,17 +73,18 @@ export function QuickItemTimer({ soundEnabled = true, onRecord }: { soundEnabled
   const record = (durationMilliseconds: number, endedAt = Date.now()) => {
     const minimumDuration = mode === 'stopwatch' ? 30_000 : 1_000;
     if (!onRecord || durationMilliseconds <= minimumDuration) return;
-    onRecord({
-      id: crypto.randomUUID(), mode, startedAt: new Date(Math.max(0, endedAt - durationMilliseconds)).toISOString(), endedAt: new Date(endedAt).toISOString(),
+    const session: ItemTimerSession = {
+      id: sessionIdRef.current ??= crypto.randomUUID(), mode, startedAt: new Date(Math.max(0, endedAt - durationMilliseconds)).toISOString(), endedAt: new Date(endedAt).toISOString(),
       durationSeconds: Math.round(durationMilliseconds / 1_000), ...(mode === 'timer' ? { targetSeconds: Math.max(1, minutes) * 60 } : {}),
-    });
+    };
+    onRecord(session); setRecorded(session); setCounted(false);
   };
-  const reset = () => { stopAlarm(); setRunning(false); setStartedAt(0); setElapsedBeforeStart(0); intervalCueCountRef.current = 0; };
+  const reset = () => { stopAlarm(); setRunning(false); setStartedAt(0); setElapsedBeforeStart(0); intervalCueCountRef.current = 0; sessionIdRef.current = undefined; setRecorded(undefined); setCounted(false); };
   const changeMode = (next: TimerMode) => { setMode(next); reset(); };
   const toggle = () => {
     prepareTimerAlarm();
     stopAlarm();
-    if (finished) { setElapsedBeforeStart(0); setStartedAt(Date.now()); setRunning(true); return; }
+    if (finished) { sessionIdRef.current = undefined; setRecorded(undefined); setElapsedBeforeStart(0); setStartedAt(Date.now()); setRunning(true); return; }
     if (running) {
       const pausedElapsed = elapsedBeforeStart + Math.max(0, Date.now() - startedAt);
       if (mode === 'stopwatch') record(pausedElapsed);
@@ -105,6 +110,8 @@ export function QuickItemTimer({ soundEnabled = true, onRecord }: { soundEnabled
       <Select aria-label="Interval sound unit" value={intervalUnit} disabled={!intervalSoundEnabled} onChange={(event) => setIntervalUnit(event.target.value as 'minutes' | 'seconds')}><option value="minutes">min</option><option value="seconds">sec</option></Select>
     </div>
     <div className="quick-item-timer-actions">
+      {!running && recorded && onCountTime && <Button size="compact" variant="ghost" disabled={counted} onClick={() => { setCounted(true); void Promise.resolve(onCountTime(recorded)).catch((reason) => { setCounted(false); setCountError(String(reason)); }); }}>{counted ? 'Added to History' : 'Add time to History'}</Button>}
+      {countError && <small role="alert">{countError}</small>}
       {alarming ? <Button size="compact" onClick={stopAlarm}>Stop sound</Button> : <Button size="compact" onClick={toggle}>{running ? 'Pause' : finished ? 'Restart' : 'Start'}</Button>}
       <Button size="compact" variant="ghost" disabled={!running && elapsedBeforeStart === 0} onClick={reset}>Reset</Button>
     </div>

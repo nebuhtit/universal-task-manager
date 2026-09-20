@@ -134,7 +134,7 @@ export const itemJsonSchema = {
     },
     actualTimeEntries: {
       type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'durationSeconds', 'comment', 'source'], properties: {
-        id: { type: 'string', minLength: 1 }, at: { type: 'string', format: 'date-time' }, durationSeconds: { type: 'number', minimum: 0 }, comment: { type: 'string' }, source: { enum: ['manual', 'timer', 'stopwatch', 'imported'] }, sourceSessionId: { type: 'string' }, recurrenceId: { type: 'string', format: 'date-time' },
+        id: { type: 'string', minLength: 1 }, at: { type: 'string', format: 'date-time' }, durationSeconds: { type: 'number', minimum: 0 }, comment: { type: 'string' }, source: { enum: ['manual', 'timer', 'stopwatch', 'imported'] }, sourceSessionId: { type: 'string' }, completionId: { type: 'string' }, recurrenceId: { type: 'string', format: 'date-time' },
       } },
     },
     completionEntries: {
@@ -338,8 +338,8 @@ export const workspaceJsonSchema = {
         googleCalendar: {
           type: 'object', additionalProperties: false, required: ['connectionId', 'calendars', 'syncTokens'],
           properties: {
-            connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' }, defaultCalendarId: { type: 'string' },
-            calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, accessRole: { type: 'string' }, selected: { type: 'boolean' } } } },
+            connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' }, defaultCalendarId: { type: 'string' }, allowPastEventEditing: { type: 'boolean' },
+            calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, accessRole: { type: 'string' }, selected: { type: 'boolean' }, color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, managedTag: { type: 'string' }, areas: { type: 'array', items: { type: 'string' } }, projects: { type: 'array', items: { type: 'string' } } } } },
             syncTokens: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
             syncWindow: { type: 'object', additionalProperties: false, required: ['timeMin', 'timeMax', 'refreshedAt'], properties: { timeMin: { type: 'string', format: 'date-time' }, timeMax: { type: 'string', format: 'date-time' }, refreshedAt: { type: 'string', format: 'date-time' } } },
             lastSyncedAt: { type: 'string', format: 'date-time' }, lastError: { type: 'string' },
@@ -956,12 +956,13 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
         const value = entry as Record<string, unknown>;
         if (typeof value.id !== 'string' || !value.id || typeof value.name !== 'string' || !value.name) return [];
-        return [{ id: value.id, name: value.name, ...(typeof value.accessRole === 'string' ? { accessRole: value.accessRole } : {}), selected: value.selected !== false, ...(value.primary === true ? { primary: true } : {}) }];
+        return [{ id: value.id, name: value.name, ...(typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color) ? { color: value.color } : {}), ...(typeof value.managedTag === 'string' ? { managedTag: value.managedTag } : {}), ...Object.fromEntries(['areas', 'projects'].filter((key) => Array.isArray(value[key])).map((key) => [key, (value[key] as unknown[]).filter((name) => typeof name === 'string')])), ...(typeof value.accessRole === 'string' ? { accessRole: value.accessRole } : {}), selected: value.selected !== false, ...(value.primary === true ? { primary: true } : {}) }];
       }) : [];
       const tokens = google.syncTokens && typeof google.syncTokens === 'object' && !Array.isArray(google.syncTokens)
         ? Object.fromEntries(Object.entries(google.syncTokens as Record<string, unknown>).filter((entry): entry is [string, string] => Boolean(entry[0]) && typeof entry[1] === 'string' && Boolean(entry[1]))) : {};
       calendarPreferences.googleCalendar = {
         connectionId: google.connectionId,
+        ...(google.allowPastEventEditing === true ? { allowPastEventEditing: true } : {}),
         ...(typeof google.defaultCalendarId === 'string' ? { defaultCalendarId: google.defaultCalendarId } : {}),
         ...(typeof google.accountEmail === 'string' ? { accountEmail: google.accountEmail } : {}),
         calendars, syncTokens: tokens,

@@ -253,7 +253,7 @@ const renameDefault = (defaults: Record<string, unknown> | undefined, singular: 
 const replaceQuotedName = (source: string | undefined, from: string, to: string) => {
   if (!source) return source;
   const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return source.replace(new RegExp(`(["'])${escaped}\\1`, 'g'), (match, quote: string) => `${quote}${to}${quote}`);
+  return source.replace(new RegExp(`(["'])${escaped}\\1`, 'g'), (_match, quote: string) => `${quote}${to.replace(/\\/g, '\\\\').replaceAll(quote, `\\${quote}`)}${quote}`);
 };
 const referencesQuotedName = (source: string | undefined, name: string) => replaceQuotedName(source, name, '__utm_deleted_reference__') !== source;
 
@@ -315,6 +315,14 @@ export function deleteOrganizationDefinition(workspace: WorkspaceDocument, kind:
   const { name } = impact;
   const timestamp = now.toISOString();
   const remove = (values: string[] | undefined) => uniqueNames(values ?? []).filter((value) => value !== name);
+  if (kind === 'area' || kind === 'project') {
+    const key = kind === 'area' ? 'areas' : 'projects';
+    for (const calendar of workspace.calendarPreferences.googleCalendar?.calendars ?? []) if (calendar[key]) calendar[key] = remove(calendar[key]);
+    for (const item of Object.values(workspace.items)) {
+      const source = item.extensions?.['utm:calendarOrganization'] as { areas?: string[]; projects?: string[] } | undefined;
+      if (source?.[key]) source[key] = remove(source[key]);
+    }
+  }
   for (const item of Object.values(workspace.items)) {
     const matched = kind === 'area' ? itemAreas(item).includes(name) : kind === 'project' ? itemProjects(item).includes(name) : item.tags.includes(name);
     if (!matched) continue;
@@ -368,9 +376,18 @@ export function deleteOrganizationDefinition(workspace: WorkspaceDocument, kind:
 }
 
 /** Rename an Area and every structured reference to it. Returns false on invalid or conflicting names. */
+function renameCalendarMembership(workspace: WorkspaceDocument, kind: 'areas' | 'projects', from: string, to: string): void {
+  for (const calendar of workspace.calendarPreferences.googleCalendar?.calendars ?? []) if (calendar[kind]) calendar[kind] = calendar[kind]!.map((name) => name === from ? to : name);
+  for (const item of Object.values(workspace.items)) {
+    const source = item.extensions?.['utm:calendarOrganization'] as { areas?: string[]; projects?: string[] } | undefined;
+    if (source?.[kind]) source[kind] = source[kind]!.map((name) => name === from ? to : name);
+  }
+}
+
 export function renameAreaDefinition(workspace: WorkspaceDocument, rawFrom: string, rawTo: string, now = new Date()): boolean {
   const from = rawFrom.trim(); const to = rawTo.trim();
   if (!from || !to || from === to || !workspace.areaDefinitions[from] || workspace.areaDefinitions[to]) return false;
+  renameCalendarMembership(workspace, 'areas', from, to);
   const timestamp = now.toISOString();
   const current = workspace.areaDefinitions[from]!;
   const createdAt = String(current.createdAt);
@@ -408,6 +425,7 @@ export function renameAreaDefinition(workspace: WorkspaceDocument, rawFrom: stri
 export function renameProjectDefinition(workspace: WorkspaceDocument, rawFrom: string, rawTo: string, now = new Date()): boolean {
   const from = rawFrom.trim(); const to = rawTo.trim();
   if (!from || !to || from === to || !workspace.projectDefinitions[from] || workspace.projectDefinitions[to]) return false;
+  renameCalendarMembership(workspace, 'projects', from, to);
   const timestamp = now.toISOString();
   const current = workspace.projectDefinitions[from]!;
   const createdAt = String(current.createdAt);
@@ -441,9 +459,15 @@ export function renameTagDefinition(workspace: WorkspaceDocument, rawFrom: strin
   const preferences = workspace.organizationPreferences ??= defaultOrganizationPreferences();
   const knownTags = new Set(orderedTagEntries(workspace).filter((tag): tag is string => tag !== null));
   if (!knownTags.has(from) || knownTags.has(to)) return false;
+  const day = workspace.calendarPreferences.dayView;
+  if (day) {
+    day.filter.source = replaceQuotedName(day.filter.source, from, to) ?? '';
+    if (day.filterPython !== undefined) day.filterPython = replaceQuotedName(day.filterPython, from, to) ?? '';
+  }
   Object.values(workspace.items).forEach((item) => { item.tags = replaceName(item.tags, from, to); });
   Object.values(workspace.views).forEach((view) => {
     if (Array.isArray(view.creationDefaults?.tags)) view.creationDefaults.tags = replaceName(view.creationDefaults.tags as string[], from, to);
+    if (typeof view.extensions?.filterPython === 'string') view.extensions.filterPython = replaceQuotedName(view.extensions.filterPython, from, to) ?? '';
     view.query.source = replaceQuotedName(view.query.source, from, to) ?? '';
     if (view.sortSource !== undefined) view.sortSource = replaceQuotedName(view.sortSource, from, to) ?? '';
   });

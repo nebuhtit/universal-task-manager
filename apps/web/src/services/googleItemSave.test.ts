@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createItem } from '@utm/core';
-import { GOOGLE_SAVE_EXTENSION, itemGoogleDraft, needsGoogleSave, saveGoogleItem, type GoogleSaveOperation } from './googleItemSave';
+import { GOOGLE_SAVE_EXTENSION, itemGoogleDraft, needsGoogleSave, prepareGoogleSave, saveGoogleItem, type GoogleSaveOperation } from './googleItemSave';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const fixture = () => {
@@ -11,6 +11,12 @@ const calendars = { items: [{ id: 'source', primary: true, accessRole: 'owner', 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 describe('unified Google item save', () => {
+  it('prepares an idempotent durable operation without authorization or network', async () => {
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+    const item = fixture(); const args = { workspaceId: 'workspace', accountEmail: 'source', item, options: { calendarId: 'source', busy: true, baseline: item } };
+    const first = await prepareGoogleSave(args); const second = await prepareGoogleSave(args);
+    expect(first.eventId).toBe(second.eventId); expect(first.draft.title).toBe('Meeting'); expect(fetch).not.toHaveBeenCalled();
+  });
   it('does not need Google for local-only changes and preserves the estimate', () => {
     const before = fixture(); before.external = { provider: 'google_calendar', connectionId: 'connection', eventId: 'event', calendarId: 'source', sourceUrl: '', readOnly: false, syncedAt: '', startAt: before.schedule!.startAt!, endAt: before.schedule!.endAt!, etag: 'v1' };
     const item = structuredClone(before); item.tags = ['Important']; item.schedule!.estimatedDuration = 'PT10M';

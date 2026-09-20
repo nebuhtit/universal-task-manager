@@ -13,7 +13,7 @@ export const GOOGLE_CALENDAR_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.
 
 interface GoogleTokenResponse { access_token?: string; expires_in?: number; scope?: string; error?: string; error_description?: string }
 interface GoogleTokenClient { requestAccessToken: (options?: { prompt?: string }) => void }
-export interface GoogleCalendarListEntry { id?: string; summary?: string; primary?: boolean; selected?: boolean; accessRole?: string; timeZone?: string }
+export interface GoogleCalendarListEntry { id?: string; summary?: string; summaryOverride?: string; backgroundColor?: string; primary?: boolean; selected?: boolean; accessRole?: string; timeZone?: string }
 interface GoogleCalendarListResponse { items?: GoogleCalendarListEntry[]; nextPageToken?: string }
 interface GoogleEventsResponse { items?: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string }
 
@@ -28,6 +28,7 @@ let cachedGoogleCalendarToken: { accessToken: string; expiresAt: number } | null
 const GOOGLE_WRITE_SCOPES = [GOOGLE_SCOPE, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'];
 let cachedScopes = new Set<string>();
 export function hasGoogleWriteAuthorization(): boolean { return Boolean(cachedGoogleCalendarToken && cachedGoogleCalendarToken.expiresAt > Date.now() + 60_000 && GOOGLE_WRITE_SCOPES.every((scope) => cachedScopes.has(scope))); }
+export function cachedGoogleWriteToken(): string | undefined { return hasGoogleWriteAuthorization() ? cachedGoogleCalendarToken?.accessToken : undefined; }
 export function forgetGoogleCalendarAuthorization(): void { cachedGoogleCalendarToken = null; cachedScopes.clear(); }
 function loadGoogleIdentityServices(): Promise<void> {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
@@ -212,7 +213,7 @@ export async function synchronizeGoogleCalendars(accessToken: string, preference
   const calendars = rawCalendars.flatMap((calendar): GoogleCalendarDefinition[] => {
     if (!calendar.id) return [];
     const previous = prior.get(calendar.id);
-    return [{ id: calendar.id, name: calendar.summary?.trim() || calendar.id, ...(calendar.accessRole ? { accessRole: calendar.accessRole } : {}), ...(calendar.primary ? { primary: true } : {}), selected: previous?.selected ?? Boolean(calendar.primary || calendar.selected) }];
+    return [{ ...(previous ? JSON.parse(JSON.stringify(previous)) as GoogleCalendarDefinition : {}), id: calendar.id, name: calendar.summaryOverride?.trim() || calendar.summary?.trim() || calendar.id, ...(/^#[0-9a-f]{6}$/i.test(calendar.backgroundColor ?? '') ? { color: calendar.backgroundColor! } : {}), ...(calendar.accessRole ? { accessRole: calendar.accessRole } : {}), ...(calendar.primary ? { primary: true } : {}), selected: previous?.selected ?? Boolean(calendar.primary || calendar.selected) }];
   });
   const syncedAt = new Date().toISOString();
   // A manual refresh reconciles the mirror even if a previous delta was lost.

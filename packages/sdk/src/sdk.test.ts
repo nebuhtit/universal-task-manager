@@ -8,6 +8,16 @@ import { decryptWorkspaceFile, faceIdStatus, reencryptWorkspaceFile } from './st
 const password = 'correct horse battery staple';
 
 describe('encrypted .utmb container', () => {
+  it('restores a durable Google outbox without exporting authorization tokens', async () => {
+    const workspace = createWorkspace('Outbox backup'); const item = createItem('Local pending event');
+    item.extensions = { 'utm:googleSave': { kind: 'create', eventId: 'stable-operation', calendarId: 'calendar', destination: 'calendar', accountEmail: 'owner@example.com', accessToken: 'DO-NOT-EXPORT', draft: { title: 'google_calendar is user text', description: '', location: '', start: '2030-01-01T12:00:00Z', end: '2030-01-01T13:00:00Z', timeZone: 'UTC', allDay: false, busy: true } } };
+    workspace.items[item.id] = item;
+    const backup = await exportContainer(createAutomergeDocument(workspace), password);
+    expect(backup).not.toContain('Local pending event');
+    const restored = JSON.parse(await toJSON(backup, password));
+    expect(restored.items[item.id].extensions['utm:googleSave'].eventId).toBe('stable-operation');
+    expect(JSON.stringify(restored)).not.toContain('DO-NOT-EXPORT');
+  });
   it('does not offer Face ID when the platform authenticator API is unavailable', async () => {
     expect(await faceIdStatus()).toBe('unsupported');
   });

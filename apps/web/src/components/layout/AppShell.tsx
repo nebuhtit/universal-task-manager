@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkspaceDocument } from '@utm/core';
 import { useWorkspaceNow } from '../../hooks/useClock';
-import { formatCompactHeaderDate, formatHeaderDate } from '../../utils/dates';
+import { formatHeaderDate } from '../../utils/dates';
 import { CloseIcon, LineIcon, type LineIconName } from '../ui/icons';
 import { Button, IconButton } from '../ui/primitives';
 import { UserDataText, useTranslation } from '../../i18n-react';
@@ -25,7 +25,19 @@ type Props = {
 function HeaderClock({ workspace, fallback, compact = false }: { workspace?: WorkspaceDocument; fallback?: string; compact?: boolean }) {
   const now = useWorkspaceNow(workspace);
   const language = workspace?.calendarPreferences.language ?? 'en';
-  return <span className="top-summary">{fallback ?? (compact ? formatCompactHeaderDate(now, language) : formatHeaderDate(now, language))}</span>;
+  const root = useRef<HTMLSpanElement>(null);
+  const [level, setLevel] = useState(0);
+  const variants = [formatHeaderDate(now, language), new Intl.DateTimeFormat(language, { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now), new Intl.DateTimeFormat(language, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now), new Intl.DateTimeFormat(language, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now)];
+  useLayoutEffect(() => {
+    const node = root.current;
+    if (!node) return;
+    const fit = () => { const widths = [...node.querySelectorAll<HTMLElement>('[data-clock-measure]')].map((entry) => entry.getBoundingClientRect().width); const match = widths.findIndex((width) => width <= node.clientWidth); setLevel(match < 0 ? variants.length - 1 : match); };
+    const bar = node.closest<HTMLElement>('.topbar');
+    const actions = bar?.querySelector<HTMLElement>('.top-actions');
+    const resize = () => { if (bar && actions) bar.style.setProperty('--clock-actions-width', `${actions.getBoundingClientRect().width}px`); fit(); };
+    resize(); const observer = new ResizeObserver(resize); observer.observe(node); if (actions) observer.observe(actions); return () => observer.disconnect();
+  }, [language, now.getDate(), compact]);
+  return <span ref={root} className="top-summary responsive-clock"><span>{fallback ?? variants[level]}</span><span className="clock-measures" aria-hidden="true">{variants.map((text, index) => <span data-clock-measure key={index}>{text}</span>)}</span></span>;
 }
 
 const nav: NavItem[] = [['home', 'home', 'Home'], ['calendar', 'calendar', 'Calendar'], ['all', 'items', 'All items'], ['organization', 'views', 'PARA'], ['settings', 'settings', 'Settings']];

@@ -4,9 +4,11 @@ import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, uns
 import { CloseIcon } from './components/ui/icons';
 import { SectionGuide } from './components/ui/SectionGuide';
 import { initializeItemHistory, recordCompletionTransition, syncActualDuration } from '@utm/core';
-import { GOOGLE_EDIT_EXTENSION } from './services/googleCalendarEdit';
+import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict } from './services/googleCalendarEdit';
 import { googleHistoryKey } from './services/googleHistoryKey';
-import { GOOGLE_SAVE_EXTENSION, needsGoogleSave, saveGoogleItem } from './services/googleItemSave';
+import { GOOGLE_SAVE_EXTENSION, needsGoogleSave, prepareGoogleSave, saveGoogleItem, type GoogleSaveOperation, type GoogleSaveOptions } from './services/googleItemSave';
+import { cachedGoogleWriteToken } from './services/googleCalendar';
+import { reconcileCalendarOrganization } from '@utm/core';
 import {
   AllItemsPage,
   ALL_ITEMS_VIEW_ID,
@@ -572,6 +574,72 @@ export default function App() {
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
   const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  const workspaceLatest = useRef(workspace);
+  workspaceLatest.current = workspace;
+  const googleWrites = useRef(new Set<string>());
+  const sendQueuedGoogleItem = async (candidate: UniversalItem, selection: GoogleSaveOptions, token: string) => {
+    const workspace = workspaceLatest.current;
+    const google = workspace?.calendarPreferences.googleCalendar;
+    if (!workspace || !google || googleWrites.current.has(candidate.id)) return;
+    googleWrites.current.add(candidate.id);
+    try {
+          await saveGoogleItem({ token, workspaceId: workspace.workspaceId, accountEmail: google.accountEmail ?? '', item: candidate, options: selection, allowPast: google.allowPastEventEditing === true,
+            persist: async (operation) => {
+              const ok = commit('Save pending Google operation', (draft) => { const target = draft.items[candidate.id]; if (!target || target.occurrence?.recurrenceId !== candidate.occurrence?.recurrenceId || draft.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Google connection changed.'); target.extensions ??= {}; target.extensions[GOOGLE_SAVE_EXTENSION] = clean(operation); });
+              if (!ok) throw new Error('Could not persist Google operation.'); await flushPersistence();
+            },
+            apply: async (calendarId, event, finished) => {
+              const key = await googleHistoryKey(calendarId, event.id);
+              const ok = commit('Save linked Google event', (draft) => {
+                const target = draft.items[candidate.id]; if (!target || target.occurrence?.recurrenceId !== candidate.occurrence?.recurrenceId || draft.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Google connection changed.');
+                const mirror = googleCalendarEventToItem(event, calendarId, google.connectionId, new Date().toISOString(), candidate.schedule?.timezone);
+                if (!mirror?.external) throw new Error('Google returned an invalid event.');
+                target.external = { ...mirror.external, readOnly: false }; target.extensions ??= {};
+                target.extensions['utm:googleLinkKey'] = key;
+                target.extensions[GOOGLE_CREATE_EXTENSION] = { eventId: event.id, calendarId, accountEmail: google.accountEmail ?? '' };
+                const pending = target.extensions[GOOGLE_SAVE_EXTENSION] ? clean(target.extensions[GOOGLE_SAVE_EXTENSION]) : undefined;
+                delete target.extensions[GOOGLE_SAVE_EXTENSION];
+                applyGoogleCalendarSync(draft, { connectionId: google.connectionId, calendarId, events: [{ ...event, localHistoryKey: key }], syncedAt: new Date().toISOString(), fullSync: false });
+                if (!finished && pending) target.extensions[GOOGLE_SAVE_EXTENSION] = pending;
+                const calendar = draft.calendarPreferences.googleCalendar!.calendars.find((c) => c.id === calendarId); if (calendar) calendar.selected = true;
+              });
+              if (!ok) throw new Error('Could not persist Google result. Retry save to recover it.'); await flushPersistence();
+            },
+          });
+    } catch (reason) {
+      const status = (reason as { status?: number }).status;
+      const blocked = reason instanceof TypeError || status === 429 || (status !== undefined && status >= 500) || /network|fetch|timeout|timed out/i.test(String(reason)) ? undefined : String(reason);
+      if (blocked) {
+        const ok = commit('Google save needs attention', (draft) => {
+          const op = draft.items[candidate.id]?.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
+          if (op) op.blocked = blocked;
+        });
+        if (!ok) throw new Error('Could not persist Google save status.');
+        await flushPersistence();
+      }
+      throw reason;
+    } finally { googleWrites.current.delete(candidate.id); }
+  };
+  const retryGoogleQueue = async (interactive = false, excludeId?: string) => {
+    const current = workspaceLatest.current;
+    if (!current?.calendarPreferences.googleCalendar) return;
+    const queue = Object.values(current.items).filter((item) => item.id !== excludeId && !item.deletedAt && item.extensions?.[GOOGLE_SAVE_EXTENSION]);
+    if (!queue.length) return;
+    const token = interactive ? (await requestGoogleCalendarToken(undefined, 'create')).accessToken : cachedGoogleWriteToken();
+    if (!token) return;
+    for (const item of queue) {
+      const op = item.extensions![GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation;
+      if (op.blocked || op.accountEmail !== current.calendarPreferences.googleCalendar.accountEmail) continue;
+      try { await sendQueuedGoogleItem(item, { calendarId: op.destination, busy: op.draft.busy, baseline: item }, token); }
+      catch { /* The durable operation remains visible in the editor; no background popup. */ }
+    }
+  };
+  useEffect(() => {
+    const retry = () => { void retryGoogleQueue(true).catch(() => undefined); };
+    window.addEventListener('utm-retry-google-queue', retry);
+    return () => window.removeEventListener('utm-retry-google-queue', retry);
+  }, [workspace]);
+
   const syncGoogleCalendarFromHome = async () => {
     const google = workspace?.calendarPreferences.googleCalendar;
     if (!workspace || !google || googleCalendarSyncing) return;
@@ -579,17 +647,21 @@ export default function App() {
     const startedAt = performance.now();
     setGoogleCalendarSyncing(true);
     try {
+      await retryGoogleQueue(true);
       const token = await requestGoogleCalendarToken();
       const current: GoogleCalendarPreferences = google;
       const result = await synchronizeGoogleCalendars(token.accessToken, current, undefined, { fullSync: true });
-      commit('Sync Google Calendar', (draft) => {
+      const applied = commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {
           ...current, connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
           ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
         };
         delete draft.calendarPreferences.googleCalendar.lastError;
+        reconcileCalendarOrganization(draft);
       });
+      if (!applied) throw new Error('Could not save Google synchronization locally.');
+      await flushPersistence();
       const events = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);
       setToast(`Google Calendar synced: ${events} events.`);
@@ -1148,7 +1220,9 @@ export default function App() {
       });
       if (saved && result.changed) setToast(result.rescheduled ? 'Completion time saved. Next cycle updated.' : 'Completion time saved.');
       return { series, rescheduled: result.rescheduled };
-    }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', currentWorkspaceNow()); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={async (item, options) => { const actionNow = currentWorkspaceNow(); const isNew = !workspace.items[item.id]; let recurrenceError = ''; let googleCandidate: UniversalItem | undefined; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.extensions?.[GOOGLE_SAVE_EXTENSION]) { draft.items[item.id]!.extensions ??= {}; draft.items[item.id]!.extensions![GOOGLE_SAVE_EXTENSION] = clean(before.extensions[GOOGLE_SAVE_EXTENSION]); } if (before?.external?.readOnly === false) { const target = draft.items[item.id]!; target.external = clean(before.external); target.extensions ??= {}; for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey']) { if (before.extensions?.[key] !== undefined) target.extensions[key] = clean(before.extensions[key]); else delete target.extensions[key]; } } item.areas.forEach((area) => ensureAreaDefinition(draft, area)); item.projects.forEach((project) => { const existing = draft.projectDefinitions[project]; const converted = options?.convertedProject === project; ensureProjectDefinition(draft, project, !existing || converted ? { areas: [...new Set([...(existing?.areas ?? []), ...item.areas])] } : {}); }); item.tags.forEach((tag) => ensureTagDefinition(draft, tag)); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: actionNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, actionNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } googleCandidate = clean(googleActionItem(draft, draft.items[item.id]!)); }); if (!saved) throw new Error('Could not save item.'); if (saved) { recordDiagnostic({ kind: 'result', message: options?.convertedProject ? 'Item converted to Project and saved' : 'Item organization saved', operation: 'Save item organization', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, areas: item.areas.length, projects: item.projects.length, tags: item.tags.length, converted: Boolean(options?.convertedProject) }) }); setEditorIsNew(false);
+    }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', currentWorkspaceNow()); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={async (item, options) => { if (googleWrites.current.has(item.id)) throw new Error('Google synchronization for this item is still running. Your draft is kept here; retry saving shortly.'); const actionNow = currentWorkspaceNow(); const isNew = !workspace.items[item.id]; let recurrenceError = ''; let googleCandidate: UniversalItem | undefined; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.extensions?.[GOOGLE_SAVE_EXTENSION]) { draft.items[item.id]!.extensions ??= {}; draft.items[item.id]!.extensions![GOOGLE_SAVE_EXTENSION] = clean(before.extensions[GOOGLE_SAVE_EXTENSION]); } if (before?.external?.readOnly === false) { const target = draft.items[item.id]!; target.external = clean(before.external); target.extensions ??= {}; for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey']) { if (before.extensions?.[key] !== undefined) target.extensions[key] = clean(before.extensions[key]); else delete target.extensions[key]; } } item.areas.forEach((area) => ensureAreaDefinition(draft, area)); item.projects.forEach((project) => { const existing = draft.projectDefinitions[project]; const converted = options?.convertedProject === project; ensureProjectDefinition(draft, project, !existing || converted ? { areas: [...new Set([...(existing?.areas ?? []), ...item.areas])] } : {}); }); item.tags.forEach((tag) => ensureTagDefinition(draft, tag)); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: actionNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, actionNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } reconcileCalendarOrganization(draft); googleCandidate = clean(googleActionItem(draft, draft.items[item.id]!)); }); if (!saved) throw new Error('Could not save item.'); if (saved) { recordDiagnostic({ kind: 'result', message: options?.convertedProject ? 'Item converted to Project and saved' : 'Item organization saved', operation: 'Save item organization', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, areas: item.areas.length, projects: item.projects.length, tags: item.tags.length, converted: Boolean(options?.convertedProject) }) }); setEditorIsNew(false);
+      await flushPersistence();
+      void retryGoogleQueue(false, googleCandidate?.id).catch(() => undefined);
       if (options?.google && googleCandidate && googleCandidate.role !== 'series_template' && !item.extensions?.['utm:template']) {
         const google = workspace.calendarPreferences.googleCalendar;
         const candidate = googleCandidate;
@@ -1156,29 +1230,20 @@ export default function App() {
         const selection = { ...options.google, baseline };
         if (google && needsGoogleSave(candidate, selection)) {
           if (!selection.calendarId) throw new Error('Choose a Google calendar.');
-          const token = await requestGoogleCalendarToken(undefined, 'create');
+          const operation = await prepareGoogleSave({ workspaceId: workspace.workspaceId, accountEmail: google.accountEmail ?? '', item: candidate, options: selection });
+          const queued = commit('Queue Google save locally', (draft) => { const target = draft.items[candidate.id]; if (!target) throw new Error('Item no longer exists.'); target.extensions ??= {}; target.extensions[GOOGLE_SAVE_EXTENSION] = clean(operation); });
+          if (!queued) throw new Error('Could not save pending Google operation.');
           await flushPersistence();
-          await saveGoogleItem({ token: token.accessToken, workspaceId: workspace.workspaceId, accountEmail: google.accountEmail ?? '', item: candidate, options: selection,
-            persist: async (operation) => {
-              const ok = commit('Save pending Google operation', (draft) => { const target = draft.items[candidate.id]; if (!target || target.occurrence?.recurrenceId !== candidate.occurrence?.recurrenceId || draft.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Google connection changed.'); target.extensions ??= {}; target.extensions[GOOGLE_SAVE_EXTENSION] = clean(operation); });
-              if (!ok) throw new Error('Could not persist Google operation.'); await flushPersistence();
-            },
-            apply: async (calendarId, event, finished) => {
-              const key = await googleHistoryKey(calendarId, event.id);
-              const ok = commit('Save linked Google event', (draft) => {
-                const target = draft.items[candidate.id]; if (!target || target.occurrence?.recurrenceId !== candidate.occurrence?.recurrenceId || draft.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Google connection changed.');
-                const mirror = googleCalendarEventToItem(event, calendarId, google.connectionId, new Date().toISOString(), candidate.schedule?.timezone);
-                if (!mirror?.external) throw new Error('Google returned an invalid event.');
-                target.external = { ...mirror.external, readOnly: false }; target.extensions ??= {};
-                target.extensions['utm:googleLinkKey'] = key;
-                target.extensions[GOOGLE_CREATE_EXTENSION] = { eventId: event.id, calendarId, accountEmail: google.accountEmail ?? '' };
-                applyGoogleCalendarSync(draft, { connectionId: google.connectionId, calendarId, events: [{ ...event, localHistoryKey: key }], syncedAt: new Date().toISOString(), fullSync: false });
-                if (finished) delete target.extensions[GOOGLE_SAVE_EXTENSION];
-                const calendar = draft.calendarPreferences.googleCalendar!.calendars.find((c) => c.id === calendarId); if (calendar) calendar.selected = true;
-              });
-              if (!ok) throw new Error('Could not persist Google result. Retry save to recover it.'); await flushPersistence();
-            },
-          });
+          candidate.extensions ??= {}; candidate.extensions[GOOGLE_SAVE_EXTENSION] = clean(operation);
+          try {
+            const token = await requestGoogleCalendarToken(undefined, 'create');
+            await sendQueuedGoogleItem(candidate, selection, token.accessToken);
+          } catch (reason) {
+            if (reason instanceof GoogleEditConflict || /persist|storage|indexeddb/i.test(String(reason))) throw reason;
+            setToast(workspace.calendarPreferences.language === 'ru' ? 'Сохранено в UTM, ожидает синхронизации. Подробности — в редакторе.' : 'Saved in UTM, waiting for sync. Details are available in the editor.');
+            setEditor(null);
+            return;
+          }
         }
       }
       await flushPersistence(); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const snapshot = clean(workspace.items[item.id] ?? item); const actionNow = currentWorkspaceNow(); const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = actionNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', (draft) => { draft.items[item.id] = clean(snapshot); delete draft.tombstones[item.id]; })); setEditorIsNew(false); setEditor(null); } }} />}</Suspense>

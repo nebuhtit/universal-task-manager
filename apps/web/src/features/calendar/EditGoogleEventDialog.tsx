@@ -32,7 +32,7 @@ export function EditGoogleEventDialog({ item, workspace, onClose, onGoogleEditDr
     const token = await requestGoogleCalendarToken(undefined, 'create');
     const accountEmail = workspace.calendarPreferences.googleCalendar?.accountEmail ?? '';
     const { event, timeZone } = await loadEditableGoogleEvent(token.accessToken, item.external!.calendarId, item.external!.eventId, accountEmail);
-    if (!canEditGoogleEvent(event, timeZone)) throw new Error(t('Editing is available until 3 hours after the event ends.', 'Редактировать можно не позднее трёх часов после окончания события.'));
+    if (!canEditGoogleEvent(event, timeZone, Date.now(), workspace.calendarPreferences.googleCalendar?.allowPastEventEditing)) throw new Error(t('Editing is available until 3 hours after the event ends.', 'Редактировать можно не позднее трёх часов после окончания события.'));
     const next: GoogleEditOperation = { calendarId: item.external!.calendarId, eventId: item.external!.eventId, accountEmail, baseline: event, draft: operation ? rebaseGoogleEdit(operation, event, timeZone) : googleEventDraft(event, timeZone) };
     setOperation(next); setConflict(false); await onGoogleEditDraft(next);
   });
@@ -43,7 +43,7 @@ export function EditGoogleEventDialog({ item, workspace, onClose, onGoogleEditDr
     const token = await requestGoogleCalendarToken(undefined, 'create');
     const attempted = { ...operation, attempted: true };
     await onGoogleEditDraft(attempted); setOperation(attempted);
-    const event = await updateSingleGoogleEvent(token.accessToken, operation);
+    const event = await updateSingleGoogleEvent(token.accessToken, operation, Date.now, workspace.calendarPreferences.googleCalendar?.allowPastEventEditing);
     await onGoogleUpdated(event); onClose();
   });
   const close = () => execute(async () => { if (operation) await onGoogleEditDraft(operation); onClose(); });

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { applyGoogleCalendarSync, detachGoogleCalendar, createId, type GoogleCalendarPreferences, type WorkspaceDocument } from '@utm/core';
+import { applyGoogleCalendarSync, reconcileCalendarOrganization, detachGoogleCalendar, createId, type GoogleCalendarPreferences, type WorkspaceDocument } from '@utm/core';
+import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { Button, Checkbox, Disclosure, Field, Input, Select } from '../../components/ui/primitives';
 import { recordDiagnostic } from '../../services/diagnostics';
 import { forgetGoogleCalendarAuthorization, GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from '../../services/googleCalendar';
@@ -8,7 +9,7 @@ type GoogleSyncLogEntry = { at: string; level: 'info' | 'error'; message: string
 
 export function CalendarIntegrationSettings({ workspace, commit }: {
   workspace: WorkspaceDocument;
-  commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
+  commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => boolean | void;
 }) {
   const preferences = workspace.calendarPreferences;
   const [googleToken, setGoogleToken] = useState<{ accessToken: string; expiresAt: number } | null>(null);
@@ -36,14 +37,17 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
       }, { fullSync: true });
       diagnosticStage = 'save';
       setGoogleSyncStatus('Saving events to this workspace…'); appendLog('Saving downloaded events to this workspace.');
-      commit('Sync Google Calendar', (draft) => {
+      const applied = commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {
           ...current, connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
           ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
         };
         delete draft.calendarPreferences.googleCalendar.lastError;
+        reconcileCalendarOrganization(draft);
       });
+      if (applied === false) throw new Error('Could not save Google synchronization locally.');
+      window.dispatchEvent(new Event('utm-retry-google-queue'));
       const eventCount = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);
       setGoogleSyncStatus(`Sync complete: ${eventCount} events.`);
@@ -101,6 +105,10 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
       {preferences.googleCalendar && <><Field label={preferences.language === 'ru' ? 'Календарь по умолчанию для новых событий' : 'Default calendar for new events'}><Select value={preferences.googleCalendar.defaultCalendarId ?? ''} onChange={(event) => commit('Set default Google calendar', (draft) => { draft.calendarPreferences.googleCalendar!.defaultCalendarId = event.target.value; })}><option value="">{preferences.language === 'ru' ? 'Основной календарь' : 'Primary calendar'}</option>{preferences.googleCalendar.calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</Select></Field><Button disabled={googleBusy} onClick={() => { setGoogleBusy(true); setGoogleError(''); void requestGoogleCalendarToken(undefined, 'create').catch((reason) => setGoogleError(String(reason))).finally(() => setGoogleBusy(false)); }}>{preferences.language === 'ru' ? 'Разрешить создание и изменение событий' : 'Authorize event creation and editing'}</Button></>}
       {!GOOGLE_CALENDAR_CLIENT_ID && <p className="hint">This build needs a Google OAuth client ID before connection is available.</p>}
       {preferences.googleCalendar?.accountEmail && <small>Connected as {preferences.googleCalendar.accountEmail}</small>}
+      {preferences.googleCalendar && <Checkbox label={preferences.language === 'ru' ? 'Бета: редактировать события старше трёх часов' : 'Beta: edit events older than three hours'} checked={preferences.googleCalendar.allowPastEventEditing === true} onChange={(event) => commit('Toggle past event editing beta', (draft) => { draft.calendarPreferences.googleCalendar!.allowPastEventEditing = event.target.checked; })} />}
+      {preferences.googleCalendar?.calendars.map((calendar) => <Disclosure key={`organization:${calendar.id}`} persist={false} uiKey={`calendar-organization:${calendar.id}`} summary={<span style={calendar.color ? { color: calendar.color } : undefined}>{calendar.name} · PARA</span>}>
+        {(['areas', 'projects'] as const).map((kind) => <SearchableDisclosureList key={kind} uiKey={`calendar:${calendar.id}:${kind}`} summary={`${kind === 'areas' ? 'Areas' : 'Projects'} · ${calendar[kind]?.length ?? 0}`} items={Object.keys(kind === 'areas' ? workspace.areaDefinitions : workspace.projectDefinitions)} getSearchText={(name) => name} searchLabel={`Search ${kind}`} renderItem={(name) => <Checkbox key={name} label={name} checked={calendar[kind]?.includes(name) ?? false} onChange={(event) => commit('Change calendar PARA assignments', (draft) => { const target = draft.calendarPreferences.googleCalendar!.calendars.find((entry) => entry.id === calendar.id)!; target[kind] = event.target.checked ? [...new Set([...(target[kind] ?? []), name])] : (target[kind] ?? []).filter((entry) => entry !== name); reconcileCalendarOrganization(draft); })} />} />)}
+      </Disclosure>)}
       {preferences.googleCalendar?.calendars.length ? <div className="calendar-google-list">{preferences.googleCalendar.calendars.map((calendar) => <Checkbox key={calendar.id} label={`${calendar.name}${calendar.primary ? ' · primary' : ''}`} checked={calendar.selected} onChange={() => selectGoogleCalendar(calendar.id)} />)}</div> : null}
       <div className="settings-actions"><Button onClick={() => void syncGoogle()} disabled={googleBusy || !GOOGLE_CALENDAR_CLIENT_ID}>{googleBusy ? 'Syncing…' : preferences.googleCalendar ? 'Sync now' : 'Connect Google Calendar'}</Button>{preferences.googleCalendar && <Button variant="ghost" disabled={googleBusy} onClick={disconnectGoogleCalendar}>Disconnect Google Calendar</Button>}</div>
       {googleSyncStatus && <small className="calendar-google-status" role="status" aria-live="polite">{googleSyncStatus}</small>}

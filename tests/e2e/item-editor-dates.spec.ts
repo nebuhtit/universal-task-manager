@@ -13,7 +13,7 @@ async function createWorkspaceAndItem(page: Page) {
   if (!await section.evaluate((element) => (element as HTMLDetailsElement).open)) await summary.click();
 }
 
-test('dates, duration and clearing remain synchronized', async ({ page }) => {
+test('event dates stay independent of expected duration and allow clearing', async ({ page }) => {
   await createWorkspaceAndItem(page);
   const opens = page.getByLabel('Event opens', { exact: true });
   const ends = page.getByLabel('Event ends', { exact: true });
@@ -35,7 +35,7 @@ test('dates, duration and clearing remain synchronized', async ({ page }) => {
   await page.getByLabel('Duration preset').selectOption('30');
   await expect(page.getByLabel('Calendar duration amount')).toHaveValue('30');
   const difference = await page.evaluate(({ start, end }) => new Date(end).getTime() - new Date(start).getTime(), { start: await opens.inputValue(), end: await ends.inputValue() });
-  expect(difference).toBe(30 * 60_000);
+  expect(difference).toBe(10 * 60_000);
   await expect(due).toHaveValue('');
 
   const oneHourLater = await page.evaluate((start) => {
@@ -44,8 +44,8 @@ test('dates, duration and clearing remain synchronized', async ({ page }) => {
     return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   }, await opens.inputValue());
   await ends.fill(oneHourLater);
-  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('1');
-  await expect(page.getByLabel('Calendar duration unit')).toHaveValue('hours');
+  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('30');
+  await expect(page.getByLabel('Calendar duration unit')).toHaveValue('minutes');
   await page.getByRole('button', { name: 'Save item' }).click();
 
   await page.getByText('Calendar block', { exact: true }).first().click();
@@ -69,5 +69,5 @@ test('end and due dates before Event opens remain invalid', async ({ page }) => 
   }, start);
   await page.getByLabel('Event ends', { exact: true }).fill(earlier);
   await page.getByRole('button', { name: 'Save item' }).click();
-  await expect(page.getByRole('alert')).toContainText('Event ends cannot be earlier than Event opens.');
+  await expect(page.getByRole('alert')).toContainText('Event ends must be after Event opens.');
 });
