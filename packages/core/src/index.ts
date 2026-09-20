@@ -17,3 +17,4 @@ export * from './view-statistics.js';
 export * from './google-calendar.js';
 export * from './export-privacy.js';
 export * from './format-guide.js';
+export * from './item-event.js';

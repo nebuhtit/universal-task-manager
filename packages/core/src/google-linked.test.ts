@@ -39,8 +39,8 @@ describe('linked UTM and Google items', () => {
   it('keeps one identity, preserves UTM data and uses calendar interval only for occupancy', () => {
     const { workspace, item, batch } = fixture(); applyGoogleCalendarSync(workspace, batch);
     expect(Object.keys(workspace.items)).toEqual([item.id]);
-    expect(item.external?.readOnly).toBe(false); expect(item.title).toBe('UTM title'); expect(item.tags).toEqual(['Important']);
-    expect(item.schedule?.estimatedDuration).toBe('PT20M'); expect(item.schedule?.startAt).toBeUndefined(); expect(item.completionEntries).toHaveLength(1);
+    expect(item.external?.readOnly).toBe(false); expect(item.title).toBe('Google title'); expect(item.tags).toEqual(['Important']);
+    expect(item.schedule?.estimatedDuration).toBe('PT20M'); expect(item.schedule?.startAt).toBe('2026-09-20T12:00:00.000Z'); expect(item.completionEntries).toHaveLength(1);
     const accumulator = createViewTimeMetricsAccumulator(viewPeriodBoundsForDates('2026-09-20', '2026-09-20', 'UTC'));
     accumulator.add(item); accumulator.add(item); const metrics = accumulator.finish();
     expect(metrics.completedItems).toBe(1); expect(metrics.actualDurationMs).toBe(600000); expect(metrics.completionPercent).toBe(100);
@@ -52,7 +52,7 @@ describe('linked UTM and Google items', () => {
     applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, etag: 'v2', end: { dateTime: '2026-09-20T14:00:00Z' } }] });
     expect(item.external?.endAt).toBe('2026-09-20T14:00:00.000Z'); expect(item.state).toBe('done'); expect(item.actualTimeEntries?.[0]?.comment).toBe('Keep');
     expect(validateWorkspace(workspace).valid).toBe(true);
-    const exported = workspaceForExport(workspace); expect(exported.items[item.id]?.title).toBe('UTM title'); expect(exported.items[item.id]?.external).toBeUndefined();
+    const exported = workspaceForExport(workspace); expect(exported.items[item.id]?.title).toBe('Google title'); expect(exported.items[item.id]?.external).toBeUndefined();
     detachGoogleCalendar(item); expect(workspace.items[item.id]?.completionEntries).toHaveLength(1); expect(item.external).toBeUndefined();
   });
   it('migrates existing pairs exactly, merges journals and never matches names', () => {

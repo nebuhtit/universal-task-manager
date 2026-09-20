@@ -339,7 +339,7 @@ export const workspaceJsonSchema = {
           type: 'object', additionalProperties: false, required: ['connectionId', 'calendars', 'syncTokens'],
           properties: {
             connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' }, defaultCalendarId: { type: 'string' },
-            calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, selected: { type: 'boolean' } } } },
+            calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, accessRole: { type: 'string' }, selected: { type: 'boolean' } } } },
             syncTokens: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
             syncWindow: { type: 'object', additionalProperties: false, required: ['timeMin', 'timeMax', 'refreshedAt'], properties: { timeMin: { type: 'string', format: 'date-time' }, timeMax: { type: 'string', format: 'date-time' }, refreshedAt: { type: 'string', format: 'date-time' } } },
             lastSyncedAt: { type: 'string', format: 'date-time' }, lastError: { type: 'string' },
@@ -956,7 +956,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
         const value = entry as Record<string, unknown>;
         if (typeof value.id !== 'string' || !value.id || typeof value.name !== 'string' || !value.name) return [];
-        return [{ id: value.id, name: value.name, selected: value.selected !== false, ...(value.primary === true ? { primary: true } : {}) }];
+        return [{ id: value.id, name: value.name, ...(typeof value.accessRole === 'string' ? { accessRole: value.accessRole } : {}), selected: value.selected !== false, ...(value.primary === true ? { primary: true } : {}) }];
       }) : [];
       const tokens = google.syncTokens && typeof google.syncTokens === 'object' && !Array.isArray(google.syncTokens)
         ? Object.fromEntries(Object.entries(google.syncTokens as Record<string, unknown>).filter((entry): entry is [string, string] => Boolean(entry[0]) && typeof entry[1] === 'string' && Boolean(entry[1]))) : {};

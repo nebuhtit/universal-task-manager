@@ -1,4 +1,4 @@
-import { buildRecurrenceRule, makeSeries, removeDuplicateReminders, validateScriptDefinitions, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { canManuallyComplete, buildRecurrenceRule, makeSeries, removeDuplicateReminders, validateScriptDefinitions, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { inferredPreset } from '../fieldDisplay';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -23,6 +23,8 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   const now = input.now ?? new Date();
   if (!item.title.trim()) throw new Error('Add a title before saving.');
   validateScriptDefinitions(item.scripts ?? []);
+  if ((item.external || workspace.items[item.id]?.extensions?.['utm:googleSave']) && (!item.schedule?.startAt || !item.schedule.endAt)) throw new Error('Linked events require both Event opens and Event ends.');
+  if (!canManuallyComplete(item) && item.state === 'done' && workspace.items[item.id]?.state !== 'done') throw new Error('Calendar events cannot be marked completed.');
   let result = {
     ...clean(item), title: item.title.trim(), tags: commaList(input.tags), contexts: commaList(input.contexts),
     areas: [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])].map((value) => value.trim()).filter(Boolean))],
@@ -33,7 +35,7 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   const opensAt = result.schedule?.startAt ? Date.parse(result.schedule.startAt) : Number.NaN;
   const endsAt = result.schedule?.endAt ? Date.parse(result.schedule.endAt) : Number.NaN;
   const dueAt = result.schedule?.dueAt ? Date.parse(result.schedule.dueAt) : Number.NaN;
-  if (Number.isFinite(opensAt) && Number.isFinite(endsAt) && endsAt < opensAt) throw new Error('Event ends cannot be earlier than Event opens.');
+  if (Number.isFinite(opensAt) && Number.isFinite(endsAt) && endsAt <= opensAt) throw new Error('Event ends must be after Event opens.');
   if (Number.isFinite(opensAt) && Number.isFinite(dueAt) && dueAt < opensAt) throw new Error('Due / Active range ends cannot be earlier than Event opens.');
   result = withoutTemplateMarker(result); result.extensions = { ...result.extensions };
   if (isTemplate) result.extensions['utm:template'] = true;
@@ -51,7 +53,7 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
     result.recurrence = normalizedRecurrence;
     buildRecurrenceRule(result);
     result = makeSeries(result, normalizedRecurrence.rrule, { ...normalizedRecurrence, activationOffset: normalizedRecurrence.activationOffset ?? 'P7D' });
-  } else { result.role = 'standalone'; delete result.recurrence; }
+  } else { result.role = item.occurrence ? 'occurrence' : 'standalone'; delete result.recurrence; }
   if (result.state === 'done' || result.state === 'cancelled') result.closure = { at: result.closure?.at ?? now.toISOString(), actor: result.closure?.actor ?? 'user', reason: result.state === 'cancelled' ? 'cancelled' : 'manual' };
   else if (result.state === 'open') delete result.closure;
   if (result.habit) result.habit = { target: result.habit.target ?? result.progress?.target ?? 1, unit: result.habit.unit ?? 'times', streakMode: result.habit.streakMode ?? 'manual_only', completedDates: result.habit.completedDates ?? [], ...(result.habit.activeTimerStartedAt ? { activeTimerStartedAt: result.habit.activeTimerStartedAt } : {}), ...(result.habit.timerSessions?.length ? { timerSessions: result.habit.timerSessions } : {}) };

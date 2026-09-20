@@ -6,6 +6,7 @@ import { SectionGuide } from './components/ui/SectionGuide';
 import { initializeItemHistory, recordCompletionTransition, syncActualDuration } from '@utm/core';
 import { GOOGLE_EDIT_EXTENSION } from './services/googleCalendarEdit';
 import { googleHistoryKey } from './services/googleHistoryKey';
+import { GOOGLE_SAVE_EXTENSION, needsGoogleSave, saveGoogleItem } from './services/googleItemSave';
 import {
   AllItemsPage,
   ALL_ITEMS_VIEW_ID,
@@ -37,7 +38,7 @@ import { isNativeReminderAvailable, requestNativeReminderPermission, syncNativeR
 import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from './services/googleCalendar';
 import { GOOGLE_CREATE_EXTENSION } from './services/googleCalendarCreate';
 import {
-  APP_VERSION, SCHEMA_VERSION, applyGoogleCalendarSync, applyPortableImport, buildPortableImportPreview,
+  APP_VERSION, SCHEMA_VERSION, canManuallyComplete, googleCalendarEventToItem, applyGoogleCalendarSync, applyPortableImport, buildPortableImportPreview,
   collectItemDependencies, createId, createItem, createPortablePackage,
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences, updateRecurrenceCompletionTime,
   runAutomationEvents, serializePortablePackage,
@@ -866,6 +867,7 @@ export default function App() {
   };
 
   const applyItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)', completionAt?: string) => {
+    if (state === 'done' && !canManuallyComplete(item)) return;
     if (item.external?.readOnly) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); return; }
     const occurredAt = currentWorkspaceNow().toISOString();
     const completedAt = completionAt ?? occurredAt;
@@ -953,7 +955,7 @@ export default function App() {
     }, 0));
   };
   const changeItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)') => {
-    if (item.isNote) return;
+    if (item.isNote || (state === 'done' && !canManuallyComplete(item))) return;
     if (workspace && state === 'done' && usesCompletionAnchoredRecurrence(workspace, item)) {
       setQuickCompletion({ itemId: item.id, celebrationColor, completedAt: dateInput(currentWorkspaceNow().toISOString()) });
       return;
@@ -1146,7 +1148,40 @@ export default function App() {
       });
       if (saved && result.changed) setToast(result.rescheduled ? 'Completion time saved. Next cycle updated.' : 'Completion time saved.');
       return { series, rescheduled: result.rescheduled };
-    }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', currentWorkspaceNow()); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={(item, options) => { const actionNow = currentWorkspaceNow(); const isNew = !workspace.items[item.id]; let recurrenceError = ''; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.external?.readOnly === false) { const target = draft.items[item.id]!; target.external = clean(before.external); target.extensions ??= {}; for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey']) { if (before.extensions?.[key] !== undefined) target.extensions[key] = clean(before.extensions[key]); else delete target.extensions[key]; } } item.areas.forEach((area) => ensureAreaDefinition(draft, area)); item.projects.forEach((project) => { const existing = draft.projectDefinitions[project]; const converted = options?.convertedProject === project; ensureProjectDefinition(draft, project, !existing || converted ? { areas: [...new Set([...(existing?.areas ?? []), ...item.areas])] } : {}); }); item.tags.forEach((tag) => ensureTagDefinition(draft, tag)); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: actionNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, actionNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } }); if (saved) { recordDiagnostic({ kind: 'result', message: options?.convertedProject ? 'Item converted to Project and saved' : 'Item organization saved', operation: 'Save item organization', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, areas: item.areas.length, projects: item.projects.length, tags: item.tags.length, converted: Boolean(options?.convertedProject) }) }); setEditorIsNew(false); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const snapshot = clean(workspace.items[item.id] ?? item); const actionNow = currentWorkspaceNow(); const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = actionNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', (draft) => { draft.items[item.id] = clean(snapshot); delete draft.tombstones[item.id]; })); setEditorIsNew(false); setEditor(null); } }} />}</Suspense>
+    }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', currentWorkspaceNow()); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={async (item, options) => { const actionNow = currentWorkspaceNow(); const isNew = !workspace.items[item.id]; let recurrenceError = ''; let googleCandidate: UniversalItem | undefined; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.extensions?.[GOOGLE_SAVE_EXTENSION]) { draft.items[item.id]!.extensions ??= {}; draft.items[item.id]!.extensions![GOOGLE_SAVE_EXTENSION] = clean(before.extensions[GOOGLE_SAVE_EXTENSION]); } if (before?.external?.readOnly === false) { const target = draft.items[item.id]!; target.external = clean(before.external); target.extensions ??= {}; for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey']) { if (before.extensions?.[key] !== undefined) target.extensions[key] = clean(before.extensions[key]); else delete target.extensions[key]; } } item.areas.forEach((area) => ensureAreaDefinition(draft, area)); item.projects.forEach((project) => { const existing = draft.projectDefinitions[project]; const converted = options?.convertedProject === project; ensureProjectDefinition(draft, project, !existing || converted ? { areas: [...new Set([...(existing?.areas ?? []), ...item.areas])] } : {}); }); item.tags.forEach((tag) => ensureTagDefinition(draft, tag)); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: actionNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, actionNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } googleCandidate = clean(googleActionItem(draft, draft.items[item.id]!)); }); if (!saved) throw new Error('Could not save item.'); if (saved) { recordDiagnostic({ kind: 'result', message: options?.convertedProject ? 'Item converted to Project and saved' : 'Item organization saved', operation: 'Save item organization', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, areas: item.areas.length, projects: item.projects.length, tags: item.tags.length, converted: Boolean(options?.convertedProject) }) }); setEditorIsNew(false);
+      if (options?.google && googleCandidate && googleCandidate.role !== 'series_template' && !item.extensions?.['utm:template']) {
+        const google = workspace.calendarPreferences.googleCalendar;
+        const candidate = googleCandidate;
+        const baseline = item.role === 'series_template' ? clean(googleActionItem(workspace, options.google.baseline)) : options.google.baseline;
+        const selection = { ...options.google, baseline };
+        if (google && needsGoogleSave(candidate, selection)) {
+          if (!selection.calendarId) throw new Error('Choose a Google calendar.');
+          const token = await requestGoogleCalendarToken(undefined, 'create');
+          await flushPersistence();
+          await saveGoogleItem({ token: token.accessToken, workspaceId: workspace.workspaceId, accountEmail: google.accountEmail ?? '', item: candidate, options: selection,
+            persist: async (operation) => {
+              const ok = commit('Save pending Google operation', (draft) => { const target = draft.items[candidate.id]; if (!target || target.occurrence?.recurrenceId !== candidate.occurrence?.recurrenceId || draft.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Google connection changed.'); target.extensions ??= {}; target.extensions[GOOGLE_SAVE_EXTENSION] = clean(operation); });
+              if (!ok) throw new Error('Could not persist Google operation.'); await flushPersistence();
+            },
+            apply: async (calendarId, event, finished) => {
+              const key = await googleHistoryKey(calendarId, event.id);
+              const ok = commit('Save linked Google event', (draft) => {
+                const target = draft.items[candidate.id]; if (!target || target.occurrence?.recurrenceId !== candidate.occurrence?.recurrenceId || draft.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Google connection changed.');
+                const mirror = googleCalendarEventToItem(event, calendarId, google.connectionId, new Date().toISOString(), candidate.schedule?.timezone);
+                if (!mirror?.external) throw new Error('Google returned an invalid event.');
+                target.external = { ...mirror.external, readOnly: false }; target.extensions ??= {};
+                target.extensions['utm:googleLinkKey'] = key;
+                target.extensions[GOOGLE_CREATE_EXTENSION] = { eventId: event.id, calendarId, accountEmail: google.accountEmail ?? '' };
+                applyGoogleCalendarSync(draft, { connectionId: google.connectionId, calendarId, events: [{ ...event, localHistoryKey: key }], syncedAt: new Date().toISOString(), fullSync: false });
+                if (finished) delete target.extensions[GOOGLE_SAVE_EXTENSION];
+                const calendar = draft.calendarPreferences.googleCalendar!.calendars.find((c) => c.id === calendarId); if (calendar) calendar.selected = true;
+              });
+              if (!ok) throw new Error('Could not persist Google result. Retry save to recover it.'); await flushPersistence();
+            },
+          });
+        }
+      }
+      await flushPersistence(); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const snapshot = clean(workspace.items[item.id] ?? item); const actionNow = currentWorkspaceNow(); const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = actionNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', (draft) => { draft.items[item.id] = clean(snapshot); delete draft.tombstones[item.id]; })); setEditorIsNew(false); setEditor(null); } }} />}</Suspense>
     {transfer && <TransferDialog session={session} onFlush={flushPersistence} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { void adoptSession(next).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} onReplaced={(next, message) => { void adoptSession(next, true).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
     <ShellNotices toast={toast} undoNotices={undoActions.map(({ id, label, expiresAt }) => ({ id, label, expiresAt }))} onUndo={runUndo} language={workspace.calendarPreferences.language} />

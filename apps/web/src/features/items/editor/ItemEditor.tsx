@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { initializeItemHistory, recordCompletionTransition } from '@utm/core';
+import { canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition } from '@utm/core';
 import { googleActionItem } from './itemEditorSource';
 import { ItemHistoryJournals } from './sections/ItemHistoryJournals';
 import { EditGoogleEventDialog, type GoogleEditingCallbacks } from '../../calendar/EditGoogleEventDialog';
@@ -15,7 +15,7 @@ import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/p
 import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
-import { effectiveScheduleDuration, parseFriendlyDuration, scheduleWithDue, scheduleWithDuration, scheduleWithEnd, scheduleWithStart, type FriendlyDurationUnit } from '../../../utils/durations';
+import { calendarDurationMs, parseOptionalEstimateDuration, toIsoDuration, parseFriendlyDuration, scheduleWithDue, type FriendlyDurationUnit } from '../../../utils/durations';
 import { useWorkspaceNow } from '../../../hooks/useClock';
 import { inferredPreset, priorityNames, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
@@ -29,9 +29,11 @@ import { RecurrenceSection } from './sections/RecurrenceSection';
 import { ScriptsSection } from './sections/ScriptsSection';
 import { TimerHistorySection } from './sections/TimerHistorySection';
 import './item-editor-heading.css';
-import { CreateGoogleEventDialog, type GoogleCreationCallbacks } from '../../calendar/CreateGoogleEventDialog';
-import { GOOGLE_CREATE_EXTENSION } from '../../../services/googleCalendarCreate';
-import { GOOGLE_EDIT_EXTENSION } from '../../../services/googleCalendarEdit';
+import { type GoogleCreationCallbacks } from '../../calendar/CreateGoogleEventDialog';
+import { hasGoogleWriteAuthorization, requestGoogleCalendarToken } from '../../../services/googleCalendar';
+import { writableGoogleCalendars } from '../../../services/googleCalendarCreate';
+import { GOOGLE_SAVE_EXTENSION, itemGoogleBaseline, itemGoogleDraft, type GoogleSaveOptions } from '../../../services/googleItemSave';
+import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict, loadEditableGoogleEvent, rebaseGoogleEdit } from '../../../services/googleCalendarEdit';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -63,14 +65,27 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onPrepareGoogleCreate, onGoogleCreated, onHistorySave, onGoogleEditDraft, onGoogleUpdated }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
+export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onGoogleEditDraft, onGoogleUpdated }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
-  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string }) => void; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
+  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string; google?: GoogleSaveOptions }) => void | Promise<void>; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
-  const [item, setItem] = useState(() => { const next = clean(initial); initializeItemHistory(next); return next; });
-  const [creatingGoogle, setCreatingGoogle] = useState(false);
+  const [item, setItem] = useState(() => { const next = clean(googleCalendarProjection(initial)); initializeItemHistory(next); return next; });
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [googleBaseline, setGoogleBaseline] = useState(() => clean(initial));
+  const [googleConflict, setGoogleConflict] = useState(false);
+  const [googleRebased, setGoogleRebased] = useState(false);
+  const [googleBusyValue, setGoogleBusyValue] = useState(initial.external?.transparency !== 'transparent');
+  const googlePreferences = workspace.calendarPreferences.googleCalendar;
+  const [googleCalendarId, setGoogleCalendarId] = useState((initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { destination?: string } | undefined)?.destination || initial.external?.calendarId || googlePreferences?.defaultCalendarId || googlePreferences?.calendars.find((c) => c.primary)?.id || '');
+  const [calendarChoices, setCalendarChoices] = useState((googlePreferences?.calendars ?? []).filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer' || (!c.accessRole && c.primary)).map((c) => ({ id: c.id, summary: c.name })));
+  const refreshCalendars = async () => {
+    try { const token = await requestGoogleCalendarToken(undefined, 'create'); const choices = await writableGoogleCalendars(token.accessToken, googlePreferences?.accountEmail ?? ''); setCalendarChoices(choices.map((c) => ({ id: c.id!, summary: c.summary ?? c.id! }))); }
+    catch (reason) { setError(String(reason)); }
+  };
+  useEffect(() => { if (googlePreferences && hasGoogleWriteAuthorization()) void refreshCalendars(); }, []);
   const [editingGoogle, setEditingGoogle] = useState(false);
   const titleFieldId = useId();
   const [tags, setTags] = useState(item.tags.join(', '));
@@ -152,11 +167,11 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   }, [item.id, item.recurrence?.rrule]);
   const activation = parseFriendlyDuration(item.recurrence?.activationOffset);
   const activeRange = recurring && Boolean(item.recurrence?.autoRenew) && item.recurrence?.closeAt === 'due' && activation.amount === 0;
-  const scheduledDuration = effectiveScheduleDuration(item.schedule);
+  const scheduledDuration = parseOptionalEstimateDuration(item.schedule?.estimatedDuration);
   const transformSchedule = (transform: (schedule: Schedule) => Schedule) => setItem((current) => ({ ...current, schedule: transform({ timezone: current.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...current.schedule }) }));
-  const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => scheduleWithDuration(schedule, amount === undefined ? undefined : { amount: Math.max(1, amount), unit }));
-  const patchScheduledStart = (value?: string) => transformSchedule((schedule) => scheduleWithStart(schedule, value));
-  const patchScheduledEnd = (value?: string) => transformSchedule((schedule) => scheduleWithEnd(schedule, value));
+  const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined) delete next.estimatedDuration; else next.estimatedDuration = toIsoDuration(Math.max(1, amount), unit); return next; });
+  const patchScheduledStart = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => { const next = { ...schedule }; if (value) { next.startAt = value; const estimate = parseOptionalEstimateDuration(schedule.estimatedDuration) ?? { amount: 10, unit: 'minutes' as const }; const previousSpan = Date.parse(schedule.endAt ?? '') - Date.parse(schedule.startAt ?? ''); const span = previousSpan > 0 ? previousSpan : calendarDurationMs(estimate.amount, estimate.unit); next.endAt = new Date(Date.parse(value) + span).toISOString(); } else delete next.startAt; return next; }); };
+  const patchScheduledEnd = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => { const next = { ...schedule }; if (value) next.endAt = value; else delete next.endAt; return next; }); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => scheduleWithDue(schedule, value));
   const applyDurationPreset = (preset: string) => {
     if (preset === '1h') patchScheduledDuration(1, 'hours');
@@ -169,11 +184,11 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         const end = new Date(start);
         end.setHours(hours || 22, minutes || 0, 0, 0);
         if (end.getTime() <= start.getTime()) end.setDate(end.getDate() + 1);
-        transformSchedule((schedule) => scheduleWithEnd({ ...schedule, allDay: false }, end.toISOString()));
+        transformSchedule((schedule) => ({ ...schedule, allDay: false, endAt: end.toISOString() }));
       }
     } else if (preset === 'all-day') {
       const start = item.schedule?.startAt ? new Date(item.schedule.startAt) : null;
-      if (start) transformSchedule((schedule) => scheduleWithDuration({ ...schedule, allDay: true }, { amount: 1, unit: 'days' }));
+      if (start) { start.setHours(0, 0, 0, 0); const end = new Date(start); end.setDate(end.getDate() + 1); transformSchedule((schedule) => ({ ...schedule, allDay: true, startAt: start.toISOString(), endAt: end.toISOString() })); }
     }
     else if (preset) patchScheduledDuration(Number(preset), 'minutes');
   };
@@ -258,8 +273,8 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const exportItemJson = () => onExportItem(item, 'json');
   const exportItem = (format: PortableFormat, metadata = false) => onExportItem(item, format, metadata);
 
-  const save = ({ dismissKeyboard = false }: { dismissKeyboard?: boolean } = {}) => {
-    setError('');
+  const save = async ({ dismissKeyboard = false }: { dismissKeyboard?: boolean } = {}) => {
+    if (savingRef.current) return; savingRef.current = true; setSaving(true); setError('');
     try {
       if (dismissKeyboard) {
         // Base UI normally restores focus to the quick-capture input when this
@@ -269,8 +284,9 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
       }
       const normalized = normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now });
       recordCompletionTransition(normalized, initial.state, now.toISOString());
-      onSave(normalized, convertedProject ? { convertedProject } : undefined);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      await onSave(normalized, { ...(convertedProject ? { convertedProject } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
+    } catch (reason) { setGoogleConflict(reason instanceof GoogleEditConflict); setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { savingRef.current = false; setSaving(false); }
   };
   useEffect(() => {
     const saveFromRetainedMobileKeyboard = (event: KeyboardEvent) => {
@@ -327,7 +343,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     <ItemHistoryJournals item={item} workspace={workspace} onChange={async (next) => { await onHistorySave?.(next); setItem(next); }} />
   </ResponsiveDialog>;
 
-  return <ResponsiveDialog open onOpenChange={(open) => { if (!open) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => save()}>Save item</button></div>}>
+  return <ResponsiveDialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" disabled={saving} onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save item'}</button></div>}>
     <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
       if (event.target === titleInputRef.current) quickTitleWasFocused.current = true;
       else if (quickTitleWasFocused.current) quickTitleSaveAllowed.current = false;
@@ -343,10 +359,16 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           <input id={titleFieldId} ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly={Boolean(googleEvent)} value={item.title} onChange={(event) => patchItem({ title: event.target.value })} placeholder="What needs to happen?" />
           {!googleEvent && item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
-        {!googleLink && workspace.calendarPreferences.googleCalendar && <Button disabled={isNew || !onPrepareGoogleCreate || !onGoogleCreated} onClick={() => setCreatingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Создать связанное событие Google' : 'Create linked Google event'}</Button>}
+        {googlePreferences && !isTemplate && item.schedule?.startAt && item.schedule.endAt && !googleEvent && <>
+          <Field label="Google Calendar"><Select aria-label="Google Calendar" value={googleCalendarId} onChange={(event) => setGoogleCalendarId(event.target.value)}>
+            <option value="">Choose calendar</option>
+            {calendarChoices.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>)}
+            {googleCalendarId && !calendarChoices.some((c) => c.id === googleCalendarId) && <option value={googleCalendarId}>{googlePreferences.calendars.find((c) => c.id === googleCalendarId)?.name ?? googleCalendarId}</option>}
+          </Select></Field>
+          <Button variant="ghost" disabled={saving} onClick={() => void refreshCalendars()}>Refresh calendars</Button>
+          <Checkbox label="Busy" checked={googleBusyValue} onChange={(event) => setGoogleBusyValue(event.target.checked)} />
+        </>}
         {!googleEvent && isNew && workspace.calendarPreferences.googleCalendar && <p>{workspace.calendarPreferences.language === 'ru' ? 'Сначала сохраните элемент UTM.' : 'Save the UTM item first.'}</p>}
-        {googleLink && !googleEvent && <div><Button onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Изменить событие Google' : 'Edit Google event'}</Button><p>{workspace.calendarPreferences.language === 'ru' ? 'Оценка UTM независима от календарной занятости. Изменения события отправляются отдельно.' : 'The UTM estimate is independent of calendar occupancy. Save event changes separately.'}</p></div>}
-        {creatingGoogle && onPrepareGoogleCreate && onGoogleCreated && <CreateGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setCreatingGoogle(false)} onPrepareGoogleCreate={async (operation) => { await onPrepareGoogleCreate(operation); if (googleItem.id === item.id) setItem((current) => ({ ...current, extensions: { ...current.extensions, [GOOGLE_CREATE_EXTENSION]: JSON.parse(JSON.stringify(operation)) } })); }} onGoogleCreated={async (operation, event) => { const linked = await onGoogleCreated(operation, event); if (linked?.external && linked.id === item.id) setItem((current) => ({ ...current, external: linked.external! })); return linked; }} />}
         <QuickItemTimer soundEnabled onRecord={(record) => {
           const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
           if (owner && onHistorySave) void Promise.resolve(onHistorySave({ ...clean(owner), timerHistory: [...(owner.timerHistory ?? []), { ...record, recurrenceId: owner.occurrence!.recurrenceId }] })).catch((reason) => setError(String(reason)));
@@ -397,7 +419,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
             const subtask = workspace.items[relation.targetId];
             const completed = subtask?.state === 'done';
             return <div className={`subtask-row${completed ? ' completed' : ''}`} key={relation.id}>
-              {subtask?.isNote
+              {subtask && !canManuallyComplete(subtask)
                 ? <span className="subtask-note-marker" aria-label={`Note: ${subtask.title}`}><LineIcon name="note" /></span>
                 : <button type="button" className={`subtask-check${completed ? ' checked' : ''}`} aria-label={`${completed ? 'Reopen' : 'Complete'} subtask ${subtask?.title ?? relation.targetId}`} onClick={() => onToggleSubtask(relation.targetId)}>{completed ? '✓' : ''}</button>}
               <span className="subtask-title">{subtask?.title ?? relation.targetId}</span>
@@ -407,7 +429,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           <div className="inline-row"><input aria-label="New subtask title" value={newSubtaskTitle} onChange={(event) => setNewSubtaskTitle(event.target.value)} placeholder="New subtask title" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); const title = newSubtaskTitle.trim(); if (!title) return; const subtask = onCreateSubtask(title, item.id); patchItem({ relations: [...item.relations, { id: createId(), targetId: subtask.id, type: 'parent' }] }); setNewSubtaskTitle(''); } }} /><button className="secondary" onClick={() => { const title = newSubtaskTitle.trim(); if (!title) return; const subtask = onCreateSubtask(title, item.id); patchItem({ relations: [...item.relations, { id: createId(), targetId: subtask.id, type: 'parent' }] }); setNewSubtaskTitle(''); }}>Add subtask</button></div>
         </div></details>
 
-        <ItemSection sectionKey="status" title="Status" iconPath="state" filledMark={sectionMark(item.state !== 'open')}><Field label="Item status" hint="Status normally changes through completion, cancellation, auto-renew or archiving."><Select aria-label="Item status" value={item.state} onChange={(event) => { const state = event.target.value as UniversalItem['state']; patchItem({ state, closure: state === 'open' ? undefined : { at: item.closure?.at ?? now.toISOString(), actor: item.closure?.actor ?? 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' } }); }}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state} value={state}>{stateNames[state as UniversalItem['state']]}</option>)}</Select></Field>{(item.state === 'done' || item.state === 'cancelled') && <label>Actually {item.state === 'done' ? 'completed' : 'cancelled'} at {dateField(`Actually ${item.state === 'done' ? 'completed' : 'cancelled'} at`, item.closure?.at, (value) => { if (value) patchItem({ closure: { at: value, actor: item.closure?.actor ?? 'user', reason: item.state === 'cancelled' ? 'cancelled' : 'manual' } }); else patchItem({ closure: undefined }); }, 'Defaults to now. Change this when you are recording the item after it happened. For a completion-anchored series, the next cycle uses this time when this cycle is first closed.')}</label>}</ItemSection>
+        <ItemSection sectionKey="status" title="Status" iconPath="state" filledMark={sectionMark(item.state !== 'open')}><Field label="Item status" hint="Status normally changes through completion, cancellation, auto-renew or archiving."><Select aria-label="Item status" disabled={!canManuallyComplete(item)} value={item.state} onChange={(event) => { const state = event.target.value as UniversalItem['state']; patchItem({ state, closure: state === 'open' ? undefined : { at: item.closure?.at ?? now.toISOString(), actor: item.closure?.actor ?? 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' } }); }}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state} value={state}>{stateNames[state as UniversalItem['state']]}</option>)}</Select></Field>{(item.state === 'done' || item.state === 'cancelled') && <label>Actually {item.state === 'done' ? 'completed' : 'cancelled'} at {dateField(`Actually ${item.state === 'done' ? 'completed' : 'cancelled'} at`, item.closure?.at, (value) => { if (value) patchItem({ closure: { at: value, actor: item.closure?.actor ?? 'user', reason: item.state === 'cancelled' ? 'cancelled' : 'manual' } }); else patchItem({ closure: undefined }); }, 'Defaults to now. Change this when you are recording the item after it happened. For a completion-anchored series, the next cycle uses this time when this cycle is first closed.')}</label>}</ItemSection>
 
         <details><summary><FieldIconLabel path="relations" label="Relations & links" /> {sectionMark(item.relations.length > 0 || parentItems.length > 0)}</summary><div className="details-body">
           <SectionGuide title="Linking items"><p>Relations connect two items without making either one a subtask. Links are URL references only; files are not stored in this workspace.</p></SectionGuide>
@@ -422,6 +444,19 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         <details><summary><FieldIconLabel path="system" label="System metadata" /></summary><div className="details-body metadata-grid"><div><span>Created at</span><output><time dateTime={item.createdAt}>{formatViewDate(item.createdAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Last modified</span><output><time dateTime={item.updatedAt}>{formatViewDate(item.updatedAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Created by application</span><output>{item.createdWithAppName} v{item.createdWithVersion}</output></div><div><span>Application ID</span><output className="mono">{item.createdWithAppId}</output></div><div><span>Item schema</span><output>{item.schemaVersion}</output></div><div><span>Item ID</span><output>{item.id}</output></div></div></details>
         </ItemSection>
       {error && <p className="editor-error error" role="alert">{error}</p>}
+      {googleConflict && <Button disabled={saving} onClick={async () => {
+        const link = googleBaseline.external; if (!link || !googlePreferences) return;
+        try {
+          const token = await requestGoogleCalendarToken(undefined, 'create');
+          const { event, timeZone } = await loadEditableGoogleEvent(token.accessToken, link.calendarId, link.eventId, googlePreferences.accountEmail ?? '');
+          const merged = rebaseGoogleEdit({ calendarId: link.calendarId, eventId: link.eventId, accountEmail: googlePreferences.accountEmail ?? '', baseline: itemGoogleBaseline(googleBaseline), draft: itemGoogleDraft(item, googleBusyValue) }, event, timeZone);
+          const remote = googleCalendarEventToItem(event, link.calendarId, link.connectionId, new Date().toISOString(), timeZone)!;
+          setGoogleBaseline({ ...googleBaseline, title: remote.title, bodyMarkdown: remote.bodyMarkdown, location: remote.location ?? '', schedule: { ...googleBaseline.schedule, ...remote.schedule, timezone: timeZone }, external: { ...link, etag: event.etag!, startAt: remote.schedule!.startAt!, endAt: remote.schedule!.endAt!, timezone: timeZone, allDay: merged.allDay, transparency: event.transparency ?? 'opaque' } });
+          const mergedEvent = googleCalendarEventToItem({ id: event.id, summary: merged.title, description: merged.description, location: merged.location, start: merged.allDay ? { date: merged.start, timeZone: merged.timeZone } : { dateTime: merged.start, timeZone: merged.timeZone }, end: merged.allDay ? { date: merged.end, timeZone: merged.timeZone } : { dateTime: merged.end, timeZone: merged.timeZone } }, link.calendarId, link.connectionId, new Date().toISOString(), merged.timeZone)!;
+          setItem((current) => ({ ...current, title: merged.title, bodyMarkdown: merged.description, location: merged.location, schedule: { ...current.schedule, startAt: mergedEvent.schedule!.startAt!, endAt: mergedEvent.schedule!.endAt!, allDay: merged.allDay, timezone: merged.timeZone } }));
+          setGoogleBusyValue(merged.busy); setGoogleRebased(true); setGoogleConflict(false); setError('');
+        } catch (reason) { setError(String(reason)); }
+      }}>Load current event; keep my draft</Button>}
     </div>
   </ResponsiveDialog>;
 }

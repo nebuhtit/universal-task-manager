@@ -105,7 +105,7 @@ describe('ViewResults manual ordering controls', () => {
     const props = { workspace, onEdit: vi.fn(), onState: vi.fn() };
     for (const renderer of ['list', 'table', 'calendar', 'board'] as const) {
       const markup = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer }} />);
-      expect(markup).toContain('item-state-placeholder');
+      expect(markup).toContain('external-calendar-state-marker');
       expect(markup).not.toContain('state-toggle');
     }
   });

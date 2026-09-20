@@ -11,6 +11,8 @@ export interface GoogleCalendarEvent {
   /** Computed locally, never sent to Google. */
   localHistoryKey?: string;
   id: string;
+  iCalUID?: string;
+  eventType?: string;
   etag?: string;
   status?: 'confirmed' | 'tentative' | 'cancelled';
   summary?: string;
@@ -121,7 +123,7 @@ export function googleCalendarEventToItem(event: GoogleCalendarEvent, calendarId
 /** Remove only the calendar association; the UTM task and all its data survive. */
 export function detachGoogleCalendar(item: UniversalItem): void {
   delete item.external;
-  if (item.extensions) { delete item.extensions['utm:googleCreate']; delete item.extensions['utm:googleEdit']; }
+  if (item.extensions) { delete item.extensions['utm:googleCreate']; delete item.extensions['utm:googleEdit']; delete item.extensions['utm:googleSave']; }
 }
 
 function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mirror: UniversalItem): void {
@@ -140,6 +142,12 @@ function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mir
     ...(mirror.schedule?.startAt ? { startAt: mirror.schedule.startAt } : {}),
     ...(mirror.schedule?.endAt ? { endAt: mirror.schedule.endAt } : {}),
     ...(mirror.schedule?.timezone ? { timezone: mirror.schedule.timezone } : {}), allDay: mirror.schedule?.allDay === true };
+  target.title = mirror.title;
+  target.revision += 1;
+  target.updatedAt = mirror.updatedAt;
+  target.bodyMarkdown = mirror.bodyMarkdown;
+  if (mirror.location) target.location = mirror.location; else delete target.location;
+  target.schedule = { ...target.schedule, timezone: mirror.schedule!.timezone, startAt: mirror.schedule!.startAt!, endAt: mirror.schedule!.endAt!, allDay: mirror.schedule?.allDay === true };
   for (const field of ['actualTimeEntries', 'completionEntries', 'timerHistory'] as const) {
     const incoming = mirror[field];
     if (incoming?.length) (target as unknown as Record<string, unknown>)[field] = JSON.parse(JSON.stringify([...(target[field] ?? []), ...incoming.filter((entry) => !target[field]?.some((existing) => existing.id === entry.id))]));

@@ -80,7 +80,7 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
   });
 }
 
-export async function googleJson<T>(url: string, accessToken: string, body?: unknown, options?: { method?: 'PATCH'; etag?: string }): Promise<T> {
+export async function googleJson<T>(url: string, accessToken: string, body?: unknown, options?: { method?: 'PATCH' | 'POST'; etag?: string }): Promise<T> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), GOOGLE_REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -212,7 +212,7 @@ export async function synchronizeGoogleCalendars(accessToken: string, preference
   const calendars = rawCalendars.flatMap((calendar): GoogleCalendarDefinition[] => {
     if (!calendar.id) return [];
     const previous = prior.get(calendar.id);
-    return [{ id: calendar.id, name: calendar.summary?.trim() || calendar.id, ...(calendar.primary ? { primary: true } : {}), selected: previous?.selected ?? Boolean(calendar.primary || calendar.selected) }];
+    return [{ id: calendar.id, name: calendar.summary?.trim() || calendar.id, ...(calendar.accessRole ? { accessRole: calendar.accessRole } : {}), ...(calendar.primary ? { primary: true } : {}), selected: previous?.selected ?? Boolean(calendar.primary || calendar.selected) }];
   });
   const syncedAt = new Date().toISOString();
   // A manual refresh reconciles the mirror even if a previous delta was lost.

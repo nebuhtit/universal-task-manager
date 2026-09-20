@@ -52,7 +52,7 @@ export function workspaceForExport(workspace: WorkspaceDocument): WorkspaceDocum
   // local user text and must never turn its source item into an external item.
   for (const item of Object.values(safe.items)) {
     if (item.external?.readOnly === false) delete item.external;
-    if (item.extensions) { delete item.extensions['utm:googleCreate']; delete item.extensions['utm:googleEdit']; }
+    if (item.extensions) { delete item.extensions['utm:googleCreate']; delete item.extensions['utm:googleEdit']; delete item.extensions['utm:googleSave']; }
   }
   const removedIds = new Set(Object.entries(safe.items)
     .filter(([id, item]) => id.startsWith('google:') || isGoogleCalendarItem(item) || JSON.stringify(item.extensions ?? {}).includes('google_calendar'))
