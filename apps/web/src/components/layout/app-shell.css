@@ -92,6 +92,9 @@
 .notice-button,
 .mobile-menu-button { border-color: transparent; background: transparent; }
 .notice-button { position: relative; }
+.google-calendar-sync-button.is-syncing .line-icon { animation: google-calendar-spin var(--motion-default) linear infinite; }
+@keyframes google-calendar-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .google-calendar-sync-button.is-syncing .line-icon { animation: none; } }
 .mobile-menu-button { display: none; }
 .notice-button b { position: absolute; top: 0; right: 0; min-width: 16px; height: 16px; display: grid; place-items: center; border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-accent-contrast); font-size: 9px; }
 

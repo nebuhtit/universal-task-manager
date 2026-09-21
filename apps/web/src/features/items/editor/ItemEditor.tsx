@@ -1,9 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { addTimerActualTime, canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition } from '@utm/core';
+import { addTimerActualTime, canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition, syncCompletionCounter } from '@utm/core';
 import { googleActionItem } from './itemEditorSource';
 import type { GoogleCalendarEvent } from '@utm/core';
 import { ItemHistoryJournals } from './sections/ItemHistoryJournals';
+import { CompletionGoalsSettings } from './sections/CompletionGoalsSettings';
 import { EventProgramSection } from './sections/EventProgramSection';
 import { programOverflow, trimEventProgram } from '@utm/core';
 import { EditGoogleEventDialog, type GoogleEditingCallbacks } from '../../calendar/EditGoogleEventDialog';
@@ -40,12 +41,6 @@ import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict, loadEditableGoogleEvent, reb
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
-const stopwatchDuration = (seconds: number) => {
-  const safe = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(safe / 3600); const minutes = Math.floor((safe % 3600) / 60); const remainder = safe % 60;
-  return [hours, minutes, remainder].map((value) => String(value).padStart(2, '0')).join(':');
-};
-
 type TokenSuggestion = { value: string; meta?: string };
 function TokenField({ label, values, draft, suggestions, placeholder, colorForValue, onDraft, onAdd, onRemove }: {
   label: string; values: string[]; draft: string; suggestions: TokenSuggestion[]; placeholder: string;
@@ -67,9 +62,10 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onGoogleEditDraft, onGoogleUpdated, onOpenOccurrence }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
+export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onGoogleEditDraft, onGoogleUpdated, onOpenOccurrence }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
   onOpenOccurrence?: (item: UniversalItem) => void;
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
+  onTimerStateSave?: (itemId: string, timer: UniversalItem['activeTimer']) => void | Promise<void>;
   initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string; google?: GoogleSaveOptions }) => void | Promise<void>; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
@@ -310,8 +306,24 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         suppressFocusRestore.current = true;
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
-      const normalized = normalizeItemForSave({ item, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now });
-      recordCompletionTransition(normalized, initial.state, now.toISOString());
+      let itemToSave = item;
+      const overflowingBlocks = programOverflow(item);
+      const programStart = Date.parse(item.schedule?.startAt ?? '');
+      if (overflowingBlocks.length && Number.isFinite(programStart) && item.eventProgram?.blocks.every((block) => block.startOffsetSeconds >= 0)) {
+        const lastBlockEnd = Math.max(...item.eventProgram.blocks.map((block) => block.endOffsetSeconds));
+        const suggestedEnd = new Date(programStart + lastBlockEnd * 1_000).toISOString();
+        const label = formatViewDate(suggestedEnd, true, workspace.calendarPreferences.language);
+        const question = workspace.calendarPreferences.language === 'ru'
+          ? `Программа заканчивается ${label}. Продлить событие до этого времени?`
+          : `The program ends ${label}. Extend the event to that time?`;
+        if (!window.confirm(question)) return;
+        itemToSave = { ...item, schedule: { ...item.schedule!, endAt: suggestedEnd } };
+        setItem(itemToSave);
+      }
+      const normalized = normalizeItemForSave({ item: itemToSave, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now });
+      syncCompletionCounter(normalized, now.toISOString());
+      if (normalized.closure?.reason !== 'rule') recordCompletionTransition(normalized, initial.state, now.toISOString());
+      syncCompletionCounter(normalized, now.toISOString());
       await onSave(normalized, { ...(convertedProject ? { convertedProject } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
     } catch (reason) { setGoogleConflict(reason instanceof GoogleEditConflict); setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { savingRef.current = false; setSaving(false); }
@@ -341,20 +353,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   // New items stay intentionally quiet until the user opens a section.
   const sectionMark = (filled: boolean) => !isNew && filled ? <span className="section-dot" aria-label="Contains data">•</span> : null;
   const dateField = (label: string, value: string | undefined, onChange: (value: string | undefined) => void, help?: string, onFocus?: () => void, minValue?: string) => <DateTimeField label={label} value={value} language={workspace.calendarPreferences.language} onChange={onChange} help={help} onFocus={onFocus} minValue={minValue} />;
-  const activeTimerSeconds = item.habit?.activeTimerStartedAt ? Math.max(0, (now.getTime() - Date.parse(item.habit.activeTimerStartedAt)) / 1000) : 0;
-  const startHabitTimer = () => {
-    if (!item.habit || item.habit.activeTimerStartedAt) return;
-    patchItem({ habit: { ...item.habit, activeTimerStartedAt: now.toISOString() } });
-  };
-  const stopHabitTimer = () => {
-    const habit = item.habit; const startedAt = habit?.activeTimerStartedAt;
-    if (!habit || !startedAt) return;
-    const endedAt = now.toISOString();
-    const durationSeconds = Math.max(0, Math.round((Date.parse(endedAt) - Date.parse(startedAt)) / 1000));
-    const { activeTimerStartedAt: _active, ...rest } = habit;
-    patchItem({ habit: { ...rest, timerSessions: [...(habit.timerSessions ?? []), { id: createId(), startedAt, endedAt, durationSeconds }] } });
-  };
-
+  const timerOwner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
   if (googleLink && editingGoogle && onGoogleEditDraft && onGoogleUpdated) return <EditGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleUpdated={async (event) => { await onGoogleUpdated(event); if (googleEvent) onClose(); else setEditingGoogle(false); }} />;
   if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<><Button onClick={onClose}>Close</Button>{onGoogleEditDraft && onGoogleUpdated && <Button disabled={!workspace.calendarPreferences.googleCalendar?.allowPastEventEditing && !workspace.items[item.id]?.extensions?.[GOOGLE_EDIT_EXTENSION] && (!item.schedule?.endAt || Date.now() > Date.parse(item.schedule.endAt) + 3 * 3600_000)} onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Редактировать' : 'Edit event'}</Button>}</>}>
     <h2>{item.title}</h2><p style={{ whiteSpace: 'pre-wrap' }}>{item.bodyMarkdown}</p>
@@ -403,26 +402,37 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           <Checkbox label="Busy" checked={googleBusyValue} onChange={(event) => setGoogleBusyValue(event.target.checked)} />
         </>}
         {Boolean(item.extensions?.['utm:googleSave']) && <p role="status">{workspace.calendarPreferences.language === 'ru' ? 'Сохранено в UTM, ожидает синхронизации.' : 'Saved in UTM, waiting for sync.'}{String((item.extensions!['utm:googleSave'] as { blocked?: string }).blocked ?? '')}</p>}
-        <QuickItemTimer soundEnabled onCountTime={async (record) => {
-          const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
-          const target = clean(owner ?? item); addTimerActualTime(target, record);
-          if (owner && onHistorySave) await onHistorySave(target); else patchItem({ actualTimeEntries: target.actualTimeEntries, completionEntries: target.completionEntries, schedule: target.schedule });
-        }} onRecord={(record) => {
-          const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
-          if (owner && onHistorySave) void Promise.resolve(onHistorySave({ ...clean(owner), timerHistory: [...(owner.timerHistory ?? []).filter((entry) => entry.id !== record.id), { ...record, recurrenceId: owner.occurrence!.recurrenceId }] })).catch((reason) => setError(String(reason)));
-          else patchItem({ timerHistory: [...(item.timerHistory ?? []).filter((entry) => entry.id !== record.id), { ...record, ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) }] });
+        <QuickItemTimer soundEnabled activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
+          if (onTimerStateSave && workspace.items[(timerOwner ?? item).id]) await onTimerStateSave((timerOwner ?? item).id, runningTimer);
+          if (!timerOwner) setItem((current) => {
+            const next = { ...current };
+            if (runningTimer) next.activeTimer = runningTimer; else delete next.activeTimer;
+            return next;
+          });
+        }} onLegacyStop={async () => {
+          if (!item.habit?.activeTimerStartedAt) return;
+          const target = clean(item);
+          const { activeTimerStartedAt: _stopped, ...habit } = target.habit!;
+          target.habit = habit;
+          if (onHistorySave && workspace.items[item.id]) await onHistorySave(target);
+          setItem((current) => ({ ...current, habit }));
+        }} onSaveCompletion={async (record) => {
+          const owner = timerOwner;
+          const target = clean(owner ?? item); delete target.activeTimer; addTimerActualTime(target, record);
+          syncCompletionCounter(target);
+          if (onHistorySave && (owner || workspace.items[item.id])) {
+            await onHistorySave(target);
+            if (!owner) setItem(target);
+          } else setItem(target);
         }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
         <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           <details><summary><FieldIconLabel path="habit.completedDates" label={workspace.calendarPreferences.language === 'ru' ? 'Прогресс и выполнения' : 'Progress & completions'} /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">
-            <SectionGuide title="Progress versus habit"><p>Progress describes the current item. A habit stays one item and records completed calendar dates instead of creating a duplicate item for every day.</p><p>Set the repeat interval and weekdays in <strong>Recurrence &amp; auto-renew</strong>.</p></SectionGuide>
-            <div className="form-grid three"><label><FieldIconLabel path="progress.mode" label="Mode" /><select value={item.progress?.mode ?? 'counter'} onChange={(event) => patchItem({ progress: { mode: event.target.value as 'counter', current: item.progress?.current ?? 0, target: item.progress?.target ?? 1 } })}><option>boolean</option><option>percent</option><option>counter</option></select></label>
-            <label><FieldIconLabel path="progress.current" label="Current" /><input type="number" value={item.progress?.current ?? 0} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: Number(event.target.value), target: item.progress?.target ?? 1 } })} /></label>
-            <label><FieldIconLabel path="progress.target" label="Target" /><input type="number" value={item.progress?.target ?? 1} onChange={(event) => patchItem({ progress: { mode: item.progress?.mode ?? 'counter', current: item.progress?.current ?? 0, target: Number(event.target.value) } })} /></label></div>
-            <label className="check"><input type="checkbox" checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { ...item.habit, target: item.progress?.target ?? item.habit?.target ?? 1, unit: item.habit?.unit ?? 'times', streakMode: item.habit?.streakMode ?? 'manual_only', completedDates: item.habit?.completedDates ?? [] } : undefined })} /> <FieldIconLabel path="isHabit" label="Track as a habit" /></label>
-            {item.habit && <><div className="habit-stopwatch"><div><strong>{item.habit.activeTimerStartedAt ? stopwatchDuration(activeTimerSeconds) : '00:00:00'}</strong><small>{item.habit.activeTimerStartedAt ? `Started ${formatViewDate(item.habit.activeTimerStartedAt, true, workspace.calendarPreferences.language)}` : 'Simple habit stopwatch'}</small></div>{item.habit.activeTimerStartedAt ? <Button size="compact" onClick={stopHabitTimer}>Stop</Button> : <Button size="compact" onClick={startHabitTimer}>Start</Button>}</div></>}
+            <SectionGuide title="Progress and daily habits"><p>Counter counts completion records. Daily habit tracking keeps the checkmark available again on the next day. The timer above works for every item.</p></SectionGuide>
+            <CompletionGoalsSettings item={item} language={workspace.calendarPreferences.language} onChange={(progress) => patchItem({ progress })} />
+            <Checkbox checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { ...item.habit, target: item.progress?.target ?? item.habit?.target ?? 1, unit: item.habit?.unit ?? 'times', streakMode: item.habit?.streakMode ?? 'manual_only', completedDates: item.habit?.completedDates ?? [] } : undefined })} label="Daily habit: check off once per day" />
             <ItemHistoryJournals item={item} workspace={workspace} onChange={setItem} {...(onHistorySave ? { onOwnerChange: onHistorySave } : {})} />
           </div></details>
         <EventProgramSection onValidityChange={setProgramValid} item={item} onChange={setItem} language={workspace.calendarPreferences.language} now={now} occurrences={item.role === 'series_template' ? Object.values(workspace.items).filter((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id) : []} onOpenOccurrence={onOpenOccurrence ? (target) => {

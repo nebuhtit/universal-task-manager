@@ -85,10 +85,13 @@ test('program edits, shifts, trims with confirmation and saves one managed scrip
     expect(await editor.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
     await page.screenshot({ path: test.info().outputPath(`program-${theme}.png`) });
   }
+  await program.getByLabel('Block end 1', { exact: true }).fill('19:00');
+  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('Extend the event'); await dialog.accept(); });
   await editor.getByRole('button', { name: 'Save item', exact: true }).click();
   await expect(editor).toBeHidden();
   await page.getByText('Program workshop', { exact: true }).first().click();
   if (!(await editor.locator('[data-editor-section="dates"]').getAttribute('open') !== null)) await editor.locator('[data-editor-section="dates"] > summary').click();
+  await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('2030-09-22T19:00');
   await program.locator(':scope > summary').click();
   await expect(program.locator('.program-block')).toHaveCount(1);
   await program.getByRole('button', { name: 'Apply', exact: true }).click();

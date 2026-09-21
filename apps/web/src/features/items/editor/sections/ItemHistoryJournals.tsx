@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createId, initializeItemHistory, syncActualDuration, type ActualTimeEntry, type CompletionEntry, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { createId, durationGoalResult, initializeItemHistory, syncActualDuration, syncCompletionCounter, type ActualTimeEntry, type CompletionEntry, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { Button, Field, Input, Select, Textarea } from '../../../../components/ui/primitives';
 import { dateInput, fromDateInput, formatViewDate } from '../../../../utils/dates';
 import './item-history.css';
@@ -25,7 +25,7 @@ export function ItemHistoryJournals({ item, workspace, onChange, onOwnerChange }
 
   const apply = async (next: UniversalItem) => {
     setBusy(true); setError('');
-    try { syncActualDuration(next); if (next.id === item.id) await onChange(next); else await onOwnerChange?.(next); return true; }
+    try { syncActualDuration(next); syncCompletionCounter(next); if (next.id === item.id) await onChange(next); else await onOwnerChange?.(next); return true; }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return false; }
     finally { setBusy(false); }
   };
@@ -102,7 +102,9 @@ export function ItemHistoryJournals({ item, workspace, onChange, onOwnerChange }
         const linked = linkedRecords(recordOwner, record.id);
         const total = linked.reduce((sum, entry) => sum + entry.record.durationSeconds, 0);
         const sources = [...new Set(linked.map((entry) => sourceName(entry.record.source)).filter(Boolean))];
-        return <article className="item-journal-entry" key={`${recordOwner.id}:${record.id}`}><strong>{record.kind === 'automatic' ? t('Automatic completion', 'Автоматическое выполнение') : t('Completion', 'Выполнение')}{sources.length ? ` · ${sources.join(', ')}` : ''}{record.revokedAt ? ` · ${t('Reopened', 'Отменено')}` : ''}</strong><span>{formatViewDate(record.at, true, workspace.calendarPreferences.language)}{total ? ` · ${elapsed(total)}` : ''}</span>{cycle(record.recurrenceId)}{[...new Set([record.comment, ...linked.map((entry) => entry.record.comment)].filter(Boolean))].map((comment) => <p key={comment} data-utm-user-data>{comment}</p>)}<div className="item-journal-actions"><Button size="compact" onClick={() => startEdit(recordOwner, record)}>{t('Edit', 'Изменить')}</Button><Button size="compact" onClick={() => void removeCompletion(recordOwner, record.id)}>{t('Delete', 'Удалить')}</Button></div></article>;
+        const goal = durationGoalResult(total || undefined, recordOwner.progress?.durationGoal ?? item.progress?.durationGoal);
+        const difference = goal ? `${goal.differenceSeconds > 0 ? '+' : '−'}${elapsed(Math.abs(goal.differenceSeconds))}` : '';
+        return <article className="item-journal-entry" key={`${recordOwner.id}:${record.id}`}><strong>{record.kind === 'automatic' ? t('Automatic completion', 'Автоматическое выполнение') : t('Completion', 'Выполнение')}{sources.length ? ` · ${sources.join(', ')}` : ''}{record.revokedAt ? ` · ${t('Reopened', 'Отменено')}` : ''}</strong><span>{formatViewDate(record.at, true, workspace.calendarPreferences.language)}{total ? ` · ${elapsed(total)}` : ''}</span>{goal && <small>{goal.met ? t('Duration goal met', 'Цель по времени достигнута') : t('Outside duration goal', 'Вне цели по времени')} · {difference}</small>}{cycle(record.recurrenceId)}{[...new Set([record.comment, ...linked.map((entry) => entry.record.comment)].filter(Boolean))].map((comment) => <p key={comment} data-utm-user-data>{comment}</p>)}<div className="item-journal-actions"><Button size="compact" onClick={() => startEdit(recordOwner, record)}>{t('Edit', 'Изменить')}</Button><Button size="compact" onClick={() => void removeCompletion(recordOwner, record.id)}>{t('Delete', 'Удалить')}</Button></div></article>;
       })}
       {orphanRecords.map(({ owner: recordOwner, record }) => <article className="item-journal-entry" key={`${recordOwner.id}:${record.id}`}><strong>{t('Completion', 'Выполнение')}{sourceName(record.source) ? ` · ${sourceName(record.source)}` : ''}</strong><span>{record.at ? formatViewDate(record.at, true, workspace.calendarPreferences.language) : t('Unknown date', 'Дата неизвестна')} · {elapsed(record.durationSeconds)}</span>{cycle(record.recurrenceId)}{record.comment && <p data-utm-user-data>{record.comment}</p>}</article>)}
       {!completions.length && !orphanRecords.length && <p className="hint">{t('No completions yet.', 'Выполнений пока нет.')}</p>}

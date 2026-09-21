@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useClockMilliseconds } from '../../../hooks/useClock';
 import { playTimerIntervalSound, prepareTimerAlarm, startTimerAlarm } from '../../../hooks/useUiSounds';
 import { Button, Checkbox, Input, Select } from '../../../components/ui/primitives';
-import type { ItemTimerSession } from '@utm/core';
+import type { ItemTimerSession, UniversalItem } from '@utm/core';
 import './quick-item-timer.css';
 
 type TimerMode = 'timer' | 'stopwatch';
+type RunningTimer = NonNullable<UniversalItem['activeTimer']>;
 
 const formatClock = (milliseconds: number, includeMilliseconds = false) => {
   if (includeMilliseconds) {
@@ -26,21 +27,27 @@ const formatClock = (milliseconds: number, includeMilliseconds = false) => {
     : [minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
 };
 
-export function QuickItemTimer({ soundEnabled = true, onRecord, onCountTime }: { soundEnabled?: boolean; onRecord?: (session: ItemTimerSession) => void; onCountTime?: (session: ItemTimerSession) => void | Promise<void> }) {
+export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwatchStartedAt, onLegacyStop, onActiveTimerChange, onSaveCompletion }: { soundEnabled?: boolean; activeTimer?: RunningTimer | undefined; initialStopwatchStartedAt?: string | undefined; onLegacyStop?: () => void | Promise<void>; onActiveTimerChange?: (timer: RunningTimer | undefined) => void | Promise<void>; onSaveCompletion?: (session: ItemTimerSession) => void | Promise<void> }) {
+  const savedStartedAt = activeTimer ? Date.parse(activeTimer.startedAt) : Number.NaN;
+  const resumeSaved = Number.isFinite(savedStartedAt);
+  const legacyStartedAt = initialStopwatchStartedAt ? Date.parse(initialStopwatchStartedAt) : Number.NaN;
+  const resumeLegacy = !resumeSaved && Number.isFinite(legacyStartedAt);
   const [recorded, setRecorded] = useState<ItemTimerSession>();
   const [counted, setCounted] = useState(false);
+  const [counting, setCounting] = useState(false);
   const [countError, setCountError] = useState('');
-  const [mode, setMode] = useState<TimerMode>('timer');
-  const [minutes, setMinutes] = useState(10);
-  const [running, setRunning] = useState(false);
-  const [startedAt, setStartedAt] = useState(0);
+  const [mode, setMode] = useState<TimerMode>(resumeSaved ? activeTimer!.mode : resumeLegacy ? 'stopwatch' : 'timer');
+  const [minutes, setMinutes] = useState(resumeSaved && activeTimer!.targetSeconds ? Math.max(1, Math.ceil(activeTimer!.targetSeconds / 60)) : 10);
+  const [running, setRunning] = useState(resumeSaved || resumeLegacy);
+  const [startedAt, setStartedAt] = useState(resumeSaved ? savedStartedAt : resumeLegacy ? legacyStartedAt : 0);
   const [elapsedBeforeStart, setElapsedBeforeStart] = useState(0);
   const [alarming, setAlarming] = useState(false);
   const [intervalSoundEnabled, setIntervalSoundEnabled] = useState(false);
   const [intervalValue, setIntervalValue] = useState(5);
   const [intervalUnit, setIntervalUnit] = useState<'minutes' | 'seconds'>('minutes');
   const intervalCueCountRef = useRef(0);
-  const sessionIdRef = useRef<string | undefined>(undefined);
+  const sessionIdRef = useRef<string | undefined>(resumeSaved ? activeTimer!.id : resumeLegacy ? `legacy-stopwatch:${initialStopwatchStartedAt}` : undefined);
+  const persistenceRef = useRef<Promise<void>>(Promise.resolve());
   const stopAlarmRef = useRef<() => void>(() => undefined);
   const now = useClockMilliseconds(mode === 'stopwatch' ? 50 : 250, running);
   const elapsed = elapsedBeforeStart + (running ? Math.max(0, now - startedAt) : 0);
@@ -59,9 +66,10 @@ export function QuickItemTimer({ soundEnabled = true, onRecord, onCountTime }: {
 
   useEffect(() => {
     if (!running || !finished) return;
-    record(duration);
-    setElapsedBeforeStart(duration);
+    record(elapsed);
+    setElapsedBeforeStart(elapsed);
     setRunning(false);
+    persistActive(undefined);
     stopAlarmRef.current();
     stopAlarmRef.current = startTimerAlarm(soundEnabled);
     setAlarming(soundEnabled);
@@ -70,28 +78,42 @@ export function QuickItemTimer({ soundEnabled = true, onRecord, onCountTime }: {
   useEffect(() => () => stopAlarmRef.current(), []);
 
   const stopAlarm = () => { stopAlarmRef.current(); stopAlarmRef.current = () => undefined; setAlarming(false); };
+  const persistActive = (value: RunningTimer | undefined) => {
+    persistenceRef.current = persistenceRef.current.then(() => onActiveTimerChange?.(value)).then(() => undefined).catch((reason) => setCountError(String(reason)));
+  };
   const record = (durationMilliseconds: number, endedAt = Date.now()) => {
     const minimumDuration = mode === 'stopwatch' ? 30_000 : 1_000;
-    if (!onRecord || durationMilliseconds <= minimumDuration) return;
+    if (durationMilliseconds <= minimumDuration) return;
     const session: ItemTimerSession = {
       id: sessionIdRef.current ??= crypto.randomUUID(), mode, startedAt: new Date(Math.max(0, endedAt - durationMilliseconds)).toISOString(), endedAt: new Date(endedAt).toISOString(),
       durationSeconds: Math.round(durationMilliseconds / 1_000), ...(mode === 'timer' ? { targetSeconds: Math.max(1, minutes) * 60 } : {}),
     };
-    onRecord(session); setRecorded(session); setCounted(false);
+    setRecorded(session); setCounted(false);
   };
-  const reset = () => { stopAlarm(); setRunning(false); setStartedAt(0); setElapsedBeforeStart(0); intervalCueCountRef.current = 0; sessionIdRef.current = undefined; setRecorded(undefined); setCounted(false); };
+  const endLegacy = () => { if (!resumeLegacy || !running) return; void Promise.resolve().then(onLegacyStop).catch((reason) => setCountError(String(reason))); };
+  const reset = () => { endLegacy(); persistActive(undefined); stopAlarm(); setRunning(false); setStartedAt(0); setElapsedBeforeStart(0); intervalCueCountRef.current = 0; sessionIdRef.current = undefined; setRecorded(undefined); setCounted(false); };
   const changeMode = (next: TimerMode) => { setMode(next); reset(); };
+  const startFresh = () => {
+    const timestamp = Date.now();
+    const id = crypto.randomUUID();
+    sessionIdRef.current = id;
+    setRecorded(undefined); setCounted(false); setElapsedBeforeStart(0); setStartedAt(timestamp); setRunning(true);
+    persistActive({ id, mode, startedAt: new Date(timestamp).toISOString(), ...(mode === 'timer' ? { targetSeconds: Math.max(1, minutes) * 60 } : {}) });
+  };
   const toggle = () => {
     prepareTimerAlarm();
     stopAlarm();
-    if (finished) { sessionIdRef.current = undefined; setRecorded(undefined); setElapsedBeforeStart(0); setStartedAt(Date.now()); setRunning(true); return; }
+    if (finished) { startFresh(); return; }
     if (running) {
       const pausedElapsed = elapsedBeforeStart + Math.max(0, Date.now() - startedAt);
-      if (mode === 'stopwatch') record(pausedElapsed);
+      record(pausedElapsed);
+      endLegacy();
+      persistActive(undefined);
       setElapsedBeforeStart(pausedElapsed); setRunning(false); return;
     }
+    if (recorded) { startFresh(); return; }
     intervalCueCountRef.current = Math.floor(elapsed / intervalMilliseconds);
-    setStartedAt(Date.now()); setRunning(true);
+    startFresh();
   };
 
   return <details className="quick-item-timer" aria-label="Quick timer and stopwatch">
@@ -110,9 +132,9 @@ export function QuickItemTimer({ soundEnabled = true, onRecord, onCountTime }: {
       <Select aria-label="Interval sound unit" value={intervalUnit} disabled={!intervalSoundEnabled} onChange={(event) => setIntervalUnit(event.target.value as 'minutes' | 'seconds')}><option value="minutes">min</option><option value="seconds">sec</option></Select>
     </div>
     <div className="quick-item-timer-actions">
-      {!running && recorded && onCountTime && <Button size="compact" variant="ghost" disabled={counted} onClick={() => { setCounted(true); void Promise.resolve(onCountTime(recorded)).catch((reason) => { setCounted(false); setCountError(String(reason)); }); }}>{counted ? 'Added to History' : 'Add time to History'}</Button>}
+      {!running && recorded && onSaveCompletion && <Button size="compact" variant="secondary" disabled={counted || counting} onClick={() => { setCounting(true); setCountError(''); void Promise.resolve().then(() => onSaveCompletion(recorded)).then(() => setCounted(true)).catch((reason) => setCountError(String(reason))).finally(() => setCounting(false)); }}>{counted ? 'Completion saved' : counting ? 'Saving…' : 'Save completion'}</Button>}
       {countError && <small role="alert">{countError}</small>}
-      {alarming ? <Button size="compact" onClick={stopAlarm}>Stop sound</Button> : <Button size="compact" onClick={toggle}>{running ? 'Pause' : finished ? 'Restart' : 'Start'}</Button>}
+      {alarming ? <Button size="compact" onClick={stopAlarm}>Stop sound</Button> : <Button size="compact" onClick={toggle}>{running ? 'Stop' : finished || recorded ? 'Restart' : 'Start'}</Button>}
       <Button size="compact" variant="ghost" disabled={!running && elapsedBeforeStart === 0} onClick={reset}>Reset</Button>
     </div>
     </div>

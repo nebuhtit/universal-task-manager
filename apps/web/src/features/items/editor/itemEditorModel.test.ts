@@ -50,4 +50,14 @@ describe('item editor normalization', () => {
   it('does not copy the template marker unless explicitly enabled', () => { const item = createItem('From template'); item.extensions = { 'utm:template': true, retained: 'yes' }; const result = normalize({ item, isTemplate: false }); expect(result.extensions?.['utm:template']).toBeUndefined(); expect(result.extensions?.retained).toBe('yes'); });
   it('rejects invalid script keys before save', () => { const item = createItem('Script'); item.scripts = [{ id: 'script-1', key: 'Not Valid', label: 'Result', source: '1 + 1', resultKind: 'number' }]; expect(() => normalize({ item })).toThrow('must start with a letter'); });
   it('preserves a running habit timer and completed stopwatch sessions', () => { const item = createItem('Timed habit'); item.habit = { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [], activeTimerStartedAt: '2026-08-26T11:00:00.000Z', timerSessions: [{ id: 'session-1', startedAt: '2026-08-26T10:00:00.000Z', endedAt: '2026-08-26T10:05:00.000Z', durationSeconds: 300 }] }; const result = normalize({ item }); expect(result.habit?.activeTimerStartedAt).toBe('2026-08-26T11:00:00.000Z'); expect(result.habit?.timerSessions).toEqual(item.habit.timerSessions); });
+  it('preserves an automatic count-goal closure without creating a second completion', () => {
+    const item = createItem('Counted');
+    item.state = 'done';
+    item.closure = { at: '2026-08-26T11:00:00Z', actor: 'automation', reason: 'rule' };
+    item.progress = { mode: 'counter', current: 1, target: 1 };
+    item.completionEntries = [{ id: 'one', at: '2026-08-26T11:00:00Z', kind: 'manual', comment: '' }];
+    const result = normalize({ item });
+    expect(result.closure?.reason).toBe('rule');
+    expect(result.completionEntries).toHaveLength(1);
+  });
 });

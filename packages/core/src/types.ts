@@ -1,7 +1,7 @@
-export const SCHEMA_VERSION = '1.24.0';
+export const SCHEMA_VERSION = '1.25.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.3.2';
+export const APP_VERSION = '2.3.3';
 export const APP_RELEASED_AT = '2026-09-21T14:34:52.576Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
@@ -90,6 +90,8 @@ export interface Progress {
   current: number;
   target: number;
   unit?: string;
+  countComparison?: 'at_least' | 'at_most';
+  durationGoal?: { comparison: 'at_least' | 'at_most' | 'between'; minSeconds?: number; maxSeconds?: number };
 }
 
 export interface Habit {
@@ -283,8 +285,10 @@ export interface UniversalItem {
   reminders: Reminder[];
   relations: ItemRelation[];
   attachments: LinkAttachment[];
-  /** Completed quick timer and stopwatch sessions; active controls remain editor-local. */
+  /** Legacy quick timer sessions; new sessions are recorded as completions. */
   timerHistory?: ItemTimerSession[];
+  /** The single running timer shared by every editor section; journal entries are created when it stops. */
+  activeTimer?: { id: string; mode: 'timer' | 'stopwatch'; startedAt: ISODateTime; targetSeconds?: number };
   actualTimeEntries?: ActualTimeEntry[];
   completionEntries?: CompletionEntry[];
   /** External events are edited only in their source calendar. */

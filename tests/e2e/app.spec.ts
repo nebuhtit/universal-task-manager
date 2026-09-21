@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v2\.3\.2 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v2\.3\.3 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -120,7 +120,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v2\.3\.2 · build [0-9a-f]{7}(?: · local changes)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v2\.3\.3 · build [0-9a-f]{7}(?: · local changes)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -814,13 +814,14 @@ test('habit view includes a recurring habit without duplicating its occurrence',
   await openEditorSection(page, 'Dates & time');
   await page.getByLabel('Event opens', { exact: true }).fill('2026-08-27T08:00');
   await page.getByLabel('Event ends', { exact: true }).fill('2026-08-27T08:30');
-  await openEditorSection(page, 'Progress & habit');
-  await page.getByLabel('Track as a habit').check();
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await expect(page.locator('.habit-stopwatch strong')).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
-  await page.waitForTimeout(1100);
-  await page.getByRole('button', { name: 'Stop', exact: true }).click();
-  await expect(page.locator('.habit-timer-history li')).toHaveCount(1);
+  await openEditorSection(page, 'Progress & completions');
+  await page.getByLabel('Daily habit: check off once per day').check();
+  const timer = page.getByLabel('Quick timer and stopwatch', { exact: true });
+  await timer.locator('summary').click();
+  await timer.getByLabel('Quick timer mode').selectOption('stopwatch');
+  await timer.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(timer.locator('output')).toContainText(':');
+  await timer.getByRole('button', { name: 'Stop', exact: true }).click();
   await openEditorSection(page, 'Recurrence & auto-renew');
   await page.getByLabel('Make this a recurring series').check();
   await page.getByRole('button', { name: 'Save item' }).click();

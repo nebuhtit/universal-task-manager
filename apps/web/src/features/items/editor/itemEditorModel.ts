@@ -23,6 +23,8 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   const { item, workspace, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays } = input;
   const now = input.now ?? new Date();
   if (!item.title.trim()) throw new Error('Add a title before saving.');
+  if (item.progress?.mode === 'counter' && (!Number.isInteger(item.progress.target) || item.progress.target < 1)) throw new Error('Completion goal must be a positive whole number.');
+  if (item.progress?.durationGoal?.comparison === 'between' && (item.progress.durationGoal.minSeconds ?? 0) > (item.progress.durationGoal.maxSeconds ?? 0)) throw new Error('Maximum duration must be at least the minimum.');
   validateEventProgram(item);
   const saved = workspace.items[item.id];
   if (item.eventProgram?.blocks.length && item.schedule?.allDay && !saved?.schedule?.allDay) throw new Error('Remove the program before switching to All day.');
@@ -62,7 +64,7 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
     buildRecurrenceRule(result);
     result = makeSeries(result, normalizedRecurrence.rrule, { ...normalizedRecurrence, activationOffset: normalizedRecurrence.activationOffset ?? 'P7D' });
   } else { result.role = item.occurrence ? 'occurrence' : 'standalone'; delete result.recurrence; }
-  if (result.state === 'done' || result.state === 'cancelled') result.closure = { at: result.closure?.at ?? now.toISOString(), actor: result.closure?.actor ?? 'user', reason: result.state === 'cancelled' ? 'cancelled' : 'manual' };
+  if (result.state === 'done' || result.state === 'cancelled') result.closure = { at: result.closure?.at ?? now.toISOString(), actor: result.closure?.actor ?? 'user', reason: result.state === 'cancelled' ? 'cancelled' : result.closure?.reason ?? 'manual' };
   else if (result.state === 'open') delete result.closure;
   if (result.habit) result.habit = { target: result.habit.target ?? result.progress?.target ?? 1, unit: result.habit.unit ?? 'times', streakMode: result.habit.streakMode ?? 'manual_only', completedDates: result.habit.completedDates ?? [], ...(result.habit.activeTimerStartedAt ? { activeTimerStartedAt: result.habit.activeTimerStartedAt } : {}), ...(result.habit.timerSessions?.length ? { timerSessions: result.habit.timerSessions } : {}) };
   result.preset = inferredPreset(result); removeDuplicateReminders(result); return clean(result);

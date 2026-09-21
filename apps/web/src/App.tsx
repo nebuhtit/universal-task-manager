@@ -3,7 +3,7 @@ import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
 import { CloseIcon } from './components/ui/icons';
 import { SectionGuide } from './components/ui/SectionGuide';
-import { initializeItemHistory, recordCompletionTransition, syncActualDuration } from '@utm/core';
+import { initializeItemHistory, recordCompletionTransition, syncActualDuration, syncCompletionCounter } from '@utm/core';
 import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict } from './services/googleCalendarEdit';
 import { googleHistoryKey } from './services/googleHistoryKey';
 import { GOOGLE_SAVE_EXTENSION, needsGoogleSave, prepareGoogleSave, saveGoogleItem, type GoogleSaveOperation, type GoogleSaveOptions } from './services/googleItemSave';
@@ -561,6 +561,7 @@ export default function App() {
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
   const [quickCompletion, setQuickCompletion] = useState<QuickCompletionRequest | null>(null);
   const [googleCalendarSyncing, setGoogleCalendarSyncing] = useState(false);
+  const [googleCalendarSyncStatus, setGoogleCalendarSyncStatus] = useState('');
   const [quickBackupBusy, setQuickBackupBusy] = useState(false);
   useLegacyModalDismiss(Boolean(portableImportSource), () => setPortableImportSource(null));
   useLegacyModalDismiss(transfer, () => setTransfer(false));
@@ -622,12 +623,12 @@ export default function App() {
       throw reason;
     } finally { googleWrites.current.delete(candidate.id); }
   };
-  const retryGoogleQueue = async (interactive = false, excludeId?: string) => {
+  const retryGoogleQueue = async (interactive = false, excludeId?: string, suppliedToken?: string) => {
     const current = workspaceLatest.current;
     if (!current?.calendarPreferences.googleCalendar) return 0;
     const queue = Object.values(current.items).filter((item) => item.id !== excludeId && !item.deletedAt && item.extensions?.[GOOGLE_SAVE_EXTENSION]);
     if (!queue.length) return 0;
-    const token = interactive ? (await requestGoogleCalendarToken(undefined, 'create')).accessToken : cachedGoogleWriteToken();
+    const token = suppliedToken ?? (interactive ? (await requestGoogleCalendarToken(undefined, 'create')).accessToken : cachedGoogleWriteToken());
     if (!token) return queue.length;
     const batchLimit = current.calendarPreferences.googleCalendar.writeBatchLimit ?? GOOGLE_WRITE_BATCH_LIMIT;
     const dailyLimit = current.calendarPreferences.googleCalendar.writeDailyLimit ?? 25;
@@ -655,15 +656,22 @@ export default function App() {
     if (!GOOGLE_CALENDAR_CLIENT_ID) { setToast('This build needs a Google OAuth client ID before sync is available.'); return; }
     const startedAt = performance.now();
     setGoogleCalendarSyncing(true);
+    setGoogleCalendarSyncStatus('Authorizing Google Calendar…');
     try {
-      const queuedGoogleWrites = await retryGoogleQueue(true);
-      const token = await requestGoogleCalendarToken();
-      const current: GoogleCalendarPreferences = google;
-      const result = await synchronizeGoogleCalendars(token.accessToken, current, undefined, { fullSync: true });
+      setToast('Google Calendar: authorizing…');
+      const token = await requestGoogleCalendarToken(undefined, 'create');
+      setGoogleCalendarSyncStatus('Sending saved changes…');
+      const queuedGoogleWrites = await retryGoogleQueue(false, undefined, token.accessToken);
+      const current: GoogleCalendarPreferences = workspaceLatest.current?.calendarPreferences.googleCalendar ?? google;
+      const result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
+        setGoogleCalendarSyncStatus(progress.message);
+        setToast(`Google Calendar: ${progress.message}`);
+      }, { fullSync: true });
+      setGoogleCalendarSyncStatus('Saving locally…');
       const applied = commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {
-          ...clean(current), connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
+          ...clean(draft.calendarPreferences.googleCalendar ?? current), connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
           ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
         };
         delete draft.calendarPreferences.googleCalendar.lastError;
@@ -680,7 +688,7 @@ export default function App() {
       setToast(`Google Calendar sync failed: ${message}`);
       recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
       commit('Record Google Calendar sync error', (draft) => { if (draft.calendarPreferences.googleCalendar) draft.calendarPreferences.googleCalendar.lastError = message; });
-    } finally { setGoogleCalendarSyncing(false); }
+    } finally { setGoogleCalendarSyncing(false); setGoogleCalendarSyncStatus(''); }
   };
   useEffect(() => {
     const openHostItem = (event: Event) => {
@@ -1020,6 +1028,7 @@ export default function App() {
         if (state === 'open') delete target.closure;
         else target.closure = { at: state === 'done' ? completedAt : target.updatedAt, actor: 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' };
         recordCompletionTransition(target, previousState, occurredAt);
+        syncCompletionCounter(target, occurredAt);
         if ((state === 'done' || state === 'cancelled') && target.occurrence && target.closure) advanceCompletionAnchoredSeries(draft, target, target.closure.at);
         const event = { id: createId(), type: 'status.changed' as const, at: target.updatedAt, itemId: target.id, before: clean(item), after: clean(target as unknown as UniversalItem), causationId: createId(), depth: 0 };
         const result = runAutomationEvents(draft, [event]);
@@ -1117,7 +1126,7 @@ export default function App() {
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
-  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} />}
@@ -1154,18 +1163,34 @@ export default function App() {
       }}
     />}
     <Suspense fallback={null}>{editor && <ItemEditor key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
+      onTimerStateSave={async (itemId, timer) => {
+        const saved = commit('Update running timer', (draft) => {
+          const target = draft.items[itemId]; if (!target || target.deletedAt) throw new Error('Item no longer exists.');
+          if (timer) target.activeTimer = clean(timer); else delete target.activeTimer;
+          target.revision += 1; target.updatedAt = new Date().toISOString();
+        });
+        if (!saved) throw new Error('Could not save the running timer.');
+        await flushPersistence();
+      }}
       onHistorySave={async (item) => {
         const key = item.external ? await googleHistoryKey(item.external.calendarId, item.external.eventId) : undefined;
         const saved = commit('Update item history', (draft) => {
           const target = draft.items[item.id]; if (!target || target.deletedAt) throw new Error('Item no longer exists.');
           if (item.actualTimeEntries) target.actualTimeEntries = clean(item.actualTimeEntries);
           if (item.completionEntries) target.completionEntries = clean(item.completionEntries);
+          if (item.habit) target.habit = clean(item.habit);
+          if (item.activeTimer) target.activeTimer = clean(item.activeTimer); else delete target.activeTimer;
+          if (item.progress?.mode === 'counter') target.progress = clean(item.progress);
+          if (item.closure?.reason === 'rule' || target.closure?.reason === 'rule') {
+            target.state = item.state;
+            if (item.closure) target.closure = clean(item.closure); else delete target.closure;
+          }
           if (item.timerHistory) target.timerHistory = clean(item.timerHistory);
           if (key && item.actualTimeEntries) {
             draft.calendarPreferences.localTimeJournals ??= {};
             draft.calendarPreferences.localTimeJournals[key] = clean(item.actualTimeEntries.map((entry, index) => ({ ...entry, id: entry.source === 'imported' ? `local:${key}:${index}` : entry.id })));
           }
-          syncActualDuration(target); target.revision += 1; target.updatedAt = new Date().toISOString();
+          syncActualDuration(target); syncCompletionCounter(target); target.revision += 1; target.updatedAt = new Date().toISOString();
         });
         if (!saved) throw new Error('Could not save item history.');
         await flushPersistence();

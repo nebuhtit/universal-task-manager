@@ -180,7 +180,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     ]);
     if (persistenceTimer) clearTimeout(persistenceTimer);
     if (persistenceOutcome === 'pending') {
-      warning = warning || 'Initial save is still running and will finish in the background';
+      recordDiagnostic({ kind: 'result', message: 'Activation save continues in the background', operation: 'Activate workspace persistence', outcome: 'succeeded', details: JSON.stringify({ waitMs: ACTIVATION_PERSISTENCE_WAIT_MS }) });
       void activationPersistence.catch((reason) => recordDiagnostic({ kind: 'error', message: 'Background activation save failed', operation: 'Activate workspace persistence', outcome: 'failed', details: diagnosticFailureCode(reason) }));
     } else if (typeof persistenceOutcome === 'object') {
       warning = warning || 'Initial save failed and will retry after the next change';
@@ -197,7 +197,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     if (warning || activationDurationMs >= 1_500) recordDiagnostic({ kind: 'result', message: warning ? 'Workspace activation completed with a recurrence warning' : 'Workspace activation was slow', operation: 'Activate workspace', outcome: 'succeeded', durationMs: activationDurationMs, details: JSON.stringify({ stages: activationStages, recurrenceWarning: Boolean(warning), created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
     if (warning && !/timed out/i.test(warning)) onToast(reconciliation.errors?.length
       ? `Workspace opened. Recurrence disabled for ${reconciliation.errors.length} incompatible items; their data is retained. Review these items before re-enabling recurrence.`
-      : `Workspace opened. Recurrence sync will retry in the background (${warning}).`);
+      : `Workspace opened. Local saving continues safely in the background (${warning}).`);
     setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
       if ('Notification' in window && Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
     } catch (reason) {

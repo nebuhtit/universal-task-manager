@@ -25,7 +25,7 @@ const scriptFieldSchema = {
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.24.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.25.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -98,7 +98,7 @@ export const itemJsonSchema = {
     },
     progress: {
       type: 'object', additionalProperties: false, required: ['mode', 'current', 'target'],
-      properties: { mode: { enum: ['boolean', 'percent', 'counter'] }, current: { type: 'number' }, target: { type: 'number' }, unit: { type: 'string' } },
+      properties: { mode: { enum: ['boolean', 'percent', 'counter'] }, current: { type: 'number' }, target: { type: 'number' }, unit: { type: 'string' }, countComparison: { enum: ['at_least', 'at_most'] }, durationGoal: { type: 'object', additionalProperties: false, required: ['comparison'], properties: { comparison: { enum: ['at_least', 'at_most', 'between'] }, minSeconds: { type: 'number', minimum: 0 }, maxSeconds: { type: 'number', minimum: 0 } } } },
     },
     habit: {
       type: 'object', additionalProperties: false, required: ['target', 'unit', 'streakMode', 'completedDates'],
@@ -154,6 +154,7 @@ export const itemJsonSchema = {
         },
       },
     },
+    activeTimer: { type: 'object', additionalProperties: false, required: ['id', 'mode', 'startedAt'], properties: { id: { type: 'string', minLength: 1 }, mode: { enum: ['timer', 'stopwatch'] }, startedAt: { type: 'string', format: 'date-time' }, targetSeconds: { type: 'number', exclusiveMinimum: 0 } } },
     external: {
       type: 'object', additionalProperties: false,
       required: ['provider', 'connectionId', 'calendarId', 'eventId', 'sourceUrl', 'readOnly', 'syncedAt'],
@@ -505,6 +506,13 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
     }).map((session) => ({ id: session.id, startedAt: session.startedAt, endedAt: session.endedAt, durationSeconds: Number(session.durationSeconds) }));
     else delete habit.timerSessions;
     if (typeof habit.activeTimerStartedAt !== 'string' || !Number.isFinite(Date.parse(habit.activeTimerStartedAt))) delete habit.activeTimerStartedAt;
+  }
+  if (item.activeTimer !== undefined) {
+    const timer = item.activeTimer as Record<string, unknown>;
+    if (!timer || typeof timer !== 'object' || Array.isArray(timer) || typeof timer.id !== 'string' || !timer.id || !['timer', 'stopwatch'].includes(String(timer.mode)) || typeof timer.startedAt !== 'string' || !Number.isFinite(Date.parse(timer.startedAt)) || timer.targetSeconds !== undefined && (!Number.isFinite(Number(timer.targetSeconds)) || Number(timer.targetSeconds) <= 0)) {
+      delete item.activeTimer;
+      warnings.push('Discarded invalid running timer state');
+    }
   }
   if (item.role === 'series_template' && item.recurrence && (!item.schedule || typeof item.schedule !== 'object' || Array.isArray(item.schedule) || !(item.schedule as Record<string, unknown>).startAt && !(item.schedule as Record<string, unknown>).dueAt)) {
     const target = (item.extensions && typeof item.extensions === 'object' && !Array.isArray(item.extensions) ? item.extensions : {}) as Record<string, unknown>;

@@ -169,6 +169,8 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
  * is moved to the next cycle.
  */
 export function advanceCompletionAnchoredSeries(workspace: WorkspaceDocument, occurrence: UniversalItem, closedAt: string): boolean {
+  // Reaching a journal count goal is an aggregate status update, not a new cycle.
+  if (occurrence.progress?.mode === 'counter' && occurrence.closure?.actor === 'automation' && occurrence.closure.reason === 'rule') return false;
   const seriesId = occurrence.occurrence?.seriesId;
   if (!seriesId) return false;
   const series = workspace.items[seriesId];
