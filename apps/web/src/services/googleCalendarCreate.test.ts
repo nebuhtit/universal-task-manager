@@ -30,6 +30,10 @@ describe('Single Google event creation', () => {
     expect(body.end.dateTime).toBe('2026-09-23T18:15:00.000Z');
     expect(body).not.toHaveProperty('attendees'); expect(body).not.toHaveProperty('recurrence');
   });
+  it('stores travel time as private UTM metadata', () => {
+    const body = googleEventBody({ ...operation, draft: { ...operation.draft, travelDuration: 'PT45M' } });
+    expect(body.extendedProperties.private).toMatchObject({ utmCreateOperation: operation.eventId, utmTravelDuration: 'PT45M' });
+  });
   it('recovers the same event on a retry without modifying it', async () => {
     const event = { id: operation.eventId, extendedProperties: { private: { utmCreateOperation: operation.eventId } } };
     const fetch = vi.fn().mockResolvedValueOnce(response(calendars)).mockResolvedValueOnce(response({}, 409)).mockResolvedValueOnce(response(event));

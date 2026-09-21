@@ -111,7 +111,7 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v2\.2\.2 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v2\.2\.5 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -120,7 +120,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v2\.2\.2 · build [0-9a-f]{7}(?: · local changes)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v2\.2\.5 · build [0-9a-f]{7}(?: · local changes)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -519,6 +519,9 @@ test('calendar switches periods and edits the fixed day view', async ({ page }) 
   await goToCalendar(page);
   await expect(page.locator('.calendar-title h1')).toBeVisible();
   await expect(page.locator('.calendar-day-panel.is-week .calendar-day-choice')).toHaveCount(7);
+  if ((page.viewportSize()?.width ?? 0) <= 720) {
+    await expect.poll(() => page.locator('.calendar-day-panel.is-week').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
   await page.getByRole('button', { name: 'Month', exact: true }).click();
   await expect.poll(() => page.locator('.calendar-day-panel.is-month .calendar-day-choice').count()).toBeGreaterThanOrEqual(28);
   expect(await page.locator('.calendar-day-panel.is-month .calendar-day-choice').count()).toBeLessThanOrEqual(31);
@@ -540,12 +543,13 @@ test('calendar switches periods and edits the fixed day view', async ({ page }) 
   await expect(editor.getByText('Sorting', { exact: true })).toBeVisible();
   const filterSection = editor.locator('details.view-editor-section').filter({ hasText: 'Filter items' }).first();
   await filterSection.locator(':scope > summary').click();
-  await filterSection.getByRole('button', { name: '+ Add AND rule' }).click();
-  const filterRow = filterSection.locator('.visual-condition-row').last();
+  await filterSection.getByRole('button', { name: '+ AND', exact: true }).last().click();
+  const filterRow = filterSection.locator('.filter-condition').last();
   await filterRow.getByRole('combobox', { name: 'Property' }).selectOption('activeRange');
   await expect(filterRow.getByRole('combobox', { name: 'Operator' })).toHaveValue('==');
   await expect(filterRow.getByRole('combobox', { name: 'Operator' }).locator('option', { hasText: 'is set' })).toHaveCount(0);
-  await expect(filterSection.getByLabel('Calendar day advanced filter code')).toHaveValue(/activeRange == true/);
+  await filterSection.getByRole('button', { name: 'Code (Python-like)' }).click();
+  await expect(filterSection.getByLabel('Filter code')).toHaveValue(/activeRange == True/);
   await editor.getByRole('button', { name: 'Save view' }).click();
   await expect(editor).toBeHidden();
   const calendarEditTrigger = page.getByRole('button', { name: 'Edit calendar day view' });

@@ -1,4 +1,4 @@
-import { zonedDateStart, type GoogleCalendarEvent } from '@utm/core';
+import { GOOGLE_TRAVEL_DURATION_PROPERTY, zonedDateStart, type GoogleCalendarEvent } from '@utm/core';
 import { googleJson } from './googleCalendar';
 import { googleEventBody, writableGoogleCalendars, type GoogleEventDraft } from './googleCalendarCreate';
 
@@ -15,7 +15,8 @@ export interface GoogleEditOperation {
 export class GoogleEditConflict extends Error { constructor() { super('The event changed in Google. Load the current event and review your changes again.'); } }
 const eventUrl = (calendarId: string, eventId: string) => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;
 export function googleEventDraft(event: GoogleCalendarEvent, timeZone: string): GoogleEventDraft {
-  return { title: event.summary ?? '', description: event.description ?? '', location: event.location ?? '', start: event.start?.dateTime ?? event.start?.date ?? '', end: event.end?.dateTime ?? event.end?.date ?? '', allDay: Boolean(event.start?.date), busy: event.transparency !== 'transparent', timeZone: event.start?.timeZone ?? event.end?.timeZone ?? timeZone };
+  const travel = event.extendedProperties?.private?.[GOOGLE_TRAVEL_DURATION_PROPERTY];
+  return { title: event.summary ?? '', description: event.description ?? '', location: event.location ?? '', start: event.start?.dateTime ?? event.start?.date ?? '', end: event.end?.dateTime ?? event.end?.date ?? '', allDay: Boolean(event.start?.date), busy: event.transparency !== 'transparent', timeZone: event.start?.timeZone ?? event.end?.timeZone ?? timeZone, ...(travel !== undefined ? { travelDuration: travel } : {}) };
 }
 export function canEditGoogleEvent(event: GoogleCalendarEvent, timeZone: string, now = Date.now(), allowPast = false): boolean {
   if (event.status === 'cancelled' || event.recurrence?.length) return false;
@@ -39,6 +40,7 @@ export function googleEventChanges(operation: GoogleEditOperation): Record<strin
   if (before.description !== operation.draft.description) changes.description = body.description;
   if (before.location !== operation.draft.location) changes.location = body.location;
   if (before.busy !== operation.draft.busy) changes.transparency = body.transparency;
+  if ((before.travelDuration ?? '') !== (operation.draft.travelDuration ?? '')) changes.extendedProperties = { private: { ...(operation.baseline.extendedProperties?.private ?? {}), [GOOGLE_TRAVEL_DURATION_PROPERTY]: operation.draft.travelDuration ?? '' } };
   const sameTime = (a: string, b: string) => before.allDay ? a === b : Date.parse(a) === Date.parse(b);
   for (const key of ['start', 'end'] as const) {
     if (before.allDay !== operation.draft.allDay || !sameTime(before[key], operation.draft[key]) || before.timeZone !== operation.draft.timeZone) changes[key] = { ...body[key], ...(operation.draft.allDay ? { dateTime: null, timeZone: null } : { date: null }) };

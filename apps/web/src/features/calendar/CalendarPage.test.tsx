@@ -58,9 +58,9 @@ describe('CalendarPage daily-list contract', () => {
     expect(markup).toContain('Spanning active range');
   });
 
-  it('uses semantic tokens and mobile horizontal week navigation', () => {
+  it('uses semantic tokens and a seven-column mobile week navigator', () => {
     const css = readFileSync(fileURLToPath(new URL('./calendar.css', import.meta.url)), 'utf8');
-    expect(css).toContain('overflow-x: auto');
+    expect(css).toContain('overflow: hidden');
     expect(css).toContain('grid-template-columns: repeat(7');
     expect(css).toContain('var(--color-surface)');
     expect(css).toContain('var(--color-text)');

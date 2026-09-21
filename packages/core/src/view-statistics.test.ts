@@ -70,6 +70,28 @@ describe('view time statistics', () => {
     expect(metrics).toMatchObject({ totalItems: 0, completionPercent: 0, remainingDurationMs: 0, freeDurationMs: 23 * 60 * 60_000 });
   });
 
+  it('reserves travel before an event without changing its estimate, including transparent and midnight boundaries', () => {
+    const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
+    const event = createItem('Late free event', 'event');
+    event.schedule = { timezone: 'UTC', startAt: '2026-08-31T00:15:00.000Z', endAt: '2026-08-31T01:15:00.000Z', estimatedDuration: 'PT20M', travelDuration: 'PT30M' };
+    event.external = { provider: 'google_calendar', connectionId: 'connection', calendarId: 'primary', eventId: 'event', sourceUrl: 'https://calendar.google.com/', readOnly: true, transparency: 'transparent', syncedAt: '2026-08-30T22:00:00.000Z' };
+    workspace.items[event.id] = event;
+    const aug30 = periodView('scheduleInPeriod("custom", "event", false, 7, "2026-08-30", "2026-08-30")');
+    const aug31 = periodView('scheduleInPeriod("custom", "event", false, 7, "2026-08-31", "2026-08-31")');
+    expect(calculateViewTimeMetrics(workspace, aug30, [event], new Date('2026-08-30T12:00:00Z')).freeDurationMs).toBe(23 * 3600_000 + 45 * 60_000);
+    expect(calculateViewTimeMetrics(workspace, aug31, [event], new Date('2026-08-31T12:00:00Z')).freeDurationMs).toBe(23 * 3600_000 + 45 * 60_000);
+    expect(event.schedule.estimatedDuration).toBe('PT20M');
+  });
+
+  it('counts imported all-day travel from midnight but not the all-day event itself', () => {
+    const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
+    const event = createItem('All-day event', 'event');
+    event.schedule = { timezone: 'UTC', allDay: true, startAt: '2026-08-31T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z', estimatedDuration: 'P1D', travelDuration: 'PT1H' };
+    workspace.items[event.id] = event;
+    const view = periodView('scheduleInPeriod("custom", "event", false, 7, "2026-08-30", "2026-08-30")');
+    expect(calculateViewTimeMetrics(workspace, view, [event], new Date('2026-08-30T12:00:00Z')).freeDurationMs).toBe(23 * 3600_000);
+  });
+
   it('does not include any all-day events in time statistics', () => {
     const workspace = createWorkspace();
     workspace.calendarPreferences.timezone = 'UTC';

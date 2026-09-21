@@ -36,6 +36,11 @@ describe('Google event editing', () => {
     const patch = requests.find((request) => request.init?.method === 'PATCH')!;
     expect(patch.url).toContain('/events/instance?'); expect(JSON.parse(String(patch.init?.body))).toEqual({ summary: 'Updated' }); expect(patch.init?.headers).toMatchObject({ 'If-Match': 'v1' });
   });
+  it('changes only the UTM travel property and preserves unrelated private metadata', () => {
+    const baseline = { ...event, extendedProperties: { private: { anotherApp: 'keep', utmTravelDuration: 'PT15M' } } };
+    const op: GoogleEditOperation = { ...operation(), baseline, draft: { ...googleEventDraft(baseline, 'UTC'), travelDuration: 'PT30M' } };
+    expect(googleEventChanges(op)).toEqual({ extendedProperties: { private: { anotherApp: 'keep', utmTravelDuration: 'PT30M' } } });
+  });
   it('cannot bypass the age check by moving draft end into the future', async () => {
     const requests = mockRemote(); const op = operation(); op.draft.end = '2027-01-01T00:00:00Z';
     await expect(updateSingleGoogleEvent('token', op, () => Date.parse('2026-09-21T00:00:00Z'))).rejects.toThrow('3 hours'); expect(requests.some((request) => request.init?.method === 'PATCH')).toBe(false);

@@ -54,7 +54,7 @@ const en = {
   Field: 'Поле', Operator: 'Оператор', Value: 'Значение', 'Apply condition': 'Применить условие', 'Add AND condition': 'Добавить И', 'Add OR condition': 'Добавить ИЛИ',
   Title: 'Название', Description: 'Описание', Location: 'Место', 'Files (links only)': 'Файлы (только ссылки)', Status: 'Статус', Priority: 'Приоритет', Tags: 'Теги', Contexts: 'Контексты',
   'Dates & time': 'Дата и время', Reminders: 'Напоминания', 'Available to work from': 'Доступно с', 'Scheduled start': 'Начало', 'Scheduled end': 'Окончание', Deadline: 'Срок', 'Event opens': 'Событие начинается', 'Event ends': 'Событие заканчивается', 'Due / Active range ends': 'Срок / конец активного диапазона', 'Active range': 'Активный диапазон', 'Only show during the active range': 'Показывать только в активном диапазоне', 'Inside active range now (if set)': 'Сейчас внутри активного диапазона (если он задан)', Timezone: 'Часовой пояс',
-  'Estimated duration': 'Ожидаемая длительность', 'Actual duration': 'Фактическая длительность', 'All day': 'Весь день',
+  'Estimated duration': 'Ожидаемая длительность', 'Actual duration': 'Фактическая длительность', 'Travel time': 'Время в пути', 'Reserved immediately before Event opens. It does not change the estimate.': 'Резервируется непосредственно перед началом события и не меняет оценку.', 'All day': 'Весь день',
   'Actual time entries': 'Записи фактического времени', 'Completion entries': 'Записи выполнений',
   None: 'Нет', Low: 'Низкий', Medium: 'Средний', High: 'Высокий', Urgent: 'Срочный',
   Task: 'Задача', Event: 'Событие', Habit: 'Привычка', Blank: 'Пустой', 'Save item': 'Сохранить элемент',

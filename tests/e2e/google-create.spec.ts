@@ -63,9 +63,9 @@ test('edits one Google occurrence with conflict recovery and keeps local journal
   await navigate('Calendar'); await page.getByText('Editable meeting', { exact: true }).first().click();
   const properties = page.getByRole('dialog', { name: 'Google Calendar properties', exact: true });
   await properties.locator('summary').filter({ hasText: /^Completions/ }).click();
-  await properties.getByRole('button', { name: 'Add actual time' }).click();
+  await properties.getByRole('button', { name: 'Add completion' }).click();
   await properties.getByLabel('Minutes', { exact: true }).fill('25'); await properties.getByLabel('Comment', { exact: true }).fill('Measured preparation');
-  await properties.getByRole('button', { name: 'Apply entry' }).click(); await expect(properties.getByText('Measured preparation', { exact: true })).toBeVisible();
+  await properties.getByRole('button', { name: 'Apply' }).click(); await expect(properties.getByText('Measured preparation', { exact: true })).toBeVisible();
   await properties.getByRole('button', { name: 'Edit event', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Edit Google event', exact: true });
   await edit.getByRole('button', { name: 'Load event for editing' }).click();
@@ -87,8 +87,8 @@ test('edits one Google occurrence with conflict recovery and keeps local journal
   const itemEditor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   await itemEditor.locator('summary').filter({ hasText: /^History/ }).click();
   await itemEditor.locator('summary').filter({ hasText: /^Completions/ }).click();
-  await itemEditor.getByRole('button', { name: 'Add completion with time' }).click();
-  await itemEditor.getByLabel('Hours', { exact: true }).fill('1'); await itemEditor.getByLabel('Minutes', { exact: true }).fill('5'); await itemEditor.getByLabel('Comment', { exact: true }).fill('Focused work'); await itemEditor.getByRole('button', { name: 'Apply entry' }).click();
+  await itemEditor.getByRole('button', { name: 'Add completion' }).click();
+  await itemEditor.getByLabel('Hours', { exact: true }).fill('1'); await itemEditor.getByLabel('Minutes', { exact: true }).fill('5'); await itemEditor.getByLabel('Comment', { exact: true }).fill('Focused work'); await itemEditor.getByRole('button', { name: 'Apply' }).click();
   await expect(itemEditor.locator('summary').filter({ hasText: /^Completions · 1 ·/ })).toBeVisible();
   await itemEditor.getByRole('button', { name: 'Save item', exact: true }).click();
   await page.getByText('Journal task', { exact: true }).first().click();

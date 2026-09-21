@@ -47,6 +47,15 @@ describe('linked UTM and Google items', () => {
     expect(metrics.freeDurationMs).toBe(23 * 3600000);
     expect(Date.parse(googleCalendarProjection(item).schedule!.startAt!)).toBe(Date.parse(event.start.dateTime));
   });
+  it('imports UTM travel metadata, preserves it when Google omits the key, and clears it explicitly', () => {
+    const { workspace, item, batch } = fixture(); item.schedule!.travelDuration = 'PT10M';
+    applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, extendedProperties: { private: { utmTravelDuration: 'PT25M' } } }] });
+    expect(item.schedule?.travelDuration).toBe('PT25M');
+    applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, etag: 'v2' }] });
+    expect(item.schedule?.travelDuration).toBe('PT25M');
+    applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, etag: 'v3', extendedProperties: { private: { utmTravelDuration: '' } } }] });
+    expect(item.schedule?.travelDuration).toBeUndefined();
+  });
   it('updates the link without resetting completion, comments or estimate; detach and export keep task', () => {
     const { workspace, item, batch } = fixture(); applyGoogleCalendarSync(workspace, batch);
     applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, etag: 'v2', end: { dateTime: '2026-09-20T14:00:00Z' } }] });

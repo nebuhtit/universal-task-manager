@@ -1,4 +1,4 @@
-import type { GoogleCalendarEvent } from '@utm/core';
+import { GOOGLE_TRAVEL_DURATION_PROPERTY, type GoogleCalendarEvent } from '@utm/core';
 import { googleJson, listCalendars } from './googleCalendar';
 
 export const GOOGLE_CREATE_EXTENSION = 'utm:googleCreate';
@@ -11,6 +11,7 @@ export interface GoogleEventDraft {
   allDay: boolean;
   busy: boolean;
   timeZone: string;
+  travelDuration?: string;
 }
 export interface GoogleCreateOperation {
   eventId: string;
@@ -38,7 +39,7 @@ export function googleEventBody(operation: GoogleCreateOperation) {
     start: draft.allDay ? { date: draft.start } : { dateTime: new Date(start).toISOString(), timeZone: draft.timeZone },
     end: draft.allDay ? { date: draft.end } : { dateTime: new Date(end).toISOString(), timeZone: draft.timeZone },
     transparency: draft.busy ? 'opaque' : 'transparent',
-    extendedProperties: { private: { utmCreateOperation: operation.eventId } },
+    extendedProperties: { private: { utmCreateOperation: operation.eventId, ...(draft.travelDuration !== undefined ? { [GOOGLE_TRAVEL_DURATION_PROPERTY]: draft.travelDuration } : {}) } },
   };
 }
 

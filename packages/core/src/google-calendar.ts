@@ -1,4 +1,4 @@
-import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, type UniversalItem, type WorkspaceDocument } from './types.js';
+import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, durationToMs, type UniversalItem, type WorkspaceDocument } from './types.js';
 import { retainedItemHistory, syncActualDuration } from './item-history.js';
 import { reconcileCalendarOrganization } from './calendar-organization.js';
 
@@ -25,11 +25,22 @@ export interface GoogleCalendarEvent {
   transparency?: 'opaque' | 'transparent';
   recurringEventId?: string;
   recurrence?: string[];
+  extendedProperties?: { private?: Record<string, string>; shared?: Record<string, string> };
   /** Duration of the recurring series source, populated by the browser sync. */
   seriesDurationMilliseconds?: number;
   start?: GoogleCalendarEventDate;
   end?: GoogleCalendarEventDate;
   attachments?: Array<{ fileId?: string; fileUrl?: string; title?: string; mimeType?: string }>;
+}
+
+export const GOOGLE_TRAVEL_DURATION_PROPERTY = 'utmTravelDuration';
+
+function googleTravelDuration(event: GoogleCalendarEvent): { present: boolean; value?: string } {
+  const properties = event.extendedProperties?.private;
+  if (!properties || !Object.prototype.hasOwnProperty.call(properties, GOOGLE_TRAVEL_DURATION_PROPERTY)) return { present: false };
+  const value = properties[GOOGLE_TRAVEL_DURATION_PROPERTY];
+  try { if (value && durationToMs(value) > 0) return { present: true, value }; } catch { /* Invalid metadata is an explicit clear. */ }
+  return { present: true };
 }
 
 export interface GoogleCalendarSyncBatch {
@@ -96,6 +107,7 @@ export function googleCalendarEventToItem(event: GoogleCalendarEvent, calendarId
     : receivedDuration;
   const end = start + repairedDuration;
   const estimatedDuration = isoDuration(end - start);
+  const travel = googleTravelDuration(event);
   const timestamp = validIso(event.updated, syncedAt);
   const sourceUrl = event.htmlLink && /^https?:\/\//.test(event.htmlLink) ? event.htmlLink : `https://calendar.google.com/calendar/u/0/r/eventedit/${encodeURIComponent(event.id)}`;
   const item: UniversalItem = {
@@ -108,10 +120,11 @@ export function googleCalendarEventToItem(event: GoogleCalendarEvent, calendarId
       timezone,
       ...(allDay ? { allDay: true } : {}), startAt: new Date(start).toISOString(),
       ...(end > start ? { endAt: new Date(end).toISOString(), ...(estimatedDuration ? { estimatedDuration } : {}) } : {}),
+      ...(travel.value ? { travelDuration: travel.value } : {}),
     },
     areas: [], projects: [], contexts: [], tags: [], reminders: [], relations: [],
     attachments: (event.attachments ?? []).flatMap((attachment, index) => attachment.fileUrl && /^https?:\/\//.test(attachment.fileUrl) ? [{ id: attachment.fileId || `${event.id}:${index}`, url: attachment.fileUrl, ...(attachment.title ? { title: attachment.title } : {}), ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}) }] : []),
-    custom: {},
+    custom: {}, ...(travel.present ? { extensions: { 'utm:googleTravelDuration': travel.value ?? '' } } : {}),
     external: {
       provider: 'google_calendar', connectionId, calendarId, eventId: event.id, sourceUrl, readOnly: true,
       transparency: event.transparency === 'transparent' ? 'transparent' : 'opaque',
@@ -149,6 +162,10 @@ function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mir
   target.bodyMarkdown = mirror.bodyMarkdown;
   if (mirror.location) target.location = mirror.location; else delete target.location;
   target.schedule = { ...target.schedule, timezone: mirror.schedule!.timezone, startAt: mirror.schedule!.startAt!, endAt: mirror.schedule!.endAt!, allDay: mirror.schedule?.allDay === true };
+  if (Object.prototype.hasOwnProperty.call(mirror.extensions ?? {}, 'utm:googleTravelDuration')) {
+    if (mirror.schedule?.travelDuration) target.schedule.travelDuration = mirror.schedule.travelDuration;
+    else delete target.schedule.travelDuration;
+  }
   for (const field of ['actualTimeEntries', 'completionEntries', 'timerHistory'] as const) {
     const incoming = mirror[field];
     if (incoming?.length) (target as unknown as Record<string, unknown>)[field] = JSON.parse(JSON.stringify([...(target[field] ?? []), ...incoming.filter((entry) => !target[field]?.some((existing) => existing.id === entry.id))]));
@@ -230,6 +247,7 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
       && existing.schedule?.endAt === nextSchedule?.endAt
       && existing.schedule?.estimatedDuration === nextSchedule?.estimatedDuration) continue;
     if (existing) {
+      if (!Object.prototype.hasOwnProperty.call(next.extensions ?? {}, 'utm:googleTravelDuration') && existing.schedule?.travelDuration) next.schedule!.travelDuration = existing.schedule.travelDuration;
       next.areas = [...existing.areas]; next.projects = [...existing.projects]; next.tags = [...existing.tags];
       next.extensions = JSON.parse(JSON.stringify(existing.extensions ?? {}));
       Object.assign(next, retainedItemHistory(existing)); syncActualDuration(next);

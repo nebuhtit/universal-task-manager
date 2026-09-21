@@ -26,7 +26,7 @@ export function itemGoogleDraft(item: UniversalItem, busy: boolean): GoogleEvent
     return `${parts.year}-${parts.month}-${parts.day}`;
   };
   if (!schedule?.startAt || !schedule.endAt) throw new Error('Event opens and Event ends are required.');
-  return { title: item.title, description: item.bodyMarkdown, location: item.location ?? '', start: schedule.allDay ? date(schedule.startAt) : schedule.startAt, end: schedule.allDay ? date(schedule.endAt) : schedule.endAt, allDay: schedule.allDay === true, timeZone: zone, busy };
+  return { title: item.title, description: item.bodyMarkdown, location: item.location ?? '', start: schedule.allDay ? date(schedule.startAt) : schedule.startAt, end: schedule.allDay ? date(schedule.endAt) : schedule.endAt, allDay: schedule.allDay === true, timeZone: zone, busy, travelDuration: schedule.travelDuration ?? '' };
 }
 export function itemGoogleBaseline(item: UniversalItem): GoogleCalendarEvent {
   const link = item.external!;
@@ -67,7 +67,7 @@ export async function saveGoogleItem(args: {
   let pending = item.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
   const draft = itemGoogleDraft(item, options.busy);
   if (pending && options.rebased && pending.kind !== 'create' && pending.baseline?.etag !== options.baseline.external?.etag) pending = { ...pending, draft, baseline: itemGoogleBaseline(options.baseline), attempted: false };
-  if (pending && ((Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => pending!.draft[key] !== draft[key]) || pending.destination !== options.calendarId)) throw new Error('Finish the pending Google save before changing its event fields. Your latest input is still in the editor.');
+  if (pending && ((Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => key === 'travelDuration' ? (pending!.draft[key] ?? '') !== (draft[key] ?? '') : pending!.draft[key] !== draft[key]) || pending.destination !== options.calendarId)) throw new Error('Finish the pending Google save before changing its event fields. Your latest input is still in the editor.');
   const link = options.baseline.external;
   let operation: GoogleSaveOperation = pending ?? {
     kind: link ? 'edit' : 'create', calendarId: link?.calendarId ?? options.calendarId, destination: options.calendarId,

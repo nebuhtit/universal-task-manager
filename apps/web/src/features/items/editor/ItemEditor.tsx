@@ -28,7 +28,6 @@ import { DatesSection } from './sections/DatesSection';
 import { RemindersSection } from './sections/RemindersSection';
 import { RecurrenceSection } from './sections/RecurrenceSection';
 import { ScriptsSection } from './sections/ScriptsSection';
-import { TimerHistorySection } from './sections/TimerHistorySection';
 import './item-editor-heading.css';
 import { type GoogleCreationCallbacks } from '../../calendar/CreateGoogleEventDialog';
 import { hasGoogleWriteAuthorization, requestGoogleCalendarToken } from '../../../services/googleCalendar';
@@ -169,9 +168,11 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const activation = parseFriendlyDuration(item.recurrence?.activationOffset);
   const activeRange = recurring && Boolean(item.recurrence?.autoRenew) && item.recurrence?.closeAt === 'due' && activation.amount === 0;
   const scheduledDuration = parseOptionalEstimateDuration(item.schedule?.estimatedDuration);
+  const travelDuration = parseOptionalEstimateDuration(item.schedule?.travelDuration);
   const transformSchedule = (transform: (schedule: Schedule) => Schedule) => setItem((current) => ({ ...current, schedule: transform({ timezone: current.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...current.schedule }) }));
   const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined) delete next.estimatedDuration; else next.estimatedDuration = toIsoDuration(Math.max(1, amount), unit); return next; });
-  const patchScheduledStart = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => scheduleWithStart(schedule, value)); };
+  const patchTravelDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined || amount <= 0) delete next.travelDuration; else next.travelDuration = toIsoDuration(amount, unit); return next; });
+  const patchScheduledStart = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => { const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; return next; }); };
   const patchScheduledEnd = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => scheduleWithEnd(schedule, value)); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => scheduleWithDue(schedule, value));
   const applyDurationPreset = (preset: string) => {
@@ -380,7 +381,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           else patchItem({ timerHistory: [...(item.timerHistory ?? []).filter((entry) => entry.id !== record.id), { ...record, ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) }] });
         }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
-        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} applyDurationPreset={applyDurationPreset}>
+        <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           <details><summary><FieldIconLabel path="habit.completedDates" label="Progress & habit" /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">
@@ -410,7 +411,6 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         </div></details>
 
         <ItemSection sectionKey="history" title="History" iconPath="cycleHistory">
-          <TimerHistorySection records={[...(item.timerHistory ?? []), ...Object.values(workspace.items).filter((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id).flatMap((entry) => entry.timerHistory ?? [])]} language={workspace.calendarPreferences.language} />
           <ItemHistoryJournals item={item} workspace={workspace} onChange={setItem} {...(onHistorySave ? { onOwnerChange: onHistorySave } : {})} />
         </ItemSection>
         <ItemSection sectionKey="more" title="More" iconPath="custom">

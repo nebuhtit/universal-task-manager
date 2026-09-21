@@ -2,7 +2,7 @@ import { compileQuery, schedulePeriodBounds, type QueryTemporalOptions, type Sch
 import { actualTimeMs } from './item-history.js';
 import { projectOccurrences } from './calendar.js';
 import { effectiveItemDurationMs, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
-import type { SavedView, UniversalItem, WorkspaceDocument } from './types.js';
+import { durationToMs, type SavedView, type UniversalItem, type WorkspaceDocument } from './types.js';
 
 const DAY_MS = 86_400_000;
 
@@ -107,27 +107,39 @@ export function inferViewPeriod(view: Pick<SavedView, 'query'>, now: Date, optio
   };
 }
 
+function travelDurationMs(item: UniversalItem): number {
+  try {
+    const duration = durationToMs(item.schedule?.travelDuration ?? 'PT0S');
+    return Number.isFinite(duration) && duration > 0 ? duration : 0;
+  } catch { return 0; }
+}
+
 const eligible = (item: UniversalItem) => !item.deletedAt
   && item.role !== 'series_template'
   && item.state !== 'cancelled'
   && item.state !== 'archived'
-  && item.external?.transparency !== 'transparent'
-  && participatesInTimeStatistics(item);
+  && (participatesInTimeStatistics(item) || Boolean(item.schedule?.startAt && travelDurationMs(item) > 0));
+
+function overlap(start: number, end: number, period: ViewPeriodBounds): number {
+  return Math.max(0, Math.min(end, period.endExclusive.getTime()) - Math.max(start, period.start.getTime()));
+}
 
 export function itemDurationInsidePeriod(item: UniversalItem, period: ViewPeriodBounds): number {
+  const travel = travelDurationMs(item);
   if (item.external?.readOnly === false) {
     const start = Date.parse(item.external.startAt ?? ''); const end = Date.parse(item.external.endAt ?? '');
-    if (item.external.allDay || !Number.isFinite(start) || !Number.isFinite(end)) return 0;
-    return Math.max(0, Math.min(end, period.endExclusive.getTime()) - Math.max(start, period.start.getTime()));
+    if (!Number.isFinite(start)) return 0;
+    const event = item.external.allDay || item.external.transparency === 'transparent' || !Number.isFinite(end) ? 0 : overlap(start, end, period);
+    return event + overlap(start - travel, start, period);
   }
   const duration = effectiveItemDurationMs(item);
-  if (duration <= 0) return 0;
   const start = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
   const explicitEnd = item.schedule?.endAt ? Date.parse(item.schedule.endAt) : Number.NaN;
-  if (!Number.isFinite(start)) return duration;
+  if (!Number.isFinite(start)) return duration > 0 ? duration : 0;
   const end = Number.isFinite(explicitEnd) && explicitEnd > start ? explicitEnd : start + duration;
-  const overlap = Math.min(end, period.endExclusive.getTime()) - Math.max(start, period.start.getTime());
-  return overlap > 0 ? overlap : duration;
+  const eventOverlap = overlap(start, end, period);
+  const event = item.schedule?.allDay || item.external?.transparency === 'transparent' || duration <= 0 ? 0 : eventOverlap > 0 ? eventOverlap : duration;
+  return event + overlap(start - travel, start, period);
 }
 
 /** Incrementally derives exactly the same metrics as a finite-period View. */
@@ -234,7 +246,8 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
       const occurrenceDuration = Number.isFinite(start)
         ? Math.max(0, Math.min((Number.isFinite(end) && end > start ? end : start + fullDuration), period.endExclusive.getTime()) - Math.max(start, period.start.getTime()))
         : fullDuration;
-      if (occurrenceDuration > 0) reservedDurationMs += occurrenceDuration;
+      const occurrenceTravel = Number.isFinite(start) ? overlap(start - travelDurationMs(source), start, period) : 0;
+      if (occurrenceDuration > 0 || occurrenceTravel > 0) reservedDurationMs += occurrenceDuration + occurrenceTravel;
     }
   }
   return finish(reservedDurationMs);

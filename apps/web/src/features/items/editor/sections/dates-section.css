@@ -15,6 +15,9 @@
 .timezone-panel { margin: calc(var(--space-1) * -1) 0 var(--space-3); padding: var(--space-3); }
 .timezone-panel .ui-field { margin: 0; }
 .schedule-grid .ui-field-hint { line-height: 1.4; }
+.travel-time-disclosure { grid-column: 1 / -1; }
+.travel-time-disclosure > div { display: grid; gap: var(--space-2); padding-top: var(--space-2); }
+.travel-duration-control { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, auto); gap: var(--space-2); }
 
 @media (max-width: 640px) {
   .calendar-duration-control { grid-template-columns: minmax(0, 1.25fr) 46px minmax(0, .95fr); gap: var(--space-1); }

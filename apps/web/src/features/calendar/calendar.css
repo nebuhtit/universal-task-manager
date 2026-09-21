@@ -105,8 +105,12 @@
   .calendar-period-switch .ui-button,
   .calendar-period-actions .ui-button,
   .calendar-period-actions .ui-icon-button { padding-inline: var(--space-2); }
-  .calendar-day-panel.is-week { display: flex; overflow-x: auto; padding-bottom: var(--space-1); scroll-snap-type: x proximity; }
-  .calendar-day-panel.is-week .calendar-day-choice { flex: 0 0 92px; scroll-snap-align: start; }
+  .calendar-day-panel.is-week { grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: hidden; gap: 2px; }
+  .calendar-day-panel.is-week .calendar-day-choice { min-height: 64px; padding: var(--space-1); gap: var(--space-1); }
+  .calendar-day-panel.is-week .calendar-day-label { gap: 0; }
+  .calendar-day-panel.is-week .calendar-day-label b { font-size: var(--font-size-caption); }
+  .calendar-day-panel.is-week .calendar-day-label small { font-size: 10px; }
+  .calendar-day-panel.is-week .calendar-day-choice .view-metrics-summary { min-height: 0; font-size: 9px; line-height: 1.15; }
   .calendar-day-panel.is-month { gap: 2px; }
   .calendar-day-panel.is-month .calendar-day-choice { min-height: 58px; padding: var(--space-1); }
   .calendar-day-panel.is-month .calendar-day-choice .view-metrics-summary { font-size: 8px; }
