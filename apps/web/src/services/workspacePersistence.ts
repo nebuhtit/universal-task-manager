@@ -16,6 +16,14 @@ type PersistenceResponse =
 let worker: Worker | undefined;
 let nextRequestId = 1;
 const requests = new Map<number, { resolve: (value: { binary: Uint8Array; exportSafeBinary?: Uint8Array }) => void; reject: (reason: Error) => void }>();
+const WORKER_PREPARE_TIMEOUT_MS = 15_000;
+
+const resetWorkspaceWorker = (reason: Error) => {
+  requests.forEach(({ reject }) => reject(reason));
+  requests.clear();
+  worker?.terminate();
+  worker = undefined;
+};
 
 const workspaceWorker = (): Worker | undefined => {
   if (typeof Worker === 'undefined') return undefined;
@@ -29,11 +37,7 @@ const workspaceWorker = (): Worker | undefined => {
     else request.reject(new Error(event.data.error));
   };
   worker.onerror = () => {
-    const error = new Error('Workspace persistence worker failed');
-    requests.forEach(({ reject }) => reject(error));
-    requests.clear();
-    worker?.terminate();
-    worker = undefined;
+    resetWorkspaceWorker(new Error('Workspace persistence worker failed'));
   };
   return worker;
 };
@@ -46,8 +50,15 @@ async function prepareOffMainThread(session: UnlockedWorkspace): Promise<Prepare
   // every historical operation into an empty document on each save.
   const binary = Automerge.save(session.document as Automerge.Doc<WorkspaceDocument>);
   const dataKey = session.dataKey.slice();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const verified = await new Promise<{ binary: Uint8Array; exportSafeBinary?: Uint8Array }>((resolve, reject) => {
+      timeout = setTimeout(() => {
+        requests.delete(id);
+        const error = new Error('Workspace persistence worker timed out');
+        resetWorkspaceWorker(error);
+        reject(error);
+      }, WORKER_PREPARE_TIMEOUT_MS);
       requests.set(id, { resolve, reject });
       try {
         target.postMessage(
@@ -56,15 +67,23 @@ async function prepareOffMainThread(session: UnlockedWorkspace): Promise<Prepare
         );
       } catch (reason) {
         requests.delete(id);
+        if (timeout) clearTimeout(timeout);
         reject(reason instanceof Error ? reason : new Error(String(reason)));
       }
     });
+    if (timeout) clearTimeout(timeout);
     return await prepareLocalWorkspaceSaveFromVerifiedBinaries(
       verified.binary,
       verified.exportSafeBinary,
       dataKey,
       session.storageMode,
     );
+  } catch (reason) {
+    if (timeout) clearTimeout(timeout);
+    // The worker only accelerates serialization. If it is unavailable, slow or
+    // unexpectedly terminated, keep the latest fully verified save path on the
+    // main thread instead of leaving a durable write waiting forever.
+    return await prepareLocalWorkspaceSave(session.document, dataKey, session.storageMode);
   } finally {
     dataKey.fill(0);
   }
