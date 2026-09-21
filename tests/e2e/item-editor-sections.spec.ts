@@ -35,7 +35,7 @@ test('organization tokens save multiple values and editor sections reopen cleanl
   await page.getByPlaceholder('Add new item').press('Enter');
 
   const organization = await openSection(page, 'Organization');
-  await organization.getByLabel('Priority').selectOption('3');
+  await expect(organization.getByLabel('Priority')).toHaveCount(0);
   await organization.getByLabel('Add Area').fill('Work');
   await organization.getByLabel('Add Area').press('Enter');
   await organization.getByLabel('Add Area').fill('Learning');
@@ -53,12 +53,16 @@ test('organization tokens save multiple values and editor sections reopen cleanl
   const reopenedOrganization = page.locator('.editor-scroll > details').filter({ has: page.getByText('Organization', { exact: true }) }).first();
   await expect(reopenedOrganization).not.toHaveAttribute('open', '');
   await reopenedOrganization.locator(':scope > summary').click();
-  await expect(page.getByLabel('Priority')).toHaveValue('3');
+  await expect(reopenedOrganization.getByLabel('Priority')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Remove Area Work' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove Area Learning' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove Project Phase 3' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove Tag design' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove Tag calm' })).toBeVisible();
+  const tagPicker = reopenedOrganization.locator('details.organization-token-picker').filter({ hasText: 'Choose existing tags' });
+  await expect(tagPicker).not.toHaveAttribute('open', '');
+  await tagPicker.locator(':scope > summary').click();
+  await expect(reopenedOrganization.getByLabel('Tags suggestions')).toBeVisible();
   await expect(page.getByLabel('Create Task list')).toHaveValue('Phase 3');
   await expect(page.locator('.editor-scroll > details > summary').filter({ hasText: 'Organization' }).first().locator('.section-dot')).toHaveCount(1);
 });

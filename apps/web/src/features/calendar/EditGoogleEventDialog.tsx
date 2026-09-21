@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { zonedDateTime, type GoogleCalendarEvent, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { googleWriteLimitReached, zonedDateTime, type GoogleCalendarEvent, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { Button, Checkbox, Field, Input, Textarea } from '../../components/ui/primitives';
 import { requestGoogleCalendarToken, hasGoogleWriteAuthorization } from '../../services/googleCalendar';
@@ -39,6 +39,8 @@ export function EditGoogleEventDialog({ item, workspace, onClose, onGoogleEditDr
   const patch = (value: Partial<GoogleEventDraft>) => { if (operation) setOperation({ ...operation, draft: { ...operation.draft, ...value }, attempted: false }); };
   const save = () => execute(async () => {
     if (!operation) return;
+    const google = workspace.calendarPreferences.googleCalendar;
+    if (google && googleWriteLimitReached(google)) throw new Error(t(`Google write safety limit reached (${google.writeDailyLimit ?? 25} changes in 24 hours).`, `Достигнут защитный лимит Google (${google.writeDailyLimit ?? 25} изменений за 24 часа).`));
     googleEventChanges(operation);
     const token = await requestGoogleCalendarToken(undefined, 'create');
     const attempted = { ...operation, attempted: true };

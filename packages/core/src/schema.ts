@@ -339,6 +339,7 @@ export const workspaceJsonSchema = {
           type: 'object', additionalProperties: false, required: ['connectionId', 'calendars', 'syncTokens'],
           properties: {
             connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' }, defaultCalendarId: { type: 'string' }, allowPastEventEditing: { type: 'boolean' },
+            writeDailyLimit: { type: 'integer', minimum: 1, maximum: 200 }, writeBatchLimit: { type: 'integer', minimum: 1, maximum: 20 }, writeTimestamps: { type: 'array', items: { type: 'string', format: 'date-time' } },
             calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, accessRole: { type: 'string' }, selected: { type: 'boolean' }, color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, managedTag: { type: 'string' }, areas: { type: 'array', items: { type: 'string' } }, projects: { type: 'array', items: { type: 'string' } } } } },
             syncTokens: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
             syncWindow: { type: 'object', additionalProperties: false, required: ['timeMin', 'timeMax', 'refreshedAt'], properties: { timeMin: { type: 'string', format: 'date-time' }, timeMax: { type: 'string', format: 'date-time' }, refreshedAt: { type: 'string', format: 'date-time' } } },
@@ -963,6 +964,9 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       calendarPreferences.googleCalendar = {
         connectionId: google.connectionId,
         ...(google.allowPastEventEditing === true ? { allowPastEventEditing: true } : {}),
+        writeDailyLimit: Number.isInteger(google.writeDailyLimit) && Number(google.writeDailyLimit) >= 1 && Number(google.writeDailyLimit) <= 200 ? Number(google.writeDailyLimit) : 25,
+        writeBatchLimit: Number.isInteger(google.writeBatchLimit) && Number(google.writeBatchLimit) >= 1 && Number(google.writeBatchLimit) <= 20 ? Number(google.writeBatchLimit) : 5,
+        writeTimestamps: Array.isArray(google.writeTimestamps) ? google.writeTimestamps.filter((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value))).slice(-200) : [],
         ...(typeof google.defaultCalendarId === 'string' ? { defaultCalendarId: google.defaultCalendarId } : {}),
         ...(typeof google.accountEmail === 'string' ? { accountEmail: google.accountEmail } : {}),
         calendars, syncTokens: tokens,

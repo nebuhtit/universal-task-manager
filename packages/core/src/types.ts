@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.22.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.2.2';
-export const APP_RELEASED_AT = '2026-09-20T19:50:00.000Z';
+export const APP_VERSION = '2.2.3';
+export const APP_RELEASED_AT = '2026-09-21T12:30:00.000Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -575,6 +575,12 @@ export interface GoogleCalendarDefinition {
 }
 export interface GoogleCalendarPreferences {
   allowPastEventEditing?: boolean;
+  /** Maximum logical Google event writes allowed during a rolling 24-hour window. */
+  writeDailyLimit?: number;
+  /** Maximum queued writes released by one synchronization action. */
+  writeBatchLimit?: number;
+  /** Successful logical writes only; OAuth credentials are never stored here. */
+  writeTimestamps?: ISODateTime[];
   defaultCalendarId?: string;
   connectionId: string;
   accountEmail?: string;

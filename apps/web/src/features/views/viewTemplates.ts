@@ -4,6 +4,7 @@ export const VIEW_TEMPLATE_EXTENSION = 'utm:view-template';
 export const VIEW_TEMPLATE_FIELDS = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
 
 const active = ACTIVE_ITEM_VIEW_QUERY;
+const inbox = 'state == "open" && role == "standalone" && isTemplate != true && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT"))';
 const template = (id: string, name: string, source: string, accent: string, creationDuePeriod?: 'today' | 'tomorrow'): SavedView => ({
   id: `builtin:${id}`,
   name,
@@ -17,7 +18,7 @@ const template = (id: string, name: string, source: string, accent: string, crea
 });
 
 export const BUILT_IN_VIEW_TEMPLATES: SavedView[] = [
-  template('inbox', 'Inbox', `${active} && length(areas) == 0 && length(projects) == 0`, '#d9485f'),
+  template('inbox', 'Inbox', inbox, '#d9485f'),
   template('all', 'All', active, '#4254a6'),
   template('today-overdue', 'Today', `${active} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true`, '#c27a00', 'today'),
   template('tomorrow', 'Tomorrow', `${active} && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")`, '#6b7280', 'tomorrow'),

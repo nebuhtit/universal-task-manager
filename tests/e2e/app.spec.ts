@@ -436,7 +436,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await expect(organizationSection.getByLabel('Add Area')).toBeVisible();
   await expect(organizationSection.getByLabel('Add Project')).toBeVisible();
   await expect(organizationSection.getByLabel('Add Tag')).toBeVisible();
-  await organizationSection.getByLabel('Priority').selectOption({ label: '3 — High' });
+  await expect(organizationSection.getByLabel('Priority')).toHaveCount(0);
   await page.getByRole('button', { name: 'Save item' }).click();
   await page.getByText('Prepare material by Thursday', { exact: true }).first().click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
@@ -760,8 +760,6 @@ test('visual view builder supports OR and inclusive comparison operators', async
   await goToAllItems(page);
   await openNewItem(page);
   await page.getByLabel('Title', { exact: true }).fill('Priority two item');
-  const organizationSection = await openEditorSection(page, 'Organization');
-  await organizationSection.getByLabel('Priority').selectOption({ label: '2 — Medium' });
   await page.getByRole('button', { name: 'Save item' }).click();
 
   await goHome(page);
@@ -791,12 +789,12 @@ test('visual view builder supports OR and inclusive comparison operators', async
   await openViewEditorSection(page, 'Visual setup');
   rows = page.locator('.visual-condition-row');
   await rows.first().getByRole('combobox', { name: 'Operator' }).selectOption({ label: '>=' });
-  await rows.first().getByRole('combobox', { name: 'Value' }).selectOption('2');
+  await rows.first().getByRole('combobox', { name: 'Value' }).selectOption('0');
   await rows.nth(1).getByRole('combobox', { name: 'Join' }).selectOption('and');
   await rows.nth(1).getByRole('combobox', { name: 'Operator' }).selectOption({ label: '<=' });
-  await rows.nth(1).getByRole('combobox', { name: 'Value' }).selectOption('2');
+  await rows.nth(1).getByRole('combobox', { name: 'Value' }).selectOption('0');
   await openViewEditorSection(page, 'Advanced filter code');
-  await expect(page.getByLabel('Advanced filter code')).toHaveValue('(priority >= 2 && priority <= 2)');
+  await expect(page.getByLabel('Advanced filter code')).toHaveValue('(priority >= 0 && priority <= 0)');
   await page.getByRole('button', { name: 'Save view' }).click();
   await expect(view.getByText('Priority two item', { exact: true })).toBeVisible();
 });
@@ -852,11 +850,15 @@ test('saved view applies multi-rule sort DSL and displayed field selection', asy
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToAllItems(page);
-  for (const [title, priority] of [['Low item', '1'], ['High item', '4']] as const) {
+  for (const title of ['Low item', 'High item']) {
     await openNewItem(page);
     await page.getByLabel('Title', { exact: true }).fill(title);
-    const organizationSection = await openEditorSection(page, 'Organization');
-    await organizationSection.getByLabel('Priority').selectOption(priority);
+    await openEditorSection(page, 'Item JSON');
+    const json = page.getByLabel('Item JSON');
+    const value = JSON.parse(await json.inputValue()) as Record<string, unknown>;
+    value.priority = title === 'High item' ? 4 : 1;
+    await json.fill(JSON.stringify(value, null, 2));
+    await page.getByRole('button', { name: 'Apply JSON to form' }).click();
     const datesSection = await openEditorSection(page, 'Dates & time');
     await datesSection.getByLabel('Event opens', { exact: true }).fill('2026-08-26T10:00');
     await datesSection.getByLabel('Event ends', { exact: true }).fill('2026-08-26T10:10');

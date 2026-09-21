@@ -19,12 +19,19 @@ describe('view templates', () => {
     BUILT_IN_VIEW_TEMPLATES.forEach((view) => expect(() => compileQuery(view.query.source)).not.toThrow());
   });
 
-  it('keeps Inbox limited to unorganized active items', () => {
+  it('keeps Inbox limited to standalone unorganized items or IMPORTANT items', () => {
     const inbox = BUILT_IN_VIEW_TEMPLATES[0]!;
     const matches = compileQuery(inbox.query.source);
     const item = createItem('Unsorted');
     expect(matches(item)).toBe(true);
     item.areas = ['Work'];
+    expect(matches(item)).toBe(false);
+    item.tags = ['IMPORTANT'];
+    expect(matches(item)).toBe(true);
+    item.external = { provider: 'google_calendar', connectionId: 'account', calendarId: 'primary', eventId: 'event', sourceUrl: 'https://calendar.google.com/', readOnly: true, transparency: 'opaque', syncedAt: '2026-09-21T09:00:00.000Z' };
+    expect(matches(item)).toBe(false);
+    delete item.external;
+    item.role = 'occurrence';
     expect(matches(item)).toBe(false);
   });
 

@@ -8,7 +8,7 @@ import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict } from './services/googleCale
 import { googleHistoryKey } from './services/googleHistoryKey';
 import { GOOGLE_SAVE_EXTENSION, needsGoogleSave, prepareGoogleSave, saveGoogleItem, type GoogleSaveOperation, type GoogleSaveOptions } from './services/googleItemSave';
 import { cachedGoogleWriteToken } from './services/googleCalendar';
-import { reconcileCalendarOrganization } from '@utm/core';
+import { GOOGLE_WRITE_BATCH_LIMIT, googleWriteLimitReached, recentGoogleWriteTimestamps, recordGoogleWrite, reconcileCalendarOrganization } from '@utm/core';
 import {
   AllItemsPage,
   ALL_ITEMS_VIEW_ID,
@@ -581,6 +581,7 @@ export default function App() {
     const workspace = workspaceLatest.current;
     const google = workspace?.calendarPreferences.googleCalendar;
     if (!workspace || !google || googleWrites.current.has(candidate.id)) return;
+    if (googleWriteLimitReached(google)) throw new Error(`Google write safety limit reached (${google.writeDailyLimit ?? 25} changes in 24 hours). The item remains saved in UTM.`);
     googleWrites.current.add(candidate.id);
     try {
           await saveGoogleItem({ token, workspaceId: workspace.workspaceId, accountEmail: google.accountEmail ?? '', item: candidate, options: selection, allowPast: google.allowPastEventEditing === true,
@@ -601,6 +602,7 @@ export default function App() {
                 delete target.extensions[GOOGLE_SAVE_EXTENSION];
                 applyGoogleCalendarSync(draft, { connectionId: google.connectionId, calendarId, events: [{ ...event, localHistoryKey: key }], syncedAt: new Date().toISOString(), fullSync: false });
                 if (!finished && pending) target.extensions[GOOGLE_SAVE_EXTENSION] = pending;
+                if (finished) recordGoogleWrite(draft.calendarPreferences.googleCalendar!);
                 const calendar = draft.calendarPreferences.googleCalendar!.calendars.find((c) => c.id === calendarId); if (calendar) calendar.selected = true;
               });
               if (!ok) throw new Error('Could not persist Google result. Retry save to recover it.'); await flushPersistence();
@@ -608,7 +610,7 @@ export default function App() {
           });
     } catch (reason) {
       const status = (reason as { status?: number }).status;
-      const blocked = reason instanceof TypeError || status === 429 || (status !== undefined && status >= 500) || /network|fetch|timeout|timed out/i.test(String(reason)) ? undefined : String(reason);
+      const blocked = reason instanceof TypeError || status === 429 || (status !== undefined && status >= 500) || /network|fetch|timeout|timed out|write safety limit/i.test(String(reason)) ? undefined : String(reason);
       if (blocked) {
         const ok = commit('Google save needs attention', (draft) => {
           const op = draft.items[candidate.id]?.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
@@ -622,17 +624,24 @@ export default function App() {
   };
   const retryGoogleQueue = async (interactive = false, excludeId?: string) => {
     const current = workspaceLatest.current;
-    if (!current?.calendarPreferences.googleCalendar) return;
+    if (!current?.calendarPreferences.googleCalendar) return 0;
     const queue = Object.values(current.items).filter((item) => item.id !== excludeId && !item.deletedAt && item.extensions?.[GOOGLE_SAVE_EXTENSION]);
-    if (!queue.length) return;
+    if (!queue.length) return 0;
     const token = interactive ? (await requestGoogleCalendarToken(undefined, 'create')).accessToken : cachedGoogleWriteToken();
-    if (!token) return;
-    for (const item of queue) {
+    if (!token) return queue.length;
+    const batchLimit = current.calendarPreferences.googleCalendar.writeBatchLimit ?? GOOGLE_WRITE_BATCH_LIMIT;
+    const dailyLimit = current.calendarPreferences.googleCalendar.writeDailyLimit ?? 25;
+    const remainingToday = Math.max(0, dailyLimit - recentGoogleWriteTimestamps(current.calendarPreferences.googleCalendar).length);
+    const releaseLimit = Math.min(batchLimit, remainingToday);
+    if (interactive && queue.length > releaseLimit) setToast(current.calendarPreferences.language === 'ru' ? `Сейчас будет отправлено не больше ${releaseLimit} изменений. Остальные останутся в очереди из-за защитного лимита.` : `No more than ${releaseLimit} changes will be sent now. The rest remain queued by the safety limit.`);
+    let completed = 0;
+    for (const item of queue.slice(0, releaseLimit)) {
       const op = item.extensions![GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation;
       if (op.blocked || op.accountEmail !== current.calendarPreferences.googleCalendar.accountEmail) continue;
-      try { await sendQueuedGoogleItem(item, { calendarId: op.destination, busy: op.draft.busy, baseline: item }, token); }
+      try { await sendQueuedGoogleItem(item, { calendarId: op.destination, busy: op.draft.busy, baseline: item }, token); completed += 1; }
       catch { /* The durable operation remains visible in the editor; no background popup. */ }
     }
+    return queue.length - completed;
   };
   useEffect(() => {
     const retry = () => { void retryGoogleQueue(true).catch(() => undefined); };
@@ -647,14 +656,14 @@ export default function App() {
     const startedAt = performance.now();
     setGoogleCalendarSyncing(true);
     try {
-      await retryGoogleQueue(true);
+      const queuedGoogleWrites = await retryGoogleQueue(true);
       const token = await requestGoogleCalendarToken();
       const current: GoogleCalendarPreferences = google;
       const result = await synchronizeGoogleCalendars(token.accessToken, current, undefined, { fullSync: true });
       const applied = commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {
-          ...current, connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
+          ...clean(current), connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
           ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
         };
         delete draft.calendarPreferences.googleCalendar.lastError;
@@ -664,7 +673,7 @@ export default function App() {
       await flushPersistence();
       const events = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);
-      setToast(`Google Calendar synced: ${events} events.`);
+      setToast(queuedGoogleWrites ? `Google Calendar synced: ${events} events. ${queuedGoogleWrites} outgoing change${queuedGoogleWrites === 1 ? '' : 's'} remain safely queued.` : `Google Calendar synced: ${events} events.`);
       recordDiagnostic({ kind: 'result', message: 'Google Calendar sync completed', operation: 'Google Calendar sync', outcome: 'succeeded', durationMs, details: JSON.stringify({ calendars: result.batches.length, events }) });
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
@@ -1175,6 +1184,7 @@ export default function App() {
           const external = draft.items[googleActionItem(workspace, editor).id]?.external;
           if (!external || draft.calendarPreferences.googleCalendar?.connectionId !== external.connectionId) throw new Error('Google connection changed.');
           applyGoogleCalendarSync(draft, { connectionId: external.connectionId, calendarId: external.calendarId, events: [event], syncedAt: new Date().toISOString(), fullSync: false });
+          recordGoogleWrite(draft.calendarPreferences.googleCalendar!);
           const target = draft.items[googleActionItem(workspace, editor).id]; if (target?.extensions) delete target.extensions[GOOGLE_EDIT_EXTENSION];
         });
         if (!saved) throw new Error('Google saved the event; retry to restore its local copy.');
@@ -1199,6 +1209,7 @@ export default function App() {
           const google = draft.calendarPreferences.googleCalendar;
           if (!google || google.accountEmail !== operation.accountEmail) throw new Error('Google connection changed. Reconnect the original account and retry.');
           applyGoogleCalendarSync(draft, { connectionId: google.connectionId, calendarId: operation.calendarId, events: [{ ...event, localHistoryKey }], syncedAt: new Date().toISOString(), fullSync: false });
+          recordGoogleWrite(google);
           linkedItem = clean(draft.items[googleActionItem(workspace, editor).id]);
           const calendar = google.calendars.find((entry) => entry.id === operation.calendarId);
           if (calendar) calendar.selected = true;

@@ -14,6 +14,10 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
   await nav('PARA'); await page.getByLabel('New Area', { exact: true }).fill('Office'); await page.getByRole('button', { name: 'Add Area', exact: true }).click();
   await nav('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Beta: edit events older than three hours' })).not.toBeChecked();
+  await page.getByText('Google data protection', { exact: true }).click();
+  await expect(page.getByLabel('Changes per 24 hours', { exact: true })).toHaveValue('25');
+  await expect(page.getByLabel('Per synchronization', { exact: true })).toHaveValue('5');
+  await page.getByLabel('Changes per 24 hours', { exact: true }).fill('1');
   await page.getByText('Work calendar · PARA', { exact: true }).click(); await page.locator('summary').filter({ hasText: /^Areas ·/ }).click(); await page.getByRole('checkbox', { name: 'Office', exact: true }).check();
   await nav('Home'); await page.getByPlaceholder('Add new item').fill('Offline event'); await page.getByPlaceholder('Add new item').press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
@@ -22,7 +26,10 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
   await page.getByPlaceholder('Add new item').fill('Unrelated task'); await page.getByPlaceholder('Add new item').press('Enter'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); await expect.poll(() => inserts).toBe(2);
   expect(await page.evaluate(() => (window as any).authCount)).toBe(authorizations);
   await expect(page.locator('.external-calendar-state-marker').first()).toHaveCSS('color', 'rgb(52, 86, 120)');
-  name = 'Renamed calendar'; color = '#987654'; await page.getByRole('button', { name: 'Google Calendar sync', exact: true }).click(); await expect(page.locator('.external-calendar-state-marker').first()).toHaveCSS('color', 'rgb(152, 118, 84)');
+  await page.getByPlaceholder('Add new item').fill('Quota protected'); await page.getByPlaceholder('Add new item').press('Enter');
+  await editor.locator('[data-editor-section="dates"] > summary').click(); await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-24T12:00'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden();
+  await expect(page.getByText(/Saved in UTM, waiting for sync/)).toBeVisible(); expect(inserts).toBe(2);
+  name = 'Renamed calendar'; color = '#987654'; await page.getByRole('button', { name: 'Google Calendar sync', exact: true }).click(); await expect(page.getByRole('button', { name: 'UTM + Google Calendar', exact: true })).toHaveCSS('color', 'rgb(152, 118, 84)'); expect(inserts).toBe(2);
   await nav('PARA'); await page.getByRole('button', { name: 'Office', exact: true }).first().click(); await expect(page.getByText('Offline event', { exact: true })).toBeVisible();
   for (const theme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: theme }); await page.screenshot({ path: test.info().outputPath(`outbox-para-${theme}.png`) }); }
 });

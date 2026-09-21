@@ -40,7 +40,7 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
       const applied = commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {
-          ...current, connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
+          ...JSON.parse(JSON.stringify(current)) as GoogleCalendarPreferences, connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
           ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}), lastSyncedAt: result.syncedAt,
         };
         delete draft.calendarPreferences.googleCalendar.lastError;
@@ -69,11 +69,14 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
     if (!calendar) return;
     calendar.selected = !calendar.selected;
     delete google.syncTokens[calendarId];
-    if (!calendar.selected) Object.values(draft.items).forEach((item) => {
+    if (!calendar.selected) {
+      reconcileCalendarOrganization(draft);
+      Object.values(draft.items).forEach((item) => {
       if (item.external?.provider !== 'google_calendar' || item.external.connectionId !== google.connectionId || item.external.calendarId !== calendarId) return;
       if (!item.external.readOnly) { detachGoogleCalendar(item); return; }
       delete draft.items[item.id]; delete draft.tombstones[item.id];
-    });
+      });
+    } else reconcileCalendarOrganization(draft);
   });
 
   const disconnectGoogleCalendar = () => {
@@ -106,7 +109,8 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
       {!GOOGLE_CALENDAR_CLIENT_ID && <p className="hint">This build needs a Google OAuth client ID before connection is available.</p>}
       {preferences.googleCalendar?.accountEmail && <small>Connected as {preferences.googleCalendar.accountEmail}</small>}
       {preferences.googleCalendar && <Checkbox label={preferences.language === 'ru' ? 'Бета: редактировать события старше трёх часов' : 'Beta: edit events older than three hours'} checked={preferences.googleCalendar.allowPastEventEditing === true} onChange={(event) => commit('Toggle past event editing beta', (draft) => { draft.calendarPreferences.googleCalendar!.allowPastEventEditing = event.target.checked; })} />}
-      {preferences.googleCalendar?.calendars.map((calendar) => <Disclosure key={`organization:${calendar.id}`} persist={false} uiKey={`calendar-organization:${calendar.id}`} summary={<span style={calendar.color ? { color: calendar.color } : undefined}>{calendar.name} · PARA</span>}>
+      {preferences.googleCalendar && <Disclosure persist={false} uiKey="calendar:google-write-safety" summary={preferences.language === 'ru' ? 'Защита данных Google' : 'Google data protection'}><p className="hint">{preferences.language === 'ru' ? 'UTM ограничивает исходящие изменения. При достижении лимита item сохраняется локально, а операция остаётся в очереди.' : 'UTM limits outgoing changes. When the limit is reached, the item stays saved locally and the operation remains queued.'}</p><div className="form-grid two"><Field label={preferences.language === 'ru' ? 'Изменений за 24 часа' : 'Changes per 24 hours'}><Input type="number" min={1} max={200} value={preferences.googleCalendar.writeDailyLimit ?? 25} onChange={(event) => commit('Change Google daily write limit', (draft) => { draft.calendarPreferences.googleCalendar!.writeDailyLimit = Math.max(1, Math.min(200, Number(event.target.value) || 25)); })} /></Field><Field label={preferences.language === 'ru' ? 'За одну синхронизацию' : 'Per synchronization'}><Input type="number" min={1} max={20} value={preferences.googleCalendar.writeBatchLimit ?? 5} onChange={(event) => commit('Change Google batch write limit', (draft) => { draft.calendarPreferences.googleCalendar!.writeBatchLimit = Math.max(1, Math.min(20, Number(event.target.value) || 5)); })} /></Field></div><small>{preferences.language === 'ru' ? `Использовано за последние 24 часа: ${(preferences.googleCalendar.writeTimestamps ?? []).filter((value) => Date.parse(value) >= Date.now() - 86_400_000).length}` : `Used in the last 24 hours: ${(preferences.googleCalendar.writeTimestamps ?? []).filter((value) => Date.parse(value) >= Date.now() - 86_400_000).length}`}</small></Disclosure>}
+      {preferences.googleCalendar?.calendars.filter((calendar) => calendar.selected).map((calendar) => <Disclosure key={`organization:${calendar.id}`} persist={false} uiKey={`calendar-organization:${calendar.id}`} summary={<span style={calendar.color ? { color: calendar.color } : undefined}>{calendar.name} · PARA</span>}>
         {(['areas', 'projects'] as const).map((kind) => <SearchableDisclosureList key={kind} uiKey={`calendar:${calendar.id}:${kind}`} summary={`${kind === 'areas' ? 'Areas' : 'Projects'} · ${calendar[kind]?.length ?? 0}`} items={Object.keys(kind === 'areas' ? workspace.areaDefinitions : workspace.projectDefinitions)} getSearchText={(name) => name} searchLabel={`Search ${kind}`} renderItem={(name) => <Checkbox key={name} label={name} checked={calendar[kind]?.includes(name) ?? false} onChange={(event) => commit('Change calendar PARA assignments', (draft) => { const target = draft.calendarPreferences.googleCalendar!.calendars.find((entry) => entry.id === calendar.id)!; target[kind] = event.target.checked ? [...new Set([...(target[kind] ?? []), name])] : (target[kind] ?? []).filter((entry) => entry !== name); reconcileCalendarOrganization(draft); })} />} />)}
       </Disclosure>)}
       {preferences.googleCalendar?.calendars.length ? <div className="calendar-google-list">{preferences.googleCalendar.calendars.map((calendar) => <Checkbox key={calendar.id} label={`${calendar.name}${calendar.primary ? ' · primary' : ''}`} checked={calendar.selected} onChange={() => selectGoogleCalendar(calendar.id)} />)}</div> : null}
