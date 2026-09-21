@@ -155,6 +155,16 @@ export const formatComputedDuration = (milliseconds: number): string => {
 
 export const formatScriptResult = (value: unknown, kind: ItemScriptField['resultKind']): string => kind === 'duration' && typeof value === 'number' ? formatComputedDuration(value) : String(value ?? '—');
 
+export type ItemScriptDisplay = { script: ItemScriptField; value: string; text: string };
+
+export const readItemScripts = (item: UniversalItem, workspace: WorkspaceDocument, now = new Date()): ItemScriptDisplay[] => {
+  const result = getWorkspaceIndex(workspace).itemScriptsFor(item, now);
+  return (item.scripts ?? []).map((script) => {
+    const value = result.errors[script.key] ?? formatScriptResult(result.values[script.key], script.resultKind);
+    return { script, value, text: script.managedBy === 'event_program' ? value : `${script.label}: ${value}` };
+  });
+};
+
 const reminderLabels = (language: WorkspaceLanguage = 'en') => ({
   en: { available: 'Available from', start: 'Event opens', due: 'Due', end: 'Event ends', before: 'before', after: 'after', at: 'At', unresolved: 'Unresolved time', normal: 'normal', urgent: 'urgent', critical: 'critical' },
   ru: { available: 'Доступно с', start: 'Начало события', due: 'Срок', end: 'Конец события', before: 'до', after: 'после', at: 'В', unresolved: 'Время не определено', normal: 'обычное', urgent: 'срочное', critical: 'критическое' },
@@ -212,11 +222,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
     if (definition?.kind === 'formula') return index!.formulasFor(item, now).values[key];
   }
   if (field === 'scripts' && workspace) {
-    const result = index!.itemScriptsFor(item, now);
-    return (item.scripts ?? []).map((script) => {
-      const value = result.errors[script.key] ?? formatScriptResult(result.values[script.key], script.resultKind);
-      return `${script.label}: ${value}`;
-    }).join(' · ');
+    return readItemScripts(item, workspace, now).map((entry) => entry.text).join(' · ');
   }
   if (field.startsWith('script.') && workspace) {
     const key = field.slice(7);

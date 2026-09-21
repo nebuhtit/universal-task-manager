@@ -5,10 +5,11 @@ type FieldIconName =
   | 'title' | 'description' | 'state' | 'type' | 'habit' | 'range' | 'role' | 'priority'
   | 'tag' | 'context' | 'list' | 'calendar' | 'start' | 'end' | 'due' | 'duration'
   | 'globe' | 'repeat' | 'progress' | 'bell' | 'link' | 'branch' | 'attachment' | 'area' | 'project'
-  | 'history' | 'user' | 'id' | 'template' | 'script' | 'custom' | 'system';
+  | 'history' | 'user' | 'id' | 'template' | 'script' | 'program' | 'custom' | 'system';
 
 export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'custom' || path.startsWith('custom.')) return 'custom';
+  if (path === 'eventProgram') return 'program';
   if (path === 'script' || path === 'scripts' || path.startsWith('script.') || path === 'view_scripts' || path.startsWith('view_script.')) return 'script';
   if (path === 'title') return 'title';
   if (path === 'bodyMarkdown' || path === 'description') return 'description';
@@ -74,6 +75,7 @@ const paths: Record<FieldIconName, ReactNode> = {
   id: <><path d="M9 3 7 21M17 3l-2 18M4 9h16M3 15h16"/></>,
   template: <><rect x="7" y="7" width="12" height="14" rx="2"/><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1"/></>,
   script: <><path d="M8 5H5v14h3M16 5h3v14h-3"/><path d="m10 15 4-6"/></>,
+  program: <><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="11" cy="18" r="1.5"/></>,
   custom: <><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></>,
   system: <><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></>,
 };

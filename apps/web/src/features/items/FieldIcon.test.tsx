@@ -14,6 +14,7 @@ describe('field icons', () => {
     expect(fieldIconName('recurrence.closeAt')).toBe('end');
     expect(fieldIconName('custom.client')).toBe('custom');
     expect(fieldIconName('script.time_left')).toBe('script');
+    expect(fieldIconName('eventProgram')).toBe('program');
     expect(fieldIconName('script')).toBe('script');
     expect(fieldIconName('custom')).toBe('custom');
   });

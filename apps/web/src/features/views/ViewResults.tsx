@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
-import { FieldIcon, ItemCard, ItemStateMarker, OverdueDueIndicator, displayViewValue, readItemField, stateNames } from '../items';
+import { FieldIcon, ItemCard, ItemStateMarker, OverdueDueIndicator, displayViewValue, readItemField, readItemScripts, stateNames } from '../items';
 import { formatViewDate } from '../../utils/dates';
 import { viewFieldLabel } from './fieldCatalog';
 import { boardSettingsFor, completionPhase, moveManualItem, selectViewItems, viewDependsOnCurrentTime, type ViewEvaluation } from './viewSelectors';
@@ -136,6 +136,10 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
   const stateControl = (item: UniversalItem, stopPropagation = false) => <ItemStateMarker item={item} googleLabel={t('Read-only Google Calendar event')} noteLabel={t('Note item')} onOpen={() => onEdit(item)}><button className="state-toggle" data-sound={isOpen(item) ? 'none' : undefined} aria-label={stateButtonLabel(item)} translate="no" data-utm-user-data onPointerDown={(event) => { if (stopPropagation) event.stopPropagation(); beginStateChange(item, event); }} onClick={(event) => { if (stopPropagation) event.stopPropagation(); finishStateChange(item); }}>{isOpen(item) ? '' : '✓'}</button></ItemStateMarker>;
   const fieldContent = (item: UniversalItem, omit: string[] = []) => <span className="renderer-fields"><OverdueDueIndicator item={item} now={liveNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} />{visibleFields.filter((field) => !omit.includes(field)).map((field) => {
     if (field === 'title') return <strong key={field}><UserDataText>{item.title}</UserDataText></strong>;
+    if (field === 'scripts') return readItemScripts(item, renderWorkspace, liveNow).map(({ script, text }) => {
+      const managedProgram = script.managedBy === 'event_program';
+      return <span key={script.id} aria-label={`${script.label}: ${text}`}><FieldIcon path={managedProgram ? 'eventProgram' : `script.${script.key}`} label={script.label} /><UserDataText>{text}</UserDataText></span>;
+    });
     const value = displayViewValue(readItemField(item, field, renderWorkspace, liveNow, renderView.scripts), field, renderWorkspace.calendarPreferences.language);
     const label = viewFieldLabel(renderWorkspace, field, renderView.scripts);
     return value ? <span key={field} aria-label={`${label}: ${value}`}><FieldIcon path={field} label={label} /><UserDataText>{value}</UserDataText></span> : null;

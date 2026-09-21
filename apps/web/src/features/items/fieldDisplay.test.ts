@@ -77,6 +77,14 @@ describe('item field display helpers', () => {
     expect(readItemField(item, 'scripts', workspace, new Date('2026-08-26T12:00:00.000Z'))).toBe('Time remaining: 10');
   });
 
+  it('keeps managed program output compact without hiding user script labels', () => {
+    const workspace = createWorkspace('Program');
+    const item = createItem('Event');
+    item.scripts = [{ id: 'program', key: 'program', label: 'Event program', source: '"Program finished"', resultKind: 'text', managedBy: 'event_program' }];
+    workspace.items[item.id] = item;
+    expect(readItemField(item, 'scripts', workspace)).toBe('Program finished');
+  });
+
   it('recalculates a script result for each supplied second', () => {
     const workspace = createWorkspace('Live script');
     const item = createItem('Countdown');

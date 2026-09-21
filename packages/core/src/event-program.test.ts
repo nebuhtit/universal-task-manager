@@ -16,17 +16,17 @@ const at = (time: string) => new Date(`2026-09-21T${time}:00.000Z`);
 describe('event program', () => {
   it('reports current blocks, gaps, simultaneous transitions and final completion', () => {
     const item = fixture();
-    expect(eventProgramStatus(item, at('16:30'))).toContain('Waiting — in 30m 0s: starts: Lesson');
-    expect(eventProgramStatus(item, at('17:30'))).toBe('Lesson — in 15m 0s: ends: Lesson; starts: Break');
-    expect(eventProgramStatus(item, at('17:45'))).toContain('Break —');
-    expect(eventProgramStatus(item, at('18:00'))).toBe('Free time — in 15m 0s: starts: Tea');
+    expect(eventProgramStatus(item, at('16:30'))).toBe('→ Lesson starts in 30m 0s');
+    expect(eventProgramStatus(item, at('17:30'))).toBe('Lesson → Break starts in 15m 0s');
+    expect(eventProgramStatus(item, at('17:45'))).toBe('Break → Tea starts in 30m 0s');
+    expect(eventProgramStatus(item, at('18:00'))).toBe('→ Tea starts in 15m 0s');
     item.eventProgram!.blocks.push({ id: 'parallel', title: 'Music', startOffsetSeconds: 4500, endOffsetSeconds: 5000 });
     expect(eventProgramStatus(item, at('18:15'))).toContain('Tea · Music');
-    expect(eventProgramStatus(item, at('21:00'))).toBe('Program finished');
+    expect(eventProgramStatus(item, at('21:00'))).toBe('Finished');
   });
   it('moves with its anchor and identifies blocks to trim without changing the original', () => {
     const item = fixture(); item.schedule!.startAt = '2026-09-22T23:00:00Z'; item.schedule!.endAt = '2026-09-23T03:00:00Z';
-    expect(eventProgramStatus(item, new Date('2026-09-22T23:30:00Z'))).toContain('Lesson —');
+    expect(eventProgramStatus(item, new Date('2026-09-22T23:30:00Z'))).toBe('Lesson → Break starts in 15m 0s');
     item.schedule!.endAt = '2026-09-22T23:50:00Z';
     expect(programOverflow(item).map((block) => block.id)).toEqual(['break', 'tea']);
     const trimmed = trimEventProgram(item);

@@ -48,16 +48,14 @@ export function eventProgramStatus(item: UniversalItem, now: Date, language = 'e
   const seconds = (now.getTime() - origin) / 1000;
   const ordered = [...blocks].sort((a, b) => a.startOffsetSeconds - b.startOffsetSeconds);
   const current = ordered.filter((block) => block.startOffsetSeconds <= seconds && seconds < block.endOffsetSeconds);
-  const boundaries = blocks.flatMap((block) => [block.startOffsetSeconds, block.endOffsetSeconds]).filter((time) => time > seconds);
-  if (!boundaries.length) return ru ? 'Программа завершена' : 'Program finished';
-  const next = Math.min(...boundaries);
+  const nextBlock = ordered.find((block) => block.startOffsetSeconds > seconds);
+  if (!nextBlock && !current.length) return ru ? 'Завершена' : 'Finished';
+  const next = nextBlock?.startOffsetSeconds ?? Math.min(...current.map((block) => block.endOffsetSeconds));
   const remaining = Math.max(0, Math.ceil(next - seconds));
   const h = Math.floor(remaining / 3600), m = Math.floor(remaining % 3600 / 60), s = remaining % 60;
   const duration = h ? `${h}${ru ? 'ч' : 'h'} ${m}${ru ? 'мин' : 'm'}` : m ? `${m}${ru ? 'мин' : 'm'} ${s}${ru ? 'с' : 's'}` : `${s}${ru ? 'с' : 's'}`;
-  const changes = [
-    ...ordered.filter((block) => block.endOffsetSeconds === next).map((block) => `${ru ? 'конец' : 'ends'}: ${block.title}`),
-    ...ordered.filter((block) => block.startOffsetSeconds === next).map((block) => `${ru ? 'начало' : 'starts'}: ${block.title}`),
-  ];
-  const state = current.length ? current.map((block) => block.title).join(' · ') : seconds < ordered[0]!.startOffsetSeconds ? (ru ? 'Ожидание' : 'Waiting') : (ru ? 'Свободное время' : 'Free time');
-  return `${state} — ${ru ? 'через' : 'in'} ${duration}: ${changes.join('; ')}`;
+  const currentTitle = current.map((block) => block.title).join(' · ');
+  if (current.length && nextBlock) return `${currentTitle} → ${nextBlock.title} ${ru ? `начнётся через ${duration}` : `starts in ${duration}`}`;
+  if (current.length) return `${currentTitle} · ${ru ? `до конца ${duration}` : `${duration} left`}`;
+  return `→ ${nextBlock!.title} ${ru ? `начнётся через ${duration}` : `starts in ${duration}`}`;
 }

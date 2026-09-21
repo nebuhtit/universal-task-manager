@@ -26,7 +26,8 @@ try {
     await expect(editor).toBeHidden();
     await page.getByText('Release program check', { exact: true }).first().click();
     await expect(editor.locator('.item-script-row')).toHaveCount(1);
-    await program.locator(':scope > summary').click();
+    if (await editor.locator('[data-editor-section="dates"]').getAttribute('open') === null) await editor.locator('[data-editor-section="dates"] > summary').click();
+    if (await program.getAttribute('open') === null) await program.locator(':scope > summary').click();
     await expect(program.getByLabel('Block title 1', { exact: true })).toHaveValue('Release block');
     await context.close();
     console.log(`${name}: version ${version}, commit ${commit.slice(0, 7)}, program save/reopen and managed script verified`);
