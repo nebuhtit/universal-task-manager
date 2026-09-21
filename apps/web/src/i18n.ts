@@ -16,6 +16,7 @@ type Dictionary = Record<string, string>;
 type TranslationTable = Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary>;
 
 const en = {
+  'Google Calendar event': 'Событие Google Calendar',
   'Automatically managed · Event program': 'Управляется автоматически · Программа мероприятия', 'Edit program': 'Изменить программу',
   'The program requires Event opens.': 'Для программы необходимо начало события.',
   'Give every program block a title.': 'Укажите название каждого блока программы.',

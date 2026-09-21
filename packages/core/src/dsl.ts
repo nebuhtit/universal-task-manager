@@ -569,7 +569,7 @@ export interface QueryRelationContext {
  */
 export const NON_NULLABLE_QUERY_BOOLEAN_FIELDS = [
   'isNote', 'isHabit', 'isTemplate', 'isSavedTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'activeDuration',
-  'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue', 'googleCalendarAllDay',
+  'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue', 'googleCalendarAllDay', 'isGoogleEvent',
 ] as const;
 
 function normalizeLegacyBooleanPresence(source: string): string {
@@ -620,7 +620,7 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
         : item.role === 'series_template' ? 'repeating_series'
           : item.role === 'occurrence' ? 'repeat_occurrence'
             : 'regular_item';
-      return Boolean(evaluateExpression(ast, { item, variables: { isNote: item.isNote === true, isHabit: Boolean(item.habit), isTemplate: isSavedTemplate, isSavedTemplate, itemKind, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
+      return Boolean(evaluateExpression(ast, { item, variables: { isGoogleEvent: item.external?.provider === 'google_calendar' && Boolean(item.external.eventId), isNote: item.isNote === true, isHabit: Boolean(item.habit), isTemplate: isSavedTemplate, isSavedTemplate, itemKind, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

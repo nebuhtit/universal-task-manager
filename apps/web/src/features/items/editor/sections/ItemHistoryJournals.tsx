@@ -51,7 +51,16 @@ export function ItemHistoryJournals({ item, workspace, onChange, onOwnerChange }
     const next = copy(owners.find((entry) => entry.id === editing.ownerId) ?? item);
     next.completionEntries = [...(next.completionEntries ?? []).filter((entry) => entry.id !== editing.completion.id), editing.completion];
     next.actualTimeEntries = (next.actualTimeEntries ?? []).filter((entry) => entry.completionId !== editing.completion.id);
-    if (editing.time?.durationSeconds) next.actualTimeEntries.push({ ...editing.time, at: editing.completion.at, comment: '', completionId: editing.completion.id, ...(editing.completion.recurrenceId ? { recurrenceId: editing.completion.recurrenceId } : {}) });
+    const originals = linkedRecords(next, editing.completion.id).map((entry) => entry.record);
+    if (originals.length) {
+      const total = originals.reduce((sum, entry) => sum + entry.durationSeconds, 0);
+      let remaining = editing.time?.durationSeconds ?? 0;
+      originals.forEach((entry, index) => {
+        const durationSeconds = index === originals.length - 1 ? remaining : Math.min(remaining, Math.floor((editing.time?.durationSeconds ?? 0) * (total ? entry.durationSeconds / total : 1 / originals.length)));
+        remaining -= durationSeconds;
+        next.actualTimeEntries!.push({ ...entry, durationSeconds });
+      });
+    } else if (editing.time?.durationSeconds) next.actualTimeEntries.push({ ...editing.time, at: editing.completion.at, completionId: editing.completion.id, ...(editing.completion.recurrenceId ? { recurrenceId: editing.completion.recurrenceId } : {}) });
     if (await apply(next)) { setEditing(undefined); setError(''); }
   };
 
@@ -85,7 +94,7 @@ export function ItemHistoryJournals({ item, workspace, onChange, onOwnerChange }
     {error && !editing && <p role="alert">{error}</p>}
     {owners.length > 1 && <Field label={t('Record for', 'Записать для')}><Select value={owner.id} onChange={(event) => { setOwnerId(event.target.value); setSelectedCycle(undefined); }}>{owners.map((entry) => <option key={entry.id} value={entry.id}>{entry.role === 'series_template' ? t('Series', 'Серия') : entry.occurrence?.recurrenceId ? formatViewDate(entry.occurrence.recurrenceId, true, workspace.calendarPreferences.language) : entry.title}</option>)}</Select></Field>}
     {cycles.length > 0 && <Field label={t('Cycle for new entries', 'Повторение для новых записей')}><Select value={recurrenceId ?? ''} onChange={(event) => setSelectedCycle(event.target.value)}><option value="">{t('No cycle', 'Без повторения')}</option>{cycles.map((value) => <option key={value} value={value}>{formatViewDate(value, true, workspace.calendarPreferences.language)}</option>)}</Select></Field>}
-    <details><summary>{t('Completions', 'Выполнения')} · {completions.filter(({ record }) => !record.revokedAt).length}{records.length ? ` · ${elapsed(records.reduce((sum, entry) => sum + entry.record.durationSeconds, 0))}` : ''}</summary><div className="item-journal-body">
+    <div><strong>{t('Completions', 'Выполнения')} · {completions.filter(({ record }) => !record.revokedAt).length}{records.length ? ` · ${elapsed(records.reduce((sum, entry) => sum + entry.record.durationSeconds, 0))}` : ''}</strong><div className="item-journal-body">
       {!item.isNote && <div className="item-journal-actions"><Button onClick={startNew}>{t('Add completion', 'Добавить выполнение')}</Button></div>}
       {editing && !completions.some(({ owner: recordOwner, record }) => recordOwner.id === editing.ownerId && record.id === editing.completion.id) && editor}
       {completions.map(({ owner: recordOwner, record }) => {
@@ -93,10 +102,10 @@ export function ItemHistoryJournals({ item, workspace, onChange, onOwnerChange }
         const linked = linkedRecords(recordOwner, record.id);
         const total = linked.reduce((sum, entry) => sum + entry.record.durationSeconds, 0);
         const sources = [...new Set(linked.map((entry) => sourceName(entry.record.source)).filter(Boolean))];
-        return <article className="item-journal-entry" key={`${recordOwner.id}:${record.id}`}><strong>{record.kind === 'automatic' ? t('Automatic completion', 'Автоматическое выполнение') : t('Completion', 'Выполнение')}{sources.length ? ` · ${sources.join(', ')}` : ''}{record.revokedAt ? ` · ${t('Reopened', 'Отменено')}` : ''}</strong><span>{formatViewDate(record.at, true, workspace.calendarPreferences.language)}{total ? ` · ${elapsed(total)}` : ''}</span>{cycle(record.recurrenceId)}{record.comment && <p data-utm-user-data>{record.comment}</p>}<div className="item-journal-actions"><Button size="compact" onClick={() => startEdit(recordOwner, record)}>{t('Edit', 'Изменить')}</Button><Button size="compact" onClick={() => void removeCompletion(recordOwner, record.id)}>{t('Delete', 'Удалить')}</Button></div></article>;
+        return <article className="item-journal-entry" key={`${recordOwner.id}:${record.id}`}><strong>{record.kind === 'automatic' ? t('Automatic completion', 'Автоматическое выполнение') : t('Completion', 'Выполнение')}{sources.length ? ` · ${sources.join(', ')}` : ''}{record.revokedAt ? ` · ${t('Reopened', 'Отменено')}` : ''}</strong><span>{formatViewDate(record.at, true, workspace.calendarPreferences.language)}{total ? ` · ${elapsed(total)}` : ''}</span>{cycle(record.recurrenceId)}{[...new Set([record.comment, ...linked.map((entry) => entry.record.comment)].filter(Boolean))].map((comment) => <p key={comment} data-utm-user-data>{comment}</p>)}<div className="item-journal-actions"><Button size="compact" onClick={() => startEdit(recordOwner, record)}>{t('Edit', 'Изменить')}</Button><Button size="compact" onClick={() => void removeCompletion(recordOwner, record.id)}>{t('Delete', 'Удалить')}</Button></div></article>;
       })}
       {orphanRecords.map(({ owner: recordOwner, record }) => <article className="item-journal-entry" key={`${recordOwner.id}:${record.id}`}><strong>{t('Completion', 'Выполнение')}{sourceName(record.source) ? ` · ${sourceName(record.source)}` : ''}</strong><span>{record.at ? formatViewDate(record.at, true, workspace.calendarPreferences.language) : t('Unknown date', 'Дата неизвестна')} · {elapsed(record.durationSeconds)}</span>{cycle(record.recurrenceId)}{record.comment && <p data-utm-user-data>{record.comment}</p>}</article>)}
       {!completions.length && !orphanRecords.length && <p className="hint">{t('No completions yet.', 'Выполнений пока нет.')}</p>}
-    </div></details>
+    </div></div>
   </fieldset>;
 }

@@ -17,7 +17,10 @@ export function ensureActualTimeCompletion(item: UniversalItem, entry: NonNullab
   item.completionEntries ??= [];
   const linked = entry.completionId ? item.completionEntries.find((completion) => completion.id === entry.completionId) : undefined;
   if (linked) return linked;
-  const existing = preferExisting ? [...item.completionEntries].reverse().find((completion) => !completion.revokedAt && completion.recurrenceId === entry.recurrenceId) : undefined;
+  // Only the legacy aggregate has a known relationship to the legacy closure.
+  // Independent time records must never be merged merely because their dates/cycles match.
+  const existing = preferExisting && entry.id === `imported-time:${item.id}` && item.closure
+    ? item.completionEntries.find((completion) => completion.id === `closure:${item.id}:${item.closure!.at}`) : undefined;
   if (existing) { entry.completionId = existing.id; return existing; }
   const completedAt = at ?? entry.at ?? item.updatedAt;
   const completion: CompletionEntry = { id: `time-completion:${entry.id}`, at: completedAt, kind: 'manual', comment: '', ...(entry.recurrenceId ? { recurrenceId: entry.recurrenceId } : {}) };
@@ -39,6 +42,16 @@ export function initializeItemHistory(item: UniversalItem): void {
     if ((item.state === 'done' || item.state === 'auto_closed') && item.closure && !entries.some((entry) => entry.recurrenceId === item.occurrence?.recurrenceId && entry.at === item.closure!.at)) entries.push({ id: `closure:${item.id}:${item.closure.at}`, at: item.closure.at, kind: item.closure.actor === 'user' && item.state === 'done' ? 'manual' : 'automatic', comment: '', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) });
     if (entries.length) item.completionEntries = entries;
   }
+  const migratedSessions = new Set(Array.isArray(item.extensions?.['utm:habit-sessions-journal']) ? item.extensions['utm:habit-sessions-journal'] as string[] : []);
+  for (const session of item.habit?.timerSessions ?? []) {
+    if (migratedSessions.has(session.id)) continue;
+    if (session.durationSeconds > 30) {
+      item.actualTimeEntries ??= [];
+      if (!item.actualTimeEntries.some((entry) => entry.sourceSessionId === session.id)) item.actualTimeEntries.push({ id: `habit-timer:${session.id}`, sourceSessionId: session.id, source: 'stopwatch', at: session.startedAt, durationSeconds: session.durationSeconds, comment: '' });
+    }
+    migratedSessions.add(session.id);
+  }
+  if (migratedSessions.size) { item.extensions ??= {}; item.extensions['utm:habit-sessions-journal'] = [...migratedSessions]; }
   for (const entry of item.actualTimeEntries ?? []) ensureActualTimeCompletion(item, entry, undefined, true);
   syncActualDuration(item);
 }

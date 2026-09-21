@@ -9,7 +9,7 @@ const template = (id: string, name: string, source: string, accent: string, crea
   id: `builtin:${id}`,
   name,
   accent,
-  query: { source },
+  query: { source: ['inbox', 'today-overdue', 'tomorrow', 'week-overdue'].includes(id) ? `(${source}) && isGoogleEvent != true` : source },
   renderer: 'table',
   sort: standardAttentionViewSort(),
   sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,

@@ -13,11 +13,14 @@ describe('SavedViewSection metrics', () => {
     const view: SavedView = { id: 'view', name: 'Work', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] };
     const props = { workspace, onEditItem: vi.fn(), onState: vi.fn(), onRendererChange: vi.fn(), onAddItem: vi.fn() };
 
-    const allMarkup = renderToStaticMarkup(<SavedViewSection {...props} view={view} initialOpen={false} />);
+    const allMarkup = renderToStaticMarkup(<SavedViewSection {...props} view={view} initialOpen={true} />);
     expect(allMarkup).toContain('<h2><span translate="no" data-utm-user-data="true">Work</span></h2><span class="view-metrics-summary"');
     expect(allMarkup).toContain('33% · 40мин');
-    expect(allMarkup).toContain('aria-label="Развернуть Work. Выполнено 33 процентов. Осталось');
-    expect(allMarkup).toContain('aria-expanded="false"');
+    expect(allMarkup).toContain('aria-label="Свернуть Work. Выполнено 33 процентов. Осталось');
+    expect(allMarkup).toContain('aria-expanded="true"');
+    const collapsed = renderToStaticMarkup(<SavedViewSection {...props} view={view} initialOpen={false} reorderHandle={<span>Drag view</span>} />);
+    expect(collapsed).not.toContain('view-metrics-summary');
+    expect(collapsed).toContain('Drag view');
 
     const openMarkup = renderToStaticMarkup(<SavedViewSection {...props} view={{ ...view, query: { source: 'state == "open"' } }} />);
     expect(openMarkup).toContain('>40мин</span>');

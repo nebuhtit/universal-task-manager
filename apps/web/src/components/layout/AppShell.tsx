@@ -24,10 +24,13 @@ type Props = {
 
 function HeaderClock({ workspace, fallback, compact = false }: { workspace?: WorkspaceDocument; fallback?: string; compact?: boolean }) {
   const now = useWorkspaceNow(workspace);
-  const language = workspace?.calendarPreferences.language ?? 'en';
+  const format = workspace?.calendarPreferences.headerDateFormat ?? 'ru-adaptive';
+  const language = format === 'interface' ? workspace?.calendarPreferences.language ?? 'en' : 'ru';
   const root = useRef<HTMLSpanElement>(null);
   const [level, setLevel] = useState(0);
-  const variants = [formatHeaderDate(now, language), new Intl.DateTimeFormat(language, { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now), new Intl.DateTimeFormat(language, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now), new Intl.DateTimeFormat(language, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now)];
+  const adaptiveVariants = [formatHeaderDate(now, language), new Intl.DateTimeFormat(language, { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now), new Intl.DateTimeFormat(language, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now), new Intl.DateTimeFormat(language, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now)];
+  const numeric = (year: boolean) => new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', ...(year ? { year: 'numeric' as const } : {}), hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(now);
+  const variants = format === 'numeric' ? [numeric(true), numeric(false)] : [...adaptiveVariants.slice(0, -1), format === 'interface' ? adaptiveVariants.at(-1)! : numeric(false)];
   useLayoutEffect(() => {
     const node = root.current;
     if (!node) return;
@@ -36,7 +39,7 @@ function HeaderClock({ workspace, fallback, compact = false }: { workspace?: Wor
     const actions = bar?.querySelector<HTMLElement>('.top-actions');
     const resize = () => { if (bar && actions) bar.style.setProperty('--clock-actions-width', `${actions.getBoundingClientRect().width}px`); fit(); };
     resize(); const observer = new ResizeObserver(resize); observer.observe(node); if (actions) observer.observe(actions); return () => observer.disconnect();
-  }, [language, now.getDate(), compact]);
+  }, [language, format, now.getDate(), compact]);
   return <span ref={root} className="top-summary responsive-clock"><span>{fallback ?? variants[level]}</span><span className="clock-measures" aria-hidden="true">{variants.map((text, index) => <span data-clock-measure key={index}>{text}</span>)}</span></span>;
 }
 

@@ -71,7 +71,18 @@
 .organization-order-actions { position: sticky; z-index: 2; bottom: var(--space-3); display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-elevated); box-shadow: var(--shadow-elevated); }
 .organization-order-actions > span { margin-right: auto; color: var(--color-text-secondary); font-size: var(--font-size-secondary); }
 .organization-detail-page { display: grid; gap: var(--space-5); }
-.organization-detail-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.organization-detail-header { display: grid; grid-template-columns: auto minmax(0, 1fr); min-width: 0; align-items: center; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.organization-detail-header > :first-child { justify-self: start; align-self: start; }
+.organization-detail-header > :nth-child(n+3) { grid-column: 1 / -1; justify-self: start; }
+.organization-detail-header h2 > span { min-width: 0; overflow-wrap: anywhere; }
+.organization-detail-page, .organization-detail-views { min-width: 0; }
+.organization-view-actions { flex-wrap: wrap; min-width: 0; }
+.organization-detail-page .view-section-title h2 { overflow-wrap: anywhere; }
+.organization-detail-page .view-section > .view-section-summary { display: grid; gap: var(--space-2); padding-block: var(--space-3); overflow: visible; }
+.organization-detail-page .view-section-summary > .view-section-title { padding: 0; }
+.organization-detail-page .view-section-summary h2 { white-space: normal; }
+.organization-detail-page .view-section-summary > .view-section-actions { position: static; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.organization-detail-header h2 .field-icon { flex-shrink: 0; }
 .organization-detail-header h2 { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--font-size-title); font-weight: var(--font-weight-semibold); }
 .organization-detail-header .organization-entity-controls { justify-self: end; }
 .organization-entity-controls { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }

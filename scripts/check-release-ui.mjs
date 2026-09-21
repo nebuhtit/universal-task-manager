@@ -18,6 +18,7 @@ try {
     await page.getByPlaceholder('Add new item').press('Enter');
     const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
     const program = editor.locator('.event-program');
+    if (await editor.locator('[data-editor-section="dates"]').getAttribute('open') === null) await editor.locator('[data-editor-section="dates"] > summary').click();
     await program.locator(':scope > summary').click();
     await program.getByRole('button', { name: 'Add block', exact: true }).click();
     await program.getByLabel('Block title 1', { exact: true }).fill('Release block');

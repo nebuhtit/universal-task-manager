@@ -14,4 +14,6 @@
   white-space: nowrap;
 }
 
-.view-section.is-collapsed .view-metrics-summary { opacity: var(--opacity-disabled); }
+.view-section.is-collapsed .view-metrics-summary { display: none; }
+.home-view .view-results-scroll > .empty { display: none; }
+.home-view .view-results-scroll:has(> .empty) { display: none; }

@@ -339,6 +339,7 @@ export const workspaceJsonSchema = {
         },
         diagnosticsEnabled: { type: 'boolean' },
         showExplanations: { type: 'boolean' },
+        headerDateFormat: { enum: ['ru-adaptive', 'numeric', 'interface'] },
         hideDuplicateItemsAcrossHomeViews: { type: 'boolean' },
         testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
         backupPreferences: { type: 'object', additionalProperties: false, required: ['reminderDays'], properties: { reminderDays: { type: 'integer', minimum: 0 }, lastBackupAt: { type: 'string', format: 'date-time' }, locationLabel: { type: 'string' } } },
@@ -655,6 +656,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
       || view.name === 'Tomorrow' && source.includes('scheduleInPeriod("tomorrow"')
       || view.name === 'This week' && (source.includes('scheduleInPeriod("this_week"') || source.includes('eventThisWeek') || source.includes('dueThisWeekOrOverdue'));
   };
+  const legacyStarterOrder = Object.values(source.views as Record<string, SavedView>).some((view) => ['Today + overdue', 'This week + overdue'].includes(view?.name));
   source.views = Object.fromEntries(Object.entries(source.views as Record<string, unknown>).map(([key, view]) => {
     try {
       const migrated = migrateView(view, `schema:${previous}`); warnings.push(...migrated.warnings);
@@ -719,10 +721,10 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     if ([todayQuery, weekQuery, guardedTodayQuery, guardedWeekQuery, overdueAwareTodayQuery, overdueAwareWeekQuery].includes(view.query.source) && hasLegacyStarterFields(view.fields)) view.fields = [...starterFields];
   });
   const requestedViewOrder = Array.isArray(source.viewOrder) ? source.viewOrder.filter((id): id is string => typeof id === 'string' && Boolean(migratedViews[id])) : [];
-  const todayStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'Today' && view.query.source === overdueAwareTodayQuery)?.[0];
-  const weekStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'This week' && view.query.source === overdueAwareWeekQuery)?.[0];
+  const todayStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'Today' && [overdueAwareTodayQuery, `${overdueAwareTodayQuery} && isGoogleEvent != true`].includes(view.query.source))?.[0];
+  const weekStarterId = Object.entries(migratedViews).find(([, view]) => view.name === 'This week' && [overdueAwareWeekQuery, `${overdueAwareWeekQuery} && isGoogleEvent != true`].includes(view.query.source))?.[0];
   const starterIds = [todayStarterId, weekStarterId, migratedViews.__all_items__ ? '__all_items__' : undefined].filter((id): id is string => Boolean(id));
-  source.viewOrder = [...new Set([...starterIds, ...requestedViewOrder.filter((id) => !starterIds.includes(id)), ...Object.keys(migratedViews)])];
+  source.viewOrder = [...new Set([...(requestedViewOrder.length && !legacyStarterOrder ? requestedViewOrder : starterIds), ...requestedViewOrder, ...Object.keys(migratedViews)])];
   const rawListDefinitions = source.listDefinitions && typeof source.listDefinitions === 'object' && !Array.isArray(source.listDefinitions)
     ? source.listDefinitions as Record<string, unknown>
     : {};
@@ -894,7 +896,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'dayView', 'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
+    'headerDateFormat', 'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
@@ -959,6 +961,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   if (!['en', 'ru', 'es', 'de', 'fr', 'ko'].includes(String(calendarPreferences.language))) calendarPreferences.language = 'en';
   calendarPreferences.diagnosticsEnabled = calendarPreferences.diagnosticsEnabled !== false;
   calendarPreferences.showExplanations = calendarPreferences.showExplanations === true;
+  calendarPreferences.headerDateFormat = ['ru-adaptive', 'numeric', 'interface'].includes(String(calendarPreferences.headerDateFormat)) ? calendarPreferences.headerDateFormat : 'ru-adaptive';
   calendarPreferences.hideDuplicateItemsAcrossHomeViews = calendarPreferences.hideDuplicateItemsAcrossHomeViews !== false;
   if (calendarPreferences.googleCalendar !== undefined) {
     const raw = calendarPreferences.googleCalendar;
@@ -1033,6 +1036,12 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   backupPreferences.reminderDays = Math.max(0, Math.floor(Number(backupPreferences.reminderDays) || 0));
   if (backupPreferences.lastBackupAt && Number.isNaN(new Date(String(backupPreferences.lastBackupAt)).getTime())) delete backupPreferences.lastBackupAt;
   if (backupPreferences.locationLabel !== undefined && typeof backupPreferences.locationLabel !== 'string') delete backupPreferences.locationLabel;
+  Object.values(migratedViews).forEach((view) => {
+    if (!['Inbox', 'Today', 'Tomorrow', 'This week'].includes(view.name) || view.extensions?.['utm:google-exclusion-v1']) return;
+    const current = view.query.source.trim() || 'true';
+    if (!current.endsWith('&& isGoogleEvent != true')) view.query.source = `(${current}) && isGoogleEvent != true`;
+    view.extensions = { ...view.extensions, 'utm:google-exclusion-v1': true };
+  });
   const validation = validateWorkspace(source);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   mergeGoogleCalendarCopies(source as unknown as WorkspaceDocument);

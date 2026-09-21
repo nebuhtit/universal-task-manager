@@ -49,6 +49,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'parentDepth', label: 'Parent depth', group: 'Connections' }, { path: 'childDepth', label: 'Child depth', group: 'Connections' },
   { path: 'attachments', label: 'Links', group: 'Connections' },
   { path: 'external.provider', label: 'External source', group: 'Google Calendar' },
+  { path: 'isGoogleEvent', label: 'Google Calendar event', group: 'Google Calendar' },
   { path: 'googleCalendarAllDay', label: 'Google Calendar all-day event', group: 'Google Calendar' },
   { path: 'external.calendarId', label: 'Google calendar ID', group: 'Google Calendar' },
   { path: 'external.connectionId', label: 'Google connection ID', group: 'Google Calendar' },
@@ -169,6 +170,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
   if (field === 'area' || field === 'areas') return [...new Set([...(item.areas ?? []), ...(item.area ? [item.area] : [])])];
   if (field === 'project' || field === 'projects') return [...new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])])];
   if (field === 'eventToday' || field === 'eventThisWeek' || field === 'dueTodayOrOverdue' || field === 'dueThisWeekOrOverdue') return dueDateBuckets(item, now, { timeZone: workspace?.calendarPreferences.timezone, weekStartsOn: workspace?.calendarPreferences.weekStartsOn })[field];
+  if (field === 'isGoogleEvent') return item.external?.provider === 'google_calendar' && Boolean(item.external.eventId);
   if (field === 'googleCalendarAllDay') return item.external?.provider === 'google_calendar' && item.schedule?.allDay === true;
   if (field === 'schedule.estimatedDuration') {
     if (item.schedule?.estimatedDuration) return item.schedule.estimatedDuration;

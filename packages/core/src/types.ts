@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.24.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.3.0';
-export const APP_RELEASED_AT = '2026-09-21T11:51:08.373Z';
+export const APP_VERSION = '2.3.1';
+export const APP_RELEASED_AT = '2026-09-21T13:01:34.416Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -635,6 +635,7 @@ export interface CalendarPreferences {
   diagnosticsEnabled: boolean;
   /** Optional inline guides and explanatory copy; disabled by default for a compact interface. */
   showExplanations: boolean;
+  headerDateFormat?: 'ru-adaptive' | 'numeric' | 'interface';
   /** When enabled, an item is rendered only in the first expanded Home View that matches it. */
   hideDuplicateItemsAcrossHomeViews: boolean;
   /** Optional accelerated clock for local recurrence testing; never enabled by default. */
@@ -753,7 +754,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       [todayId]: {
         id: todayId,
         name: 'Today',
-        query: { source: `${activeQuery} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true` },
+        query: { source: `${activeQuery} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true && isGoogleEvent != true` },
         renderer: 'list',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
@@ -763,7 +764,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       [weekId]: {
         id: weekId,
         name: 'This week',
-        query: { source: `${activeQuery} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true` },
+        query: { source: `${activeQuery} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true && isGoogleEvent != true` },
         renderer: 'list',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,

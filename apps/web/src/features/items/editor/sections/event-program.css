@@ -1,6 +1,14 @@
 .event-program { display: block; min-width: 0; }
-.program-block { display: grid; gap: var(--space-2); padding-block: var(--space-3); border-bottom: 1px solid var(--color-border); min-width: 0; }
+.program-block { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: start; gap: var(--space-2); padding-block: var(--space-3); border-bottom: 1px solid var(--color-border); min-width: 0; }
 .program-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
 .program-times input { min-width: 0; width: 100%; }
+.program-remove { grid-column: 3; grid-row: 1; }
 .program-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); padding-block: var(--space-3); }
-@media (max-width: 620px) { .program-times { grid-template-columns: minmax(0, 1fr); } }
+.program-day { display: flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-caption); color: var(--color-text-secondary); }
+.program-day input { min-height: var(--control-height-compact); }
+@media (max-width: 620px) {
+  .program-block { grid-template-columns: minmax(0, 1fr) auto; }
+  .program-block > .ui-field:first-child { grid-column: 1; }
+  .program-remove { grid-column: 2; grid-row: 1; align-self: end; }
+  .program-times { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
