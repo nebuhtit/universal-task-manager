@@ -19,3 +19,4 @@ export * from './export-privacy.js';
 export * from './format-guide.js';
 export * from './item-event.js';
 export * from './calendar-organization.js';
+export * from './event-program.js';

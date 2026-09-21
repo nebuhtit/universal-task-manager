@@ -247,6 +247,8 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
       && existing.schedule?.endAt === nextSchedule?.endAt
       && existing.schedule?.estimatedDuration === nextSchedule?.estimatedDuration) continue;
     if (existing) {
+      if (existing.eventProgram) next.eventProgram = JSON.parse(JSON.stringify(existing.eventProgram));
+      if (existing.scripts) next.scripts = JSON.parse(JSON.stringify(existing.scripts));
       if (!Object.prototype.hasOwnProperty.call(next.extensions ?? {}, 'utm:googleTravelDuration') && existing.schedule?.travelDuration) next.schedule!.travelDuration = existing.schedule.travelDuration;
       next.areas = [...existing.areas]; next.projects = [...existing.projects]; next.tags = [...existing.tags];
       next.extensions = JSON.parse(JSON.stringify(existing.extensions ?? {}));

@@ -1153,7 +1153,7 @@ export default function App() {
         if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
       }}
     />}
-    <Suspense fallback={null}>{editor && <ItemEditor initial={editor} workspace={workspace} isNew={editorIsNew}
+    <Suspense fallback={null}>{editor && <ItemEditor key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
       onHistorySave={async (item) => {
         const key = item.external ? await googleHistoryKey(item.external.calendarId, item.external.eventId) : undefined;
         const saved = commit('Update item history', (draft) => {

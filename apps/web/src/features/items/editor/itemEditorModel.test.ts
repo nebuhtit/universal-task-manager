@@ -7,6 +7,18 @@ const normalize = (overrides: Partial<Parameters<typeof normalizeItemForSave>[0]
   return normalizeItemForSave({ item, workspace, tags: 'work, test', contexts: 'desk', isTemplate: false, recurring: false, activeRange: false, repeatFrequency: 'WEEKLY', repeatIntervalDraft: '1', repeatDays: [], now: new Date('2026-08-26T12:00:00Z'), ...overrides });
 };
 describe('item editor normalization', () => {
+  it('generates the program script on save without Apply and rejects unconfirmed overflow', () => {
+    const item = createItem('Program');
+    item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z' };
+    item.eventProgram = { blocks: [{ id: 'one', title: 'One', startOffsetSeconds: 0, endOffsetSeconds: 3600 }] };
+    const saved = normalize({ item });
+    expect(saved.schedule?.endAt).toBe('2030-09-20T13:00:00.000Z');
+    expect(saved.scripts?.filter((script) => script.managedBy === 'event_program')).toHaveLength(1);
+    item.schedule.endAt = '2030-09-20T12:30:00Z';
+    expect(() => normalize({ item })).toThrow('outside the event');
+    const workspace = createWorkspace(); workspace.items[item.id] = structuredClone(item);
+    expect(normalize({ item, workspace }).eventProgram).toEqual(item.eventProgram);
+  });
   it('allows a local task with a cleared end but forbids completing a calendar item', () => {
     const item = createItem('Local'); item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z' };
     expect(normalize({ item }).schedule?.endAt).toBeUndefined();

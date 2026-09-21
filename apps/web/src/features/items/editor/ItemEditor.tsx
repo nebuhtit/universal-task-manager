@@ -4,6 +4,8 @@ import { addTimerActualTime, canManuallyComplete, googleCalendarEventToItem, goo
 import { googleActionItem } from './itemEditorSource';
 import type { GoogleCalendarEvent } from '@utm/core';
 import { ItemHistoryJournals } from './sections/ItemHistoryJournals';
+import { EventProgramSection } from './sections/EventProgramSection';
+import { programOverflow, trimEventProgram } from '@utm/core';
 import { EditGoogleEventDialog, type GoogleEditingCallbacks } from '../../calendar/EditGoogleEventDialog';
 import {
   createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage,
@@ -65,7 +67,8 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onGoogleEditDraft, onGoogleUpdated }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
+export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onGoogleEditDraft, onGoogleUpdated, onOpenOccurrence }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
+  onOpenOccurrence?: (item: UniversalItem) => void;
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
   initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string; google?: GoogleSaveOptions }) => void | Promise<void>; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
@@ -169,10 +172,31 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const activeRange = recurring && Boolean(item.recurrence?.autoRenew) && item.recurrence?.closeAt === 'due' && activation.amount === 0;
   const scheduledDuration = parseOptionalEstimateDuration(item.schedule?.estimatedDuration);
   const travelDuration = parseOptionalEstimateDuration(item.schedule?.travelDuration);
-  const transformSchedule = (transform: (schedule: Schedule) => Schedule) => setItem((current) => ({ ...current, schedule: transform({ timezone: current.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...current.schedule }) }));
+  const transformSchedule = (transform: (schedule: Schedule) => Schedule) => {
+    let next = { ...item, schedule: transform({ timezone: item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...item.schedule }) };
+    if (item.eventProgram?.blocks.length) {
+      if (!next.schedule.startAt || next.schedule.allDay) { setError('Remove the program before clearing Event opens or enabling All day.'); return; }
+      const oldLength = Date.parse(item.schedule?.endAt ?? '') - Date.parse(item.schedule?.startAt ?? '');
+      const length = Date.parse(next.schedule.endAt ?? '') - Date.parse(next.schedule.startAt);
+      const affected = programOverflow(next);
+      if (affected.length && length < oldLength) {
+        const ru = workspace.calendarPreferences.language === 'ru';
+        const description = affected.map((block) => `${block.title}: ${block.startOffsetSeconds * 1000 >= length ? (ru ? 'удалить' : 'delete') : (ru ? 'сократить' : 'shorten')}`).join('\n');
+        if (!window.confirm(`${ru ? 'Сократить программу?' : 'Shorten program?'}\n${description}`)) return;
+        try { next = { ...next, eventProgram: trimEventProgram(next).eventProgram! }; } catch (reason) { setError(String(reason)); return; }
+      }
+    }
+    setItem(next);
+  };
   const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined) delete next.estimatedDuration; else next.estimatedDuration = toIsoDuration(Math.max(1, amount), unit); return next; });
   const patchTravelDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined || amount <= 0) delete next.travelDuration; else next.travelDuration = toIsoDuration(amount, unit); return next; });
-  const patchScheduledStart = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => { const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; return next; }); };
+  const patchScheduledStart = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => {
+    if (item.eventProgram?.blocks.length && value && schedule.startAt) {
+      const delta = Date.parse(value) - Date.parse(schedule.startAt);
+      return { ...schedule, startAt: value, ...(schedule.endAt ? { endAt: new Date(Date.parse(schedule.endAt) + delta).toISOString() } : {}) };
+    }
+    const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; return next;
+  }); };
   const patchScheduledEnd = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => scheduleWithEnd(schedule, value)); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => scheduleWithDue(schedule, value));
   const applyDurationPreset = (preset: string) => {
@@ -342,6 +366,12 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
       <dt>Availability</dt><dd>{googleEvent.transparency === 'transparent' ? 'Free' : 'Busy'}</dd>
       <dt>Time statistics</dt><dd>{item.schedule?.allDay ? 'Excluded — all-day event' : googleEvent.transparency === 'transparent' ? 'Excluded — marked free' : 'Included — reserves its Event opens → Event ends interval'}</dd>
     </dl><a className="secondary button-link" href={googleEvent.sourceUrl} target="_blank" rel="noreferrer">Open in Google Calendar</a>
+    <EventProgramSection item={item} onChange={(next) => {
+      if (next.schedule?.startAt !== item.schedule?.startAt || next.schedule?.endAt !== item.schedule?.endAt) { setError('Change the event boundaries using Edit event first.'); return; }
+      setItem(next);
+    }} language={workspace.calendarPreferences.language} now={now} />
+    {error && <p role="alert">{error}</p>}
+    <Button disabled={saving} onClick={() => void save()}>{workspace.calendarPreferences.language === 'ru' ? 'Сохранить элемент' : 'Save item'}</Button>
     <ItemHistoryJournals item={item} workspace={workspace} onChange={async (next) => { await onHistorySave?.(next); setItem(next); }} />
   </ResponsiveDialog>;
 
@@ -381,6 +411,10 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           else patchItem({ timerHistory: [...(item.timerHistory ?? []).filter((entry) => entry.id !== record.id), { ...record, ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) }] });
         }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
+        <EventProgramSection item={item} onChange={setItem} language={workspace.calendarPreferences.language} now={now} occurrences={item.role === 'series_template' ? Object.values(workspace.items).filter((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id) : []} onOpenOccurrence={onOpenOccurrence ? (target) => {
+          if (JSON.stringify(item) !== JSON.stringify(initial) && !window.confirm(workspace.calendarPreferences.language === 'ru' ? 'Открыть отдельное повторение? Несохранённые изменения текущей формы будут отменены.' : 'Open an occurrence? Unsaved changes in this form will be discarded.')) return;
+          onOpenOccurrence(target);
+        } : undefined} />
         <DatesSection item={item} workspace={workspace} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
@@ -442,7 +476,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           <SearchableDisclosureList uiKey={`item-editor:relations:${item.id}`} className="relation-picker" summary="Choose related item…" items={Object.values(workspace.items).filter((candidate) => candidate.id !== item.id && !candidate.deletedAt)} getSearchText={(candidate) => candidate.title} searchLabel="Search related items" searchPlaceholder="Search items" emptyText="No other items yet." renderItem={(candidate) => <Button size="compact" variant="ghost" key={candidate.id} onClick={(event) => { if (!item.relations.some((relation) => relation.targetId === candidate.id && relation.type === 'related')) patchItem({ relations: [...item.relations, { id: createId(), targetId: candidate.id, type: 'related' }] }); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{candidate.title || 'Untitled item'}</Button>} />
         </div></details>
 
-        <ScriptsSection scripts={item.scripts ?? []} onChange={(scripts) => patchItem({ scripts: scripts.length ? scripts : undefined })} scriptResults={scriptResults} />
+        <ScriptsSection scripts={item.scripts ?? []} onChange={(scripts) => patchItem({ scripts: scripts.length ? scripts : undefined })} scriptResults={scriptResults} onEditProgram={() => { const section = editorScrollRef.current?.querySelector<HTMLDetailsElement>('.event-program'); if (section) { section.open = true; section.scrollIntoView({ block: 'nearest' }); } }} />
         {definitions.length > 0 && <details><summary><FieldIconLabel path="custom" label="Custom fields" /> {sectionMark(Object.keys(item.custom).length > 0)}</summary><div className="details-body">{definitions.map((field) => <label key={field.id}><FieldIconLabel path={`custom.${field.key}`} label={field.label} />{field.kind === 'formula' ? <output className="formula-output">{String(formulas.values[field.key] ?? formulas.errors[field.key] ?? '—')}</output> : <input value={String(item.custom[field.key] ?? '')} onChange={(event) => patchItem({ custom: { ...item.custom, [field.key]: field.kind === 'number' ? Number(event.target.value) : field.kind === 'boolean' ? event.target.value === 'true' : event.target.value } })} />}</label>)}</div></details>}
         <details><summary><FieldIconLabel path="system.json" label="Item JSON" /> {sectionMark(jsonDirty)}</summary><div className="details-body json-editor"><p className="hint">Edit the same item draft as the form. Protected identity, provenance, timestamps and occurrence fields are preserved when updating an existing item.</p><SectionGuide title="JSON safety"><p>Apply JSON updates the form first; only Save item writes it to the workspace. Import as new item always creates a separate copy. Exported data is readable, so do not share it accidentally.</p></SectionGuide><CodeEditor language="json" ariaLabel="Item JSON" rows={18} value={jsonDraft} onChange={(value) => { setJsonDraft(value); setJsonDirty(true); }} /><div className="builder-actions"><button className="secondary compact-action" onClick={() => { setJsonDraft(JSON.stringify(item, null, 2)); setJsonDirty(false); }}>Refresh from form</button><button className="secondary compact-action" onClick={applyJson}>Apply JSON to form</button><details className="inline-menu"><summary>Export…</summary><div><button onClick={exportItemJson}>JSON</button><button onClick={() => exportItem('csv')}>CSV</button><button onClick={() => exportItem('xlsx')}>Excel</button><button onClick={() => exportItem('ics')}>iCalendar</button><button onClick={() => exportItem('ics', true)}>iCalendar + UTM metadata</button></div></details><button className="secondary compact-action" onClick={() => importJsonRef.current?.click()}>Import as new item</button><input ref={importJsonRef} hidden type="file" accept=".json,.csv,.xlsx,.ics,application/json,text/csv,text/calendar,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => event.target.files?.[0] && void importAsNew(event.target.files[0])} /></div></div></details>
         <details><summary><FieldIconLabel path="system" label="System metadata" /></summary><div className="details-body metadata-grid"><div><span>Created at</span><output><time dateTime={item.createdAt}>{formatViewDate(item.createdAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Last modified</span><output><time dateTime={item.updatedAt}>{formatViewDate(item.updatedAt, true, workspace.calendarPreferences.language)}</time></output></div><div><span>Created by application</span><output>{item.createdWithAppName} v{item.createdWithVersion}</output></div><div><span>Application ID</span><output className="mono">{item.createdWithAppId}</output></div><div><span>Item schema</span><output>{item.schemaVersion}</output></div><div><span>Item ID</span><output>{item.id}</output></div></div></details>

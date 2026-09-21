@@ -16,6 +16,13 @@ type Dictionary = Record<string, string>;
 type TranslationTable = Record<Exclude<WorkspaceLanguage, 'en'>, Dictionary>;
 
 const en = {
+  'Automatically managed · Event program': 'Управляется автоматически · Программа мероприятия', 'Edit program': 'Изменить программу',
+  'The program requires Event opens.': 'Для программы необходимо начало события.',
+  'Give every program block a title.': 'Укажите название каждого блока программы.',
+  'Every program block must end after its start.': 'Окончание каждого блока должно быть позже его начала.',
+  'Remove the program before clearing Event opens or enabling All day.': 'Удалите программу перед удалением начала события или включением «Весь день».',
+  'Program blocks are outside the event. Extend the event or adjust the program.': 'Блоки выходят за границы события. Расширьте событие или исправьте программу.',
+  'Change the event boundaries using Edit event first.': 'Сначала измените границы события через «Редактировать событие».',
   'Add time to History': 'Добавить время в историю', 'Added to History': 'Добавлено в историю',
   Home: 'Главная', 'All items': 'Все элементы', Settings: 'Настройки', Lock: 'Заблокировать', Transfer: 'Передача',
   Notifications: 'Уведомления', 'No notifications': 'Нет уведомлений', 'Encrypted locally': 'Зашифровано локально', 'Save encrypted backup': 'Сохранить зашифрованную копию', 'Save plaintext backup': 'Сохранить незашифрованную копию',

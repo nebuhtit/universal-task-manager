@@ -1,6 +1,7 @@
 import { ACTIVE_ITEM_VIEW_QUERY, LEGACY_ACTIVE_ITEM_VIEW_QUERY, activeReminders, durationToMs, nextActiveReminderAt, type CustomFieldDefinition, type CustomValue, type Expression, type Scalar, type UniversalItem, type ViewSortRule } from './types.js';
 
 import { filterRegexMatches } from './filter-regex.js';
+import { eventProgramStatus } from './event-program.js';
 import { validateFilterProgram } from './filter-validation.js';
 export { durationToMs } from './types.js';
 
@@ -149,9 +150,11 @@ const timeDependentVariables = new Set([
   'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue',
 ]);
 const timeDependentFunctions = new Set([
+  'eventProgramStatus',
   'now', 'today', 'millisecondsUntil', 'secondsUntil', 'minutesUntil', 'hoursUntil', 'daysUntil', 'durationUntil', 'timeUntil',
 ]);
 const continuouslyTimeDependentFunctions = new Set([
+  'eventProgramStatus',
   'now', 'millisecondsUntil', 'secondsUntil', 'minutesUntil', 'hoursUntil', 'daysUntil', 'durationUntil', 'timeUntil',
 ]);
 
@@ -469,6 +472,7 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
       const args = expression.args.map((argument) => evaluateExpression(argument, context));
       const now = context.now ?? new Date();
       switch (expression.name) {
+        case 'eventProgramStatus': return eventProgramStatus(context.item, now, String(args[0] ?? 'en'));
         case 'regexMatch': return filterRegexMatches(args[0], String(args[1] ?? ''), Boolean(args[2]));
         case 'now': return now.toISOString();
         case 'today': return now.toISOString().slice(0, 10);

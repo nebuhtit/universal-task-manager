@@ -1,5 +1,6 @@
 import { canManuallyComplete, buildRecurrenceRule, makeSeries, removeDuplicateReminders, validateScriptDefinitions, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { inferredPreset } from '../fieldDisplay';
+import { syncEventProgramScript, validateEventProgram, programOverflow } from '@utm/core';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
@@ -22,7 +23,10 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   const { item, workspace, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays } = input;
   const now = input.now ?? new Date();
   if (!item.title.trim()) throw new Error('Add a title before saving.');
-  validateScriptDefinitions(item.scripts ?? []);
+  validateEventProgram(item);
+  const saved = workspace.items[item.id];
+  if (item.eventProgram?.blocks.length && item.schedule?.allDay && !saved?.schedule?.allDay) throw new Error('Remove the program before switching to All day.');
+  if (programOverflow(item).length && (JSON.stringify(saved?.eventProgram) !== JSON.stringify(item.eventProgram) || saved?.schedule?.startAt !== item.schedule?.startAt || saved?.schedule?.endAt !== item.schedule?.endAt)) throw new Error('Program blocks are outside the event. Extend the event or adjust the program.');
   if ((item.external || workspace.items[item.id]?.extensions?.['utm:googleSave']) && (!item.schedule?.startAt || !item.schedule.endAt)) throw new Error('Linked events require both Event opens and Event ends.');
   if (!canManuallyComplete(item) && item.state === 'done' && workspace.items[item.id]?.state !== 'done') throw new Error('Calendar events cannot be marked completed.');
   let result = {
@@ -32,12 +36,16 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
     updatedAt: now.toISOString(), revision: item.revision + (workspace.items[item.id] ? 1 : 0),
   };
   delete result.area; delete result.project;
+  if (result.eventProgram?.blocks.length && result.schedule?.startAt && !result.schedule.endAt) result.schedule.endAt = new Date(Date.parse(result.schedule.startAt) + Math.max(...result.eventProgram.blocks.map((block) => block.endOffsetSeconds)) * 1000).toISOString();
+  syncEventProgramScript(result, workspace.calendarPreferences.language);
+  validateScriptDefinitions(result.scripts ?? []);
   const opensAt = result.schedule?.startAt ? Date.parse(result.schedule.startAt) : Number.NaN;
   const endsAt = result.schedule?.endAt ? Date.parse(result.schedule.endAt) : Number.NaN;
   const dueAt = result.schedule?.dueAt ? Date.parse(result.schedule.dueAt) : Number.NaN;
   if (Number.isFinite(opensAt) && Number.isFinite(endsAt) && endsAt <= opensAt) throw new Error('Event ends must be after Event opens.');
   if (Number.isFinite(opensAt) && Number.isFinite(dueAt) && dueAt < opensAt) throw new Error('Due / Active range ends cannot be earlier than Event opens.');
   result = withoutTemplateMarker(result); result.extensions = { ...result.extensions };
+  if (result.occurrence && JSON.stringify(saved?.eventProgram) !== JSON.stringify(result.eventProgram)) result.extensions['utm:eventProgramOverride'] = result.occurrence.recurrenceId;
   if (isTemplate) result.extensions['utm:template'] = true;
   const existing = workspace.items[item.id];
   if (existing) { result.createdWithAppId = existing.createdWithAppId; result.createdWithAppName = existing.createdWithAppName; result.createdWithVersion = existing.createdWithVersion; }

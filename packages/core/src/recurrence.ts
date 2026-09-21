@@ -463,11 +463,15 @@ function reconcileRollingSeries(
 
   const sameCycle = rolling.occurrence?.recurrenceId === latestAnchor.toISOString();
   const calendarState = sameCycle ? {
+    ...(rolling.extensions?.['utm:eventProgramOverride'] === rolling.occurrence?.recurrenceId ? {
+      eventProgram: JSON.parse(JSON.stringify(rolling.eventProgram ?? { blocks: [] })),
+      scripts: [...(fresh.scripts ?? []).filter((script) => script.managedBy !== 'event_program'), ...(rolling.scripts ?? []).filter((script) => script.managedBy === 'event_program')],
+    } : {}),
     ...(rolling.external ? { external: JSON.parse(JSON.stringify(rolling.external)) } : {}),
     extensions: {
       ...fresh.extensions,
       ...JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(rolling.extensions ?? {}).filter(([key]) =>
-        ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey', 'utm:googleSave'].includes(key))))),
+        ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey', 'utm:googleSave', 'utm:eventProgramOverride'].includes(key))))),
     },
   } : {};
   const visibleUntil = new Date(rolling.schedule?.endAt ?? rolling.schedule?.dueAt ?? rolling.schedule?.startAt ?? 0);

@@ -1,5 +1,6 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import { initializeItemHistory } from './item-history.js';
+import { validateEventProgram } from './event-program.js';
 import { mergeGoogleCalendarCopies } from './google-calendar.js';
 import addFormats from 'ajv-formats';
 import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, standardAttentionViewSort } from './types.js';
@@ -17,13 +18,14 @@ const scriptFieldSchema = {
       id: { type: 'string', minLength: 1 }, key: { type: 'string', pattern: '^[a-z][a-z0-9_]*$' },
       label: { type: 'string', minLength: 1 }, source: { type: 'string', minLength: 1 },
       resultKind: { enum: ['text', 'number', 'boolean', 'datetime', 'duration'] },
+      managedBy: { const: 'event_program' },
     },
   },
 } as const;
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.22.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.24.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -165,6 +167,11 @@ export const itemJsonSchema = {
     },
     custom: { type: 'object', additionalProperties: { anyOf: [scalar, { type: 'array', items: scalar }] } },
     scripts: scriptFieldSchema,
+    eventProgram: { type: 'object', additionalProperties: false, required: ['blocks'], properties: {
+      blocks: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'title', 'startOffsetSeconds', 'endOffsetSeconds'], properties: {
+        id: { type: 'string', minLength: 1 }, title: { type: 'string' }, startOffsetSeconds: { type: 'integer', minimum: 0 }, endOffsetSeconds: { type: 'integer', minimum: 1 },
+      } } },
+    } },
     extensions,
   },
   allOf: [
@@ -377,7 +384,11 @@ function validationResult(validator: ValidateFunction, value: unknown): Validati
   return { valid: Boolean(valid), errors };
 }
 
-export const validateItem = (value: unknown): ValidationResult => validationResult(validators.item, value);
+export const validateItem = (value: unknown): ValidationResult => {
+  const result = validationResult(validators.item, value);
+  if (result.valid) { try { validateEventProgram(value as UniversalItem); } catch (reason) { result.errors.push(String(reason)); result.valid = false; } }
+  return result;
+};
 export const validateView = (value: unknown): ValidationResult => validationResult(validators.view, value);
 
 /** Paths that can safely be copied into a brand-new item from a saved view. */
@@ -417,6 +428,7 @@ export function validateWorkspace(value: unknown): ValidationResult {
   if (!result.valid || !value || typeof value !== 'object') return result;
   const doc = value as WorkspaceDocument;
   for (const [key, item] of Object.entries(doc.items)) {
+    try { validateEventProgram(item); } catch (reason) { result.errors.push(`items.${key}: ${String(reason)}`); }
     if (item.id !== key) result.errors.push(`items.${key}.id must match its map key`);
     if (item.role === 'series_template' && (!item.recurrence || (!item.schedule?.startAt && !item.schedule?.dueAt))) result.errors.push(`items.${key} recurring template requires recurrence and schedule.startAt or schedule.dueAt`);
   }

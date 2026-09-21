@@ -3,6 +3,7 @@ import { compileFilterRegex } from './filter-regex.js';
 
 const functions = new Set(['if', 'anyWhere', 'allWhere', 'regexMatch', 'now', 'today', 'has', 'includes', 'matchesAny', 'matchesAll', 'matchesNone', 'startsWith', 'endsWith', 'lower', 'length', 'duration', 'millisecondsUntil', 'secondsUntil', 'minutesUntil', 'hoursUntil', 'daysUntil', 'durationUntil', 'durationBetween', 'formatDuration', 'timeUntil', 'addDuration', 'scheduleInPeriod', 'nextReminderInPeriod', 'item', 'linked']);
 const collections = new Set(['tags', 'areas', 'projects', 'contexts', 'relations', 'reminders', 'attachments']);
+functions.add('eventProgramStatus');
 const reservedVariables = new Set(['item', 'True', 'False', 'None', 'true', 'false', 'null', 'if', 'elif', 'else', 'return', 'for', 'in', 'not', 'and', 'or', 'any', 'all']);
 export function validateFilterProgram(node: Expression, depth = 0): void {
   if (depth > 128) throw new Error('Filter nesting exceeds 128 levels');
