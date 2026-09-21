@@ -373,7 +373,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         <QuickItemTimer soundEnabled onCountTime={async (record) => {
           const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
           const target = clean(owner ?? item); addTimerActualTime(target, record);
-          if (owner && onHistorySave) await onHistorySave(target); else patchItem({ actualTimeEntries: target.actualTimeEntries, schedule: target.schedule });
+          if (owner && onHistorySave) await onHistorySave(target); else patchItem({ actualTimeEntries: target.actualTimeEntries, completionEntries: target.completionEntries, schedule: target.schedule });
         }} onRecord={(record) => {
           const owner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
           if (owner && onHistorySave) void Promise.resolve(onHistorySave({ ...clean(owner), timerHistory: [...(owner.timerHistory ?? []).filter((entry) => entry.id !== record.id), { ...record, recurrenceId: owner.occurrence!.recurrenceId }] })).catch((reason) => setError(String(reason)));

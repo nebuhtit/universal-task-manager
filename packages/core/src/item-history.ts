@@ -12,6 +12,20 @@ export function syncActualDuration(item: UniversalItem): void {
   item.schedule = { ...item.schedule, timezone: item.schedule?.timezone ?? 'UTC', actualDuration: `PT${actualTimeMs(item) / 1000}S` };
 }
 
+export function ensureActualTimeCompletion(item: UniversalItem, entry: NonNullable<UniversalItem['actualTimeEntries']>[number], at?: string, preferExisting = false): CompletionEntry | undefined {
+  if (item.external?.readOnly || item.isNote) return undefined;
+  item.completionEntries ??= [];
+  const linked = entry.completionId ? item.completionEntries.find((completion) => completion.id === entry.completionId) : undefined;
+  if (linked) return linked;
+  const existing = preferExisting ? [...item.completionEntries].reverse().find((completion) => !completion.revokedAt && completion.recurrenceId === entry.recurrenceId) : undefined;
+  if (existing) { entry.completionId = existing.id; return existing; }
+  const completedAt = at ?? entry.at ?? item.updatedAt;
+  const completion: CompletionEntry = { id: `time-completion:${entry.id}`, at: completedAt, kind: 'manual', comment: '', ...(entry.recurrenceId ? { recurrenceId: entry.recurrenceId } : {}) };
+  item.completionEntries.push(completion);
+  entry.completionId = completion.id;
+  return completion;
+}
+
 /** Missing journals are legacy data; an empty journal is an intentional deletion. */
 export function initializeItemHistory(item: UniversalItem): void {
   if (!item.actualTimeEntries && item.schedule?.actualDuration) {
@@ -25,6 +39,7 @@ export function initializeItemHistory(item: UniversalItem): void {
     if ((item.state === 'done' || item.state === 'auto_closed') && item.closure && !entries.some((entry) => entry.recurrenceId === item.occurrence?.recurrenceId && entry.at === item.closure!.at)) entries.push({ id: `closure:${item.id}:${item.closure.at}`, at: item.closure.at, kind: item.closure.actor === 'user' && item.state === 'done' ? 'manual' : 'automatic', comment: '', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) });
     if (entries.length) item.completionEntries = entries;
   }
+  for (const entry of item.actualTimeEntries ?? []) ensureActualTimeCompletion(item, entry, undefined, true);
   syncActualDuration(item);
 }
 
@@ -49,7 +64,9 @@ export function addTimerActualTime(item: UniversalItem, session: ItemTimerSessio
   if (existing) { existing.durationSeconds = session.durationSeconds; syncActualDuration(item); return; }
   if (session.mode === 'stopwatch' && session.durationSeconds <= 30) return;
   const recurrenceId = session.recurrenceId ?? item.occurrence?.recurrenceId;
-  item.actualTimeEntries.push({ id: `timer:${session.id}`, sourceSessionId: session.id, source: session.mode, at: session.startedAt, durationSeconds: session.durationSeconds, comment: '', ...(recurrenceId ? { recurrenceId } : {}) });
+  const entry = { id: `timer:${session.id}`, sourceSessionId: session.id, source: session.mode, at: session.startedAt, durationSeconds: session.durationSeconds, comment: '', ...(recurrenceId ? { recurrenceId } : {}) } as NonNullable<UniversalItem['actualTimeEntries']>[number];
+  item.actualTimeEntries.push(entry);
+  ensureActualTimeCompletion(item, entry, session.endedAt);
   syncActualDuration(item);
 }
 

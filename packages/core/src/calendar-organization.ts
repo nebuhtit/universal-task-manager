@@ -39,8 +39,6 @@ export function reconcileCalendarOrganization(workspace: WorkspaceDocument): voi
       if (previous) calendar.managedTag = previous.tag;
     }
     if (!calendar.selected) {
-      calendar.areas = [];
-      calendar.projects = [];
       const old = calendar.managedTag;
       if (old) {
         for (const item of Object.values(workspace.items)) item.tags = item.tags.filter((tag) => tag !== old);

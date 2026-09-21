@@ -30,7 +30,13 @@ describe('item journals', () => {
     addTimerActualTime(item, session); addTimerActualTime(item, session);
     addTimerActualTime(item, { ...session, id: 'short', mode: 'stopwatch', durationSeconds: 30 });
     expect(item.actualTimeEntries).toHaveLength(1); expect(actualTimeMs(item)).toBe(120000);
+    expect(item.completionEntries).toHaveLength(1); expect(item.actualTimeEntries![0]!.completionId).toBe(item.completionEntries![0]!.id);
     item.actualTimeEntries![0]!.durationSeconds = 90; syncActualDuration(item); expect(item.schedule?.actualDuration).toBe('PT90S');
+  });
+  it('treats existing actual time as one completion without duplicating a matching completion', () => {
+    const item = createItem('Measured'); item.actualTimeEntries = [{ id: 'manual-time', at: '2026-09-21T09:00:00Z', durationSeconds: 60, comment: '', source: 'manual' }];
+    initializeItemHistory(item); initializeItemHistory(item);
+    expect(item.completionEntries).toHaveLength(1); expect(item.actualTimeEntries[0]!.completionId).toBe(item.completionEntries![0]!.id);
   });
   it('records completion, reopen, and a new completion without changing schedule through journal edits', () => {
     const item = createItem('Task'); item.state = 'done'; item.closure = { at: '2026-09-20T12:00:00Z', actor: 'user', reason: 'manual' };

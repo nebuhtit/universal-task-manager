@@ -34,10 +34,11 @@ describe('Calendar organization and durable local data', () => {
     const { workspace, item, calendar } = fixture(); reconcileCalendarOrganization(workspace);
     calendar.selected = false; reconcileCalendarOrganization(workspace);
     expect(item.tags).not.toContain('C.Work'); expect(item.areas).toEqual(['Personal']); expect(item.projects).toEqual([]);
+    expect(calendar.areas).toEqual(['Office']); expect(calendar.projects).toEqual(['Release']);
     expect(item.extensions?.['utm:calendarOrganization']).toBeUndefined();
     expect(workspace.organizationPreferences.tagOrder).not.toContain('C.Work');
     calendar.selected = true; reconcileCalendarOrganization(workspace);
-    expect(item.tags).toContain('C.Work'); expect(item.areas).toEqual(['Personal']); expect(item.projects).toEqual([]);
+    expect(item.tags).toContain('C.Work'); expect(item.areas).toEqual(['Personal', 'Office']); expect(item.projects).toEqual(['Release']);
   });
   it('counts only successful writes from the rolling 24-hour safety window', () => {
     const { workspace } = fixture(); const google = workspace.calendarPreferences.googleCalendar!;
