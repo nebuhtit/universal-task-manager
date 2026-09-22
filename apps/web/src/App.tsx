@@ -26,6 +26,11 @@ import { playCompletionSoundUnlessPreviewed, useUiSounds } from './hooks/useUiSo
 import { useViewport } from './hooks/useViewport';
 import { useDisplayedBuild } from './hooks/useDisplayedBuild';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
+import { ResponsiveDialog } from './components/ui/ResponsiveDialog';
+import { Button } from './components/ui/primitives';
+import { DueQuickChoices } from './features/items/DueQuickChoices';
+import './features/settings/settings-hierarchy.css';
+import { canQuickChangeDue, itemTimeZone } from './features/items/dueQuickActions';
 import { reminderSnoozedUntil, type ReminderSnoozeOption } from './services/reminderSnooze';
 import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
 import { applyViewCreationDefaults } from './features/views/applyCreationDefaults';
@@ -42,7 +47,7 @@ import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogl
 import { GOOGLE_CREATE_EXTENSION } from './services/googleCalendarCreate';
 import {
   APP_VERSION, SCHEMA_VERSION, canManuallyComplete, googleCalendarEventToItem, applyGoogleCalendarSync, applyPortableImport, buildPortableImportPreview,
-  collectItemDependencies, createId, createItem, createPortablePackage,
+  collectItemDependencies, createId, createItem, createOccurrence, createPortablePackage,
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences, updateRecurrenceCompletionTime,
   runAutomationEvents, serializePortablePackage,
   createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, migrateWorkspace, packageToTabular, parseCsv, tabularToPackage, toCanonicalJSON, toCsv, toICS, workspaceForExport,
@@ -537,6 +542,22 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
   return <div className="modal-backdrop"><section className="dialog"><header><h2>Encrypted backup & transfer</h2><button className="icon-button" onClick={onClose}>×</button></header><p>The unlocked workspace can be exported immediately: Universal reuses its existing encryption and verifies the saved encrypted block. A password is needed only to open an imported backup.</p>{isNativeICloudBackupAvailable() && <p className="hint">The iOS app automatically keeps the current encrypted backup and one previous version in its private iCloud Drive folder. Google Calendar data is never included.</p>}<label>Backup password (only for import)<input type="password" minLength={10} value={password} onChange={(event) => { setPassword(event.target.value); setRestoreSource(null); }} /></label>{error && <p className="error">{error}</p>}<div className="transfer-actions">{isNativeICloudBackupAvailable() && <button className="primary" disabled={busy} onClick={() => void saveToICloud()}>Back up to iCloud now</button>}<button className="secondary" disabled={busy} onClick={() => void download()}>Export encrypted .utmb</button><button className="secondary" disabled={password.length < 10 || busy} onClick={() => isNativeICloudBackupAvailable() ? requestNativeICloudImport() : input.current?.click()}>{restoreSource ? 'Choose another backup' : 'Merge from backup'}</button><input ref={input} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} /></div>{restoreSource && <div className="restore-warning"><strong>Replace this device?</strong><p>This removes the current local workspace from this browser and restores the selected encrypted backup. The backup itself is not changed.</p><button className="danger" disabled={busy} onClick={() => void replaceFromBackup()}>Replace local workspace from backup</button></div>}<p className="hint">On iPhone, choose a <code>.utmb</code> backup in Files. Wrong passwords, unrelated files and modified containers are rejected before your local workspace changes.</p></section></div>;
 }
 
+type QuickDueTarget = { itemId: string; seriesId?: string; recurrenceId?: string };
+
+function resolveQuickDueItem(workspace: WorkspaceDocument, target: QuickDueTarget): UniversalItem | null {
+  const existing = workspace.items[target.itemId];
+  if (existing) return existing;
+  if (!target.seriesId || !target.recurrenceId) return null;
+  const series = workspace.items[target.seriesId];
+  if (!series) return null;
+  const recurrenceDate = new Date(target.recurrenceId);
+  if (Number.isNaN(recurrenceDate.getTime())) return null;
+  try {
+    const occurrence = createOccurrence(series, recurrenceDate, 0);
+    return occurrence.id === target.itemId ? occurrence : null;
+  } catch { return null; }
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>('home');
   useEffect(() => {
@@ -545,6 +566,9 @@ export default function App() {
     return () => window.removeEventListener('utm:open-project', open);
   }, []);
   const [editor, setEditor] = useState<UniversalItem | null>(null);
+  const [quickDueTarget, setQuickDueTarget] = useState<QuickDueTarget | null>(null);
+  const [quickDueError, setQuickDueError] = useState('');
+  const [quickDueSaving, setQuickDueSaving] = useState(false);
   const [editorIsNew, setEditorIsNew] = useState(false);
 
   const [transfer, setTransfer] = useState(false);
@@ -1053,6 +1077,34 @@ export default function App() {
     }
     applyItemState(item, state, celebrationColor);
   };
+  const saveQuickDue = async (selected: { itemId: string; seriesId?: string; recurrenceId?: string }, at: string) => {
+    if (quickDueSaving) return;
+    setQuickDueSaving(true); setQuickDueError('');
+    try {
+      const actionNow = currentWorkspaceNow();
+      if (Date.parse(at) <= actionNow.getTime()) throw new Error('Choose a future Due time.');
+      const saved = commit('Move item Due', (draft) => {
+        const itemId = selected.itemId;
+        if (!draft.items[itemId] && selected.seriesId && selected.recurrenceId) {
+          const series = draft.items[selected.seriesId];
+          if (!series) throw new Error('The recurring source is no longer available.');
+          const occurrence = createOccurrence(series, new Date(selected.recurrenceId), 0);
+          if (occurrence.id !== itemId) throw new Error('The selected recurrence has changed.');
+          draft.items[itemId] = occurrence;
+        }
+        const target = draft.items[itemId];
+        if (!target || !canQuickChangeDue(target)) throw new Error('This item cannot be changed here.');
+        if (target.schedule?.startAt && Date.parse(at) < Date.parse(target.schedule.startAt)) throw new Error('Due cannot be before Event opens.');
+        const updated = { ...clean(target), schedule: { timezone: itemTimeZone(target), ...target.schedule, dueAt: at }, updatedAt: actionNow.toISOString(), revision: target.revision + 1 };
+        draft.items[itemId] = updated;
+        runAutomationEvents(draft, [{ id: createId(), type: 'item.updated', at: updated.updatedAt, itemId, after: clean(updated), causationId: createId(), depth: 0 }], { now: actionNow });
+      });
+      if (!saved) throw new Error('Could not save the new Due time.');
+      await flushPersistence();
+      setQuickDueTarget(null);
+    } catch (reason) { setQuickDueError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setQuickDueSaving(false); }
+  };
   const dismissPopupNotice = (id: string) => {
     const timer = noticeTimers.current.get(id);
     if (timer) window.clearTimeout(timer);
@@ -1100,6 +1152,7 @@ export default function App() {
   if (boot === 'checking') return <main className="splash"><div className="brand-mark">U</div><p>Opening encrypted workspace…</p></main>;
   if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={enterWorkspace} />;
   if (!workspace || !session) return null;
+  const quickDueItem = quickDueTarget ? resolveQuickDueItem(workspace, quickDueTarget) : null;
   const allItemsView = allItemsViewFor(workspace);
   const openWorkspaceItem = (item: UniversalItem) => {
     setEditorIsNew(false);
@@ -1144,7 +1197,7 @@ export default function App() {
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
-  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onSnoozeNotice={snoozeNotice} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onSnoozeNotice={snoozeNotice} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} />}
@@ -1160,6 +1213,7 @@ export default function App() {
       </section>}
       </Suspense>
     </AppShell>
+    {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due'} ariaLabel="Quick Due" footer={<Button disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
     {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Add new item" aria-label="Add new item"/></form></div>}
     {quickCompletion && <QuickCompletionInput
       open

@@ -1,0 +1,37 @@
+import { useState } from 'react';
+import type { UniversalItem, WorkspaceLanguage } from '@utm/core';
+import { Button, Input } from '../../components/ui/primitives';
+import { dueQuickOptions, dueWallInput, dueWallInputToIso, itemTimeZone } from './dueQuickActions';
+import './due-quick.css';
+
+export function DueQuickChoices({ item, now, language, onChoose, error }: {
+  item: UniversalItem; now: Date; language: WorkspaceLanguage; onChoose: (at: string) => void; error?: string | undefined;
+}) {
+  const ru = language === 'ru';
+  const zone = itemTimeZone(item);
+  const [custom, setCustom] = useState(false);
+  const [draft, setDraft] = useState(() => dueWallInput(item.schedule?.dueAt ?? new Date(now.getTime() + 3_600_000).toISOString(), zone));
+  const [localError, setLocalError] = useState('');
+  const labels = {
+    'today-13': ru ? 'Сегодня днём' : 'Today afternoon',
+    'today-19': ru ? 'Сегодня вечером' : 'Today evening',
+    'today-23': ru ? 'Сегодня ночью' : 'Tonight',
+    tomorrow: ru ? 'Завтра' : 'Tomorrow',
+    'next-week': ru ? 'Этот день на следующей неделе' : 'Same day next week',
+    'next-monday': ru ? 'Пн следующей недели' : 'Next Monday',
+  } as const;
+  const formatter = new Intl.DateTimeFormat(ru ? 'ru-RU' : 'en-US', { timeZone: zone, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const chooseCustom = () => {
+    const at = dueWallInputToIso(draft, zone);
+    if (!at) { setLocalError(ru ? 'Такого времени нет в часовом поясе item.' : 'This time does not exist in the item time zone.'); return; }
+    if (Date.parse(at) <= now.getTime()) { setLocalError(ru ? 'Выберите будущее время.' : 'Choose a future time.'); return; }
+    if (item.schedule?.startAt && Date.parse(at) < Date.parse(item.schedule.startAt)) { setLocalError(ru ? 'Due не может быть раньше Event opens.' : 'Due cannot be before Event opens.'); return; }
+    setLocalError(''); onChoose(at);
+  };
+  return <div className="due-quick-choices">
+    {dueQuickOptions(item, now).map(({ id, at, disabled }) => <Button key={id} size="compact" variant="ghost" disabled={disabled} title={disabled ? (ru ? 'Раньше Event opens' : 'Before Event opens') : undefined} onClick={() => onChoose(at)}><span>{labels[id]}</span><time dateTime={at}>{formatter.format(new Date(at))}</time></Button>)}
+    <Button size="compact" variant="ghost" aria-expanded={custom} onClick={() => setCustom((open) => !open)}>{ru ? 'Выбрать дату и время…' : 'Custom date and time…'}</Button>
+    {custom && <div className="due-custom"><Input type="datetime-local" aria-label={ru ? 'Новый Due' : 'New Due'} value={draft} onChange={(event) => { setDraft(event.target.value); setLocalError(''); }} /><Button size="compact" onClick={chooseCustom}>{ru ? 'Применить' : 'Apply'}</Button></div>}
+    {(localError || error) && <small role="alert" className="ui-field-error">{localError || error}</small>}
+  </div>;
+}

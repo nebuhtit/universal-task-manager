@@ -4,4 +4,5 @@
 @import './components/ui/primitives.css';
 @import './components/ui/responsive-dialog.css';
 @import './styles/legacy.css';
+@import './components/ui/editor-hierarchy.css';
 @import './components/ui/code-editor.css';

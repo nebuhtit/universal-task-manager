@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type TouchEvent, type MouseEvent } from 'react';
 import type { WorkspaceDocument } from '@utm/core';
 import { useWorkspaceNow } from '../../hooks/useClock';
 import { formatHeaderDate } from '../../utils/dates';
@@ -19,6 +19,7 @@ type Props = {
   onGoogleCalendarSync?: () => void; googleCalendarSyncing?: boolean; googleCalendarSyncStatus?: string;
   onQuickBackup?: () => void; quickBackupBusy?: boolean; quickBackupPlaintext?: boolean;
   onDismissPopup: (id: string) => void; onDeleteNotice: (id: string) => void; onOpenNotice: (notice: AppNotice) => void; onSnoozeNotice?: (notice: AppNotice, option: ReminderSnoozeOption) => void;
+  onQuickDue?: (target: { itemId: string; seriesId?: string; recurrenceId?: string }) => void;
   onTransfer: () => void; onLock: () => void;
   backupReminder: boolean; onBackupReminder: () => void; onDismissBackupReminder: () => void;
 };
@@ -60,9 +61,33 @@ export function AppShell(props: Props) {
   const notificationCount = notices.length + Number(props.backupReminder);
   const quickBackupLabel = props.quickBackupPlaintext ? t('Save plaintext backup') : t('Save encrypted backup');
   const backupNotice: AppNotice = { id: 'backup-reminder', title: t('Backup needs attention'), body: t('Create an encrypted .utmb backup to keep a portable copy of this workspace.'), at: new Date().toISOString() };
+  const swipeStart = useRef<{ target: { itemId: string; seriesId?: string; recurrenceId?: string }; x: number; y: number; scrollElement: HTMLElement | null; scrollLeft: number } | null>(null);
+  const suppressClickUntil = useRef(0);
+  const onTouchStart = (event: TouchEvent<HTMLElement>) => {
+    if (!props.onQuickDue || event.touches.length !== 1) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('input, select, textarea, a, [contenteditable="true"], .view-drag-handle, .state-toggle, .ui-icon-button')) return;
+    const itemElement = target.closest<HTMLElement>('[data-utm-due-item-id]');
+    if (!itemElement) return;
+    const scrollElement = target.closest<HTMLElement>('.renderer-table-wrap, .calendar-strip, .mini-board');
+    swipeStart.current = { target: { itemId: itemElement.dataset.utmDueItemId!, ...(itemElement.dataset.utmDueSeriesId ? { seriesId: itemElement.dataset.utmDueSeriesId } : {}), ...(itemElement.dataset.utmDueRecurrenceId ? { recurrenceId: itemElement.dataset.utmDueRecurrenceId } : {}) }, x: event.touches[0]!.clientX, y: event.touches[0]!.clientY, scrollElement, scrollLeft: scrollElement?.scrollLeft ?? 0 };
+  };
+  const onTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const start = swipeStart.current; swipeStart.current = null;
+    if (!start || !props.onQuickDue || event.changedTouches.length !== 1) return;
+    const distanceX = event.changedTouches[0]!.clientX - start.x;
+    const distanceY = event.changedTouches[0]!.clientY - start.y;
+    if (distanceX > -64 || Math.abs(distanceX) < Math.abs(distanceY) * 1.5 || (start.scrollElement && Math.abs(start.scrollElement.scrollLeft - start.scrollLeft) > 4)) return;
+    event.preventDefault(); event.stopPropagation();
+    suppressClickUntil.current = performance.now() + 350;
+    props.onQuickDue(start.target);
+  };
+  const onClickCapture = (event: MouseEvent<HTMLElement>) => {
+    if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); }
+  };
   return <div className={`app-shell page-${page}`}>
     <aside className="sidebar"><div className="sidebar-brand"><div className="brand-mark small">U</div><span>Universal</span></div><nav>{nav.map(([target, icon, label, beta]) => <Button variant="ghost" key={target} className={page === target ? 'active' : ''} onClick={() => onPage(target)}><LineIcon name={icon}/><span>{t(label)}</span>{beta && <em className="nav-beta" title={t('This area is still being tested and improved.')}>{t('Beta')}</em>}{target === 'all' && openItems > 0 && <b title={t(`${openItems} active ${openItems === 1 ? 'item' : 'items'}`)}>{openItems}</b>}</Button>)}</nav><div className="sidebar-bottom"><Button variant="ghost" onClick={props.onTransfer}><LineIcon name="transfer"/><span>{t('Transfer')}</span></Button><Button variant="ghost" onClick={props.onLock}><LineIcon name="lock"/><span>{t('Lock')}</span></Button></div></aside>
-    <main className="content">
+    <main className="content" onTouchStartCapture={onTouchStart} onTouchEndCapture={onTouchEnd} onTouchCancelCapture={() => { swipeStart.current = null; }} onClickCapture={onClickCapture}>
       <header className="topbar"><div><HeaderClock {...(workspace ? { workspace } : {})} {...(activeDateLabel ? { fallback: activeDateLabel } : {})} compact={page === 'home'} /></div><div className="top-actions">{page === 'home' && <IconButton size="compact" variant="ghost" className="views-add-button" aria-label={t('New view')} title={t('New view')} onClick={props.onNewView}><LineIcon name="plus"/></IconButton>}{(page === 'home' || page === 'calendar') && workspace?.calendarPreferences.googleCalendar && props.onGoogleCalendarSync && <IconButton size="compact" variant="ghost" className={`google-calendar-sync-button${props.googleCalendarSyncing ? ' is-syncing' : ''}`} aria-label={props.googleCalendarSyncStatus || t('Google Calendar sync')} title={props.googleCalendarSyncStatus || t('Google Calendar sync')} disabled={props.googleCalendarSyncing} onClick={props.onGoogleCalendarSync}><LineIcon name="calendarSync"/></IconButton>}{props.onQuickBackup && <IconButton size="compact" variant="ghost" className="quick-backup-button" aria-label={quickBackupLabel} title={quickBackupLabel} disabled={props.quickBackupBusy} onClick={props.onQuickBackup}><LineIcon name="save"/></IconButton>}<IconButton size="compact" variant="ghost" className="notice-button" aria-label={t('Notifications')} aria-expanded={noticeCenterOpen} onClick={props.onToggleNotices} title={t('Notifications')}><LineIcon name="bell"/>{notificationCount > 0 && <b>{notificationCount}</b>}</IconButton><IconButton size="compact" variant="ghost" className="mobile-menu-button" aria-label={t('Open navigation')} aria-expanded={mobileNavOpen} onClick={props.onToggleNavigation}><LineIcon name="menu"/></IconButton></div></header>
       {mobileNavOpen && <>
         <button type="button" className="overlay-dismiss-scrim mobile-nav-scrim" tabIndex={-1} aria-label={t('Close navigation')} onClick={(event) => { event.stopPropagation(); props.onCloseNavigation(); }} />

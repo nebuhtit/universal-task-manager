@@ -1,0 +1,34 @@
+.settings-page-shell > .settings-disclosure,
+.settings-page .settings-disclosure {
+  border-color: var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.settings-page-shell .settings-disclosure > summary,
+.settings-page .settings-disclosure > summary {
+  min-height: var(--control-height-touch);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text);
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-semibold);
+}
+
+.settings-page-shell .settings-disclosure > .settings-card,
+.settings-page .settings-disclosure > .settings-card {
+  padding-inline: var(--space-4);
+  border-top-color: var(--color-border-strong);
+}
+
+.settings-page-shell .settings-disclosure .settings-card > details,
+.settings-page .settings-disclosure .settings-card > details {
+  margin-inline: 0;
+  padding-inline: var(--space-3);
+  border-left: 0;
+}
+
+.settings-page-shell .settings-disclosure .settings-card > details > summary,
+.settings-page .settings-disclosure .settings-card > details > summary {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+}

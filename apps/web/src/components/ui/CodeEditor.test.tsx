@@ -3,6 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { CodeEditor } from './CodeEditor';
 
 describe('CodeEditor', () => {
+  it('highlights sort keywords and fields without changing the source', () => {
+    const source = 'completionOrder asc nulls last\nlower(title) DESC NULLS FIRST';
+    const markup = renderToStaticMarkup(<CodeEditor language="sort" value={source} />);
+    for (const word of ['asc', 'nulls', 'last', 'DESC', 'NULLS', 'FIRST']) {
+      expect(markup).toContain(`class="syntax-keyword">${word}</span>`);
+    }
+    expect(markup).toContain('class="syntax-identifier">completionOrder</span>');
+    expect(markup).toContain('class="syntax-function">lower</span>');
+    expect(markup).toContain(source);
+  });
   it('preserves Python source including comments, quoted punctuation and unsupported characters', () => {
     const source = "return (\n    'тест # (' == 'тест # (' # explanation\n    and True\n) @";
     const markup = renderToStaticMarkup(<CodeEditor language="python" value={source} readOnly />);

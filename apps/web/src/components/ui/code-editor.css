@@ -41,6 +41,7 @@
 :root .syntax-editor.syntax-editor pre .syntax-plain,
 :root .syntax-editor.syntax-editor pre .syntax-space { color: var(--color-text); }
 :root .syntax-editor.syntax-editor pre .syntax-comment { color: var(--color-text-secondary); }
+:root .syntax-editor.syntax-sort pre .syntax-identifier { color: var(--color-code-function); }
 :root .syntax-readonly.syntax-editor pre {
   position: relative;
   pointer-events: auto;

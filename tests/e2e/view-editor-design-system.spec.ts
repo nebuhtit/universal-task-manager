@@ -14,6 +14,44 @@ async function openSection(page: Page, name: string) {
   return details;
 }
 
+test('template picker stays inside the editor without section borders in both themes', async ({ page }) => {
+  await createWorkspace(page);
+  await page.getByRole('button', { name: 'New view' }).click();
+  const section = await openSection(page, 'View templates');
+  const picker = section.locator('.ui-searchable-disclosure').first();
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(picker).toHaveCSS('border-top-width', '0px');
+    await expect(picker).toHaveCSS('border-bottom-width', '0px');
+    await section.getByRole('button', { name: 'Apply template', exact: true }).scrollIntoViewIfNeeded();
+    const bounds = await section.getByRole('button', { name: 'Apply template', exact: true }).boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await page.screenshot({ path: test.info().outputPath(`templates-${colorScheme}.png`) });
+  }
+  await picker.locator(':scope > summary').click();
+  await expect(section.getByLabel('Search View templates')).toBeVisible();
+  await page.getByRole('button', { name: 'Close view editor' }).click();
+  await expect(page.getByRole('dialog', { name: 'Edit view' })).toBeHidden();
+});
+
+test('scripts use an unframed section in both themes', async ({ page }) => {
+  await createWorkspace(page);
+  await page.getByRole('button', { name: 'New view' }).click();
+  const section = await openSection(page, 'Scripts');
+  await expect(section).toHaveCSS('border-bottom-width', '0px');
+  await expect(section).toHaveCSS('border-top-width', '1px');
+  const json = await openSection(page, 'View JSON');
+  await expect(json.locator(':scope > summary')).toHaveCSS('margin-left', '0px');
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    const fields = section.locator('.view-scripts-settings');
+    await expect(fields).toHaveCSS('border-top-width', '0px');
+    await expect(fields).toHaveCSS('border-left-width', '0px');
+    await expect(section.getByRole('button', { name: '+ Add computed field', exact: true })).toBeVisible();
+  }
+});
+
 test('view editor keeps visual, display, sorting, and creation-default semantics', async ({ page, browserName }) => {
   if (browserName === 'chromium') await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await createWorkspace(page);

@@ -1,16 +1,20 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { UniversalItem, WorkspaceDocument } from '@utm/core';
-import { Button, Disclosure, Field, Input, Select } from '../../../../components/ui/primitives';
+import { Button, Disclosure, Field, IconButton, Input, Select } from '../../../../components/ui/primitives';
+import { LineIcon } from '../../../../components/ui/icons';
 import type { FriendlyDurationUnit } from '../../../../utils/durations';
 import { FieldIconLabel } from '../../FieldIcon';
 import { DateTimeField } from '../fields/DateTimeField';
 import { DurationField } from '../fields/DurationField';
 import { ItemSection } from '../ItemSection';
+import { DueQuickChoices } from '../../DueQuickChoices';
+import { canQuickChangeDue } from '../../dueQuickActions';
 import './dates-section.css';
 
 type Props = {
   item: UniversalItem;
   workspace: WorkspaceDocument;
+  now?: Date;
   sectionMark: (filled: boolean) => ReactNode;
   scheduledDuration?: { amount: number; unit: FriendlyDurationUnit };
   travelDuration?: { amount: number; unit: FriendlyDurationUnit };
@@ -19,11 +23,13 @@ type Props = {
   patchScheduledStart: (value?: string) => void;
   patchScheduledEnd: (value?: string) => void;
   patchScheduledDue: (value?: string) => void;
+  patchQuickDue?: (value: string) => void;
   applyDurationPreset: (preset: string) => void;
   children?: ReactNode;
 };
 
-export function DatesSection({ item, workspace, sectionMark, scheduledDuration, travelDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchScheduledEnd, patchScheduledDue, applyDurationPreset, children }: Props) {
+export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchScheduledEnd, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
+  const [quickDueOpen, setQuickDueOpen] = useState(false);
   const language = workspace.calendarPreferences.language;
   const opensAt = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
   const invalidEnd = Number.isFinite(opensAt) && Boolean(item.schedule?.endAt) && Date.parse(item.schedule!.endAt!) < opensAt;
@@ -40,7 +46,7 @@ export function DatesSection({ item, workspace, sectionMark, scheduledDuration, 
       {item.schedule?.startAt && !item.schedule.allDay && <Disclosure uiKey={`item-editor:${item.id}:travel-time`} persist={false} summary={travelSummary} className="travel-time-disclosure">
         <div className="program-actions">{[45, 30, 60, 90, 120].map((minutes) => <Button key={minutes} size="compact" onClick={() => patchTravelDuration(minutes, 'minutes')}>{minutes < 60 ? `${minutes} ${language === 'ru' ? 'мин' : 'min'}` : `${String(minutes / 60).replace('.', language === 'ru' ? ',' : '.')} ${language === 'ru' ? 'ч' : 'h'}`}</Button>)}</div>
         <div className="travel-duration-control"><Input type="number" min="0" step="1" aria-label="Travel time amount" value={travelDuration?.amount ?? ''} placeholder="—" onChange={(event) => patchTravelDuration(event.target.value === '' || Number(event.target.value) <= 0 ? undefined : Number(event.target.value), travelUnit)} /><Select aria-label="Travel time unit" value={travelUnit} onChange={(event) => patchTravelDuration(travelDuration?.amount, event.target.value as FriendlyDurationUnit)}><option value="minutes">Minutes</option><option value="hours">Hours</option></Select></div><small>Reserved immediately before Event opens. It does not change the estimate.</small></Disclosure>}
-      <Field label={<FieldIconLabel path="schedule.dueAt" label="Due / Active range ends" />} error={invalidDue ? 'Due / Active range ends cannot be earlier than Event opens.' : undefined}><DateTimeField label="Due / Active range ends" value={item.schedule?.dueAt} language={language} onChange={patchScheduledDue} help="Latest acceptable completion time. Tap the empty field to copy Event opens." onFocus={() => { if (!item.schedule?.dueAt && item.schedule?.startAt) patchScheduledDue(item.schedule.startAt); }} minValue={item.schedule?.startAt} /></Field>
+      <div className="due-field-wrap"><Field label={<FieldIconLabel path="schedule.dueAt" label="Due / Active range ends" />} error={invalidDue ? 'Due / Active range ends cannot be earlier than Event opens.' : undefined}><DateTimeField label="Due / Active range ends" value={item.schedule?.dueAt} language={language} onChange={patchScheduledDue} help="Latest acceptable completion time. Tap the empty field to copy Event opens." onFocus={() => { if (!item.schedule?.dueAt && item.schedule?.startAt) patchScheduledDue(item.schedule.startAt); }} minValue={item.schedule?.startAt} /></Field>{canQuickChangeDue(item) && <IconButton size="compact" variant="ghost" className="quick-due-toggle" aria-label={language === 'ru' ? 'Быстро перенести Due' : 'Move Due quickly'} aria-expanded={quickDueOpen} onClick={() => setQuickDueOpen((open) => !open)}><LineIcon name="chevronDown" /></IconButton>}{quickDueOpen && canQuickChangeDue(item) && <div className="quick-due-options"><DueQuickChoices item={item} now={now} language={language} onChoose={(value) => { (patchQuickDue ?? patchScheduledDue)(value); setQuickDueOpen(false); }} /></div>}</div>
     </div>
     {children && <div className="date-related-sections">{children}</div>}
   </ItemSection>;

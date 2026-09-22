@@ -11,6 +11,7 @@ import { bootstrapObsidianWorkspace } from './services/obsidianBridge';
 // still has the old page open. Reload once into the fresh app shell instead of
 // treating this recoverable cache transition as a workspace failure.
 window.addEventListener('vite:preloadError', (event) => {
+  if (import.meta.env.DEV) return;
   event.preventDefault();
   const reloadKey = 'utm:preload-error-reloaded';
   if (sessionStorage.getItem(reloadKey)) return;

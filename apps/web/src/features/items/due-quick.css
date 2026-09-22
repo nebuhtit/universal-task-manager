@@ -1,0 +1,7 @@
+.due-quick-choices { display: grid; gap: var(--space-1); min-width: 0; }
+.due-quick-choices > .ui-button { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); min-width: 0; text-align: left; }
+.due-quick-choices time { color: var(--color-text-secondary); font-size: var(--font-size-caption); white-space: nowrap; }
+.due-quick-choices > .ui-button:disabled time { opacity: .6; }
+.due-custom { display: flex; gap: var(--space-2); min-width: 0; }
+.due-custom input { min-width: 0; flex: 1; }
+@media (max-width: 480px) { .due-quick-choices > .ui-button { flex-wrap: wrap; } .due-custom { flex-wrap: wrap; } }

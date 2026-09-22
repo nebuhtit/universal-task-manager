@@ -1,0 +1,60 @@
+.item-editor-dialog .editor-scroll > details.item-section,
+.item-editor-dialog .editor-scroll > details.description-section,
+.view-editor .view-editor-section {
+  border-top: 1px solid var(--color-border-strong);
+  border-bottom: 0;
+  margin: 0;
+}
+
+.item-editor-dialog .editor-scroll > details.item-section > summary,
+.item-editor-dialog .editor-scroll > details.description-section > summary,
+.view-editor .view-editor-section > summary {
+  min-height: var(--control-height-touch);
+  padding-block: var(--space-2);
+  padding-inline: var(--space-1);
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-semibold);
+}
+
+.item-editor-dialog .editor-scroll > details.item-section > summary::after,
+.item-editor-dialog .editor-scroll > details.description-section > summary::after {
+  color: var(--color-text-secondary);
+}
+
+.item-editor-dialog .item-section details,
+.view-editor .view-editor-section details:not(.ui-searchable-disclosure) {
+  margin-inline: 0;
+  padding-inline: 0;
+  border-left: 0;
+  border-right: 0;
+  background: transparent;
+}
+
+.item-editor-dialog .item-section details > summary,
+.view-editor .view-editor-section details:not(.ui-searchable-disclosure) > summary {
+  min-height: var(--control-height-default);
+  padding: var(--space-3);
+  border-radius: var(--radius-small);
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+}
+
+.item-editor-dialog .item-section details[open] > :is(.details-body, .ui-disclosure-content) {
+  margin: var(--space-2) var(--space-3) var(--space-3);
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+  border-left: 1px solid var(--color-border);
+}
+
+.item-editor-dialog .item-section summary:focus-visible,
+.view-editor .view-editor-section summary:focus-visible {
+  outline-offset: calc(-1 * var(--space-1));
+  border-radius: var(--radius-small);
+}
+
+.item-editor-dialog .item-section .ui-field-label {
+  font-size: var(--font-size-secondary);
+  font-weight: var(--font-weight-medium);
+}

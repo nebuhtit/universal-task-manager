@@ -8,6 +8,7 @@ import { FieldIcon } from './FieldIcon';
 import { UserDataText, useTranslation } from '../../i18n-react';
 import { OverdueDueIndicator, overdueAgeWithoutActiveRange } from './OverdueDueIndicator';
 import { ItemStateMarker } from './ItemStateMarker';
+import { canQuickChangeDue } from './dueQuickActions';
 
 const touchStateCommits = new Map<string, number>();
 
@@ -74,7 +75,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
     const kind = field === 'area' || field === 'areas' ? 'area' : field === 'project' || field === 'projects' ? 'project' : 'tag';
     return <>{names.map((name, index) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': organizationAccentFor(workspace, kind, name) } as CSSProperties} key={name}>{index ? ', ' : ''}{kind === 'tag' ? '#' : ''}{name}</span>)}</>;
   };
-  return <article className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}${optimisticClosed === true ? ' is-optimistic-complete' : optimisticClosed === false ? ' is-optimistic-reopen' : ''}`}>
+  return <article data-utm-due-item-id={canQuickChangeDue(item) ? item.id : undefined} data-utm-due-series-id={item.occurrence?.seriesId} data-utm-due-recurrence-id={item.occurrence?.recurrenceId} className={`item-card state-${item.state}${celebrating ? ' is-celebrating' : ''}${optimisticClosed === true ? ' is-optimistic-complete' : optimisticClosed === false ? ' is-optimistic-reopen' : ''}`}>
     <ItemStateMarker item={item} googleLabel={t('Read-only Google Calendar event')} noteLabel={t('Note item')} onOpen={onEdit}><button className={`state-toggle${optimisticClosed === true ? ' is-optimistic-closed' : ''}`} disabled={readOnlyExternal} data-sound={!visiblyClosed && !readOnlyExternal ? 'none' : undefined} aria-label={t(isHabit ? (habitCompletedToday ? 'Undo habit completion today' : 'Complete habit today') : item.state === 'open' ? 'Complete item' : 'Reopen item')} onPointerDown={beginStateToggle} onClick={finishStateToggle}>
       {shownClosed ? '✓' : ''}
     </button></ItemStateMarker>

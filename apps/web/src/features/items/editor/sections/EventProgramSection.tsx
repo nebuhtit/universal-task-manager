@@ -5,6 +5,7 @@ import { programDateInput, programDateInstant } from './programDates';
 import './event-program.css';
 import { CodeEditor } from '../../../../components/ui/CodeEditor';
 import { formatProgramText, parseProgramText, programDay, programTimeParts } from './programText';
+import { FieldIconLabel } from '../../FieldIcon';
 
 export function EventProgramSection({ item, onChange, language, now, occurrences = [], onOpenOccurrence, onValidityChange }: { item: UniversalItem; onChange: (item: UniversalItem) => void; language: string; now: Date; occurrences?: UniversalItem[]; onValidityChange?: ((valid: boolean) => void) | undefined; onOpenOccurrence?: ((item: UniversalItem) => void) | undefined }) {
   const ru = language === 'ru';
@@ -88,7 +89,7 @@ export function EventProgramSection({ item, onChange, language, now, occurrences
     autoStart.current = false;
     onChange({ ...item, schedule: { ...item.schedule!, startAt: new Date(origin + shift * 1000).toISOString(), endAt: new Date(Math.max(Date.parse(item.schedule?.endAt ?? '') || 0, origin + end * 1000)).toISOString() }, eventProgram: { blocks: blocks.map((block) => ({ ...block, startOffsetSeconds: block.startOffsetSeconds - shift, endOffsetSeconds: block.endOffsetSeconds - shift })) } });
   };
-  return <Disclosure uiKey={`item-program:${item.id}`} persist={false} summary={`${t('Event program', 'Программа мероприятия')}${blocks.length ? ` · ${blocks.length}` : ''}`} className="event-program">
+  return <Disclosure uiKey={`item-program:${item.id}`} persist={false} summary={<FieldIconLabel path="eventProgram" label={`${t('Event program', 'Программа мероприятия')}${blocks.length ? ` · ${blocks.length}` : ''}`} />} className="event-program">
     <div ref={root}>
     <small className="schedule-explainer">{zone}</small>
     <div className="program-actions"><Button aria-pressed={mode === 'blocks'} disabled={!textValid} onClick={() => setMode('blocks')}>{t('Blocks', 'Блоки')}</Button><Button aria-pressed={mode === 'text'} onClick={() => { if (mode !== 'text') { textOrigin.current = Number.isFinite(origin) ? origin : Math.floor(now.getTime() / 60000) * 60000; setText(blocks.length ? formatProgramText(blocks, origin, zone) : ''); setMode('text'); } }}>{t('Text', 'Текст')}</Button></div>

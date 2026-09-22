@@ -33,6 +33,8 @@ const base = process.env.VITE_GITHUB_PAGES === 'true'
 
 export default defineConfig({
   base,
+  // The separate lab build must not trigger full reloads of the main app.
+  server: { watch: { ignored: ['**/quick-entry-lab/dist/**'] } },
   define: {
     // GitHub supplies its exact SHA; local development reads the checked-out commit.
     'import.meta.env.VITE_COMMIT_SHA': JSON.stringify(process.env.VITE_COMMIT_SHA || localCommit),

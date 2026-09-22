@@ -46,7 +46,7 @@ describe('SavedViewSection metrics', () => {
     const workspace = createWorkspace('Temporal add');
     const view: SavedView = { id: 'tomorrow', name: 'Tomorrow', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [], extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'tomorrow' } };
     const markup = renderToStaticMarkup(<SavedViewSection workspace={workspace} view={view} onEditItem={vi.fn()} onState={vi.fn()} onRendererChange={vi.fn()} onAddItem={vi.fn()} />);
-    expect(markup).toContain('class="view-add-item"');
+    expect(markup).toMatch(/class="[^"]*\bview-add-item\b[^"]*"/);
     expect(markup).toContain('+ Add item');
   });
 });

@@ -18,6 +18,11 @@
 .travel-time-disclosure { grid-column: 1 / -1; }
 .travel-time-disclosure > div { display: grid; gap: var(--space-2); padding-top: var(--space-2); }
 .travel-duration-control { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, auto); gap: var(--space-2); }
+.due-field-wrap { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-2); align-items: end; min-width: 0; }
+.due-field-wrap > .ui-field { min-width: 0; }
+.quick-due-toggle { margin-bottom: var(--space-2); }
+.quick-due-toggle[aria-expanded="true"] .line-icon { transform: rotate(180deg); }
+.quick-due-options { grid-column: 1 / -1; margin-top: var(--space-2); padding-left: var(--space-3); border-left: 2px solid var(--color-border); }
 
 @media (max-width: 640px) {
   .calendar-duration-control { grid-template-columns: minmax(0, 1.25fr) 46px minmax(0, .95fr); gap: var(--space-1); }

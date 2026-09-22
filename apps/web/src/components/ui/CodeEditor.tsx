@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button } from './primitives';
 
-export type CodeLanguage = 'dsl' | 'json' | 'python';
+export type CodeLanguage = 'dsl' | 'json' | 'python' | 'sort';
 
 async function writeClipboardText(value: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
@@ -37,6 +37,7 @@ function highlightedCode(source: string, language: CodeLanguage): ReactNode[] {
     let kind = 'plain';
     if (/^\s+$/.test(token)) kind = 'space';
     else if (/^#/.test(token)) kind = 'comment';
+    else if (language === 'sort' && /^(?:asc|desc|nulls|first|last)$/i.test(token)) kind = 'keyword';
     else if (/^r?["']/.test(token)) kind = language === 'json' && /^\s*:/.test(rest) ? 'key' : 'string';
     else if (/^(?:True|False|None|return|if|elif|else|and|or|not|for|true|false|null|in)$/.test(token)) kind = 'keyword';
     else if (/^-?\d/.test(token)) kind = 'number';
