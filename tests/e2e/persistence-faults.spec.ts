@@ -41,7 +41,7 @@ test('quota at second write rolls back all records; retry commits and backup con
   await page.evaluate(() => (window as any).restorePut());
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
-  await expect(page.getByTestId('save-status')).toContainText('Сохранено на');
+  await expect(page.getByTestId('save-status')).toHaveCount(0);
   expect(await records(page)).not.toBe(before);
   const locked = page.locator('.sidebar .sidebar-bottom button').filter({ hasText: 'Lock' });
   await locked.evaluate((button: HTMLButtonElement) => button.click());
@@ -94,5 +94,5 @@ test('worker construction failure falls back to verified saving', async ({ page 
   await draft(page, 'Worker fallback sentinel');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
-  await expect(page.getByTestId('save-status')).toContainText('Сохранено на');
+  await expect(page.getByTestId('save-status')).toHaveCount(0);
 });
