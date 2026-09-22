@@ -319,7 +319,7 @@ export const workspaceJsonSchema = {
       required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'dayView', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews'],
       properties: {
         localTimeJournals: { type: 'object', propertyNames: { pattern: '^[a-f0-9]{64}$' }, additionalProperties: itemJsonSchema.properties.actualTimeEntries },
-        timeline: { type: 'object', additionalProperties: false, required: ['mode', 'hideSleep'], properties: { mode: { enum: ['list', 'timeline'] }, hideSleep: { type: 'boolean' }, sleepItemId: { type: 'string' } } },
+        timeline: { type: 'object', additionalProperties: false, required: ['mode', 'hideSleep'], properties: { mode: { enum: ['list', 'timeline'] }, hideSleep: { type: 'boolean' }, sleepItemId: { type: 'string' }, showUndated: { type: 'boolean' } } },
         timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
         workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
         sleepSchedule: { type: 'object', additionalProperties: false, required: ['wake', 'sleep'], properties: { wake: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, sleep: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' } } },
@@ -436,7 +436,7 @@ export function validateWorkspace(value: unknown): ValidationResult {
   for (const [key, item] of Object.entries(doc.items)) {
     try { validateEventProgram(item); } catch (reason) { result.errors.push(`items.${key}: ${String(reason)}`); }
     if (item.id !== key) result.errors.push(`items.${key}.id must match its map key`);
-    if (item.role === 'series_template' && (!item.recurrence || (!item.schedule?.startAt && !item.schedule?.dueAt))) result.errors.push(`items.${key} recurring template requires recurrence and schedule.startAt or schedule.dueAt`);
+    if (item.role === 'series_template' && (!item.recurrence || (!item.schedule?.plannedDate && !item.schedule?.startAt && !item.schedule?.dueAt))) result.errors.push(`items.${key} recurring template requires recurrence and Planned date, Event opens or Due`);
   }
   result.valid = result.errors.length === 0;
   return result;
@@ -518,7 +518,7 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
       warnings.push('Discarded invalid timer state');
     }
   }
-  if (item.role === 'series_template' && item.recurrence && (!item.schedule || typeof item.schedule !== 'object' || Array.isArray(item.schedule) || !(item.schedule as Record<string, unknown>).startAt && !(item.schedule as Record<string, unknown>).dueAt)) {
+  if (item.role === 'series_template' && item.recurrence && (!item.schedule || typeof item.schedule !== 'object' || Array.isArray(item.schedule) || !(item.schedule as Record<string, unknown>).plannedDate && !(item.schedule as Record<string, unknown>).startAt && !(item.schedule as Record<string, unknown>).dueAt)) {
     const target = (item.extensions && typeof item.extensions === 'object' && !Array.isArray(item.extensions) ? item.extensions : {}) as Record<string, unknown>;
     target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), recurrence: structuredClone(item.recurrence) };
     item.extensions = target;
@@ -612,7 +612,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const migrationIssues = Array.isArray(source.migrationIssues) ? source.migrationIssues.filter((issue) => issue && typeof issue === 'object' && !Array.isArray(issue)) as Array<Record<string, unknown>> : [];
   source.items = Object.fromEntries(Object.entries(source.items as Record<string, unknown>).map(([key, item]) => {
     const raw = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : undefined;
-    const missingRecurrenceAnchor = raw?.role === 'series_template' && Boolean(raw.recurrence) && (!raw.schedule || typeof raw.schedule !== 'object' || Array.isArray(raw.schedule) || !(raw.schedule as Record<string, unknown>).startAt && !(raw.schedule as Record<string, unknown>).dueAt);
+    const missingRecurrenceAnchor = raw?.role === 'series_template' && Boolean(raw.recurrence) && (!raw.schedule || typeof raw.schedule !== 'object' || Array.isArray(raw.schedule) || !(raw.schedule as Record<string, unknown>).plannedDate && !(raw.schedule as Record<string, unknown>).startAt && !(raw.schedule as Record<string, unknown>).dueAt);
     try {
       const migrated = migrateItem(item, `schema:${previous}`); warnings.push(...migrated.warnings);
       if (missingRecurrenceAnchor && !migrationIssues.some((issue) => issue.entityId === key && issue.code === 'recurrence_missing_anchor' && issue.status !== 'resolved')) migrationIssues.push({ id: `migration:${previous}:${key}:recurrence_missing_anchor`, entityType: 'item', entityId: key, sourceVersion: previous, code: 'recurrence_missing_anchor', disabledCapability: 'recurrence', status: 'needs_repair', detectedAt: now });
@@ -915,7 +915,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   });
   if (calendarPreferences.timeline) {
     const timeline = calendarPreferences.timeline as Record<string, unknown>;
-    calendarPreferences.timeline = { mode: timeline.mode === 'timeline' ? 'timeline' : 'list', hideSleep: timeline.hideSleep === true, ...(typeof timeline.sleepItemId === 'string' ? { sleepItemId: timeline.sleepItemId } : {}) };
+    calendarPreferences.timeline = { mode: timeline.mode === 'timeline' ? 'timeline' : 'list', hideSleep: timeline.hideSleep === true, ...(typeof timeline.sleepItemId === 'string' ? { sleepItemId: timeline.sleepItemId } : {}), ...(typeof timeline.showUndated === 'boolean' ? { showUndated: timeline.showUndated } : {}) };
   }
   if (!calendarPreferences.dayView || typeof calendarPreferences.dayView !== 'object' || Array.isArray(calendarPreferences.dayView)) {
     const selectedView = typeof calendarPreferences.selectedViewId === 'string' ? migratedViews[calendarPreferences.selectedViewId] : undefined;

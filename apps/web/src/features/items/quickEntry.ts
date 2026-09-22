@@ -105,12 +105,29 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   };
 }
 
-export function createQuickEntryItem(text: string, now: Date): UniversalItem {
-  const original = text.trim();
+export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate?: string): UniversalItem {
+  let original = text.trim();
   if (!original) throw new Error('Добавьте название.');
+  if (defaultPlannedDate) {
+    const masked = original.replace(/"[^"\n]*"|«[^»\n]*»/g, value => ' '.repeat(value.length));
+    const explicitDay = new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(masked);
+    const clock = /(?:^|\s)(\d{1,2}:\d{2})(?=\s|$)/.exec(masked);
+    if (!explicitDay && clock) {
+      const at = clock.index + clock[0].length - clock[1]!.length;
+      original = original.slice(0, at) + defaultPlannedDate.split('-').reverse().join('.') + ' ' + original.slice(at);
+    }
+  }
   try {
     const created = applyQuickEntryText(createItem('', 'task', now), original, now);
-    if (!created.draft.start) return created.item;
+    if (!created.draft.start) {
+      if (defaultPlannedDate && !created.draft.plannedDate && !created.draft.due && !created.draft.end) {
+        created.item.schedule = { ...created.item.schedule!, plannedDate: defaultPlannedDate };
+        // Preserve the chosen day when the saved capture text is edited later.
+        const source = quickEntrySource(created.item);
+        if (source) created.item.extensions![QUICK_ENTRY_SOURCE] = { ...source, text: `${defaultPlannedDate.split('-').reverse().join('.')} ${source.text}` };
+      }
+      return created.item;
+    }
     const anchor = created.draft.leave ?? created.draft.start;
     const defaults = [120, 1440].filter(minutes => !created.draft.reminders.some(reminder => reminder.at === new Date(Date.parse(anchor) - minutes * 60_000).toISOString()));
     if (!defaults.length) return created.item;
@@ -122,7 +139,9 @@ export function createQuickEntryItem(text: string, now: Date): UniversalItem {
   catch {
     // Capture must never discard or block non-empty prose because a command
     // is incomplete. Keep the complete original as title, without guessed dates.
-    return createItem(original, 'task', now);
+    const fallback = createItem(text.trim(), 'task', now);
+    if (defaultPlannedDate) fallback.schedule = { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, plannedDate: defaultPlannedDate };
+    return fallback;
   }
 }
 

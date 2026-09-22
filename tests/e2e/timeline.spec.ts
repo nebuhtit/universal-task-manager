@@ -13,7 +13,7 @@ async function setup(page: Page) {
     const item = createItem(`Overlap ${i}`, 'task', now);
     item.schedule = { timezone: 'UTC', startAt: '2026-09-22T12:00:00Z', endAt: '2026-09-22T13:00:00Z' }; w.items[item.id] = item;
   }
-  const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T14:00:00Z', endAt: '2026-09-22T14:01:00Z', travelDuration: 'PT30M' }; w.items[short.id] = short;
+  const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T17:00:00Z', endAt: '2026-09-22T17:01:00Z', travelDuration: 'PT30M' }; w.items[short.id] = short;
   const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; w.items[sleep.id] = sleep;
   const none = createItem('Undated sentinel', 'task', now); w.items[none.id] = none;
   const proposed = createItem('Tentative task', 'task', now); proposed.schedule = { timezone: 'UTC', estimatedDuration: 'PT2H' }; w.items[proposed.id] = proposed;
@@ -60,11 +60,18 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(active.locator('.item-title')).toHaveText('Active preparation');
   await active.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-light.png` });
-  const saved = await primary(page);
   const tentative = page.getByTestId('timeline-tentative');
+  await expect(tentative).toHaveCount(0);
+  await page.getByText('Timeline settings', { exact: true }).click();
+  const showUndated = page.getByRole('checkbox', { name: 'Show items without a date, time or Due' });
+  await expect(showUndated).not.toBeChecked();
+  await showUndated.check();
+  await page.getByText('Timeline settings', { exact: true }).click();
+  await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
+  const saved = await primary(page);
   await expect(tentative).toHaveCount(1);
   await expect(tentative).toHaveCSS('border-top-style', 'dotted');
-  await expect(tentative).toHaveAttribute('aria-label', 'Tentative · Tentative task · 07:00–09:00');
+  await expect(tentative).toHaveAttribute('aria-label', 'Tentative · Tentative task · 13:00–15:00');
   await expect(page.getByTestId('timeline-planning-summary')).toContainText('After tasks');
   await tentative.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-light.png` });
@@ -113,4 +120,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click(); }
   else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true'); expect(errors).toEqual([]);
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+  await page.getByText('Timeline settings', { exact: true }).click();
+  await expect(showUndated).toBeChecked();
+  await showUndated.uncheck();
+  await expect(tentative).toHaveCount(0);
 });

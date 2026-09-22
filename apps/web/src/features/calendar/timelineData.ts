@@ -1,5 +1,6 @@
 import { compileQuery, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
+import { itemDeletionTime } from '@utm/core';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { viewItemForEvaluation } from '../views/viewSelectors';
 import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, type TimelineEvent } from './timelineLayout';
@@ -9,7 +10,7 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   const preferences = workspace.calendarPreferences;
   const day = dayBounds(key, preferences.timezone);
   const mapped = { ...workspace, items: Object.fromEntries(Object.values(workspace.items).map(item => [item.id, googleCalendarProjection(item)])) };
-  const items = Object.values(mapped.items).filter(item => !item.deletedAt);
+  const items = Object.values(mapped.items).filter(item => !itemDeletionTime(mapped, item));
   // A finite padded projection catches overnight and long Duration occurrences.
   // Extremely long recurring spans are explicitly reported, never expanded unboundedly.
   const desiredPadding = Math.max(86_400_000, ...items.filter(item => item.role === 'series_template').map(item => Math.max(effectiveItemDurationMs(item), Math.max(0, Date.parse(item.schedule?.dueAt ?? '') - Date.parse(item.schedule?.startAt ?? '')) || 0)));
@@ -24,7 +25,7 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   }
   // Includes end-only, undated and moved materialized instances omitted by the
   // legacy date-range projector, without generating duplicate series templates.
-  for (const item of items) if (item.role !== 'series_template' || !itemInterval(item)) candidates.set(item.id, item);
+  for (const item of items) if (item.role !== 'series_template' || (!item.schedule?.plannedDate && !itemInterval(item))) candidates.set(item.id, item);
   // Legacy documents can contain an occurrence promoted to a nested series.
   // Keep its stored history intact, but render one identity per original cycle.
   const identity = (item: UniversalItem) => {
@@ -67,6 +68,9 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     const interval = itemInterval(item);
     if (interval && isSleep(item) && !item.schedule?.allDay && item.state !== 'cancelled' && item.state !== 'archived' && !interval.invalid && !interval.point && intersects(interval, day)) sleep.push(interval);
     if (!accepted(item)) continue;
+    const schedule = item.schedule;
+    const completelyUndated = !schedule?.plannedDate && !schedule?.startAt && !schedule?.endAt && !schedule?.dueAt && !schedule?.availableFrom;
+    if (completelyUndated && preferences.timeline?.showUndated !== true) continue;
     if (item.schedule?.plannedDate && plannedDateForDisplay(item, now, preferences.timezone) !== key) continue;
     if (item.schedule?.plannedDate && !item.schedule.startAt && !item.schedule.endAt) { undated.push(item); continue; }
     const series = item.occurrence ? mapped.items[item.occurrence.seriesId] : item;
@@ -90,7 +94,7 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   }
   const hiding = preferences.timeline?.hideSleep === true && sleep.length > 0;
   const visible = hiding ? events.filter(event => !isSleep(event.item)) : events;
-  const planning = planUndatedTasks(undated, events, sleep, day);
+  const planning = planUndatedTasks(undated, events, sleep, day, now);
   const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
     day, events: [...visible, ...planning.proposals], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),

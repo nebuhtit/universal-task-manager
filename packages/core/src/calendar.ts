@@ -1,5 +1,6 @@
 import { createId } from './types.js';
-import { buildRecurrenceRule, createOccurrence, deterministicOccurrenceId } from './recurrence.js';
+import { buildRecurrenceRule, createOccurrence, deterministicOccurrenceId, recurrenceAnchor } from './recurrence.js';
+import { itemDeletionTime } from './item-deletion.js';
 import type { ProjectedOccurrence, Schedule, UniversalItem, WorkspaceDocument } from './types.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -8,6 +9,10 @@ const shifted = (value: string | undefined, deltaMs: number) => value ? new Date
 
 function scheduleOverlaps(schedule: Schedule | undefined, rangeStart: Date, rangeEnd: Date): boolean {
   if (!schedule) return false;
+  if (schedule.plannedDate) {
+    const key = (value: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: schedule.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(value);
+    return schedule.plannedDate >= key(rangeStart) && schedule.plannedDate <= key(new Date(rangeEnd.getTime() - 1));
+  }
   const start = at(schedule.startAt ?? schedule.dueAt ?? schedule.availableFrom);
   if (Number.isNaN(start)) return false;
   const end = at(schedule.endAt ?? schedule.dueAt ?? schedule.startAt ?? schedule.availableFrom);
@@ -18,7 +23,7 @@ function projection(item: UniversalItem, sourceItemId = item.id, virtual = false
   const result: ProjectedOccurrence = {
     id: virtual && item.occurrence ? `projected:${item.occurrence.seriesId}:${item.occurrence.recurrenceId}` : item.id,
     sourceItemId, virtual, title: item.title, state: item.state, preset: item.preset,
-    schedule: clone(item.schedule!), dueOnly: Boolean(item.schedule?.dueAt && !item.schedule?.startAt),
+    schedule: clone(item.schedule!), dueOnly: Boolean(item.schedule?.dueAt && !item.schedule?.startAt && !item.schedule?.plannedDate),
     ...(item.priority !== undefined ? { priority: item.priority } : {}),
   };
   if (item.occurrence) {
@@ -32,11 +37,11 @@ function projection(item: UniversalItem, sourceItemId = item.id, virtual = false
 export function projectOccurrences(workspace: WorkspaceDocument, rangeStart: Date, rangeEnd: Date): ProjectedOccurrence[] {
   if (!(rangeStart < rangeEnd)) throw new Error('Calendar range end must be after its start');
   const output: ProjectedOccurrence[] = [];
-  const templates = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.recurrence && (item.schedule?.startAt || item.schedule?.dueAt) && !item.deletedAt);
+  const templates = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.recurrence && recurrenceAnchor(item) && !itemDeletionTime(workspace, item));
   const knownSeries = new Set(templates.map((item) => item.id));
 
   for (const item of Object.values(workspace.items)) {
-    if (item.deletedAt || item.role === 'series_template' || !scheduleOverlaps(item.schedule, rangeStart, rangeEnd)) continue;
+    if (itemDeletionTime(workspace, item) || item.role === 'series_template' || !scheduleOverlaps(item.schedule, rangeStart, rangeEnd)) continue;
     if (item.role === 'occurrence' && item.occurrence && knownSeries.has(item.occurrence.seriesId)) continue;
     output.push(projection(item));
   }
@@ -46,12 +51,13 @@ export function projectOccurrences(workspace: WorkspaceDocument, rangeStart: Dat
     const anchors = rule.between(new Date(rangeStart.getTime() - 86_400_000), rangeEnd, true)
       .filter((anchor) => anchor < rangeEnd);
     const materialized = new Map(Object.values(workspace.items)
-      .filter((item) => item.occurrence?.seriesId === series.id && !item.deletedAt)
+      .filter((item) => item.occurrence?.seriesId === series.id)
       .map((item) => [item.occurrence!.recurrenceId, item]));
     anchors.forEach((anchor, index) => {
       const recurrenceId = anchor.toISOString();
       const existing = materialized.get(recurrenceId);
       const item = existing ?? createOccurrence(series, anchor, index);
+      if (itemDeletionTime(workspace, item)) return;
       if (!scheduleOverlaps(item.schedule, rangeStart, rangeEnd)) return;
       output.push(projection(item, series.id, !existing));
     });
@@ -70,7 +76,7 @@ export function materializeProjectedOccurrence(workspace: WorkspaceDocument, pro
   if (!series?.recurrence) throw new Error('Recurring series no longer exists');
   const id = deterministicOccurrenceId(series.id, projected.recurrenceId);
   if (workspace.items[id]) return workspace.items[id]!;
-  const sequence = buildRecurrenceRule(series).between(new Date(at(series.schedule!.startAt ?? series.schedule!.dueAt) - 1), new Date(projected.recurrenceId), true).length - 1;
+  const sequence = buildRecurrenceRule(series).between(new Date(at(recurrenceAnchor(series)) - 1), new Date(projected.recurrenceId), true).length - 1;
   const item = createOccurrence(series, new Date(projected.recurrenceId), Math.max(0, sequence));
   item.createdAt = now.toISOString(); item.updatedAt = now.toISOString();
   workspace.items[item.id] = item;

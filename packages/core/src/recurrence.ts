@@ -1,4 +1,5 @@
 import * as rruleModule from 'rrule';
+import { itemDeletionTime } from './item-deletion.js';
 import { retainedItemHistory, recordCompletionTransition, syncActualDuration } from './item-history.js';
 import type { RRuleSet as RRuleSetType } from 'rrule';
 import { durationToMs } from './dsl.js';
@@ -83,12 +84,19 @@ function addDates(rule: RRuleSetType, values: string[], timezone: string, exclud
   }
 }
 
+/** Internal cycle identity only; never written into a date-only item's startAt. */
+export function recurrenceAnchor(series: UniversalItem): string | undefined {
+  if (series.schedule?.plannedDate) return fromFloating(new Date(`${series.schedule.plannedDate}T00:00:00Z`), series.recurrence?.timezone || series.schedule.timezone || 'UTC').toISOString();
+  return series.schedule?.startAt ?? series.schedule?.dueAt;
+}
+
 export function buildRecurrenceRule(series: UniversalItem): RecurrenceIterator {
-  const anchor = series.schedule?.startAt ?? series.schedule?.dueAt;
+  const anchor = recurrenceAnchor(series);
   if (!series.recurrence || !anchor) throw new Error(`Series ${series.id} has no recurrence start or deadline`);
   const timezone = series.recurrence.timezone || series.schedule?.timezone || 'UTC';
   const value = series.recurrence.rrule.replace(/^RRULE:/, '');
   const parsed = RRule.fromString(value);
+  if (series.schedule?.plannedDate && (parsed.options.freq > RRule.DAILY || parsed.origOptions.byhour || parsed.origOptions.byminute || parsed.origOptions.bysecond)) throw new Error('Date-only recurrence requires daily or longer rules without clock fields.');
   const recurring = new RRule({
     ...parsed.origOptions,
     // rrule's Date values are floating wall-clock values. Keeping IANA conversion
@@ -125,7 +133,7 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
   // Calendar links and pending writes belong to a single cycle.
   delete detached.external;
   for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey', 'utm:googleSave']) delete detached.extensions?.[key];
-  const originalAnchorValue = detached.schedule?.startAt ?? detached.schedule?.dueAt;
+  const originalAnchorValue = recurrenceAnchor(detached);
   if (!originalAnchorValue) throw new Error(`Series ${series.id} has no recurrence start or deadline`);
   const originalAnchor = new Date(originalAnchorValue).getTime();
   const delta = anchor.getTime() - originalAnchor;
@@ -141,6 +149,16 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
       ? { dueAt: new Date(anchor.getTime() + dueOffset).toISOString() }
       : detached.schedule?.dueAt ? { dueAt: shiftIso(detached.schedule.dueAt, delta)! } : {}),
   };
+  if (detached.schedule?.plannedDate) {
+    const zone = detached.recurrence?.timezone || detached.schedule.timezone;
+    const floating = toFloating(anchor, zone);
+    schedule.plannedDate = floating.toISOString().slice(0, 10);
+    delete schedule.startAt; delete schedule.endAt; delete schedule.allDay; delete schedule.travelDuration;
+    if (detached.schedule.dueAt && dueOffset === undefined) {
+      const days = Date.parse(`${schedule.plannedDate}T00:00:00Z`) - Date.parse(`${detached.schedule.plannedDate}T00:00:00Z`);
+      schedule.dueAt = fromFloating(new Date(toFloating(new Date(detached.schedule.dueAt), zone).getTime() + days), zone).toISOString();
+    }
+  }
   delete schedule.actualDuration;
   const { recurrence: _recurrence, occurrence: _occurrence, closure: _closure, actualTimeEntries: _actual, completionEntries: _completions, timerHistory: _timers, ...snapshot } = detached;
   const reminders = detached.reminders.map((reminder) => reminder.mode === 'absolute' && reminder.at
@@ -590,12 +608,29 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
   let untouched = 0;
   consolidateHabitOccurrences(workspace, now);
   const templates = Object.values(workspace.items).filter(
-    (item) => item.role === 'series_template' && item.recurrence && (item.schedule?.startAt || item.schedule?.dueAt) && !item.deletedAt,
+    (item) => item.role === 'series_template' && item.recurrence && recurrenceAnchor(item) && !itemDeletionTime(workspace, item),
   );
   for (const series of templates) {
     try {
     if (series.habit) {
       untouched += 1;
+      continue;
+    }
+    if (series.schedule?.plannedDate) {
+      const rule = buildRecurrenceRule(series);
+      // Iterate with a hard bound; never reuse or auto-close an unfinished cycle.
+      let next = rule.after(new Date(Date.parse(recurrenceAnchor(series)!) - 1), false);
+      let sequence = 0;
+      while (next && next <= now && sequence < 4096) {
+        const id = deterministicOccurrenceId(series.id, next.toISOString());
+        if (!workspace.items[id] && !workspace.tombstones[id]) {
+          const occurrence = createOccurrence(series, next, sequence);
+          occurrence.custom.__closeAt = 'never';
+          workspace.items[id] = occurrence; created.push(occurrence);
+        } else untouched += 1;
+        sequence += 1; next = rule.after(next, false);
+      }
+      if (next && next <= now) errors.push({ seriesId: series.id, message: 'Date-only recurrence exceeds 4096 cycles; review the series start date.' });
       continue;
     }
     const currentTemplateAnchor = series.schedule?.startAt ?? series.schedule?.dueAt;
@@ -631,7 +666,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
     }
     activeAnchors.forEach((anchor, sequence) => {
       const id = deterministicOccurrenceId(series.id, anchor.toISOString());
-      if (!workspace.items[id]) {
+      if (!workspace.items[id] && !workspace.tombstones[id]) {
         const occurrence = createOccurrence(series, anchor, sequence);
         occurrence.custom.__closeAt = series.recurrence!.closeAt;
         workspace.items[id] = occurrence;
@@ -668,7 +703,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
 }
 
 export function makeSeries(item: UniversalItem, rrule: string, options?: Partial<UniversalItem['recurrence']>): UniversalItem {
-  if (!item.schedule?.startAt && !item.schedule?.dueAt) throw new Error('A recurring item needs schedule.startAt or schedule.dueAt');
+  if (!recurrenceAnchor(item)) throw new Error('A recurring item needs Planned date, Event opens or Due');
   return {
     ...item,
     role: 'series_template',
@@ -676,12 +711,13 @@ export function makeSeries(item: UniversalItem, rrule: string, options?: Partial
       rrule,
       rdates: [],
       exdates: [],
-      timezone: item.schedule.timezone,
+      timezone: item.schedule?.timezone ?? 'UTC',
       activationOffset: 'P7D',
       closeAt: 'next_activation',
       anchor: 'schedule',
       autoRenew: true,
       ...options,
+      ...(item.schedule?.plannedDate ? { activationOffset: 'PT0M', closeAt: 'never' as const, anchor: 'schedule' as const, autoRenew: false } : {}),
     },
   };
 }

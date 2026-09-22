@@ -161,6 +161,7 @@ describe('timeline data and UI', () => {
   });
   it('separates all-day/undated and uses computed due intervals across midnight', () => {
     const w = workspace(item('all', { allDay: true, startAt: iso(0), endAt: iso(24) }), item('none'), item('due', { dueAt: iso(25), estimatedDuration: 'PT2H' }));
+    w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, showUndated: true };
     const before = JSON.stringify(w), data = timelineData(w, '2026-09-22', now);
     expect(data.allDay.map(i => i.id)).toEqual(['all']); expect(data.undated.map(i => i.id)).toEqual(['none']);
     expect(data.events.map(i => i.item.id)).toEqual(['due']); expect(JSON.stringify(w)).toBe(before);
@@ -168,7 +169,8 @@ describe('timeline data and UI', () => {
   it('shows an undated series once instead of generating undated repeats', () => {
     const series = item('undated series'); series.role = 'series_template';
     series.recurrence = { rrule: 'FREQ=DAILY', rdates: [], exdates: [], timezone: 'UTC', autoRenew: false, anchor: 'schedule', closeAt: 'never' };
-    expect(timelineData(workspace(series), '2026-09-22', now).undated.map(value => value.id)).toEqual([series.id]);
+    const w = workspace(series); w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, showUndated: true };
+    expect(timelineData(w, '2026-09-22', now).undated.map(value => value.id)).toEqual([series.id]);
   });
   it('respects the filter and does not hide other events during sleep', () => {
     const w = workspace(item('sleep', { startAt: iso(0), endAt: iso(7) }), item('meeting', { startAt: iso(3), endAt: iso(4) }), item('none'));

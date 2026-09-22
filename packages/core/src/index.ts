@@ -19,5 +19,6 @@ export * from './google-calendar.js';
 export * from './export-privacy.js';
 export * from './format-guide.js';
 export * from './item-event.js';
+export * from './item-deletion.js';
 export * from './calendar-organization.js';
 export * from './event-program.js';

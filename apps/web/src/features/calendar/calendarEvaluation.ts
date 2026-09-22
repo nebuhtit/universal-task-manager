@@ -10,6 +10,7 @@ import {
   participatesInTimeStatistics,
   projectOccurrences,
   plannedDateForDisplay,
+  itemDeletionTime,
   scheduleDateKeysInRange,
   viewPeriodBoundsForDates,
   zonedDateStart,
@@ -93,7 +94,7 @@ export function evaluateCalendarRange(
     .filter((entry): entry is CalendarProjectedEntry => Boolean(entry.item));
   for (const item of Object.values(calendarWorkspace.items)) {
     const key = plannedDateForDisplay(item, now, timeZone);
-    if (!item.deletedAt && item.role !== 'series_template' && key && key >= rangeStartKey && key < rangeEndKey && !projected.some(entry => entry.item.id === item.id)) {
+    if (!itemDeletionTime(calendarWorkspace, item) && item.role !== 'series_template' && key && key >= rangeStartKey && key < rangeEndKey && !projected.some(entry => entry.item.id === item.id)) {
       projected.push({ item, row: { id: item.id, sourceItemId: item.id, materializedItemId: item.id, virtual: false, title: item.title, state: item.state, preset: item.preset, schedule: { ...item.schedule! }, dueOnly: false } });
     }
   }
@@ -157,7 +158,7 @@ export function evaluateCalendarRange(
     for (const key of keys) {
       const bucket = buckets.get(key);
       if (!bucket) continue;
-      const seriesId = entry.item.role === 'occurrence' ? entry.item.occurrence?.seriesId : undefined;
+      const seriesId = entry.item.role === 'occurrence' && !entry.item.schedule?.plannedDate ? entry.item.occurrence?.seriesId : undefined;
       bucket.visibleSourceIds.add(seriesId ?? entry.item.id);
       if (!seriesId) {
         if (bucket.standaloneIds.has(entry.item.id)) continue;

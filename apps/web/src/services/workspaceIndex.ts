@@ -1,5 +1,6 @@
 import {
   activeReminders,
+  itemDeletionTime,
   createOrganizationPriorityRanker,
   dueDateBuckets,
   evaluateFormulas,
@@ -101,7 +102,7 @@ function cachedComputed<T>(
 
 function buildWorkspaceIndex(workspace: WorkspaceDocument): WorkspaceIndex {
   const items = Object.values(workspace.items);
-  const visibleItems = items.filter((item) => !item.deletedAt);
+  const visibleItems = items.filter((item) => !itemDeletionTime(workspace, item));
   const activeItems = visibleItems.filter((item) => item.state === 'open');
   const itemById = new Map(items.map((item) => [item.id, item]));
   const parentIdsByItemId = new Map<string, string[]>();

@@ -52,9 +52,9 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   const existing = workspace.items[item.id];
   if (existing) { result.createdWithAppId = existing.createdWithAppId; result.createdWithAppName = existing.createdWithAppName; result.createdWithVersion = existing.createdWithVersion; }
   if (recurring) {
-    const anchor = result.schedule?.startAt ?? result.schedule?.dueAt;
+    const anchor = result.schedule?.plannedDate ?? result.schedule?.startAt ?? result.schedule?.dueAt;
     if (!anchor) throw new Error('A recurring item needs a Scheduled start or Deadline.');
-    if (activeRange && (!result.schedule?.startAt || !result.schedule?.dueAt)) throw new Error('Active range needs both Event opens and Due / Active range ends.');
+    if (activeRange && !result.schedule?.plannedDate && (!result.schedule?.startAt || !result.schedule?.dueAt)) throw new Error('Active range needs both Event opens and Due / Active range ends.');
     const recurrence = result.recurrence;
     const parts = new Map((recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1').replace(/^RRULE:/i, '').split(';').filter(Boolean).map((part) => { const [key, ...rest] = part.split('='); return [key!.trim().toUpperCase(), rest.join('=').trim()]; }));
     parts.set('FREQ', repeatFrequency || 'WEEKLY'); parts.set('INTERVAL', String(Math.max(1, Number.parseInt(repeatIntervalDraft, 10) || 1)));

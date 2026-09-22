@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { createItem, createWorkspace } from '@utm/core';
+import { createItem, createWorkspace, migrateWorkspace, validateWorkspace } from '@utm/core';
 import { dayBounds, itemInterval } from './timelineLayout';
 import { planUndatedTasks } from './timelinePlanning';
 import { timelineData } from './timelineData';
@@ -11,6 +11,39 @@ function task(id: string, duration = 'PT1H') {
   return { ...createItem(id, 'task', now), id, schedule: { timezone: 'UTC', estimatedDuration: duration } };
 }
 const sleep = [{ start: hour(0), end: hour(8) }, { start: hour(22), end: hour(24) }];
+it('plans dated work after now, before Due, and distinguishes deadline from fragmented capacity', () => {
+  const dated = { ...task('dated', 'PT2H'), schedule: { ...task('dated', 'PT2H').schedule, plannedDate: '2026-09-22', dueAt: new Date(hour(15)).toISOString() } };
+  const transparent = { item: { ...task('transparent'), external: { transparency: 'transparent' } } as unknown as ReturnType<typeof task>, start: hour(12), end: hour(15), point: false, invalid: false };
+  const result = planUndatedTasks([dated], [transparent], sleep, day, now);
+  expect(result.proposals[0]).toMatchObject({ start: hour(12), end: hour(14) });
+  expect(result.remainingTodayMs).toBe(8 * 3600000);
+  dated.schedule.dueAt = new Date(hour(13)).toISOString();
+  expect(planUndatedTasks([dated], [], sleep, day, now).warnings[0]?.reason).toBe('deadline');
+  dated.schedule.dueAt = new Date(hour(16)).toISOString();
+  const busy = { ...transparent, item: task('busy'), start: hour(13), end: hour(15) };
+  expect(planUndatedTasks([dated], [busy], sleep, day, now).warnings[0]?.reason).toBe('fragmented');
+});
+it('hides completely undated items by default and persists explicit opt-in without hiding planned dates or Due', () => {
+  const w = createWorkspace('Test', now); w.calendarPreferences.timezone = 'UTC';
+  w.calendarPreferences.dayView.filter.source = 'true';
+  const undated = task('undated'), noDuration = task('noDuration', 'PT0S');
+  const planned = { ...task('planned'), schedule: { ...task('planned').schedule, plannedDate: '2026-09-22' } };
+  const due = { ...task('due'), schedule: { ...task('due').schedule, dueAt: new Date(hour(17)).toISOString() } };
+  w.items = { undated, noDuration, planned, due };
+  const before = JSON.stringify(w.items);
+  const hidden = timelineData(w, '2026-09-22', now);
+  expect(hidden.undated).toHaveLength(0);
+  expect(hidden.planning.proposals.map(v => v.item.id)).toEqual(['planned']);
+  expect(hidden.events.some(v => v.item.id === 'due')).toBe(true);
+  w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, showUndated: true };
+  expect(validateWorkspace(w).valid).toBe(true);
+  const restored = migrateWorkspace(JSON.parse(JSON.stringify(w))).value;
+  expect(restored.calendarPreferences.timeline?.showUndated).toBe(true);
+  const shown = timelineData(restored, '2026-09-22', now);
+  expect(shown.undated.map(v => v.id)).toContain('noDuration');
+  expect(shown.planning.taskDurationMs).toBe(hidden.planning.taskDurationMs + 3600000);
+  expect(JSON.stringify(w.items)).toBe(before);
+});
 it('packs tasks after sleep around events and TT, unions busy time, without mutations', () => {
   const tasks = [task('a', 'PT2H'), task('b'), task('c')];
   const meeting = task('meeting');
@@ -62,10 +95,10 @@ it('keeps proposals identical in full/hidden sleep and preserves due placement a
   const due = { ...task('due'), schedule: { ...task('due').schedule, dueAt: new Date(hour(17)).toISOString() } };
   const todo = task('todo');
   w.items = { sleep: sleeper, due, todo };
-  w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, sleepItemId: 'sleep' };
+  w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, sleepItemId: 'sleep', showUndated: true };
   const before = JSON.stringify(w);
   const full = timelineData(w, '2026-09-22', now);
-  expect(full.planning.proposals[0]).toMatchObject({ start: hour(8), end: hour(9), tentative: true });
+  expect(full.planning.proposals[0]).toMatchObject({ start: hour(12), end: hour(13), tentative: true });
   expect(full.events.find(v => v.item.id === 'due')).toMatchObject(itemInterval(due)!);
   expect(full.undated).toHaveLength(0);
   expect(JSON.stringify(w)).toBe(before);

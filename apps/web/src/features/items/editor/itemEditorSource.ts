@@ -1,10 +1,11 @@
-import type { UniversalItem, WorkspaceDocument } from '@utm/core';
+import { itemDeletionTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 /** Resolve an occurrence to the source series when recurrence settings are edited. */
 export function itemEditorSource(workspace: WorkspaceDocument | undefined, item: UniversalItem): UniversalItem {
-  if (item.external?.readOnly === false) return workspace?.items[item.id] ?? item;
+  if (item.external?.readOnly === false || (item.role === 'occurrence' && item.schedule?.plannedDate)) return workspace?.items[item.id] ?? item;
   const seriesId = item.role === 'occurrence' ? item.occurrence?.seriesId : undefined;
-  return seriesId && workspace?.items[seriesId] ? workspace.items[seriesId]! : workspace?.items[item.id] ?? item;
+  const series = seriesId ? workspace?.items[seriesId] : undefined;
+  return series && workspace && !itemDeletionTime(workspace, series) ? series : workspace?.items[item.id] ?? item;
 }
 
 /** A Google event belongs to one live cycle, never the recurrence template. */

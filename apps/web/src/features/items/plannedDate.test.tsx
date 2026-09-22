@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { createWorkspace, plannedDateForDisplay, validateWorkspace, compileQuery } from '@utm/core';
+import { createWorkspace, plannedDateForDisplay, validateWorkspace, compileQuery, makeSeries } from '@utm/core';
 import { parseLiveEntry } from '../../../quick-entry-lab/parser';
 import { createQuickEntryItem, applyQuickEntryText, quickEntrySource } from './quickEntry';
 import { DueQuickChoices } from './DueQuickChoices';
@@ -8,6 +8,23 @@ import { timelineData } from '../calendar/timelineData';
 import { evaluateCalendarRange } from '../calendar/calendarEvaluation';
 
 const now = new Date(2026, 8, 22, 12);
+it('uses the selected calendar day only when input has no explicit date', () => {
+  const item = createQuickEntryItem('Отчёт 2ч', now, '2026-10-04');
+  expect(item.schedule?.plannedDate).toBe('2026-10-04');
+  expect(parseLiveEntry(quickEntrySource(item)!.text, now).plannedDate).toBe('2026-10-04');
+  expect(createQuickEntryItem('Отчёт завтра', now, '2026-10-04').schedule?.plannedDate).toBe('2026-09-23');
+  const timed = createQuickEntryItem('Встреча 15:00', now, '2026-10-04');
+  expect(new Date(timed.schedule!.startAt!).getDate()).toBe(4);
+  expect(new Date(timed.schedule!.startAt!).getMonth()).toBe(9);
+  expect(createQuickEntryItem('Отчёт срок завтра 18:00', now, '2026-10-04').schedule?.plannedDate).toBeUndefined();
+});
+it('supports date-only series with Due without inventing a start time', () => {
+  const item = createQuickEntryItem('Отчёт завтра срок пятница 18:00', now);
+  const series = makeSeries(item, 'FREQ=DAILY');
+  expect(series.schedule?.plannedDate).toBe(item.schedule?.plannedDate);
+  expect(series.schedule?.startAt).toBeUndefined();
+  expect(series.recurrence?.closeAt).toBe('never');
+});
 it.each(['Купить продукты завтра', 'Отчёт в пятницу 2ч', 'Отчёт 13 марта 27'])('captures date-only without guessed time: %s', text => {
   const draft = parseLiveEntry(text, now);
   expect(draft.errors).toEqual([]);

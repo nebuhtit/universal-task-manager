@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ACTIVE_ITEM_VIEW_QUERY, calculateItemSetMetrics, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
-import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
+import { PersistedDetails } from '../../components/ui/PersistedDetails';
 import { Button, Checkbox, Disclosure, Surface } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { formatSystemDateTime } from '../../utils/dates';
@@ -94,10 +94,10 @@ function ItemSourceSection({ name, uiKey, items, count = items.length, fields, w
       {allItemStates.map((state) => {
         const stateItems = items.filter((item) => item.state === state);
         const stateUiKey = `${uiKey}:${state}`;
-        return <details key={state} open={readUiBoolean(stateUiKey, state === 'open' || state === 'auto_closed')} onToggle={(event) => persistUiBoolean(stateUiKey, event.currentTarget.open)}>
+        return <PersistedDetails key={state} uiKey={stateUiKey} defaultOpen={state === 'open' || state === 'auto_closed'}>
           <summary><span>{stateNames[state]}</span><b>{stateItems.length}</b></summary>
           <div className={longListClass('item-list', stateItems.length)}>{stateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</div>
-        </details>;
+        </PersistedDetails>;
       })}
       {children}
     </div>

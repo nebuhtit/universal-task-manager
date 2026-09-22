@@ -27,6 +27,12 @@ export interface ViewTimeMetricsAccumulator {
   finish(reservedDurationMs?: number, reservedIntervals?: TimeInterval[]): ViewTimeMetrics;
 }
 export type TimeInterval = { start: number; end: number };
+/** Shared capacity arithmetic; proposals never become persisted busy intervals. */
+export function timeCapacity(period: TimeInterval, intervals: TimeInterval[], taskDurationMs = 0) {
+  const busyMs = unionDuration(intervals.map(value => ({ start: Math.max(period.start, value.start), end: Math.min(period.end, value.end) })).filter(value => value.end > value.start));
+  const availableMs = Math.max(0, period.end - period.start) - busyMs;
+  return { busyMs, availableMs, remainingMs: availableMs - taskDurationMs };
+}
 export function unionDuration(intervals: TimeInterval[]): number {
   let total = 0, end = -Infinity;
   for (const interval of [...intervals].sort((a, b) => a.start - b.start)) {
@@ -209,7 +215,7 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
       return {
         ...base,
         periodDurationMs: period.durationMs,
-        freeDurationMs: period.durationMs - plannedDurationMs - unionDuration([...occupied.values()].flat().concat(reservedIntervals)) - Math.max(0, reservedDurationMs - unionDuration(reservedIntervals)),
+        freeDurationMs: timeCapacity({ start: period.start.getTime(), end: period.endExclusive.getTime() }, [...occupied.values()].flat().concat(reservedIntervals), plannedDurationMs + Math.max(0, reservedDurationMs - unionDuration(reservedIntervals))).remainingMs,
       };
     },
   };

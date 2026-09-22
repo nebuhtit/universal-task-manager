@@ -3,7 +3,7 @@ import { calendarDateKey, effectiveWorkspaceNow, type UniversalItem, type Worksp
 import { LineIcon } from '../../components/ui/icons';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
-import { Button } from '../../components/ui/primitives';
+import { Button, Checkbox } from '../../components/ui/primitives';
 import { ItemCard } from '../items/ItemCard';
 import { clockService } from '../../services/clockService';
 import { displayViewValue, readItemField } from '../items/fieldDisplay';
@@ -66,6 +66,8 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     <div className="timeline-toolbar">
       <Button size="compact" aria-pressed={settings.hideSleep} onClick={() => onPreferences({ ...settings, hideSleep: !settings.hideSleep })}>{settings.hideSleep ? (ru ? 'Показать полные сутки' : 'Show full day') : (ru ? 'Скрывать сон' : 'Hide sleep')}</Button>
       <details><summary>{ru ? 'Настройки Timeline' : 'Timeline settings'}</summary><div className="timeline-sleep-settings">
+        <Checkbox label={ru ? 'Показывать items без даты, времени и Due' : 'Show items without a date, time or Due'} checked={settings.showUndated === true} onChange={event => onPreferences({ ...settings, showUndated: event.target.checked })} />
+        <p className="hint">{ru ? 'При включении Duration этих задач учитывается в предварительном плане и остатке времени Timeline. Данные задач не меняются.' : 'When enabled, their Duration counts towards tentative planning and remaining Timeline capacity. Item data stays unchanged.'}</p>
         <p>{ru ? 'Сжимать свободное время выбранного item. Другие события остаются видимыми.' : 'Collapse unoccupied time of one item. Other events remain visible.'}</p>
         <p>{ru ? 'Выбрано: ' : 'Selected: '}{selectedSleep?.title ?? (ru ? 'ничего' : 'none')}</p>
         <Button size="compact" onClick={() => { const { sleepItemId: _id, ...rest } = settings; onPreferences({ ...rest, hideSleep: false }); }}>{ru ? 'Без исключения' : 'None'}</Button>
@@ -78,6 +80,8 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
       <span>{ru ? 'Свободно по календарю' : 'Calendar free'}: {durationLabel(data.planning.calendarFreeMs)}</span>
       <strong>{data.planning.remainingMs < 0 ? (ru ? 'Не хватает' : 'Short by') : (ru ? 'Останется после задач' : 'After tasks')}: {durationLabel(data.planning.remainingMs)}</strong>
       <small>{ru ? 'За выбранные сутки. Точечные блоки — предложение, даты задач не меняются.' : 'For the selected day. Dotted blocks are proposals; task dates stay unchanged.'}</small>
+      {dateKey === calendarDateKey(now, zone) && <span>{ru ? 'Сейчас до конца дня, после задач' : 'From now until day end, after tasks'}: {data.planning.remainingTodayMs < 0 ? '−' : ''}{durationLabel(data.planning.remainingTodayMs)}</span>}
+      {data.planning.warnings.map(({ item, reason }) => <small key={item.id}>{item.title}: {reason === 'deadline' ? (ru ? 'Не помещается до Due' : 'Does not fit before Due') : reason === 'fragmented' ? (ru ? 'Времени суммарно хватает, но нет непрерывного окна' : 'Enough total time, but no continuous slot') : (ru ? 'Недостаточно свободного времени' : 'Not enough available time')}</small>)}
       {data.planning.unplaced.length > 0 && <small>{ru ? 'Не поместились целиком в свободные промежутки; показаны над шкалой' : 'No continuous slot; shown above the timeline'}: {data.planning.unplaced.length}</small>}
     </div>}
     {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(data.activeRange)}</div>}
@@ -104,7 +108,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
           const label = `${tentativeLabel}${travelLabel ? `${travelLabel} · ` : ''}${event.item.title} · ${interval}`;
           return <button type="button" data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travel ? 'travel' : 'event'}`} className={`timeline-event${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}`} style={{ ...columnStyle(event), ...(safeColor ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
             <strong>{(event.invalid || overdue) && '⚠ '}{event.continuedBefore && '← '}{travelLabel ? `${travelLabel} · ` : ''}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
-            {overdue && event.height >= 72 && <small>{ru ? 'Просрочено с' : 'Overdue since'} {event.item.schedule?.plannedDate}</small>}
+            {overdue && event.height >= 72 && <small>{ru ? 'Не выполнено в плановый день' : 'Planned day missed'}: {event.item.schedule?.plannedDate}</small>}
             {event.height >= 54 && <small>{tentativeLabel}{interval}</small>}{extra.map(({ field, text }, i) => <small key={i} style={safeColor && (field === 'tags' || field === 'external.calendarId') ? { color: safeColor } : undefined}>{text}</small>)}
             {!event.travel && event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
           </button>;

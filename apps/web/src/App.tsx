@@ -4,6 +4,7 @@ import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, uns
 import { CloseIcon } from './components/ui/icons';
 import { SectionGuide } from './components/ui/SectionGuide';
 import { initializeItemHistory, recordCompletionTransition, syncActualDuration, syncCompletionCounter } from '@utm/core';
+import { itemDeletionIds, itemDeletionTime, softDeleteItemTree, restoreItemTree } from '@utm/core';
 import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict } from './services/googleCalendarEdit';
 import { googleHistoryKey } from './services/googleHistoryKey';
 import { GOOGLE_SAVE_EXTENSION, needsGoogleSave, prepareGoogleSave, saveGoogleItem, type GoogleSaveOperation, type GoogleSaveOptions } from './services/googleItemSave';
@@ -612,6 +613,7 @@ function resolveQuickDueItem(workspace: WorkspaceDocument, target: QuickDueTarge
 export default function App() {
   const [page, setPage] = useState<Page>('home');
   const [calendarJump, setCalendarJump] = useState<{ key: string; request: number }>();
+  const [calendarCaptureDate, setCalendarCaptureDate] = useState<string>();
   useEffect(() => {
     const open = () => { setPage('organization'); window.dispatchEvent(new Event('utm:project-route')); };
     window.addEventListener('utm:open-project', open);
@@ -1230,19 +1232,20 @@ export default function App() {
   const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
   const restoreItem = (item: UniversalItem) => commit('Restore item from trash', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
-    delete target.deletedAt; delete draft.tombstones[item.id];
+    restoreItemTree(draft, item.id);
     const now = currentWorkspaceNow();
     target.updatedAt = now.toISOString(); target.revision += 1;
     if (target.role === 'series_template') reconcileRecurrences(draft, now);
   });
   const clearTrash = () => commit('Clear trash', (draft) => {
-    Object.values(draft.items).forEach((item) => { if (item.deletedAt) { delete draft.items[item.id]; delete draft.tombstones[item.id]; } });
+    const entries = Object.values(draft.items).filter(item => itemDeletionTime(draft, item)).map(item => ({ id: item.id, at: itemDeletionTime(draft, item)! }));
+    for (const item of entries) { draft.tombstones[item.id] = item.at; delete draft.items[item.id]; }
   });
   const permanentlyDeleteItem = (item: UniversalItem) => {
     const snapshot = clean(item);
     const deleted = commit('Permanently delete item', (draft) => {
     const target = draft.items[item.id]; if (!target?.deletedAt) return;
-    delete draft.items[item.id]; delete draft.tombstones[item.id];
+    draft.tombstones[item.id] = target.deletedAt; delete draft.items[item.id];
     });
     if (deleted) queueUndo('Item permanently deleted', () => commit('Undo permanent item deletion', (draft) => { draft.items[item.id] = clean(snapshot); if (snapshot.deletedAt) draft.tombstones[item.id] = snapshot.deletedAt; }));
   };
@@ -1253,7 +1256,7 @@ export default function App() {
   };
   const captureQuickItem = (text = quick) => {
     if (!text.trim()) return;
-    try { persistQuickItem(createQuickEntryItem(text.trim(), currentWorkspaceNow())); setQuick(''); setQuickError(''); }
+    try { persistQuickItem(createQuickEntryItem(text.trim(), currentWorkspaceNow(), page === 'calendar' ? calendarCaptureDate : undefined)); setQuick(''); setQuickError(''); }
     catch (reason) { setQuickError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const captureQuickViewItem = (view: SavedView, title: string) => {
@@ -1271,7 +1274,7 @@ export default function App() {
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {(saveStatus === 'saving' || saveStatus === 'error') && <p className="hint" role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : 'Не сохранено. Последние изменения пока только в памяти.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>}
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
-      {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
+      {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onSelectedDateChange={setCalendarCaptureDate} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={openWorkspaceItem} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onQuickAddItem={captureQuickViewItem} onExport={() => exportAfterFlush(() => exportParaStructure(workspace))} /></section>}
@@ -1425,7 +1428,13 @@ export default function App() {
           }
         }
       }
-      await flushPersistence(); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => { const snapshot = clean(workspace.items[item.id] ?? item); const actionNow = currentWorkspaceNow(); const deleted = commit('Delete item', (draft) => { const target = draft.items[item.id]; if (target) { target.deletedAt = actionNow.toISOString(); draft.tombstones[item.id] = target.deletedAt; } }); if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', (draft) => { draft.items[item.id] = clean(snapshot); delete draft.tombstones[item.id]; })); setEditorIsNew(false); setEditor(null); } }} />}</Suspense>
+      await flushPersistence(); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => {
+        const snapshots = itemDeletionIds(workspace, item.id).flatMap(id => workspace.items[id] ? [{ id, item: clean(workspace.items[id]!), tombstone: workspace.tombstones[id] }] : []);
+        const deleted = commit('Delete item and recurrence children', draft => softDeleteItemTree(draft, item.id, currentWorkspaceNow().toISOString()));
+        if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', draft => {
+          for (const snapshot of snapshots) { draft.items[snapshot.id] = clean(snapshot.item); if (snapshot.tombstone) draft.tombstones[snapshot.id] = snapshot.tombstone; else delete draft.tombstones[snapshot.id]; }
+        })); setEditorIsNew(false); setEditor(null); }
+      }} />}</Suspense>
     {transfer && <TransferDialog session={session} onFlush={flushPersistence} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { void adoptSession(next).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} onReplaced={(next, message) => { void adoptSession(next, true).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
     <ShellNotices toast={toast} undoNotices={undoActions.map(({ id, label, expiresAt }) => ({ id, label, expiresAt }))} onUndo={runUndo} language={workspace.calendarPreferences.language} />
