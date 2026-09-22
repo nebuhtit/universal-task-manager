@@ -26,6 +26,7 @@ import { playCompletionSoundUnlessPreviewed, useUiSounds } from './hooks/useUiSo
 import { useViewport } from './hooks/useViewport';
 import { useDisplayedBuild } from './hooks/useDisplayedBuild';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
+import { reminderSnoozedUntil, type ReminderSnoozeOption } from './services/reminderSnooze';
 import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
 import { applyViewCreationDefaults } from './features/views/applyCreationDefaults';
 import { SettingsReleaseInfo } from './features/settings/SettingsReleaseInfo';
@@ -574,7 +575,7 @@ export default function App() {
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
-  const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession } = useWorkspaceController({ onToast: setToast, setNotices });
+  const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery } = useWorkspaceController({ onToast: setToast, setNotices });
   const workspaceLatest = useRef(workspace);
   workspaceLatest.current = workspace;
   const googleWrites = useRef(new Set<string>());
@@ -1072,6 +1073,23 @@ export default function App() {
     dismissPopupNotice(id);
     setNotices((current) => current.filter((notice) => notice.id !== id));
   };
+  const snoozeNotice = (notice: Notice, option: ReminderSnoozeOption) => {
+    if (!notice.itemId || !notice.reminderIds?.length) return;
+    const itemId = notice.itemId;
+    const reminderIds = notice.reminderIds;
+    const until = reminderSnoozedUntil(option, currentWorkspaceNow());
+    const changed = commit('Snooze reminders', (draft) => {
+      const item = draft.items[itemId];
+      if (!item) return;
+      item.reminders.forEach((reminder) => { if (reminderIds.includes(reminder.id) && !reminder.acknowledgedAt) reminder.snoozedUntil = until; });
+      item.updatedAt = currentWorkspaceNow().toISOString(); item.revision += 1;
+    });
+    if (!changed) return;
+    resetReminderDelivery(reminderIds);
+    dismissPopupNotice(notice.id);
+    setNotices((current) => current.filter((entry) => entry.id !== notice.id));
+    void flushPersistence().catch((reason) => setToast(`Reminder snooze is waiting for local save: ${reason instanceof Error ? reason.message : String(reason)}`));
+  };
   const openNoticeItem = (notice: Notice) => {
     const item = notice.itemId ? workspace?.items[notice.itemId] : Object.values(workspace?.items ?? {}).find((candidate) => candidate.title === notice.title);
     if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
@@ -1126,7 +1144,7 @@ export default function App() {
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
-  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); setPopupNoticeIds([]); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onSnoozeNotice={snoozeNotice} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} />}

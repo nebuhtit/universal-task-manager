@@ -24,6 +24,23 @@ describe('AppShell', () => {
     expect(markup).not.toContain('role="button"');
   });
 
+  it('offers snooze choices only for delivered reminders', () => {
+    const workspace = createWorkspace('Reminders');
+    workspace.calendarPreferences.language = 'ru';
+    const notice: AppNotice = { id: 'notice-1', title: 'Встреча', body: 'Reminder', at: '2026-09-21T08:00:00.000Z', itemId: 'item-1', reminderIds: ['reminder-1'] };
+    const markup = renderToStaticMarkup(<AppShell
+      page="home" workspace={workspace} onPage={noop} openItems={0}
+      notices={[notice]} popupNoticeIds={[notice.id]} noticeCenterOpen={false} mobileNavOpen={false}
+      backupReminder={false} onBackupReminder={noop} onDismissBackupReminder={noop}
+      onNewView={noop} onToggleNotices={noop} onToggleNavigation={noop} onCloseNavigation={noop}
+      onDismissPopup={noop} onDeleteNotice={noop} onOpenNotice={noop} onSnoozeNotice={noop} onTransfer={noop} onLock={noop}
+    ><p>Content</p></AppShell>);
+    expect(markup).toContain('15 мин');
+    expect(markup).toContain('1 ч');
+    expect(markup).toContain('5 ч');
+    expect(markup).toContain('Завтра, 09:00');
+  });
+
   it('keeps backup reminders inside the notification center', () => {
     const markup = renderToStaticMarkup(<AppShell
       page="home" onPage={noop} activeDateLabel="Wed" openItems={0}

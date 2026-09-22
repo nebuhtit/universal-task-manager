@@ -146,6 +146,8 @@
 .notice-content span { margin-top: 2px; color: var(--color-text-secondary); font-size: var(--font-size-secondary); }
 .notice-dismiss.ui-icon-button { margin: var(--space-1) var(--space-1) 0 0; pointer-events: auto; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .notice-dismiss .close-icon { width: 14px; height: 14px; }
+.notice-snooze { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--space-1); padding: 0 var(--space-2) var(--space-2); }
+.notice-snooze .ui-button { min-height: var(--control-height-compact); }
 
 .notification-center {
   position: fixed;

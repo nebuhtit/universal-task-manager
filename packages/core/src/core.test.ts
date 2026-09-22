@@ -216,6 +216,12 @@ describe('safe expression language', () => {
     ];
     expect(reminderTime(item, item.reminders[1]!)).toBe('2026-09-03T09:30:00.000Z');
     expect(reminderTime(item, item.reminders[2]!)).toBeUndefined();
+    item.reminders[1]!.snoozedUntil = '2026-09-04T09:00:00.000Z';
+    expect(reminderTime(item, item.reminders[1]!)).toBe('2026-09-04T09:00:00.000Z');
+    item.reminders[1]!.acknowledgedAt = '2026-09-03T10:00:00.000Z';
+    expect(reminderTime(item, item.reminders[1]!)).toBeUndefined();
+    delete item.reminders[1]!.acknowledgedAt;
+    delete item.reminders[1]!.snoozedUntil;
     expect(compileQuery('length(reminders) > 0')(item, now)).toBe(true);
     expect(compileQuery('hasActiveReminders == true')(item, now)).toBe(true);
     expect(compileQuery('nextReminderAt != null')(item, now)).toBe(true);

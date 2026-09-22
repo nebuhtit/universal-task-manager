@@ -5,6 +5,7 @@ import { formatHeaderDate } from '../../utils/dates';
 import { CloseIcon, LineIcon, type LineIconName } from '../ui/icons';
 import { Button, IconButton } from '../ui/primitives';
 import { UserDataText, useTranslation } from '../../i18n-react';
+import type { ReminderSnoozeOption } from '../../services/reminderSnooze';
 import './app-shell.css';
 
 export type AppPage = 'home' | 'calendar' | 'all' | 'automations' | 'organization' | 'settings';
@@ -17,7 +18,7 @@ type Props = {
   onNewView: () => void; onToggleNotices: () => void; onToggleNavigation: () => void; onCloseNavigation: () => void;
   onGoogleCalendarSync?: () => void; googleCalendarSyncing?: boolean; googleCalendarSyncStatus?: string;
   onQuickBackup?: () => void; quickBackupBusy?: boolean; quickBackupPlaintext?: boolean;
-  onDismissPopup: (id: string) => void; onDeleteNotice: (id: string) => void; onOpenNotice: (notice: AppNotice) => void;
+  onDismissPopup: (id: string) => void; onDeleteNotice: (id: string) => void; onOpenNotice: (notice: AppNotice) => void; onSnoozeNotice?: (notice: AppNotice, option: ReminderSnoozeOption) => void;
   onTransfer: () => void; onLock: () => void;
   backupReminder: boolean; onBackupReminder: () => void; onDismissBackupReminder: () => void;
 };
@@ -45,10 +46,12 @@ function HeaderClock({ workspace, fallback, compact = false }: { workspace?: Wor
 
 const nav: NavItem[] = [['home', 'home', 'Home'], ['calendar', 'calendar', 'Calendar'], ['all', 'items', 'All items'], ['organization', 'views', 'PARA'], ['settings', 'settings', 'Settings']];
 
-function NoticeCard({ notice, actionLabel, onOpen, onAction, dismissPopup = false }: {
-  notice: AppNotice; actionLabel: string; onOpen: () => void; onAction: () => void; dismissPopup?: boolean;
+function NoticeCard({ notice, actionLabel, onOpen, onAction, onSnooze, language, dismissPopup = false }: {
+  notice: AppNotice; actionLabel: string; onOpen: () => void; onAction: () => void; onSnooze?: ((option: ReminderSnoozeOption) => void) | undefined; language?: string | undefined; dismissPopup?: boolean;
 }) {
-  return <article className="notice-card"><Button variant="ghost" className="notice-content" onClick={onOpen}><strong><UserDataText>{notice.title}</UserDataText></strong><UserDataText>{notice.body}</UserDataText></Button><IconButton size="compact" variant="ghost" className="notice-dismiss" aria-label={actionLabel} onPointerDown={(event) => { if (dismissPopup) event.preventDefault(); event.stopPropagation(); if (dismissPopup) onAction(); }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); onAction(); }}><CloseIcon /></IconButton></article>;
+  const ru = language === 'ru';
+  const options: [ReminderSnoozeOption, string][] = [['15m', ru ? '15 мин' : '15 min'], ['1h', ru ? '1 ч' : '1 h'], ['5h', ru ? '5 ч' : '5 h'], ['tomorrow', ru ? 'Завтра, 09:00' : 'Tomorrow, 09:00']];
+  return <article className="notice-card"><Button variant="ghost" className="notice-content" onClick={onOpen}><strong><UserDataText>{notice.title}</UserDataText></strong><UserDataText>{notice.body}</UserDataText></Button><IconButton size="compact" variant="ghost" className="notice-dismiss" aria-label={actionLabel} onPointerDown={(event) => { if (dismissPopup) event.preventDefault(); event.stopPropagation(); if (dismissPopup) onAction(); }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); onAction(); }}><CloseIcon /></IconButton>{onSnooze && notice.itemId && notice.reminderIds?.length ? <div className="notice-snooze" aria-label={ru ? 'Отложить напоминание' : 'Snooze reminder'}>{options.map(([option, label]) => <Button key={option} size="compact" variant="ghost" onClick={() => onSnooze(option)}>{label}</Button>)}</div> : null}</article>;
 }
 
 export function AppShell(props: Props) {
@@ -65,8 +68,8 @@ export function AppShell(props: Props) {
         <button type="button" className="overlay-dismiss-scrim mobile-nav-scrim" tabIndex={-1} aria-label={t('Close navigation')} onClick={(event) => { event.stopPropagation(); props.onCloseNavigation(); }} />
         <nav className="mobile-nav-menu" aria-label={t('Main navigation')}>{nav.map(([target, icon, label, beta]) => <Button variant="ghost" key={target} className={page === target ? 'active' : ''} onClick={() => { onPage(target); props.onCloseNavigation(); }}><LineIcon name={icon}/><span>{t(label)}</span>{beta && <em className="nav-beta">{t('Beta')}</em>}</Button>)}</nav>
       </>}
-      {!noticeCenterOpen && popupNoticeIds.length > 0 && <div className="notice-tray notice-popups" aria-live="polite">{popupNoticeIds.slice(-3).reverse().map((id) => notices.find((notice) => notice.id === id)).filter((notice): notice is AppNotice => Boolean(notice)).map((notice) => <NoticeCard key={notice.id} notice={notice} actionLabel={t('Close notification')} onOpen={() => props.onOpenNotice(notice)} onAction={() => props.onDismissPopup(notice.id)} dismissPopup />)}</div>}
-      {noticeCenterOpen && <><button type="button" className="overlay-dismiss-scrim notification-center-scrim" tabIndex={-1} aria-label={t('Close notification center')} onClick={(event) => { event.stopPropagation(); props.onToggleNotices(); }} /><aside className="notification-center" aria-label={t('Notification center')}><header><h2>{t('Notifications')}</h2><IconButton size="compact" variant="ghost" aria-label={t('Close notification center')} onClick={props.onToggleNotices}><CloseIcon /></IconButton></header><div className="notification-list">{props.backupReminder && <NoticeCard notice={backupNotice} actionLabel={t('Dismiss backup reminder')} onOpen={props.onBackupReminder} onAction={props.onDismissBackupReminder} />}{notices.length ? notices.slice().reverse().map((notice) => <NoticeCard key={notice.id} notice={notice} actionLabel={t('Delete notification')} onOpen={() => props.onOpenNotice(notice)} onAction={() => props.onDeleteNotice(notice.id)} />) : !props.backupReminder && <p className="empty">{t('No notifications')}</p>}</div></aside></>}
+      {!noticeCenterOpen && popupNoticeIds.length > 0 && <div className="notice-tray notice-popups" aria-live="polite">{popupNoticeIds.slice(-3).reverse().map((id) => notices.find((notice) => notice.id === id)).filter((notice): notice is AppNotice => Boolean(notice)).map((notice) => <NoticeCard key={notice.id} notice={notice} actionLabel={t('Close notification')} onOpen={() => props.onOpenNotice(notice)} onAction={() => props.onDismissPopup(notice.id)} onSnooze={props.onSnoozeNotice ? (option) => props.onSnoozeNotice?.(notice, option) : undefined} language={workspace?.calendarPreferences.language} dismissPopup />)}</div>}
+      {noticeCenterOpen && <><button type="button" className="overlay-dismiss-scrim notification-center-scrim" tabIndex={-1} aria-label={t('Close notification center')} onClick={(event) => { event.stopPropagation(); props.onToggleNotices(); }} /><aside className="notification-center" aria-label={t('Notification center')}><header><h2>{t('Notifications')}</h2><IconButton size="compact" variant="ghost" aria-label={t('Close notification center')} onClick={props.onToggleNotices}><CloseIcon /></IconButton></header><div className="notification-list">{props.backupReminder && <NoticeCard notice={backupNotice} actionLabel={t('Dismiss backup reminder')} onOpen={props.onBackupReminder} onAction={props.onDismissBackupReminder} />}{notices.length ? notices.slice().reverse().map((notice) => <NoticeCard key={notice.id} notice={notice} actionLabel={t('Delete notification')} onOpen={() => props.onOpenNotice(notice)} onAction={() => props.onDeleteNotice(notice.id)} onSnooze={props.onSnoozeNotice ? (option) => props.onSnoozeNotice?.(notice, option) : undefined} language={workspace?.calendarPreferences.language} />) : !props.backupReminder && <p className="empty">{t('No notifications')}</p>}</div></aside></>}
       {children}
     </main>
   </div>;

@@ -1098,6 +1098,36 @@ test('notifications auto-hide, close individually, and remain in the bell center
   await expect(page.locator('.notice-card')).toHaveCount(0);
 });
 
+test('delivered reminder can be snoozed and stays deferred after unlock', async ({ page }) => {
+  const password = 'correct horse battery staple';
+  await page.getByLabel('Workspace name').fill('Snoozed reminders');
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password').fill(password);
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await goToAllItems(page);
+  await openNewItem(page);
+  await page.getByLabel('Title', { exact: true }).fill('Snooze me');
+  await openEditorSection(page, 'Reminders');
+  await page.getByRole('button', { name: '+ Add reminder' }).click();
+  const past = await page.evaluate(() => {
+    const date = new Date(Date.now() - 3_600_000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  await page.locator('.reminder-row input[type="datetime-local"]').fill(past);
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await lockWorkspace(page);
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  const popup = page.locator('.notice-popups .notice-card');
+  await expect(popup).toHaveCount(1);
+  await popup.getByRole('button', { name: '15 min' }).click();
+  await expect(popup).toHaveCount(0);
+  await lockWorkspace(page);
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Unlock' }).click();
+  await expect(page.locator('.notice-card')).toHaveCount(0);
+});
+
 test('identical reminders are stored and displayed only once', async ({ page }) => {
   const password = 'correct horse battery staple';
   await page.getByLabel('Workspace name').fill('Reminder deduplication');

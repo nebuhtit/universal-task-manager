@@ -1,7 +1,7 @@
-export const SCHEMA_VERSION = '1.25.0';
+export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.3.4';
+export const APP_VERSION = '2.3.5';
 export const APP_RELEASED_AT = '2026-09-21T14:34:52.576Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
@@ -115,6 +115,7 @@ export interface Reminder {
   repeatEvery?: ISODuration;
   repeatUntilAcknowledged: boolean;
   acknowledgedAt?: ISODateTime;
+  snoozedUntil?: ISODateTime;
 }
 
 const durationUnits: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000, M: 2_592_000_000, Y: 31_536_000_000 };
@@ -131,6 +132,10 @@ export function durationToMs(value: string): number {
 /** Resolves absolute and relative reminders without mutating the item. Invalid or incomplete reminders stay unresolved. */
 export function reminderTime(item: UniversalItem, reminder: Reminder): string | undefined {
   if (reminder.acknowledgedAt) return undefined;
+  if (reminder.snoozedUntil) {
+    const snoozed = Date.parse(reminder.snoozedUntil);
+    if (Number.isFinite(snoozed)) return new Date(snoozed).toISOString();
+  }
   if (reminder.mode === 'absolute') {
     const timestamp = reminder.at ? Date.parse(reminder.at) : Number.NaN;
     return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
@@ -173,6 +178,7 @@ export function reminderSignature(reminder: Reminder): string {
     repeatEvery: reminder.repeatEvery ?? '',
     repeatUntilAcknowledged: reminder.repeatUntilAcknowledged,
     acknowledgedAt: reminderMoment(reminder.acknowledgedAt),
+    snoozedUntil: reminderMoment(reminder.snoozedUntil),
   });
 }
 

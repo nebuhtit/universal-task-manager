@@ -25,7 +25,7 @@ const scriptFieldSchema = {
 
 export const itemJsonSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://universal-task-manager.dev/schema/item-1.25.0.json',
+  $id: 'https://universal-task-manager.dev/schema/item-1.26.0.json',
   title: 'Universal Task Manager item',
   type: 'object',
   additionalProperties: false,
@@ -118,7 +118,7 @@ export const itemJsonSchema = {
         properties: {
           id: { type: 'string', minLength: 1 }, mode: { enum: ['absolute', 'relative'] }, at: { type: 'string', format: 'date-time' },
           relativeTo: { enum: ['available', 'start', 'due', 'end'] }, offset: { type: 'string' }, urgency: { enum: ['normal', 'urgent', 'critical'] },
-          repeatEvery: { type: 'string' }, repeatUntilAcknowledged: { type: 'boolean' }, acknowledgedAt: { type: 'string', format: 'date-time' },
+          repeatEvery: { type: 'string' }, repeatUntilAcknowledged: { type: 'boolean' }, acknowledgedAt: { type: 'string', format: 'date-time' }, snoozedUntil: { type: 'string', format: 'date-time' },
         },
       },
     },
