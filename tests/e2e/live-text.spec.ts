@@ -41,8 +41,13 @@ test('live text suggestions, correction reports and saved preference', async ({ 
     await page.screenshot({ path: test.info().outputPath(`live-text-${colorScheme}.png`) });
   }
   await input.press('ArrowDown'); await input.press('Enter');
-  await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
-  await expect(input).not.toHaveValue('Встреча завтра');
+  if ((page.viewportSize()?.width ?? 0) <= 620) {
+    await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close item editor' }).click();
+  } else {
+    await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
+    await expect(input).not.toHaveValue('Встреча завтра');
+  }
   await input.fill('Встреча завтра'); await input.press('Tab');
   await expect(options.locator('[id$="-option-0"]')).toHaveAttribute('aria-selected', 'true');
   await input.press('ArrowDown');
@@ -57,7 +62,8 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   await expect(input).not.toHaveValue('Встреча завтра');
   await expect(input).toBeFocused();
   await input.fill('на залив 19.09');
-  await expect(options.getByRole('option', { name: /^вечером/ })).toBeVisible();
+  await expect(options.getByRole('option', { name: /^06:00/ })).toBeVisible();
+  await expect(options.getByRole('option', { name: /^вечером/ })).toHaveCount(0);
   await expect(options.getByRole('option', { name: /^19:00/ })).toBeVisible();
   if ((page.viewportSize()?.width ?? 0) <= 620) await options.getByRole('option', { name: /^19:00/ }).tap();
   else await options.getByRole('option', { name: /^19:00/ }).click();

@@ -36,7 +36,7 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
   }, [onViewCalendarDate, parsed.start, parsed.due, timeZone, value]);
   const suggestions = useMemo(() => suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language]);
   const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
-  useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = panel.current.scrollHeight; }, [expanded, value]);
+  useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = suggestions.ordered ? 0 : panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
   useEffect(() => { if (expanded && selected >= 0) document.getElementById(`${id}-option-${selected}`)?.scrollIntoView({ block: 'nearest' }); }, [expanded, selected, id]);
   useLayoutEffect(() => {
     if (pendingCaret.current === null) return;
@@ -99,6 +99,9 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
     onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;
       if (event.key === 'Escape') { if (open) { event.preventDefault(); event.stopPropagation(); } setOpen(false); return; }
+      // On iPhone the keyboard action is a form submission, even when a
+      // suggestion was highlighted earlier. Space still applies that option.
+      if (event.key === 'Enter' && !multiline && !overlaySuggestions && window.matchMedia('(pointer: coarse)').matches) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); return; }
       if (expanded && ['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); setSelected((current) => current < 0 ? event.key === 'ArrowDown' ? 0 : suggestions.options.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.options.length) % suggestions.options.length); }
       else if (expanded && event.key === 'Tab') { event.preventDefault(); setSelected((current) => current < 0 ? event.shiftKey ? suggestions.options.length - 1 : 0 : (current + (event.shiftKey ? -1 : 1) + suggestions.options.length) % suggestions.options.length); }
       else if (expanded && selected >= 0 && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(selected); }
@@ -113,12 +116,12 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
       <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onClick={() => { setReport({ input: value, parsed, referenceTime: referenceTime.toISOString() }); setExpected(''); setReportError(''); }}>Сообщить о неточности</Button>
       {notice && <small role="status">{notice}</small>}
       {expanded && <div id={`${id}-options`} role="listbox" aria-label="Подсказки Live text" className="live-text-options">
-        {suggestions.options.map((option, index) => ({ option, index })).reverse().map(({ option, index }) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && endY !== undefined && Math.abs(endY - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); choose(index); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) choose(index); }}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
+        {(suggestions.ordered ? suggestions.options.map((option, index) => ({ option, index })) : suggestions.options.map((option, index) => ({ option, index })).reverse()).map(({ option, index }) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && endY !== undefined && Math.abs(endY - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); choose(index); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) choose(index); }}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
       </div>}
     </div>;
   return <div className="live-text-input" ref={root}>
     {suggestionPanel && (overlaySuggestions && typeof document !== 'undefined' ? createPortal(suggestionPanel, document.body) : suggestionPanel)}
-    {multiline ? <Textarea {...common} ref={textarea} rows={4} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint="done" />}
+    {multiline ? <Textarea {...common} ref={textarea} rows={4} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint={overlaySuggestions ? 'done' : 'go'} />}
     {report && <ResponsiveDialog open onOpenChange={(visible) => { if (!visible) setReport(null); }} title="Ошибка разбора Live text" ariaLabel="Ошибка разбора Live text" finalFocus={() => control() ?? false}>
       <p className="live-text-report-source">{report.input}</p>
       <label>Как должно быть<Textarea aria-label="Как должно быть" value={expected} onChange={(event) => setExpected(event.target.value)} maxLength={2000} rows={4} /></label>

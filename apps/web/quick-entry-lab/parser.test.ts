@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { duration, examples, parseEntry, suggest } from './parser';
+import { duration, examples, parseDate, parseEntry, suggest } from './parser';
 const now = new Date(2026, 8, 21, 16, 0);
 const iso = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute).toISOString();
 describe('standalone quick entry', () => {
@@ -152,12 +152,13 @@ describe('contextual date completion', () => {
       expect(labels.slice(0, 12).map(label => label.match(/15:\d{2}/)?.[0])).toEqual(expected);
     }
   });
-  it('completes a bare hour when the caret is after a space', () => {
+  it('treats a bare hour as :00 when the caret is after a space', () => {
     const morning = new Date(2026, 8, 21, 10, 26);
     for (const input of ['Дело сегодня 14 ', 'Дело завтра 14 ', 'Дело начало завтра 14 ']) {
       const result = suggest(input, input.length, morning);
-      expect(result.options.slice(0, 4).map(option => option.label.match(/14:\d{2}/)?.[0])).toEqual(['14:00', '14:15', '14:30', '14:45']);
-      expect(input.slice(0, result.start) + result.options[0]!.insert + input.slice(result.end)).toContain('14:00');
+      expect(parseEntry(input, morning).start).toBe(parseDate(input.replace(/^Дело (?:начало )?/, '').trim(), morning)!.iso);
+      expect(new Date(parseEntry(input, morning).start!).getMinutes()).toBe(0);
+      expect(result.options.map(option => option.label)).not.toContain('14:15');
     }
   });
   it('offers tomorrow, future today and weekday choices preserving the time', () => {

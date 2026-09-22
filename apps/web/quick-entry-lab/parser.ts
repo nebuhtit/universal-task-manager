@@ -35,7 +35,7 @@ const numericDateExpression = '(?:\\d{4}-\\d{2}-\\d{2}|\\d{1,2}\\.\\d{1,2}(?:\\.
 const dayExpression = `(?:(?:${weekdayPattern})\\s+${numericDateExpression}|${dayPattern}|${numericDateExpression}|${monthPattern})`;
 const nextDayExpression = `(?:след|следу(?:ю)?щ(?:ий|ую|ая|ем)|next)\\s+(?:${weekdayPattern}|месяц|месяце|год|году)`;
 const dayPartPattern = 'утром|днём|днем|вечером|ночью|morning|afternoon|evening|night';
-export const dateValueExpression = `(?:${dayExpression}|${nextDayExpression})(?:\\s+(?:в\\s+)?(?:${dayPartPattern}))?(?:(?:\\s+в)?\\s+\\d{1,2}(?::|\\s)\\d{2})?`;
+export const dateValueExpression = `(?:${dayExpression}|${nextDayExpression})(?:\\s+(?:в\\s+)?(?:${dayPartPattern}))?(?:(?:\\s+в)?\\s+\\d{1,2}(?:(?::|\\s)\\d{2})?)?`;
 const dayPartHours: Record<string, number> = { утром: 7, днём: 11, днем: 11, вечером: 18, ночью: 21, morning: 7, afternoon: 11, evening: 18, night: 21 };
 const addMinutes = (date: string, minutes: number) => new Date(new Date(date).getTime() + minutes * 60_000).toISOString();
 
@@ -52,7 +52,7 @@ export function duration(value: string): number | null {
 export function parseDate(value: string, now: Date): { iso: string; timed: boolean } | null {
   const reversed = new RegExp(`^(\\d{1,2})(?::|\\s)(\\d{2})\\s+(${dayExpression}|${nextDayExpression})$`, 'i').exec(value.trim());
   if (reversed) return parseDate(`${reversed[3]} ${reversed[1]}:${reversed[2]}`, now);
-  const match = new RegExp(`^(?:в\\s+)?(${dayExpression}|${nextDayExpression})(?:\\s+(?:в\\s+)?(${dayPartPattern}))?(?:\\s+(?:в\\s+)?(\\d{1,2})(?::|\\s)(\\d{2}))?$`, 'i').exec(value.trim());
+  const match = new RegExp(`^(?:в\\s+)?(${dayExpression}|${nextDayExpression})(?:\\s+(?:в\\s+)?(${dayPartPattern}))?(?:\\s+(?:в\\s+)?(\\d{1,2})(?:(?::|\\s)(\\d{2}))?)?$`, 'i').exec(value.trim());
   if (!match) return null;
   const token = match[1]!.toLowerCase();
   const date = new Date(now); date.setHours(0, 0, 0, 0);
@@ -78,14 +78,14 @@ export function parseDate(value: string, now: Date): { iso: string; timed: boole
     const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateToken);
     const dot = /^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?$/.exec(dateToken);
     if (!iso && !dot) return null;
-    const year = iso ? Number(iso[1]) : dot?.[3] ? Number(dot[3]) : now.getFullYear();
     const month = Number(iso ? iso[2] : dot?.[2]); const day = Number(iso ? iso[3] : dot?.[1]);
+    const year = iso ? Number(iso[1]) : dot?.[3] ? Number(dot[3]) : now.getFullYear() + (month < now.getMonth() + 1 ? 1 : 0);
     date.setFullYear(year, month - 1, day);
     if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
     if (parts.length === 2 && date.getDay() !== weekdays[parts[0]!]) return null;
   }
   const sameTime = token in monthAliases || /(?:месяц|месяце|год|году)$/.test(token);
-  const hours = Number(match[3] ?? dayPartHours[match[2]?.toLowerCase() ?? ''] ?? (sameTime ? now.getHours() : 9)), minutes = Number(match[4] ?? (sameTime ? now.getMinutes() : 0));
+  const hours = Number(match[3] ?? dayPartHours[match[2]?.toLowerCase() ?? ''] ?? (sameTime ? now.getHours() : 9)), minutes = Number(match[4] ?? (match[3] ? 0 : sameTime ? now.getMinutes() : 0));
   if (hours > 23 || minutes > 59) return null;
   date.setHours(hours, minutes, 0, 0);
   if (date.getHours() !== hours || date.getMinutes() !== minutes) return null;
@@ -330,11 +330,28 @@ export function parseEntry(input: string, now: Date): Draft {
     result.start = parsed.iso;
     consume(m.index!, m[0].length);
   }
-  const naturalDate = new RegExp(`(?:^|\\s)(${dayExpression})(?:\\s+(?:в\\s+)?(?:${dayPartPattern}))?(?:(?:\\s+в)?\\s+\\d{1,2}(?::|\\s)\\d{2})?(?=\\s|$)`, 'gi');
+  // Consume the entire Russian calendar date, including its short year. Chrono
+  // otherwise understands the year but can leave it behind in the title.
+  const russianCalendarDate = new RegExp(`(?:^|\\s)(\\d{1,2})\\s+(${monthPattern})(?:\\s+(\\d{2}|\\d{4}))?(?:\\s+(?:в\\s+)?(\\d{1,2})(?:(?::|\\s)(\\d{2}))?)?(?=\\s|$)`, 'gi');
+  for (const m of [...text.matchAll(russianCalendarDate)]) {
+    if (consumed.slice(m.index!, m.index! + m[0].length).some(Boolean)) continue;
+    const duePrefix = /(?:^|\s)до\s*$/i.exec(text.slice(0, m.index! + (m[0].startsWith(' ') ? 1 : 0)));
+    const month = monthAliases[m[2]!.toLowerCase()]! + 1;
+    const year = m[3] ? String(Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3])) : '';
+    const clock = m[4] ? ` ${m[4]}:${m[5] ?? '00'}` : '';
+    once(duePrefix ? 'due' : 'start');
+    const parsed = parseDate(`${m[1]}.${month}${year ? `.${year}` : ''}${clock}`, now);
+    if (parsed) result[duePrefix ? 'due' : 'start'] = parsed.iso;
+    else result.errors.push(`Некорректная дата «${m[0].trim()}».`);
+    if (duePrefix) consume(duePrefix.index, m.index! - duePrefix.index);
+    consume(m.index!, m[0].length);
+  }
+  const naturalDate = new RegExp(`(?:^|\\s)(${dateValueExpression})(?=\\s|$)`, 'gi');
   for (const m of [...text.matchAll(naturalDate)]) {
+    if (consumed.slice(m.index!, m.index! + m[0].length).some(Boolean)) continue;
     const before = text.slice(0, m.index).trimEnd();
     const after = text.slice(m.index! + m[0].length).trimStart();
-    if (m[1]!.toLowerCase() in monthAliases && (/\d{1,2}$/.test(before) || /^\d{4}(?=\s|$)/.test(after))) continue;
+    if (m[1]!.toLowerCase() in monthAliases && (/\d{1,2}$/.test(before) || /^\d{2,4}(?=\s|$)/.test(after))) continue;
     once('start'); const parsed = parseDate(m[0].trim(), now);
     if (parsed) {
       result.start = parsed.iso;
@@ -493,6 +510,12 @@ function dateSuggestions(input: string, caret: number, now: Date, language: 'ru'
   }
   const completeClock = /^\d{1,2}:\d{2}$/.test(clock) ? clock : null;
   if (!clock && caret >= dayEnd && parseDate(day, now)) {
+    if (new RegExp(`^${numericDateExpression}$`).test(day)) {
+      const dateLabel = new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(parseDate(day, now)!.iso));
+      const hours = Array.from({ length: 24 }, (_, index) => (index + 6) % 24);
+      const hourOptions: Suggestion[] = hours.map(hour => ({ label: `${String(hour).padStart(2, '0')}:00`, insert: ` ${String(hour).padStart(2, '0')}:00 `, detail: dateLabel }));
+      return { start: dayEnd, end, options: hourOptions, timeOnly: true, ordered: true };
+    }
     const dayparts = language === 'ru' ? ['утром', 'днём', 'вечером', 'ночью'] : ['morning', 'afternoon', 'evening', 'night'];
     const dateLabel = new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'short' }).format(new Date(parseDate(day, now)!.iso));
     const partOptions: Suggestion[] = dayparts.map(part => {
@@ -617,7 +640,7 @@ function suggestInternal(input: string, caret: number, now: Date, language: 'ru'
   return { start, end, options };
 }
 
-export function suggest(input: string, caret: number, now: Date = new Date(), interfaceLanguage: 'ru' | 'en' = 'ru'): { start: number; end: number; options: Suggestion[] } {
+export function suggest(input: string, caret: number, now: Date = new Date(), interfaceLanguage: 'ru' | 'en' = 'ru'): { start: number; end: number; options: Suggestion[]; ordered?: boolean } {
   const beforeCaret = input.slice(0, caret);
   const activeWord = /[a-zа-яё]+$/i.exec(beforeCaret)?.[0] ?? '';
   const closestWord = activeWord || [...beforeCaret.matchAll(/[a-zа-яё]+/gi)].at(-1)?.[0] || '';
@@ -671,7 +694,7 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
   if (caret === input.length) {
     const terminalDate = new RegExp(`(?:^|\\s)(${dateValueExpression})\\s*$`, 'i').exec(normalized);
     const phrase = terminalDate?.[1] ?? '';
-    if (phrase && !/(?:^|\s)(?:след\S*|next)(?=\s|$)/i.test(phrase) && new RegExp(`(?:${dayPartPattern}|\\d{1,2}(?::|\\s)\\d{2})$`, 'i').test(phrase) && parseDate(phrase, now)) {
+    if (phrase && !/(?:^|\s)(?:след\S*|next)(?=\s|$)/i.test(phrase) && new RegExp(`\\s+(?:${dayPartPattern}|\\d{1,2}(?:(?::|\\s)\\d{2})?)$`, 'i').test(phrase) && parseDate(phrase, now)) {
       const labels = language === 'ru' ? ['напомнить', 'длительность', 'дорога', 'конец', 'срок'] : ['remind', 'duration', 'travel', 'event ends', 'due'];
       const used = [
         /(?:^|\s)(?:напомнить|напомни|напоминание|remind|reminder|r)(?=\s|:)/i,

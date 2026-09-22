@@ -88,11 +88,27 @@ it('explains reminder suggestions with the actual time and hides past reminders'
 it('offers only time choices once a complete date is entered', () => {
   const input = 'на залив 19.09';
   const choices = suggest(input, input.length, now, 'ru');
-  expect(choices.options.map(option => option.label)).toContain('вечером');
+  expect(choices.ordered).toBe(true);
+  expect(choices.options.map(option => option.label)).toEqual(Array.from({ length: 24 }, (_, index) => `${String((index + 6) % 24).padStart(2, '0')}:00`));
+  expect(choices.options.map(option => option.label)).not.toContain('вечером');
   expect(choices.options.map(option => option.label)).toContain('19:00');
   expect(choices.options.some(option => /завтра|среда|Выбрать дату/.test(option.label))).toBe(false);
-  const evening = choices.options.find(option => option.label === 'вечером')!;
-  expect(input.slice(0, choices.start) + evening.insert + input.slice(choices.end)).toBe('на залив 19.09 вечером ');
+  const evening = choices.options.find(option => option.label === '19:00')!;
+  expect(input.slice(0, choices.start) + evening.insert + input.slice(choices.end)).toBe('на залив 19.09 19:00 ');
+});
+
+it('rolls an elapsed month into next year and treats a bare hour as :00', () => {
+  expect(parseEntry('Встреча 12.02', now).start).toBe(iso(2027, 1, 12, 9, 0));
+  expect(parseEntry('Встреча 12.02 15', now).start).toBe(iso(2027, 1, 12, 15, 0));
+  expect(parseEntry('Встреча завтра 15', now).start).toBe(iso(2026, 8, 23, 15, 0));
+  expect(parseEntry('Встреча 19.09 15', now).start).toBe(iso(2026, 8, 19, 15, 0));
+  expect(parseEntry('Встреча 12.02 вечером', now).start).toBe(iso(2027, 1, 12, 18, 0));
+  expect(suggest('Встреча 12.02', 'Встреча 12.02'.length, now).options[0]!.detail).toContain('2027');
+});
+
+it('consumes the whole Russian calendar date including a two-digit year', () => {
+  expect(parseEntry('13 марта 27 движ', now)).toMatchObject({ title: 'движ', start: iso(2027, 2, 13, 9, 0), errors: [] });
+  expect(parseEntry('движ 13 марта 27 15', now)).toMatchObject({ title: 'движ', start: iso(2027, 2, 13, 15, 0), errors: [] });
 });
 
 it('offers follow-up commands instead of another date after day and time are set', () => {
