@@ -143,7 +143,7 @@ function normalizeSeparators(input: string): string {
   return chars.join('');
 }
 
-export function parseEntry(input: string, now: Date): Draft {
+export function parseEntry(input: string, now: Date, defaults = true): Draft {
   input = relaxedCommands(normalizeSeparators(input));
   const result: Draft = { title: '', start: null, due: null, end: null, travelMinutes: null, durationMinutes: null, leave: null, reminders: [], errors: [], warnings: [] };
   if (input.length > 2000) { result.errors.push('Максимум 2000 символов.'); return result; }
@@ -404,7 +404,7 @@ export function parseEntry(input: string, now: Date): Draft {
   if (result.travelMinutes !== null && !result.start) result.errors.push('Для дороги нужно время начала.');
   if (result.start) {
     if (result.travelMinutes !== null) result.leave = addMinutes(result.start, -result.travelMinutes);
-    if (result.durationMinutes === null && !result.end) result.durationMinutes = 60;
+    if (defaults && result.durationMinutes === null && !result.end) result.durationMinutes = 60;
     if (result.durationMinutes !== null) {
       const computedEnd = addMinutes(result.start, result.durationMinutes);
       if (result.end && result.end !== computedEnd) result.errors.push('Event ends не совпадает с началом плюс длительность.');
@@ -413,7 +413,7 @@ export function parseEntry(input: string, now: Date): Draft {
     if (result.end && result.durationMinutes === null) result.durationMinutes = (new Date(result.end).getTime() - new Date(result.start).getTime()) / 60_000;
     if (new Date(result.start) < now) result.warnings.push('Начало уже в прошлом. Дата не перенесена автоматически.');
   }
-  if (result.due && !result.start && result.durationMinutes === null) result.durationMinutes = 10;
+  if (defaults && result.due && !result.start && result.durationMinutes === null) result.durationMinutes = 10;
   if (result.start && result.end && result.end <= result.start) result.errors.push('Event ends должен быть позже event opens.');
   if (result.due && result.due.includes('T') && new Date(result.due) < now) result.warnings.push('Due уже в прошлом. Дата не перенесена автоматически.');
   for (const reminder of pending) {
@@ -739,7 +739,7 @@ export function parseLiveEntry(input: string, now: Date): Draft {
   const insertion = 'длительность ';
   const normalized = insertAt >= 0 ? input.slice(0, insertAt) + insertion + input.slice(insertAt) : input;
   const withoutDatePreposition = normalized.replace(new RegExp(`"[^"\\n]*"|«[^»\\n]*»|(^|\\s)в\\s+(?=${dateValueExpression}(?=\\s|$))`, 'gi'), (match, leading: string | undefined) => leading === undefined ? match : ' '.repeat(match.length));
-  const result = { ...parseEntry(withoutDatePreposition, now), ...fields, noDateDefaults, noDefaultReminders };
+  const result = { ...parseEntry(withoutDatePreposition, now, !noDateDefaults), ...fields, noDateDefaults, noDefaultReminders };
   const spans = (result.commandSpans ?? []).filter(span => insertAt < 0 || span.end <= insertAt || span.start >= insertAt + insertion.length).map(span => insertAt >= 0 && span.start >= insertAt + insertion.length ? { start: span.start - insertion.length, end: span.end - insertion.length } : span);
   result.commandSpans = [...organization.commandSpans, ...flagSpans, ...(result.errors.length ? [] : spans)].sort((a, b) => a.start - b.start);
   if (!result.dateOnlyStart || !result.start) return result;

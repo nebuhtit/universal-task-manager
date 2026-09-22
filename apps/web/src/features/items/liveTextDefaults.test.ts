@@ -22,6 +22,11 @@ describe('creation defaults and recognized commands', () => {
       expect(item.schedule?.estimatedDuration).toBeUndefined();
       const explicit = createQuickEntryItem(`Хлеб завтра ${flag} 20 мин`, now, '2026-09-25');
       expect(explicit.schedule?.plannedDate).toBeTruthy(); expect(explicit.schedule?.estimatedDuration).toBe('PT20M');
+      const due = createQuickEntryItem(`Хлеб due завтра 15:00 ${flag}`, now);
+      expect(due.schedule?.dueAt).toBeTruthy(); expect(due.schedule?.estimatedDuration).toBeUndefined();
+      const timed = createQuickEntryItem(`Хлеб завтра 15:00 ${flag}`, now);
+      expect(timed.schedule?.startAt).toBeTruthy(); expect(timed.schedule?.estimatedDuration).toBeUndefined();
+      expect(timed.schedule?.endAt).toBeUndefined();
     }
   });
   it('бн suppresses defaults but retains explicit reminders and survives reparse', () => {
