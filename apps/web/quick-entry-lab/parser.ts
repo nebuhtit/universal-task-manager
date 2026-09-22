@@ -1,8 +1,13 @@
 /** Standalone experiment. No UTM imports, storage, network or execution of input. */
 import { en, ru } from 'chrono-node';
+import { extractOrganization } from './organization';
 export type Anchor = 'due' | 'start' | 'leave' | 'now';
 export interface ReminderDraft { anchor: Anchor; minutes: number; at: string | null; automatic?: boolean }
 export interface Draft {
+  isNote?: boolean;
+  areas?: string[];
+  projects?: string[];
+  tags?: string[];
   plannedDate?: string;
   dateOnlyStart?: boolean;
   title: string; start: string | null; due: string | null; end: string | null;
@@ -109,7 +114,7 @@ function nextClock(value: string, now: Date, anchor?: string | null): string | n
 function relaxedCommands(input: string): string {
   const masked = input.replace(/"([^"\n]*)"|«([^»\n]*)»/g, value => ' '.repeat(value.length));
   const chars = input.split('');
-  const labels = /(^|\s)(event\s+(?:opens|ends)|travel\s+time|начало|конец|срок|напомнить|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|travel|drive|длительность|due|start|end|opens|ends|duration|tt|r)(?=\s)/gi;
+  const labels = /(^|\s)(event\s+(?:opens|ends)|travel\s+time|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|travel|drive|длительность|due|start|end|opens|ends|duration|tt|r)(?=\s)/gi;
   for (const m of masked.matchAll(labels)) chars[m.index! + m[0].length] = ':';
   // “в срок” introduces a due command; the preposition must not become the
   // preceding command's value (e.g. “длительность 45м в срок ...”).
@@ -120,7 +125,7 @@ function relaxedCommands(input: string): string {
 function normalizeSeparators(input: string): string {
   const masked = input.replace(/"([^"\n]*)"|«([^»\n]*)»/g, value => ' '.repeat(value.length));
   const chars = input.split('');
-  const nextCommand = /^(?:event\s+(?:opens|ends)|travel\s+time|начало|конец|срок|напомнить|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|travel|drive|длительность|due|start|end|opens|ends|duration|tt|r)(?=\s|:|$)/i;
+  const nextCommand = /^(?:event\s+(?:opens|ends)|travel\s+time|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|travel|drive|длительность|due|start|end|opens|ends|duration|tt|r)(?=\s|:|$)/i;
   for (let index = 0; index < masked.length; index++) {
     const separator = masked[index]!;
     if (!/[;,—]/.test(separator)) continue;
@@ -190,7 +195,7 @@ export function parseEntry(input: string, now: Date): Draft {
       ? Boolean(parseDate(candidate, now) || nextClock(candidate, now))
       : ['дорога', 'ехать', 'тт', 'tt', 'travel', 'travel time', 'drive', 'длительность', 'duration'].includes(key)
         ? duration(candidate) !== null
-        : ['напомнить', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r'].includes(key)
+        : ['напомнить', 'нап', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r'].includes(key)
           ? validReminderValue(candidate) : false;
     if (valid(value)) return value;
     for (let end = value.length - 1; end > 0; end--) {
@@ -205,7 +210,7 @@ export function parseEntry(input: string, now: Date): Draft {
     return value;
   }
   // A small, documented natural-language grammar; no broad NLP guesses.
-  const naturalReminder = /(?:^|\s)(?:напомнить|напомни|напоминание|remind|reminder)\s+за\s+(.+?)\s+до\s+(выезда|начала)(?=\s|$)/i.exec(text);
+  const naturalReminder = /(?:^|\s)(?:напомнить|нап|напомни|напоминание|remind|reminder)\s+за\s+(.+?)\s+до\s+(выезда|начала)(?=\s|$)/i.exec(text);
   if (naturalReminder) {
     const amounts = naturalReminder[1]!.split(/\s+и\s+|,/).map(v => v.trim().replace(/^день$/, '1д').replace(/^час$/, '1ч'));
     reminders(amounts.map(v => `${naturalReminder[2]!.toLowerCase() === 'выезда' ? 'выезд' : 'начало'}-${v}`).join(','));
@@ -313,7 +318,7 @@ export function parseEntry(input: string, now: Date): Draft {
       const amount = duration(value);
       if (amount === null) result.errors.push(`Некорректная длительность «${value}». Пример: 45м или 1ч30м.`);
       else result[travel ? 'travelMinutes' : 'durationMinutes'] = amount;
-    } else if (['напомнить', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r'].includes(key)) reminders(value);
+    } else if (['напомнить', 'нап', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r'].includes(key)) reminders(value);
     else result.errors.push(`Неизвестная команда «${key}:». Для буквального текста используйте кавычки.`);
     consume(start, consumedLength);
   }
@@ -384,7 +389,7 @@ export function parseEntry(input: string, now: Date): Draft {
     }
     break;
   }
-  if (/(?:^|\s)(?:напомнить|ехать|завтра|сегодня|послезавтра)(?=\s|$)/i.test(text)) result.errors.push('Незавершённая фраза. Используйте команды или заключите буквальный текст в кавычки.');
+  if (/(?:^|\s)(?:напомнить|нап|ехать|завтра|сегодня|послезавтра)(?=\s|$)/i.test(text)) result.errors.push('Незавершённая фраза. Используйте команды или заключите буквальный текст в кавычки.');
   result.title = input.split('').map((char, i) => consumed[i] ? ' ' : char).join('').replace(/"([^"\n]*)"|«([^»\n]*)»/g, (_, a, b) => a ?? b).replace(/\s+/g, ' ').trim();
   if (!result.title && /^(?:сейчас|now)\s*$/i.test(input.trim())) result.title = 'Сейчас';
   if (!result.title) result.errors.push('Добавьте название.');
@@ -421,7 +426,7 @@ export function parseEntry(input: string, now: Date): Draft {
 
 export interface Suggestion { label: string; insert: string; detail: string; calendar?: boolean; replaceStart?: number; replaceEnd?: number }
 const commandVariants: Record<string, string[]> = {
-  напомнить: ['напомни', 'напоминание', 'напоминания', 'напомянание'],
+  напомнить: ['нап', 'напомни', 'напоминание', 'напоминания', 'напомянание'],
   дорога: ['ехать', 'тт', 'travel', 'drive'],
   начало: ['start', 'opens', 'event opens'],
   конец: ['end', 'ends', 'event ends'],
@@ -455,7 +460,7 @@ const commands: Suggestion[] = [
   { label: 'drive', insert: 'drive ', detail: 'Travel time' },
   { label: 'длительность', insert: 'длительность ', detail: 'Продолжительность события' },
   { label: 'duration', insert: 'duration ', detail: 'Event duration' },
-  { label: 'напомнить', insert: 'напомнить ', detail: 'До начала события или due' },
+  { label: 'напомнить', 'нап', insert: 'напомнить ', detail: 'До начала события или due' },
   { label: 'напомни', insert: 'напомни ', detail: 'Напоминание' },
   { label: 'напоминание', insert: 'напоминание ', detail: 'Напоминание' },
   { label: 'remind', insert: 'remind ', detail: 'Reminder' },
@@ -593,14 +598,14 @@ function suggestInternal(input: string, caret: number, now: Date, language: 'ru'
   for (let i = 0; i < commandMarkers.length; i++) {
     const marker = commandMarkers[i]!, commandStart = marker.index! + marker[1]!.length;
     const commandEnd = i + 1 < commandMarkers.length ? commandMarkers[i + 1]!.index! : input.length;
-    if (caret < commandStart || caret > commandEnd || !/^(напомнить|напомни|напоминание|напоминания|напомянание|remind|reminder|r):$/i.test(marker[2]!)) continue;
+    if (caret < commandStart || caret > commandEnd || !/^(напомнить|нап|напомни|напоминание|напоминания|напомянание|remind|reminder|r):$/i.test(marker[2]!)) continue;
     start = commandStart; end = commandEnd;
     token = input.slice(start, Math.max(caret, start + marker[2]!.length));
     const comma = input.slice(caret, end).indexOf(',');
     if (comma >= 0) reminderTail = input.slice(caret + comma, end).trimEnd();
     break;
   }
-  const reminder = /^(напомнить|напомни|напоминание|напоминания|напомянание|remind|reminder|r):([\s\S]*)$/i.exec(token);
+  const reminder = /^(напомнить|нап|напомни|напоминание|напоминания|напомянание|remind|reminder|r):([\s\S]*)$/i.exec(token);
   let options: Suggestion[];
   if (reminder) {
     const prefix = reminder[2]!.includes(',') ? reminder[2]!.slice(0, reminder[2]!.lastIndexOf(',') + 1) : '';
@@ -655,7 +660,7 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
   if ((input.slice(0, caret).match(/"/g)?.length ?? 0) % 2 || input.slice(0, caret).lastIndexOf('«') > input.slice(0, caret).lastIndexOf('»')) return null;
   const namedDate = `\\d{1,2}\\s+(?:${monthPattern})(?:\\s+(?:\\d{4}|\\d{2})(?![\\d:]))?`;
   const date = new RegExp(`(?:^|[\\s:@])(${namedDate}|${nextDayExpression}|${dayExpression})(?:\\s+(?:в\\s+)?(\\d{1,2})(?:(:|\\s)(\\d{0,2}))?)?\\s*$`, 'i').exec(before);
-  const command = /(?:^|\s)(?:event\s+(?:opens|ends)|начало|конец|срок|due|start|end|opens|ends|до|by|с|from|по|to|напомнить|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/i.exec(before);
+  const command = /(?:^|\s)(?:event\s+(?:opens|ends)|начало|конец|срок|due|start|end|opens|ends|до|by|с|from|по|to|напомнить|нап|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/i.exec(before);
   const range = /(?:\d{1,2}(?:(?::|\s)\d{2})?)\s*[-–—]\s*(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/.exec(before);
   const rangePrefix = range ? before.replace(/[-–—]\s*\d{0,2}(?:(?::|\s)\d{0,2})?\s*$/, '') : command && /(?:по|to|конец|end|ends)\s*$/i.test(command[0]) ? before.slice(0, command.index) : '';
   const startMarker = /(?:^|\s)(?:с|from)\s+/i.exec(rangePrefix);
@@ -700,11 +705,15 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
 
 /** Live capture supports a calendar day without inventing a start time. */
 export function parseLiveEntry(input: string, now: Date): Draft {
+  const organization = extractOrganization(input);
+  input = organization.text;
+  const fields = { areas: organization.areas, projects: organization.projects, tags: organization.tags };
+  if (input.startsWith('.')) return { ...fields, isNote: true, title: input.slice(1).trim(), start: null, end: null, due: null, leave: null, durationMinutes: null, travelMinutes: null, reminders: [], errors: [], warnings: [] };
   const trailingDuration = /\s+(\d+(?:[.,]\d+)?\s*(?:ч|часа?|часов|h|м|мин|minutes?))\s*$/i.exec(input);
-  const normalized = trailingDuration && !/(?:длительность|duration|напомнить|remind|дорога|travel|tt)\s*$/i.test(input.slice(0, trailingDuration.index))
+  const normalized = trailingDuration && !/(?:длительность|duration|напомнить|нап|remind|дорога|travel|tt)\s*$/i.test(input.slice(0, trailingDuration.index))
     ? input.slice(0, trailingDuration.index) + ` длительность ${trailingDuration[1]}` : input;
   const withoutDatePreposition = normalized.replace(new RegExp(`"[^"\\n]*"|«[^»\\n]*»|(^|\\s)в\\s+(?=${dateValueExpression}(?=\\s|$))`, 'gi'), (match, leading: string | undefined) => leading ?? match);
-  const result = parseEntry(withoutDatePreposition, now);
+  const result = { ...parseEntry(withoutDatePreposition, now), ...fields };
   if (!result.dateOnlyStart || !result.start) return result;
   const day = new Date(result.start);
   result.plannedDate = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
@@ -717,13 +726,14 @@ export function parseLiveEntry(input: string, now: Date): Draft {
 }
 
 export function suggest(input: string, caret: number, now: Date = new Date(), interfaceLanguage: 'ru' | 'en' = 'ru'): { start: number; end: number; options: Suggestion[]; ordered?: boolean } {
+  if (input.trimStart().startsWith('.')) return { start: caret, end: caret, options: [] };
   const beforeCaret = input.slice(0, caret);
   const activeWord = /[a-zа-яё]+$/i.exec(beforeCaret)?.[0] ?? '';
   const closestWord = activeWord || [...beforeCaret.matchAll(/[a-zа-яё]+/gi)].at(-1)?.[0] || '';
   const language: 'ru' | 'en' = /[а-яё]/i.test(closestWord) ? 'ru' : /[a-z]/i.test(closestWord) ? 'en' : interfaceLanguage;
   const clock = stagedClockSuggestions(input, caret, now, language);
   if (clock) return clock;
-  const nextCommand = /(?:^|\s)(до|due|срок|начало|start|opens|конец|end|ends|напомнить|напомни|remind|reminder)(?::|\s)\s*$/i.exec(beforeCaret);
+  const nextCommand = /(?:^|\s)(до|due|срок|начало|start|opens|конец|end|ends|напомнить|нап|напомни|remind|reminder)(?::|\s)\s*$/i.exec(beforeCaret);
   if (nextCommand) {
     const previous = parseEntry(input.slice(0, nextCommand.index), now);
     const anchor = previous.start ?? previous.due ?? previous.end;
@@ -787,9 +797,9 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
     const terminalDate = new RegExp(`(?:^|\\s)(${dateValueExpression})\\s*$`, 'i').exec(normalized);
     const phrase = terminalDate?.[1] ?? '';
     if (phrase && !/(?:^|\s)(?:след\S*|next)(?=\s|$)/i.test(phrase) && new RegExp(`\\s+(?:${dayPartPattern}|\\d{1,2}(?:(?::|\\s)\\d{2})?)$`, 'i').test(phrase) && parseDate(phrase, now)) {
-      const labels = language === 'ru' ? ['напомнить', 'длительность', 'дорога', 'конец', 'срок'] : ['remind', 'duration', 'travel', 'event ends', 'due'];
+      const labels = language === 'ru' ? ['напомнить', 'нап', 'длительность', 'дорога', 'конец', 'срок'] : ['remind', 'duration', 'travel', 'event ends', 'due'];
       const used = [
-        /(?:^|\s)(?:напомнить|напомни|напоминание|remind|reminder|r)(?=\s|:)/i,
+        /(?:^|\s)(?:напомнить|нап|напомни|напоминание|remind|reminder|r)(?=\s|:)/i,
         /(?:^|\s)(?:длительность|duration)(?=\s|:)/i,
         /(?:^|\s)(?:дорога|ехать|тт|travel|drive)(?=\s|:)/i,
         /(?:^|\s)(?:конец|end|ends|event ends)(?=\s|:)/i,
@@ -838,7 +848,7 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
       const preceding = masked.slice(0, start);
       if (caret < start || caret > end || /(?:@|[a-zа-яё]+:)\s*$/i.test(preceding)) continue;
       // Do not reinterpret reminder values as date context.
-      if (/(?:напомнить|напоминание|напоминания|r):[^@]*$/i.test(preceding)) continue;
+      if (/(?:напомнить|нап|напоминание|напоминания|r):[^@]*$/i.test(preceding)) continue;
       const temporary = normalized.slice(0, start) + '@' + normalized.slice(start);
       result = suggestInternal(temporary, caret + 1, now, language);
       if (/(?:^|\s)(?:в\s+)?(?:след|следу(?:ю)?щ(?:ий|ую|ая|ем))\s*$/i.test(preceding)) {

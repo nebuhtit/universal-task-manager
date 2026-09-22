@@ -69,7 +69,6 @@ function AllItemsCollections({ items, fields, workspace, now, onEdit, onState }:
   const collections = [
     { name: 'Overdue', help: 'Open items whose deadline has passed.', items: items.filter((item) => item.state === 'open' && item.schedule?.dueAt && new Date(item.schedule.dueAt).getTime() < now.getTime()) },
     { name: 'Unscheduled', help: 'Open items without a scheduled time or deadline.', items: items.filter((item) => item.state === 'open' && !item.schedule?.startAt && !item.schedule?.dueAt) },
-    { name: 'With reminders', help: 'Items that still have at least one active reminder.', items: items.filter((item) => item.reminders.some((reminder) => !reminder.acknowledgedAt)) },
   ];
   return <PersistedDetails uiKey="all:planning" defaultOpen={false} className="all-item-collections">
     <summary><span>Planning &amp; attention</span><b>{collections.reduce((total, collection) => total + collection.items.length, 0)}</b></summary>
@@ -136,6 +135,10 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
         <PersistedDetails uiKey="all:recurring" defaultOpen={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.</p><div className={longListClass('item-list', recurringItems.length)}>{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></PersistedDetails>
       </ItemSourceSection>
     </div>
+    <PersistedDetails uiKey="all:reminders" defaultOpen={false} className="all-items-source-section">
+      <summary><span>With reminders</span><b>{statusItems.filter(item => item.reminders.length > 0).length}</b></summary>
+      <div className={longListClass('item-list', statusItems.length)}>{statusItems.filter(item => item.reminders.length > 0).map(item => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={state => onState(item, state)} />)}</div>
+    </PersistedDetails>
     <AllItemsCollections items={visibleItems} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState} />
     <DeletedItemsList items={deletedItems} onRestore={onRestore} onClear={onClearTrash} onDelete={onDelete} />
     <AllItemsSettings open={settingsOpen} workspace={workspace} view={view} onClose={() => setSettingsOpen(false)} onSave={onSaveView} />

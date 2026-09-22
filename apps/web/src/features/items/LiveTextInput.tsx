@@ -1,15 +1,18 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { orderedOrganizationNames, type WorkspaceDocument } from '@utm/core';
+import { organizationSuggestions } from '../../../quick-entry-lab/organization';
 import { dateValueExpression, parseLiveEntry as parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
 import { Button, Input, Textarea } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { saveLiveTextReport } from './liveTextReports';
 import './live-text.css';
 
-export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, timeZone, onSubmit }: {
+export function LiveTextInput({ value, onChange, workspaceId, workspace, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, timeZone, onSubmit }: {
   value: string; onChange: (value: string) => void; workspaceId: string; suggestionsEnabled?: boolean;
   inputRef?: RefObject<HTMLInputElement | null>; multiline?: boolean; overlaySuggestions?: boolean; placeholder?: string; ariaLabel?: string; now: Date; error?: string; id?: string; autoFocus?: boolean; language?: string; onViewCalendarDate?: (dateKey: string) => void; timeZone?: string;
   onSubmit?: (text: string) => void;
+  workspace?: WorkspaceDocument;
 }) {
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
   const touchStartY = useRef<number | null>(null);
@@ -54,7 +57,8 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
     const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return `${fields.year}-${fields.month}-${fields.day}`;
   }, [onViewCalendarDate, parsed.plannedDate, parsed.start, parsed.due, timeZone, value]);
-  const suggestions = useMemo(() => suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language]);
+  const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: orderedOrganizationNames(workspace, 'tag') } : { area: [], project: [], tag: [] }, [workspace]);
+  const suggestions = useMemo(() => organizationSuggestions(value, caret, catalog) ?? suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language, catalog]);
   const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
   useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = suggestions.ordered ? 0 : panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
   useEffect(() => { if (expanded && selected >= 0) document.getElementById(`${id}-option-${selected}`)?.scrollIntoView({ block: 'nearest' }); }, [expanded, selected, id]);

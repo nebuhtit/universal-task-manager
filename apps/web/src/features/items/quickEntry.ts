@@ -1,5 +1,6 @@
 import { createId, createItem, durationToMs, type UniversalItem } from '@utm/core';
 import { dateValueExpression, parseDate, parseLiveEntry as parseEntry, type Draft } from '../../../quick-entry-lab/parser';
+import { extractOrganization } from '../../../quick-entry-lab/organization';
 
 export const QUICK_ENTRY_SOURCE = 'utm:quickEntrySource';
 export type QuickEntrySource = { text: string; timezone: string; grammarVersion?: 2 };
@@ -35,6 +36,7 @@ export function quickEntrySource(item: UniversalItem): QuickEntrySource | null {
 
 /** Freeze relative dates at creation while preserving the rest of the wording. */
 export function materializeQuickEntryText(text: string, now: Date): string {
+  if (text.trimStart().startsWith('.')) return text;
   // Freeze a complete named date, never replace its month alone with a
   // standalone month suggestion (which would introduce a guessed clock).
   text = text.replace(/"[^"\n]*"|«[^»\n]*»|\b(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+\d{2,4}(?![\d:]))?/gi, (match, day: string | undefined) => {
@@ -67,7 +69,7 @@ const replacements: Array<{ start: number; end: number; value: string }> = [];
     if (!parseEntry(text, now).title) text = `Сейчас ${text}`;
   }
   let nextReminder = 0;
-  text = text.replace(/(^|\s)(напомнить|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2}(?::|\s)\d{2})(?=\s|$)/gi, (match, leading: string, key: string, clock: string) => {
+  text = text.replace(/(^|\s)(напомнить|нап|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2}(?::|\s)\d{2})(?=\s|$)/gi, (match, leading: string, key: string, clock: string) => {
     const at = parseEntry(`Reminder напомнить ${clock}`, now).reminders[0]?.at;
     return at ? `${leading}${key} в ${localDateTime(at)}` : match;
   });
@@ -89,7 +91,9 @@ function reminderItems(draft: Draft): UniversalItem['reminders'] {
 export function applyQuickEntryText(item: UniversalItem, text: string, now: Date): { item: UniversalItem; draft: Draft } {
   const draft = parseEntry(text, now);
   if (draft.errors.length) throw new Error(draft.errors.join(' '));
-  const normalizedText = materializeQuickEntryText(text, now);
+  const organization = extractOrganization(text);
+  const metadata = [...organization.areas.map(name => `area:${JSON.stringify(name)}`), ...organization.projects.map(name => `project:${JSON.stringify(name)}`), ...organization.tags.map(name => `#${JSON.stringify(name)}`)];
+  const normalizedText = [materializeQuickEntryText(organization.text, now), ...metadata].join(' ');
   const schedule = { timezone: item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...item.schedule };
   if (draft.due) schedule.dueAt = draft.due; else delete schedule.dueAt;
   if (draft.plannedDate) schedule.plannedDate = draft.plannedDate; else delete schedule.plannedDate;
@@ -100,6 +104,10 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   return {
     item: {
       ...item, title: draft.title, schedule, reminders: reminderItems(draft),
+      ...(draft.isNote ? { isNote: true, canBeCompleted: false } : {}),
+      ...(draft.areas?.length ? { areas: draft.areas } : {}),
+      ...(draft.projects?.length ? { projects: draft.projects } : {}),
+      ...(draft.tags?.length ? { tags: draft.tags } : {}),
       extensions: { ...item.extensions, [QUICK_ENTRY_SOURCE]: { text: normalizedText, timezone: schedule.timezone, grammarVersion: 2 } satisfies QuickEntrySource },
     }, draft,
   };
@@ -108,7 +116,7 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
 export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate?: string): UniversalItem {
   let original = text.trim();
   if (!original) throw new Error('Добавьте название.');
-  if (defaultPlannedDate) {
+  if (defaultPlannedDate && !original.startsWith('.')) {
     const masked = original.replace(/"[^"\n]*"|«[^»\n]*»/g, value => ' '.repeat(value.length));
     const explicitDay = new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(masked);
     const clock = /(?:^|\s)(\d{1,2}:\d{2})(?=\s|$)/.exec(masked);
@@ -119,6 +127,7 @@ export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate
   }
   try {
     const created = applyQuickEntryText(createItem('', 'task', now), original, now);
+    if (created.draft.isNote) return created.item;
     if (!created.draft.start) {
       if (defaultPlannedDate && !created.draft.plannedDate && !created.draft.due && !created.draft.end) {
         created.item.schedule = { ...created.item.schedule!, plannedDate: defaultPlannedDate };
@@ -231,7 +240,7 @@ export function syncQuickEntrySource(previous: UniversalItem, next: UniversalIte
       const anchor = reminder.relativeTo === 'due' ? 'срок' : 'начало';
       return amount > 0 ? `${anchor}${reminder.offset?.startsWith('-') ? '-' : '+'}${amount}м` : '';
     }).filter(Boolean).join(',');
-    const command = /(^|\s)(напомнить|напомни|напоминание|напоминания|напомянание|remind|reminder|r)\s+.+?(?=\s+(?:срок|due|начало|start|конец|end|дорога|ехать|тт|tt|travel|drive|длительность|duration|event\s+opens|event\s+ends)\s+|$)/i.exec(text);
+    const command = /(^|\s)(напомнить|нап|напомни|напоминание|напоминания|напомянание|remind|reminder|r)\s+.+?(?=\s+(?:срок|due|начало|start|конец|end|дорога|ехать|тт|tt|travel|drive|длительность|duration|event\s+opens|event\s+ends)\s+|$)/i.exec(text);
     if (command) text = text.slice(0, command.index) + (values ? `${command[1]}${command[2]} ${values}` : '') + text.slice(command.index + command[0].length);
     else if (values) text += ` напомнить ${values}`;
   }
