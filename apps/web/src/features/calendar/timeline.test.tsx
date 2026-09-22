@@ -19,6 +19,29 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it('renders travel separately, protects it from hidden sleep and leaves the source unchanged', () => {
+    const event = item('Meeting', { startAt: iso(10), endAt: iso(11), travelDuration: 'PT30M' });
+    const sleep = item('Sleep', { startAt: iso(0), endAt: iso(10) });
+    const w = workspace(event, sleep);
+    w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: true, sleepItemId: sleep.id };
+    const before = JSON.stringify(w);
+    const data = timelineData(w, '2026-09-22', now);
+    expect(data.events.find(value => value.travel)).toMatchObject({ start: at(9, 30), end: at(10) });
+    expect(data.hidden).toEqual([{ start: at(0), end: at(9, 30) }]);
+    const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(html).toContain('timeline-event timeline-travel');
+    expect(html).toContain('30 min');
+    expect(html).toContain('data-testid="timeline-event"');
+    expect(JSON.stringify(w)).toBe(before);
+  });
+  it('shows the previous-day portion of travel even when the event starts tomorrow', () => {
+    const w = workspace(item('Tomorrow', { startAt: '2026-09-23T00:15:00Z', endAt: '2026-09-23T01:00:00Z', travelDuration: 'PT30M' }));
+    const data = timelineData(w, '2026-09-22', now);
+    expect(data.events).toHaveLength(1);
+    expect(data.events[0]?.travel).toBe(true);
+    const layout = layoutEvents(data.events, data.day, buildSegments(data.day, []), 2);
+    expect(layout.events[0]?.continuedAfter).toBe(true);
+  });
   it('uses explicit boundaries, start+duration and end/due-duration without modifying items', () => {
     const i = item('due', { dueAt: iso(18), estimatedDuration: 'PT2H' });
     const before = JSON.stringify(i);

@@ -7,6 +7,15 @@ const periodView = (source = 'state == "open" && scheduleInPeriod("today", "even
 });
 
 describe('view time statistics', () => {
+  it('counts travel as busy and unions its overlap with another event', () => {
+    const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
+    const meeting = createItem('Meeting', 'event');
+    meeting.schedule = { timezone: 'UTC', startAt: '2026-08-31T10:00:00Z', endAt: '2026-08-31T11:00:00Z', travelDuration: 'PT30M' };
+    const other = createItem('Other', 'event');
+    other.schedule = { timezone: 'UTC', startAt: '2026-08-31T09:00:00Z', endAt: '2026-08-31T09:45:00Z' };
+    workspace.items = { [meeting.id]: meeting, [other.id]: other };
+    expect(calculateViewTimeMetrics(workspace, periodView(), [meeting, other], new Date('2026-08-31T12:00:00Z')).freeDurationMs).toBe(22 * 3600000);
+  });
   it('unions overlapping events and reservations instead of subtracting them twice', () => {
     const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
     const items = [[10, 12], [11, 13], [12, 14]].map(([start, end]) => {

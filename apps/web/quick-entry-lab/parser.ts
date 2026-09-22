@@ -689,7 +689,7 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
   }
   const leading = /\s$/.test(input.slice(0, caret)) ? '' : ' ';
   return { start, end, ordered: true, options: Array.from({ length: 24 }, (_, index) => {
-    const firstHour = rangeStart ? new Date(rangeStart).getHours() : 6;
+    const firstHour = rangeStart ? new Date(rangeStart).getHours() + 1 : 6;
     const clock = String((index + firstHour) % 24).padStart(2, '0');
     const nextDay = rangeStart && index + firstHour >= 24;
     return { label: `${nextDay ? language === 'ru' ? 'следующий день ' : 'next day ' : ''}${clock}:`, insert: `${leading}${clock}:`, detail: nextDay ? language === 'ru' ? 'На следующий день после начала' : 'Day after the range start' : detail };

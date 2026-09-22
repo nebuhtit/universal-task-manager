@@ -1,7 +1,7 @@
-import { effectiveItemDurationMs, zonedDateStart, type UniversalItem } from '@utm/core';
+import { durationToMs, effectiveItemDurationMs, zonedDateStart, type UniversalItem } from '@utm/core';
 
 export type Interval = { start: number; end: number };
-export type TimelineEvent = Interval & { item: UniversalItem; point: boolean; invalid: boolean };
+export type TimelineEvent = Interval & { item: UniversalItem; point: boolean; invalid: boolean; travel?: boolean };
 export type Segment = Interval & { top: number; height: number; hidden: boolean };
 export type PlacedEvent = TimelineEvent & { top: number; height: number; column: number; columns: number; continuedBefore: boolean; continuedAfter: boolean };
 export type MoreBlock = { top: number; height: number; column: number; columns: number; items: UniversalItem[] };
@@ -31,6 +31,15 @@ export function itemInterval(item: UniversalItem): TimelineEvent | null {
 
 export function intersects(interval: Interval, day: Interval): boolean {
   return interval.start === interval.end ? interval.start >= day.start && interval.start < day.end : interval.start < day.end && interval.end > day.start;
+}
+
+export function travelInterval(item: UniversalItem): TimelineEvent | null {
+  const end = Date.parse(item.schedule?.startAt ?? '');
+  try {
+    const duration = durationToMs(item.schedule?.travelDuration ?? 'PT0S');
+    return Number.isFinite(end) && Number.isFinite(duration) && duration > 0
+      ? { item, start: end - duration, end, point: false, invalid: false, travel: true } : null;
+  } catch { return null; }
 }
 
 export function mergeIntervals(intervals: Interval[]): Interval[] {
@@ -95,7 +104,8 @@ export function layoutEvents(events: TimelineEvent[], day: Interval, segments: S
     for (const event of overflow) {
       const previous = more.at(-1);
       if (previous && previous.columns === columns && event.top < previous.top + previous.height) {
-        previous.height = Math.max(previous.height, event.top + event.height - previous.top); previous.items.push(event.item);
+        previous.height = Math.max(previous.height, event.top + event.height - previous.top);
+        if (!previous.items.some(item => item.id === event.item.id)) previous.items.push(event.item);
       } else more.push({ top: event.top, height: event.height, column: limit - 1, columns, items: [event.item] });
     }
     group = []; groupEnd = -Infinity;

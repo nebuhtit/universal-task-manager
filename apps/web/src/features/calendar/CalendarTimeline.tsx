@@ -85,15 +85,17 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
           const calendar = workspace.calendarPreferences.googleCalendar?.calendars.find(value => value.id === event.item.external?.calendarId);
           const color = calendar?.color ?? organization?.color;
           const safeColor = color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined;
-          const extra = event.height >= 72 ? workspace.calendarPreferences.dayView.fields.filter(field => field !== 'title' && field !== 'external.provider').map(field => {
+          const extra = !event.travel && event.height >= 72 ? workspace.calendarPreferences.dayView.fields.filter(field => field !== 'title' && field !== 'external.provider').map(field => {
             const value = field === 'schedule.estimatedDuration' && !event.point ? `PT${Math.round((event.end - event.start) / 1000)}S` : readItemField(event.item, field, workspace, now);
             return { field, text: displayViewValue(value, field, workspace.calendarPreferences.language) };
           }).filter(entry => entry.text) : [];
           const interval = `${timeLabel(event.start, zone)}${event.point ? '' : `–${timeLabel(event.end, zone)}`}`;
-          return <button type="button" key={event.item.id} className="timeline-event" style={{ ...columnStyle(event), ...(safeColor ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={`${event.item.title} · ${interval}`} aria-label={`${event.item.title} · ${interval}`} data-testid="timeline-event">
-            <strong>{event.invalid && '⚠ '}{event.continuedBefore && '← '}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
+          const travelLabel = event.travel ? `${ru ? 'В пути' : 'Travel'} · ${displayViewValue(`PT${Math.round((event.end - event.start) / 1000)}S`, 'schedule.travelDuration', workspace.calendarPreferences.language)}` : '';
+          const label = `${travelLabel ? `${travelLabel} · ` : ''}${event.item.title} · ${interval}`;
+          return <button type="button" key={`${event.item.id}:${event.travel ? 'travel' : 'event'}`} className={`timeline-event${event.travel ? ' timeline-travel' : ''}`} style={{ ...columnStyle(event), ...(safeColor ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travel ? 'timeline-travel' : 'timeline-event'}>
+            <strong>{event.invalid && '⚠ '}{event.continuedBefore && '← '}{travelLabel ? `${travelLabel} · ` : ''}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
             {event.height >= 54 && <small>{interval}</small>}{extra.map(({ field, text }, i) => <small key={i} style={safeColor && (field === 'tags' || field === 'external.calendarId') ? { color: safeColor } : undefined}>{text}</small>)}
-            {event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
+            {!event.travel && event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
           </button>;
         })}
         {layout.more.map((block, i) => <button type="button" key={i} className="timeline-event timeline-more" style={columnStyle(block)} onClick={() => setMore(block.items)}>More · {block.items.length}</button>)}

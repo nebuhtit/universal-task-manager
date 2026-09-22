@@ -2,7 +2,7 @@ import { compileQuery, createOccurrence, effectiveItemDurationMs, googleCalendar
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { viewItemForEvaluation } from '../views/viewSelectors';
-import { dayBounds, hiddenIntervals, intersects, itemInterval, type TimelineEvent } from './timelineLayout';
+import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, type TimelineEvent } from './timelineLayout';
 
 export function timelineData(workspace: WorkspaceDocument, key: string, now: Date) {
   const preferences = workspace.calendarPreferences;
@@ -77,9 +77,11 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
       continue;
     }
     if (!interval) { undated.push(item); continue; }
-    if (!intersects(interval, day)) continue;
     const scheduledBy = item.schedule?.startAt || item.schedule?.endAt ? ['event_open', 'event', 'active'] : item.schedule?.dueAt ? ['due', 'active'] : ['active'];
     if (!sources.some(value => scheduledBy.includes(value))) continue;
+    const travel = travelInterval(item);
+    if (travel && intersects(travel, day)) events.push(travel);
+    if (!intersects(interval, day)) continue;
     if (item.schedule?.allDay) allDay.push(item);
     else events.push(interval);
   }

@@ -13,7 +13,7 @@ async function setup(page: Page) {
     const item = createItem(`Overlap ${i}`, 'task', now);
     item.schedule = { timezone: 'UTC', startAt: '2026-09-22T12:00:00Z', endAt: '2026-09-22T13:00:00Z' }; w.items[item.id] = item;
   }
-  const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T14:00:00Z', endAt: '2026-09-22T14:01:00Z' }; w.items[short.id] = short;
+  const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T14:00:00Z', endAt: '2026-09-22T14:01:00Z', travelDuration: 'PT30M' }; w.items[short.id] = short;
   const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; w.items[sleep.id] = sleep;
   const none = createItem('Undated sentinel', 'task', now); w.items[none.id] = none;
   const allDay = createItem('All day sentinel', 'event', now); allDay.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-23T00:00:00Z', allDay: true }; w.items[allDay.id] = allDay;
@@ -63,6 +63,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   const minute = page.locator('.timeline-events').getByRole('button', { name: /^One minute title/ }); await minute.scrollIntoViewIfNeeded();
   expect((await minute.boundingBox())!.height).toBeGreaterThanOrEqual(36);
   await expect(minute.locator('strong')).toHaveText('One minute title');
+  await expect(page.getByTestId('timeline-travel')).toHaveCSS('border-top-style', 'dashed');
+  await expect(page.getByTestId('timeline-travel')).toContainText('30 min');
+  await expect(minute).toHaveCSS('border-top-style', 'solid');
   const more = page.getByRole('button', { name: /^More ·/ }).first(); await more.click();
   const dialog = page.getByRole('dialog', { name: 'Timeline overlapping items' }); await expect(dialog).toBeVisible();
   expect(await dialog.getByRole('button', { name: /^Overlap/ }).count()).toBe((page.viewportSize()?.width ?? 0) <= 620 ? 5 : 3);

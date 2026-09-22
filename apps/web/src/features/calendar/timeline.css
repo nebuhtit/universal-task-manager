@@ -14,6 +14,7 @@
 .timeline-event strong { font-weight: var(--font-weight-semibold); }
 .timeline-event small { font-size: var(--font-size-caption); color: var(--color-text-secondary); }
 .timeline-event:focus-visible { z-index: 3; }
+.timeline-travel { border-style: dashed; }
 .timeline-more { background: var(--color-surface-elevated); font-weight: var(--font-weight-semibold); }
 .timeline-break { position: absolute; inset-inline: 0; display: flex; align-items: center; justify-content: center; border-block: 1px dashed var(--color-border); background: var(--color-surface-muted); font-size: var(--font-size-caption); color: var(--color-text-secondary); }
 .timeline-now { position: absolute; inset-inline: 0; border-top: 2px solid var(--color-destructive); z-index: 2; pointer-events: none; }
