@@ -70,7 +70,7 @@ describe('timeline data and UI', () => {
   it('keeps one linked Google identity and leaves local history untouched', () => {
     const linked = item('linked', { dueAt: iso(18), estimatedDuration: 'PT20M' });
     linked.extensions = { 'utm:googleCreate': { eventId: 'remote', calendarId: 'calendar', accountEmail: 'test' } };
-    linked.completionEntries = [{ id: 'done', at: iso(9), kind: 'manual' }];
+    linked.completionEntries = [{ id: 'done', at: iso(9), kind: 'manual', comment: 'Preserve history' }];
     const w = workspace(linked);
     applyGoogleCalendarSync(w, { calendarId: 'calendar', connectionId: 'connection', syncedAt: iso(10), fullSync: false, events: [{ id: 'remote', summary: 'Linked', start: { dateTime: iso(12) }, end: { dateTime: iso(13) }, etag: 'v1' }] });
     const before = JSON.stringify(w), data = timelineData(w, '2026-09-22', now);
