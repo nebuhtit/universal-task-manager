@@ -53,6 +53,7 @@
   --color-surface-depth-4: #f8f3e9;
   --color-surface-translucent: rgba(255, 255, 255, 0.92);
   --color-capture-idle: rgba(255, 255, 255, 0.34);
+  --blur-capture-idle: 6px;
   --color-capture-active: rgba(255, 255, 255, 0.56);
   --color-capture-border-idle: rgba(0, 0, 0, 0.12);
   --color-text: #0d0d0d;

@@ -6,6 +6,17 @@ import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDo
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
 
 describe('workspace lifecycle integration', () => {
+  it('reopens a history-bearing workspace without duplicating its Automerge backend', () => {
+    let source = document();
+    for (let index = 0; index < 100; index += 1) source = Automerge.change(source, (draft) => { draft.name = `Revision ${index}`; });
+    const loaded = Automerge.load<WorkspaceDocument>(Automerge.save(source));
+    const heads = Automerge.getHeads(loaded);
+    const writable = writableWorkspaceDocument(loaded);
+    expect(writable).toBe(loaded);
+    expect(Automerge.getHeads(writable)).toEqual(heads);
+    const edited = commitWorkspaceDocument(writable, 'Edit after reopen', (draft) => { draft.name = 'Reopened'; });
+    expect(Automerge.load<WorkspaceDocument>(Automerge.save(edited)).name).toBe('Reopened');
+  });
   it('validates a current Automerge workspace without cloning it for migration', () => {
     expect(validateWorkspace(document()).valid).toBe(true);
   });

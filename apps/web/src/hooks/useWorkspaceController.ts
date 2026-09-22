@@ -101,10 +101,9 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     try {
       deliveredReminderIds.current.clear();
     let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
-    // A document returned by storage can already have been used by a previous
-    // activation attempt. Automerge deliberately makes such instances
-    // read-only; cloning gives every attempt an independent writable head and
-    // leaves the encrypted source untouched until persistence succeeds.
+    // Reuse a fresh storage document. A retry with an outdated head is forked
+    // by writableWorkspaceDocument; persisted encrypted bytes stay untouched
+    // until the normal verified persistence path succeeds.
     const sourceVersion = String(unlocked.document.schemaVersion ?? '1.0.0');
     activationStage = 'migration';
     // Current, valid documents need no whole-workspace structured clone for a

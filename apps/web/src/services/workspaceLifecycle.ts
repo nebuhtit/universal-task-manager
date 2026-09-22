@@ -3,9 +3,17 @@ import type { ReconcileResult, WorkspaceDocument } from '@utm/core';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-/** Gives each activation attempt a writable Automerge head. */
+/** Reuse a freshly loaded backend; only a retried historical head needs a fork. */
 export function writableWorkspaceDocument(document: Automerge.Doc<WorkspaceDocument>): Automerge.Doc<WorkspaceDocument> {
-  return Automerge.clone(document);
+  try {
+    // A no-op change checks writability without creating operations or a second
+    // WASM backend. Cloning every loaded document doubles its full history,
+    // even when only a handful of current items remain.
+    return Automerge.change(document, () => undefined);
+  } catch (reason) {
+    if (reason instanceof RangeError && /outdated document/i.test(reason.message)) return Automerge.clone(document);
+    throw reason;
+  }
 }
 
 export function commitWorkspaceDocument(document: Automerge.Doc<WorkspaceDocument>, message: string, mutation: (draft: WorkspaceDocument) => void, now = new Date()): Automerge.Doc<WorkspaceDocument> {
