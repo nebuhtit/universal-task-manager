@@ -1,15 +1,18 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
-import { parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
+import { createPortal } from 'react-dom';
+import { dateValueExpression, parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
 import { Button, Input, Textarea } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { saveLiveTextReport } from './liveTextReports';
 import './live-text.css';
 
-export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus }: {
+export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, timeZone }: {
   value: string; onChange: (value: string) => void; workspaceId: string; suggestionsEnabled?: boolean;
-  inputRef?: RefObject<HTMLInputElement | null>; multiline?: boolean; overlaySuggestions?: boolean; placeholder?: string; ariaLabel?: string; now: Date; error?: string; id?: string; autoFocus?: boolean; language?: string;
+  inputRef?: RefObject<HTMLInputElement | null>; multiline?: boolean; overlaySuggestions?: boolean; placeholder?: string; ariaLabel?: string; now: Date; error?: string; id?: string; autoFocus?: boolean; language?: string; onViewCalendarDate?: (dateKey: string) => void; timeZone?: string;
 }) {
-  const root = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
+  const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
+  const touchStartY = useRef<number | null>(null);
+  const lastTouchSelection = useRef(0);
   const control = () => multiline ? textarea.current : (inputRef ?? ownInput).current;
   const id = useId();
   const [focused, setFocused] = useState(false), [open, setOpen] = useState(false), [caret, setCaret] = useState(value.length), [selected, setSelected] = useState(-1);
@@ -21,8 +24,17 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
   const [date, setDate] = useState('');
   const [overlayStyle, setOverlayStyle] = useState<CSSProperties>();
   const parsed = useMemo(() => parseEntry(value, referenceTime), [value, referenceTime]);
+  const calendarDate = useMemo(() => {
+    if (!onViewCalendarDate || !new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(value)) return null;
+    const at = parsed.start ?? parsed.due;
+    if (!at) return null;
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at));
+    const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${fields.year}-${fields.month}-${fields.day}`;
+  }, [onViewCalendarDate, parsed.start, parsed.due, timeZone, value]);
   const suggestions = useMemo(() => suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language]);
   const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
+  useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = panel.current.scrollHeight; }, [expanded, value]);
   useEffect(() => { if (expanded && selected >= 0) document.getElementById(`${id}-option-${selected}`)?.scrollIntoView({ block: 'nearest' }); }, [expanded, selected, id]);
   useLayoutEffect(() => {
     if (pendingCaret.current === null) return;
@@ -36,6 +48,12 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
     const viewportTop = window.visualViewport?.offsetTop ?? 0;
     const dialogTop = element.closest('.ui-dialog-popup')?.getBoundingClientRect().top ?? viewportTop;
     const availableAbove = Math.max(0, rect.top - Math.max(viewportTop, dialogTop));
+    const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
+    const availableBelow = Math.max(0, viewportBottom - rect.bottom);
+    if (window.innerWidth <= 620 && availableBelow >= 96) {
+      setOverlayStyle({ left: rect.left, width: rect.width, top: `calc(${rect.bottom}px + var(--space-2))`, bottom: 'auto', maxHeight: `max(0px, calc(${availableBelow}px - 2 * var(--space-2)))` });
+      return;
+    }
     setOverlayStyle({
       left: rect.left,
       width: rect.width,
@@ -63,7 +81,7 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
   const choose = (index: number) => {
     const option = suggestions.options[index]; if (!option) return;
     if (option.calendar) { setCalendar({ ...suggestions, insert: option.insert, source: value }); setDate(''); setOpen(false); return; }
-    replace(suggestions.start, suggestions.end, option.insert);
+    replace(option.replaceStart ?? suggestions.start, option.replaceEnd ?? suggestions.end, option.insert);
   };
   const message = error || parsed.errors.join(' ');
   const format = (at: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(at));
@@ -84,16 +102,19 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
       else if (expanded && selected >= 0 && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(selected); }
     },
   };
-  return <div className="live-text-input" ref={root}>
-    {focused && value.trim() && <div className={`live-text-panel${overlayStyle ? ' live-text-panel-overlay' : ''}`} style={overlayStyle}>
+  const suggestionPanel = focused && value.trim() && <div ref={panel} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-overlay' : ''}`} style={overlayStyle}>
       {suggestionsEnabled && summary && <div className="live-text-preview">{summary}</div>}
       {message && <div role="alert" className="ui-field-error">{message}</div>}
-      {expanded && <div id={`${id}-options`} role="listbox" aria-label="Подсказки Live text" className="live-text-options">
-        {suggestions.options.map((option, index) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onClick={() => choose(index)}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
-      </div>}
+      {expanded && overlaySuggestions && <Button size="compact" variant="ghost" aria-label="Close Live text suggestions" onPointerDown={(event) => event.preventDefault()} onClick={() => setOpen(false)}>×</Button>}
+      {calendarDate && <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onClick={() => onViewCalendarDate?.(calendarDate)}>{/[а-яё]/i.test(value) ? 'Посмотреть в календаре' : 'View in calendar'}</Button>}
       <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onClick={() => { setReport({ input: value, parsed, referenceTime: referenceTime.toISOString() }); setExpected(''); setReportError(''); }}>Сообщить о неточности</Button>
       {notice && <small role="status">{notice}</small>}
-    </div>}
+      {expanded && <div id={`${id}-options`} role="listbox" aria-label="Подсказки Live text" className="live-text-options">
+        {suggestions.options.map((option, index) => ({ option, index })).reverse().map(({ option, index }) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && endY !== undefined && Math.abs(endY - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); choose(index); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) choose(index); }}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
+      </div>}
+    </div>;
+  return <div className="live-text-input" ref={root}>
+    {suggestionPanel && (overlaySuggestions && typeof document !== 'undefined' ? createPortal(suggestionPanel, document.body) : suggestionPanel)}
     {multiline ? <Textarea {...common} ref={textarea} rows={4} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint="done" />}
     {report && <ResponsiveDialog open onOpenChange={(visible) => { if (!visible) setReport(null); }} title="Ошибка разбора Live text" ariaLabel="Ошибка разбора Live text" finalFocus={() => control() ?? false}>
       <p className="live-text-report-source">{report.input}</p>

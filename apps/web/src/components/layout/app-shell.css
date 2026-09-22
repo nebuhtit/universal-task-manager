@@ -209,7 +209,8 @@
 
 @media (max-width: 950px) {
   .sidebar { display: none; }
-  .topbar { display: grid; grid-template-columns: 132px minmax(0, 1fr) 132px; }
+  .content { padding-top: var(--layout-topbar-height); }
+  .topbar { position: fixed; top: 0; right: 0; left: 0; display: grid; grid-template-columns: 132px minmax(0, 1fr) 132px; }
   .topbar > div:first-child { grid-area: auto; grid-column: 2; min-width: 0; display: flex; justify-content: center; overflow: hidden; pointer-events: auto; }
   .top-summary { position: static; width: 100%; max-width: 100%; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
   .top-actions { grid-column: 3; justify-content: flex-end; }
@@ -224,6 +225,7 @@
 }
 
 @media (max-width: 620px) {
+  .content { --layout-topbar-height: 60px; }
   .topbar { height: 60px; padding: 0 var(--space-4); }
   .notice-tray,
   .notification-center { top: 61px; right: var(--space-4); }

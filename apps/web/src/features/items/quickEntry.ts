@@ -49,6 +49,7 @@ const replacements: Array<{ start: number; end: number; value: string }> = [];
   }
   for (const replacement of replacements.reverse()) text = text.slice(0, replacement.start) + replacement.value + text.slice(replacement.end);
   const currentDue = parseEntry(text, now).due;
+  if (currentDue) text = text.replace(/(^|\s)(?:до|by)\s+\d{1,2}(?::|\s)\d{2}(?=\s|$)/i, (match, leading: string) => `${leading}до ${localDateTime(currentDue)}`);
   if (currentDue && /(?:^|\s)(?:сейчас|now)(?=\s|$)/i.test(text)) {
     text = text.replace(/(?:^|\s)(?:сейчас|now)(?=\s|$)/i, (match) => `${match.startsWith(' ') ? ' ' : ''}до ${localDateTime(currentDue)}`);
     if (!parseEntry(text, now).title) text = `Сейчас ${text}`;

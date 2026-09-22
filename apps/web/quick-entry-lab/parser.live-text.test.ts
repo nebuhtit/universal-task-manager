@@ -28,6 +28,14 @@ it('makes now a due in ten minutes', () => {
   expect(parseEntry(materializeQuickEntryText('Звонок сейчас', now), new Date(2026, 8, 24)).due).toBe(iso(2026, 8, 22, 13, 20));
 });
 
+it('treats a clock-only до as the next due time, not an event start', () => {
+  const afternoon = new Date(2026, 8, 22, 14, 40);
+  expect(parseEntry('Пук до 9 00', afternoon)).toMatchObject({ title: 'Пук', start: null, due: iso(2026, 8, 23, 9, 0), errors: [] });
+  expect(parseEntry('Пук до 16:00', afternoon)).toMatchObject({ title: 'Пук', start: null, due: iso(2026, 8, 22, 16, 0), errors: [] });
+  const frozen = materializeQuickEntryText('Пук до 9 00', afternoon);
+  expect(parseEntry(frozen, new Date(2026, 8, 25))).toMatchObject({ title: 'Пук', start: null, due: iso(2026, 8, 23, 9, 0), errors: [] });
+});
+
 it('reads a compact same-day clock range after a date', () => {
   expect(parseEntry('съесть завтра 15 - 18 00', now)).toMatchObject({
     title: 'съесть', start: iso(2026, 8, 23, 15, 0), end: iso(2026, 8, 23, 18, 0), durationMinutes: 180, errors: [],
@@ -46,11 +54,24 @@ it('suggests dayparts and language-matched commands after a date', () => {
   expect(english.options.some(option => /утром|напомнить/.test(option.label))).toBe(false);
 });
 
+it('turns a dated reminder daypart into due and a reminder at the same time', () => {
+  const input = 'Звонок завтра';
+  const suggestions = suggest(input, input.length, now, 'ru');
+  for (const [label, hour] of [['напомнить утром', 7], ['напомнить днём', 11], ['напомнить вечером', 18], ['напомнить ночью', 21]] as const) {
+    const option = suggestions.options.find(candidate => candidate.label === label)!;
+    expect(option).toBeDefined();
+    const text = input.slice(0, option.replaceStart ?? suggestions.start) + option.insert + input.slice(option.replaceEnd ?? suggestions.end);
+    expect(parseEntry(text, now)).toMatchObject({ title: 'Звонок', start: null, due: iso(2026, 8, 23, hour, 0), errors: [] });
+    expect(parseEntry(text, now).reminders[0]?.at).toBe(iso(2026, 8, 23, hour, 0));
+  }
+});
+
 it('explains reminder suggestions with the actual time and hides past reminders', () => {
   const future = suggest('Встреча завтра ', 'Встреча завтра '.length, now, 'ru').options;
   expect(future.some(option => option.label.includes('08:00') && option.detail.includes('60 мин до начала'))).toBe(true);
   const past = suggest('Встреча вторник ', 'Встреча вторник '.length, now, 'ru').options;
-  expect(past.some(option => option.insert.includes('напомнить:'))).toBe(false);
+  expect(past.some(option => option.label.includes('08:00'))).toBe(false);
+  expect(past.some(option => option.label === 'напомнить вечером')).toBe(true);
 });
 
 it('offers only time choices once a complete date is entered', () => {

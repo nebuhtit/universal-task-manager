@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   createOccurrence,
   type ItemPreset, type ProjectedOccurrence, type UniversalItem, type ViewTimeMetrics, type WorkspaceDocument,
@@ -45,7 +45,7 @@ function weekStart(key: string, startsOn: 0 | 1): string {
 
 const navigationMetrics = (metrics: ViewTimeMetrics): ViewTimeMetrics => ({ ...metrics, remainingDurationMs: 0 });
 
-export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem: _createUiItem, celebrationColors = new Map() }: {
+export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem: _createUiItem, celebrationColors = new Map(), requestedDate }: {
   workspace: WorkspaceDocument;
   now?: Date;
   commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
@@ -53,11 +53,13 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void;
   createUiItem: (title?: string, preset?: ItemPreset, now?: Date) => UniversalItem;
   celebrationColors?: ReadonlyMap<string, string>;
+  requestedDate?: { key: string; request: number };
 }) {
   const preferences = workspace.calendarPreferences;
   const navigationNow = useWorkspaceBoundaryNow(workspace, suppliedNow);
   const initialNow = suppliedNow ?? navigationNow;
   const [selectedDate, setSelectedDate] = useState(() => localDateKey(initialNow, preferences.timezone));
+  useEffect(() => { if (requestedDate) setSelectedDate(requestedDate.key); }, [requestedDate]);
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
   const [editorOpen, setEditorOpen] = useState(false);
   const dayPanelRef = useRef<HTMLDivElement>(null);

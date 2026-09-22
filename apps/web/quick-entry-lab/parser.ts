@@ -211,6 +211,21 @@ export function parseEntry(input: string, now: Date): Draft {
     else result.errors.push(`Не разобрана дата «${match[1]}».`);
     consume(match.index!, match[0].length);
   }
+  // A due clock without a date means the next occurrence of that clock.
+  // Keep it distinct from Event opens: “до 9 00” at 14:00 is tomorrow 09:00.
+  const clockOnlyDue = /(?:^|\s)(?:до|by)\s+(\d{1,2})(?::|\s)(\d{2})(?=\s|$)/gi;
+  for (const match of [...text.matchAll(clockOnlyDue)]) {
+    once('due');
+    const hour = Number(match[1]), minute = Number(match[2]);
+    if (hour > 23 || minute > 59) result.errors.push(`Некорректное время срока «${match[1]}:${match[2]}».`);
+    else {
+      const next = new Date(now); next.setSeconds(0, 0); next.setHours(hour, minute, 0, 0);
+      if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+      if (next.getHours() !== hour || next.getMinutes() !== minute) result.errors.push(`Время срока «${match[1]}:${match[2]}» недоступно в этот день.`);
+      else result.due = next.toISOString();
+    }
+    consume(match.index!, match[0].length);
+  }
   // A date followed by a compact clock range shares the same day on both sides:
   // “завтра 15 - 18 00” means 15:00–18:00, not a 09:00 default event.
   const compactClockRange = new RegExp(`(?:^|\\s)(${dayExpression})\\s+(\\d{1,2})(?:(?::|\\s)(\\d{2}))?\\s*[-–—]\\s*(\\d{1,2})(?:(?::|\\s)(\\d{2}))?(?=\\s|$)`, 'gi');
@@ -372,7 +387,7 @@ export function parseEntry(input: string, now: Date): Draft {
   return result;
 }
 
-export interface Suggestion { label: string; insert: string; detail: string; calendar?: boolean }
+export interface Suggestion { label: string; insert: string; detail: string; calendar?: boolean; replaceStart?: number; replaceEnd?: number }
 const commandVariants: Record<string, string[]> = {
   напомнить: ['напомни', 'напоминание', 'напоминания', 'напомянание'],
   дорога: ['ехать', 'тт', 'travel', 'drive'],
@@ -465,6 +480,13 @@ function dateSuggestions(input: string, caret: number, now: Date, language: 'ru'
       const clock = timeOf(new Date(parsed.iso));
       return { label: part, insert: ` ${part} `, detail: `${dateLabel} · ${clock}${Date.parse(parsed.iso) <= now.getTime() ? language === 'ru' ? ' · в прошлом' : ' · in the past' : ''}` };
     });
+    const dueReminderOptions: Suggestion[] = prefix === '@' ? dayparts.filter(part => Date.parse(parseDate(`${day} ${part}`, now)!.iso) > now.getTime()).map(part => ({
+      label: language === 'ru' ? `напомнить ${part}` : `remind ${part}`,
+      insert: `${language === 'ru' ? 'срок' : 'due'}:${day} ${part} ${language === 'ru' ? 'напомнить' : 'remind'}:в ${day} ${part} `,
+      detail: language === 'ru' ? `Due и напоминание · ${dateLabel} · ${timeOf(new Date(parseDate(`${day} ${part}`, now)!.iso))}` : `Due and reminder · ${dateLabel} · ${timeOf(new Date(parseDate(`${day} ${part}`, now)!.iso))}`,
+      replaceStart: start,
+      replaceEnd: end,
+    })) : [];
     const times = [...new Set([timeOf(nearest), '09:00', '12:00', '15:00', '19:00', '23:00'])].filter(time => Boolean(parseDate(`${day} ${time}`, now)));
     const timeOptions: Suggestion[] = times.map(time => ({ label: time, insert: ` ${time} `, detail: dateLabel }));
     const reminderKey = language === 'ru' ? 'напомнить' : 'remind';
@@ -479,7 +501,7 @@ function dateSuggestions(input: string, caret: number, now: Date, language: 'ru'
       const relative = language === 'ru' ? `${minutes} мин до ${dueAnchor ? 'срока' : 'начала'} в 09:00` : `${minutes} min before the 09:00 ${dueAnchor ? 'due time' : 'start'}`;
       return [{ label: language === 'ru' ? `напомнить ${date} в ${clock}` : `remind ${date} at ${clock}`, insert: ` ${reminderKey}:${minutes}m `, detail: relative }];
     });
-    return { start: dayEnd, end, options: [...partOptions, ...timeOptions, ...reminderOptions], timeOnly: true };
+    return { start: dayEnd, end, options: [...partOptions, ...timeOptions, ...dueReminderOptions, ...reminderOptions], timeOnly: true };
   }
   const time = completeClock ?? timeOf(nearest);
   const recognised = day in relativeDays || day in weekdays || Boolean(parseDate(day, now));
@@ -692,7 +714,7 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
           return { start, end, options: [{ label: `${match[1]} ${clock}`, insert: `${match[1]} ${clock} `, detail: `${date} · следующая неделя` }] };
         }
       }
-      return { ...result, start: result.start > start ? result.start - 1 : result.start, end: result.end - 1, options: result.options.map(option => ({ ...option, label: option.label.replace(/^@/, ''), insert: option.insert.replace(/^@/, ''), detail: option.detail.replace('до срока', 'до начала').replace('due time', 'start') })) };
+      return { ...result, start: result.start > start ? result.start - 1 : result.start, end: result.end - 1, options: result.options.map(option => ({ ...option, ...(option.replaceStart === undefined ? {} : { replaceStart: option.replaceStart > start ? option.replaceStart - 1 : option.replaceStart }), ...(option.replaceEnd === undefined ? {} : { replaceEnd: option.replaceEnd - 1 }), label: option.label.replace(/^@/, ''), insert: option.insert.replace(/^@/, ''), detail: option.detail.replace('до срока', 'до начала').replace('due time', 'start') })) };
     }
   }
   return { ...result, options: result.options.map(option => {

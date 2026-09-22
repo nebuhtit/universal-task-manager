@@ -88,6 +88,13 @@ describe('quick entry item integration', () => {
     expect(item.schedule?.endAt).toBeUndefined();
     expect(parseEntry(quickEntrySource(item)!.text, new Date(2026, 9, 10))).toMatchObject({ due: item.schedule!.dueAt, start: null, end: null, durationMinutes: 10, errors: [] });
   });
+  it('stores a clock-only due at the next occurrence and freezes it', () => {
+    const afternoon = new Date(2026, 8, 22, 14, 40);
+    const item = createQuickEntryItem('Пук до 9 00', afternoon);
+    expect(item.schedule).toMatchObject({ dueAt: new Date(2026, 8, 23, 9).toISOString(), estimatedDuration: 'PT10M' });
+    expect(item.schedule?.startAt).toBeUndefined();
+    expect(quickEntrySource(item)?.text).toContain('до ср 23.09.2026 09:00');
+  });
   it('labels an older bare due source before opening it under the new grammar', () => {
     const item = createQuickEntryItem('Отчёт завтра 15:00', now);
     const dueAt = new Date(2026, 8, 22, 15).toISOString();

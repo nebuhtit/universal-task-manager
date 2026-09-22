@@ -11,6 +11,14 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   const input = page.getByPlaceholder('Add new item');
+  const capture = page.locator('.capture-dock .quick-capture');
+  const idleBackground = await capture.evaluate((element) => getComputedStyle(element).backgroundColor);
+  await input.focus();
+  await expect.poll(() => capture.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(idleBackground);
+  if ((page.viewportSize()?.width ?? 0) <= 950) {
+    await expect(page.locator('.topbar')).toHaveCSS('position', 'fixed');
+    await expect(page.locator('.content')).toHaveCSS('padding-top', (page.viewportSize()?.width ?? 0) <= 620 ? '60px' : '64px');
+  }
   await input.fill('Встреча завтра');
   const options = page.getByRole('listbox', { name: 'Подсказки Live text' });
   await expect(options).toBeVisible();
@@ -26,23 +34,32 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden();
   await expect(input).not.toHaveValue('Встреча завтра');
   await input.fill('Встреча завтра'); await input.press('Tab');
-  await expect(options.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(options.locator('[id$="-option-0"]')).toHaveAttribute('aria-selected', 'true');
   await input.press('ArrowDown');
-  await expect(options.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(options.locator('[id$="-option-1"]')).toHaveAttribute('aria-selected', 'true');
   await input.press('ArrowUp');
-  await expect(options.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(options.locator('[id$="-option-0"]')).toHaveAttribute('aria-selected', 'true');
   await input.press('Shift+Tab');
-  await expect(options.getByRole('option').last()).toHaveAttribute('aria-selected', 'true');
-  await input.press('Tab');
   await expect(options.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  await input.press('Tab');
+  await expect(options.locator('[id$="-option-0"]')).toHaveAttribute('aria-selected', 'true');
   await input.press('Space');
   await expect(input).not.toHaveValue('Встреча завтра');
   await expect(input).toBeFocused();
   await input.fill('на залив 19.09');
   await expect(options.getByRole('option', { name: /^вечером/ })).toBeVisible();
   await expect(options.getByRole('option', { name: /^19:00/ })).toBeVisible();
-  await options.getByRole('option', { name: /^19:00/ }).click();
+  if ((page.viewportSize()?.width ?? 0) <= 620) await options.getByRole('option', { name: /^19:00/ }).tap();
+  else await options.getByRole('option', { name: /^19:00/ }).click();
   await expect(input).toHaveValue('на залив 19.09 19:00 ');
+  await input.fill('Встреча завтра');
+  const calendarKey = new Date(); calendarKey.setDate(calendarKey.getDate() + 1);
+  await page.getByRole('button', { name: 'Посмотреть в календаре' }).click();
+  await expect(page.locator('.calendar-page')).toBeVisible();
+  await expect(page.locator('.calendar-day-choice.selected')).toHaveCount(1);
+  await expect(page.locator('.calendar-day-choice.selected')).toContainText(new Intl.DateTimeFormat('en-US', { month: 'short' }).format(calendarKey));
+  await expect(input).toHaveValue('Встреча завтра');
+  await expect(options).toBeVisible();
   await input.fill('Тест начало 31.02.2026 10:00');
   await expect(page.locator('.live-text-panel [role="alert"]')).toBeVisible();
   await input.press('Enter'); await expect(input).toHaveValue('Тест начало 31.02.2026 10:00');
@@ -66,10 +83,17 @@ test('live text suggestions, correction reports and saved preference', async ({ 
     const panelBox = (await titlePanel.boundingBox())!;
     const titleBox = (await title.boundingBox())!;
     const dialogBox = (await page.getByRole('dialog', { name: 'Item editor' }).boundingBox())!;
-    expect(panelBox.y).toBeGreaterThanOrEqual(dialogBox.y - 1);
-    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(titleBox.y);
+    if ((page.viewportSize()?.width ?? 0) <= 620) {
+      expect(panelBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+      expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    } else {
+      expect(panelBox.y).toBeGreaterThanOrEqual(dialogBox.y - 1);
+      expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(titleBox.y);
+    }
   }
   await title.fill('Встреча след месяц');
+  const closeSuggestions = page.getByRole('button', { name: 'Close Live text suggestions' });
+  if (await closeSuggestions.isVisible()) await closeSuggestions.click();
   await page.getByText('Dates & time', { exact: true }).click();
   const expectedMonth = new Date(); expectedMonth.setDate(1); expectedMonth.setMonth(expectedMonth.getMonth() + 1);
   await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue(new RegExp(`^${expectedMonth.getFullYear()}-${String(expectedMonth.getMonth() + 1).padStart(2, '0')}-`));
