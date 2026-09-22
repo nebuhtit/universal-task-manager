@@ -1148,7 +1148,9 @@ export default function App() {
     setQuickDueSaving(true); setQuickDueError('');
     try {
       const actionNow = currentWorkspaceNow();
-      if (Date.parse(at) <= actionNow.getTime()) throw new Error('Choose a future Due time.');
+      const dateOnly = Boolean(workspace && resolveQuickDueItem(workspace, selected)?.schedule?.plannedDate && /^\d{4}-\d{2}-\d{2}$/.test(at));
+      if (!dateOnly && Date.parse(at) <= actionNow.getTime()) throw new Error('Choose a future Due time.');
+      if (dateOnly && (!Number.isFinite(Date.parse(at)) || new Date(at).toISOString().slice(0, 10) !== at)) throw new Error('Choose a valid calendar date.');
       const saved = commit('Move item Due', (draft) => {
         const itemId = selected.itemId;
         if (!draft.items[itemId] && selected.seriesId && selected.recurrenceId) {
@@ -1161,7 +1163,7 @@ export default function App() {
         const target = draft.items[itemId];
         if (!target || !canQuickChangeDue(target)) throw new Error('This item cannot be changed here.');
         if (target.schedule?.startAt && Date.parse(at) < Date.parse(target.schedule.startAt)) throw new Error('Due cannot be before Event opens.');
-        const updated = syncQuickEntrySource(target, { ...clean(target), schedule: { timezone: itemTimeZone(target), ...target.schedule, dueAt: at }, updatedAt: actionNow.toISOString(), revision: target.revision + 1 });
+        const updated = syncQuickEntrySource(target, { ...clean(target), schedule: { timezone: itemTimeZone(target), ...target.schedule, ...(dateOnly ? { plannedDate: at } : { dueAt: at }) }, updatedAt: actionNow.toISOString(), revision: target.revision + 1 });
         draft.items[itemId] = updated;
         runAutomationEvents(draft, [{ id: createId(), type: 'item.updated', at: updated.updatedAt, itemId, after: clean(updated), causationId: createId(), depth: 0 }], { now: actionNow });
       });
@@ -1282,7 +1284,7 @@ export default function App() {
       </section>}
       </Suspense>
     </AppShell>
-    {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due'} ariaLabel="Quick Due" footer={<Button disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
+    {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={quickDueItem.schedule?.plannedDate ? (workspace.calendarPreferences.language === 'ru' ? 'Перепланировать' : 'Reschedule') : (workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due')} ariaLabel="Quick Due" footer={<Button disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
     {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} error={quickError} timeZone={workspace.calendarPreferences.timezone} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form></div>}
     {quickCompletion && <QuickCompletionInput
       open

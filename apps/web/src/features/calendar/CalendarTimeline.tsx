@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { calendarDateKey, effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
@@ -78,9 +78,10 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
       <span>{ru ? 'Свободно по календарю' : 'Calendar free'}: {durationLabel(data.planning.calendarFreeMs)}</span>
       <strong>{data.planning.remainingMs < 0 ? (ru ? 'Не хватает' : 'Short by') : (ru ? 'Останется после задач' : 'After tasks')}: {durationLabel(data.planning.remainingMs)}</strong>
       <small>{ru ? 'За выбранные сутки. Точечные блоки — предложение, даты задач не меняются.' : 'For the selected day. Dotted blocks are proposals; task dates stay unchanged.'}</small>
-      {data.planning.unplaced.length > 0 && <small>{ru ? 'Не поместились целиком в свободные промежутки; остались в «Без даты»' : 'No continuous slot; kept in No date'}: {data.planning.unplaced.length}</small>}
+      {data.planning.unplaced.length > 0 && <small>{ru ? 'Не поместились целиком в свободные промежутки; показаны над шкалой' : 'No continuous slot; shown above the timeline'}: {data.planning.unplaced.length}</small>}
     </div>}
     {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(data.activeRange)}</div>}
+    {data.plannedTasks.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks)}</div>}
     {data.allDay.length > 0 && <details open className="timeline-top-items"><summary>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</summary>{cards(data.allDay)}</details>}
     {data.undated.length > 0 && <details className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</details>}
     <div className="timeline-axis" style={{ height: height + 12 }}>
@@ -99,9 +100,11 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
           const interval = `${timeLabel(event.start, zone)}${event.point ? '' : `–${timeLabel(event.end, zone)}`}`;
           const travelLabel = event.travel ? `${ru ? 'В пути' : 'Travel'} · ${displayViewValue(`PT${Math.round((event.end - event.start) / 1000)}S`, 'schedule.travelDuration', workspace.calendarPreferences.language)}` : '';
           const tentativeLabel = event.tentative ? (ru ? 'Предварительно · ' : 'Tentative · ') : '';
+          const overdue = event.item.state === 'open' && event.item.schedule?.plannedDate && event.item.schedule.plannedDate < calendarDateKey(now, zone);
           const label = `${tentativeLabel}${travelLabel ? `${travelLabel} · ` : ''}${event.item.title} · ${interval}`;
-          return <button type="button" key={`${event.item.id}:${event.travel ? 'travel' : 'event'}`} className={`timeline-event${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}`} style={{ ...columnStyle(event), ...(safeColor ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
-            <strong>{event.invalid && '⚠ '}{event.continuedBefore && '← '}{travelLabel ? `${travelLabel} · ` : ''}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
+          return <button type="button" data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travel ? 'travel' : 'event'}`} className={`timeline-event${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}`} style={{ ...columnStyle(event), ...(safeColor ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
+            <strong>{(event.invalid || overdue) && '⚠ '}{event.continuedBefore && '← '}{travelLabel ? `${travelLabel} · ` : ''}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
+            {overdue && event.height >= 72 && <small>{ru ? 'Просрочено с' : 'Overdue since'} {event.item.schedule?.plannedDate}</small>}
             {event.height >= 54 && <small>{tentativeLabel}{interval}</small>}{extra.map(({ field, text }, i) => <small key={i} style={safeColor && (field === 'tags' || field === 'external.calendarId') ? { color: safeColor } : undefined}>{text}</small>)}
             {!event.travel && event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
           </button>;

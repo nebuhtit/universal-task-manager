@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { dateValueExpression, parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
+import { dateValueExpression, parseLiveEntry as parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
 import { Button, Input, Textarea } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { saveLiveTextReport } from './liveTextReports';
@@ -47,12 +47,13 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
   const parsed = useMemo(() => parseEntry(value, referenceTime), [value, referenceTime]);
   const calendarDate = useMemo(() => {
     if (!onViewCalendarDate || !new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(value)) return null;
-    const at = parsed.start ?? parsed.due;
+    const at = parsed.plannedDate ?? parsed.start ?? parsed.due;
     if (!at) return null;
+    if (parsed.plannedDate) return parsed.plannedDate;
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at));
     const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return `${fields.year}-${fields.month}-${fields.day}`;
-  }, [onViewCalendarDate, parsed.start, parsed.due, timeZone, value]);
+  }, [onViewCalendarDate, parsed.plannedDate, parsed.start, parsed.due, timeZone, value]);
   const suggestions = useMemo(() => suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language]);
   const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
   useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = suggestions.ordered ? 0 : panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
@@ -107,7 +108,7 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
   };
   const message = error || parsed.errors.join(' ');
   const format = (at: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(at));
-  const summary = [parsed.start && `▷ ${format(parsed.start)}`, parsed.end && `→ ${format(parsed.end)}`, parsed.due && `Due ${format(parsed.due)}`, parsed.travelMinutes !== null && `Дорога ${parsed.travelMinutes} мин`, parsed.reminders.length > 0 && `Напоминания: ${parsed.reminders.length}`].filter(Boolean).join(' · ');
+  const summary = [parsed.plannedDate && `${parsed.plannedDate} · без времени`, parsed.start && `▷ ${format(parsed.start)}`, parsed.end && `→ ${format(parsed.end)}`, parsed.due && `Due ${format(parsed.due)}`, parsed.travelMinutes !== null && `Дорога ${parsed.travelMinutes} мин`, parsed.reminders.length > 0 && `Напоминания: ${parsed.reminders.length}`].filter(Boolean).join(' · ');
   const common = {
     value, placeholder, id: inputId, autoFocus, 'aria-label': ariaLabel ?? placeholder, autoComplete: 'off', spellCheck: false, maxLength: 2000,
     role: 'combobox', 'aria-autocomplete': 'list' as const, 'aria-expanded': expanded, 'aria-controls': `${id}-options`,

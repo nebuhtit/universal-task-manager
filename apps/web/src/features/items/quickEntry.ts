@@ -1,5 +1,5 @@
 import { createId, createItem, durationToMs, type UniversalItem } from '@utm/core';
-import { dateValueExpression, parseDate, parseEntry, type Draft } from '../../../quick-entry-lab/parser';
+import { dateValueExpression, parseDate, parseLiveEntry as parseEntry, type Draft } from '../../../quick-entry-lab/parser';
 
 export const QUICK_ENTRY_SOURCE = 'utm:quickEntrySource';
 export type QuickEntrySource = { text: string; timezone: string; grammarVersion?: 2 };
@@ -35,6 +35,13 @@ export function quickEntrySource(item: UniversalItem): QuickEntrySource | null {
 
 /** Freeze relative dates at creation while preserving the rest of the wording. */
 export function materializeQuickEntryText(text: string, now: Date): string {
+  // Freeze a complete named date, never replace its month alone with a
+  // standalone month suggestion (which would introduce a guessed clock).
+  text = text.replace(/"[^"\n]*"|«[^»\n]*»|\b(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+\d{2,4}(?![\d:]))?/gi, (match, day: string | undefined) => {
+    if (!day) return match;
+    const date = parseEntry(match, now).plannedDate;
+    return date ? date.split('-').reverse().join('.') : match;
+  });
   const relativeNow = parseEntry(text, now).reminders.filter(reminder => reminder.anchor === 'now' && reminder.minutes > 0);
   const masked = text.replace(/"([^"\n]*)"|«([^»\n]*)»/g, value => ' '.repeat(value.length));
 const relative = /(?:след|следу(?:ю)?щ(?:ий|ую|ая|ем)|next)\s+(?:вс|пн|вт|ср|чт|пт|сб|воскресенье|понедельник|вторник|среда|четверг|пятница|суббота|sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?)|сегодня|завтра|послезавтра|today|tomorrow|(?:след|следу(?:ю)?щ(?:ий|ую|ая|ем))\s+(?:месяц|год)|январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья]|воскресенье|понедельник|вторник|среда|четверг|пятница|суббота|sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|вс|пн|вт|ср|чт|пт|сб/gi;
@@ -85,6 +92,7 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   const normalizedText = materializeQuickEntryText(text, now);
   const schedule = { timezone: item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...item.schedule };
   if (draft.due) schedule.dueAt = draft.due; else delete schedule.dueAt;
+  if (draft.plannedDate) schedule.plannedDate = draft.plannedDate; else delete schedule.plannedDate;
   if (draft.start) schedule.startAt = draft.start; else delete schedule.startAt;
   if (draft.end) schedule.endAt = draft.end; else delete schedule.endAt;
   if (draft.durationMinutes !== null) schedule.estimatedDuration = minutesDuration(draft.durationMinutes); else delete schedule.estimatedDuration;
@@ -136,6 +144,12 @@ function replaceCapture(text: string, match: RegExpExecArray, group: number, rep
 export function syncQuickEntrySource(previous: UniversalItem, next: UniversalItem): UniversalItem {
   const source = quickEntrySource(previous);
   if (!source) return next;
+  if (previous.schedule?.plannedDate !== next.schedule?.plannedDate) {
+    // Invalidate obsolete source text rather than let a later reparse restore
+    // the old date. The item remains the authoritative edited record.
+    const extensions = { ...next.extensions }; delete extensions[QUICK_ENTRY_SOURCE];
+    return { ...next, extensions };
+  }
   let text = source.text;
   if (previous.title !== next.title) {
     const titleAt = text.indexOf(previous.title);

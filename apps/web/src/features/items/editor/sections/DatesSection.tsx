@@ -21,6 +21,7 @@ type Props = {
   patchScheduledDuration: (amount: number | undefined, unit: FriendlyDurationUnit) => void;
   patchTravelDuration: (amount: number | undefined, unit: FriendlyDurationUnit) => void;
   patchScheduledStart: (value?: string) => void;
+  patchPlannedDate?: (value?: string) => void;
   patchScheduledEnd: (value?: string) => void;
   patchScheduledDue: (value?: string) => void;
   patchQuickDue?: (value: string) => void;
@@ -28,7 +29,7 @@ type Props = {
   children?: ReactNode;
 };
 
-export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchScheduledEnd, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
+export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchPlannedDate, patchScheduledEnd, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
   const [quickDueOpen, setQuickDueOpen] = useState(false);
   const language = workspace.calendarPreferences.language;
   const opensAt = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
@@ -37,9 +38,10 @@ export function DatesSection({ item, workspace, now = new Date(), sectionMark, s
   const travelUnit = travelDuration?.unit === 'hours' ? 'hours' : 'minutes';
   const travelLabel = language === 'ru' ? 'Время в пути' : 'Travel time';
   const travelSummary = travelDuration ? `${travelLabel} · ${travelDuration.amount} ${travelUnit === 'hours' ? (language === 'ru' ? 'ч' : 'h') : (language === 'ru' ? 'мин' : 'min')}` : travelLabel;
-  return <ItemSection sectionKey="dates" title="Dates & time" iconPath="schedule" filledMark={sectionMark(Boolean(item.schedule?.availableFrom || item.schedule?.startAt || item.schedule?.endAt || item.schedule?.dueAt || item.schedule?.estimatedDuration || item.schedule?.travelDuration || item.schedule?.allDay))}>
+  return <ItemSection sectionKey="dates" title="Dates & time" iconPath="schedule" filledMark={sectionMark(Boolean(item.schedule?.plannedDate || item.schedule?.availableFrom || item.schedule?.startAt || item.schedule?.endAt || item.schedule?.dueAt || item.schedule?.estimatedDuration || item.schedule?.travelDuration || item.schedule?.allDay))}>
     <Disclosure uiKey="item-editor:date-guide" persist={false} summary="Date guide" className="date-guide"><p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p><ul><li><strong>Event opens</strong> is when the item becomes active and starts its calendar block.</li><li><strong>Event ends</strong> is only the end of the calendar block.</li><li><strong>Due / Active range ends</strong> is the latest completion time and can close the active range.</li><li><strong>Available to work from</strong> is optional; it keeps reminders quiet before that time.</li></ul></Disclosure>
     <div className="form-grid two schedule-grid">
+      {patchPlannedDate && !item.external && <Field label={language === 'ru' ? 'Плановая дата · без времени' : 'Planned date · no time'}><Input type="date" aria-label="Planned date" value={item.schedule?.plannedDate ?? ''} onChange={event => patchPlannedDate(event.target.value || undefined)} /></Field>}
       <Field label={<FieldIconLabel path="schedule.startAt" label="Event opens" />}><DateTimeField label="Event opens" value={item.schedule?.startAt} language={language} onChange={patchScheduledStart} /></Field>
       <Field label={<FieldIconLabel path="schedule.estimatedDuration" label="Estimated duration" />}><DurationField hasStart={Boolean(item.schedule?.startAt)} {...(scheduledDuration ? { duration: scheduledDuration } : {})} onDurationChange={patchScheduledDuration} onPreset={applyDurationPreset} /></Field>
       {item.schedule?.startAt && <Field label={<FieldIconLabel path="schedule.endAt" label="Event ends" />} error={invalidEnd ? 'Event ends cannot be earlier than Event opens.' : undefined}><DateTimeField label="Event ends" value={item.schedule?.endAt} language={language} onChange={patchScheduledEnd} minValue={item.schedule.startAt} /></Field>}

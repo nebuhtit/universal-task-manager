@@ -3,6 +3,8 @@ import { en, ru } from 'chrono-node';
 export type Anchor = 'due' | 'start' | 'leave' | 'now';
 export interface ReminderDraft { anchor: Anchor; minutes: number; at: string | null; automatic?: boolean }
 export interface Draft {
+  plannedDate?: string;
+  dateOnlyStart?: boolean;
   title: string; start: string | null; due: string | null; end: string | null;
   travelMinutes: number | null; durationMinutes: number | null; leave: string | null;
   reminders: ReminderDraft[]; errors: string[]; warnings: string[];
@@ -49,7 +51,7 @@ export function duration(value: string): number | null {
   return Number.isFinite(minutes) && minutes > 0 && minutes <= 5256000 ? minutes : null;
 }
 
-export function parseDate(value: string, now: Date): { iso: string; timed: boolean } | null {
+export function parseDate(value: string, now: Date): { iso: string; timed: boolean; explicitClock: boolean } | null {
   const reversed = new RegExp(`^(\\d{1,2})(?::|\\s)(\\d{2})\\s+(${dayExpression}|${nextDayExpression})$`, 'i').exec(value.trim());
   if (reversed) return parseDate(`${reversed[3]} ${reversed[1]}:${reversed[2]}`, now);
   const match = new RegExp(`^(?:в\\s+)?(${dayExpression}|${nextDayExpression})(?:\\s+(?:в\\s+)?(${dayPartPattern}))?(?:\\s+(?:в\\s+)?(\\d{1,2})(?:(?::|\\s)(\\d{2}))?)?$`, 'i').exec(value.trim());
@@ -89,7 +91,7 @@ export function parseDate(value: string, now: Date): { iso: string; timed: boole
   if (hours > 23 || minutes > 59) return null;
   date.setHours(hours, minutes, 0, 0);
   if (date.getHours() !== hours || date.getMinutes() !== minutes) return null;
-  return { iso: date.toISOString(), timed: true };
+  return { iso: date.toISOString(), timed: true, explicitClock: Boolean(match[2] || match[3]) };
 }
 
 function nextClock(value: string, now: Date, anchor?: string | null): string | null {
@@ -333,7 +335,7 @@ export function parseEntry(input: string, now: Date): Draft {
     once('start');
     const parsed = parseDate(m[0].trim(), now);
     if (!parsed) { result.errors.push(`Некорректная дата «${m[0].trim()}».`); consume(m.index!, m[0].length); continue; }
-    result.start = parsed.iso;
+    result.start = parsed.iso; result.dateOnlyStart = !parsed.explicitClock;
     consume(m.index!, m[0].length);
   }
   // Consume the entire Russian calendar date, including its short year. Chrono
@@ -347,7 +349,7 @@ export function parseEntry(input: string, now: Date): Draft {
     const clock = m[4] ? ` ${m[4]}:${m[5] ?? '00'}` : '';
     once(duePrefix ? 'due' : 'start');
     const parsed = parseDate(`${m[1]}.${month}${year ? `.${year}` : ''}${clock}`, now);
-    if (parsed) result[duePrefix ? 'due' : 'start'] = parsed.iso;
+    if (parsed) { result[duePrefix ? 'due' : 'start'] = parsed.iso; if (!duePrefix) result.dateOnlyStart = !parsed.explicitClock; }
     else result.errors.push(`Некорректная дата «${m[0].trim()}».`);
     if (duePrefix) consume(duePrefix.index, m.index! - duePrefix.index);
     consume(m.index!, m[0].length);
@@ -360,7 +362,7 @@ export function parseEntry(input: string, now: Date): Draft {
     if (m[1]!.toLowerCase() in monthAliases && (/\d{1,2}$/.test(before) || /^\d{2,4}(?=\s|$)/.test(after))) continue;
     once('start'); const parsed = parseDate(m[0].trim(), now);
     if (parsed) {
-      result.start = parsed.iso;
+      result.start = parsed.iso; result.dateOnlyStart = !parsed.explicitClock;
     } else result.errors.push(`Некорректная дата «${m[0].trim()}».`);
     consume(m.index!, m[0].length);
   }
@@ -377,7 +379,7 @@ export function parseEntry(input: string, now: Date): Draft {
       once('due'); result.due = date.toISOString();
       consume(duePrefix.index, match.index + match.text.length - duePrefix.index);
     } else {
-      result.start = date.toISOString();
+      result.start = date.toISOString(); result.dateOnlyStart = !match.start.isCertain('hour');
       consume(match.index, match.text.length);
     }
     break;
@@ -694,6 +696,24 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
     const nextDay = rangeStart && index + firstHour >= 24;
     return { label: `${nextDay ? language === 'ru' ? 'следующий день ' : 'next day ' : ''}${clock}:`, insert: `${leading}${clock}:`, detail: nextDay ? language === 'ru' ? 'На следующий день после начала' : 'Day after the range start' : detail };
   }) };
+}
+
+/** Live capture supports a calendar day without inventing a start time. */
+export function parseLiveEntry(input: string, now: Date): Draft {
+  const trailingDuration = /\s+(\d+(?:[.,]\d+)?\s*(?:ч|часа?|часов|h|м|мин|minutes?))\s*$/i.exec(input);
+  const normalized = trailingDuration && !/(?:длительность|duration|напомнить|remind|дорога|travel|tt)\s*$/i.test(input.slice(0, trailingDuration.index))
+    ? input.slice(0, trailingDuration.index) + ` длительность ${trailingDuration[1]}` : input;
+  const withoutDatePreposition = normalized.replace(new RegExp(`"[^"\\n]*"|«[^»\\n]*»|(^|\\s)в\\s+(?=${dateValueExpression}(?=\\s|$))`, 'gi'), (match, leading: string | undefined) => leading ?? match);
+  const result = parseEntry(withoutDatePreposition, now);
+  if (!result.dateOnlyStart || !result.start) return result;
+  const day = new Date(result.start);
+  result.plannedDate = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+  result.start = null; result.end = null; result.leave = null;
+  if (!/(?:длительность|duration)(?::|\s)/i.test(normalized)) result.durationMinutes = null;
+  result.warnings = result.warnings.filter(value => !value.startsWith('Начало уже'));
+  if (result.travelMinutes !== null) result.errors.push('Для дороги нужно время начала.');
+  if (result.reminders.some(value => value.anchor === 'start' || value.anchor === 'leave')) result.errors.push('Для напоминания до начала нужно указать время.');
+  return result;
 }
 
 export function suggest(input: string, caret: number, now: Date = new Date(), interfaceLanguage: 'ru' | 'en' = 'ru'): { start: number; end: number; options: Suggestion[]; ordered?: boolean } {

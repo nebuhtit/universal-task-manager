@@ -260,6 +260,13 @@ export function schedulePeriodBounds(period: SchedulePeriod, now: Date, options:
   return { start: nextWeekStart, end: shiftCalendarDateKey(nextWeekStart, 6) };
 }
 
+export function plannedDateForDisplay(item: UniversalItem, now: Date, timeZone?: string): string | undefined {
+  const date = item.schedule?.plannedDate;
+  if (!date) return undefined;
+  const today = calendarDateKey(now, timeZone ?? item.schedule?.timezone);
+  return item.state === 'open' && date < today ? today : date;
+}
+
 function scheduleMatchesPeriod(item: UniversalItem, now: Date, options: QueryTemporalOptions, period: SchedulePeriod, sources: string, includeOverdue: boolean, nextDays: number, customStart: string, customEnd: string): boolean {
   const bounds = schedulePeriodBounds(period, now, options, nextDays, customStart, customEnd);
   if (!bounds) return false;
@@ -270,6 +277,8 @@ function scheduleMatchesPeriod(item: UniversalItem, now: Date, options: QueryTem
     return Number.isFinite(date.getTime()) ? calendarDateKey(date, options.timeZone) : null;
   };
   const inPeriod = (key: string | null) => Boolean(key && key >= bounds.start && key <= bounds.end);
+  const planned = plannedDateForDisplay(item, now, options.timeZone);
+  if (planned && inPeriod(planned)) return true;
   const overlaps = (start: string | null, end: string | null) => Boolean(start && end && start <= end && start <= bounds.end && end >= bounds.start);
   const startKey = dateKey(item.schedule?.startAt);
   const endKey = dateKey(item.schedule?.endAt);

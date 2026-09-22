@@ -26,7 +26,7 @@ import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
 import { applyQuickEntryText, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
 import { LiveTextInput } from '../LiveTextInput';
-import { parseEntry } from '../../../../quick-entry-lab/parser';
+import { parseLiveEntry as parseEntry } from '../../../../quick-entry-lab/parser';
 import { ItemSection } from './ItemSection';
 import { QuickItemTimer } from './QuickItemTimer';
 import { DateTimeField } from './fields/DateTimeField';
@@ -220,10 +220,19 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
       const delta = Date.parse(value) - Date.parse(schedule.startAt);
       return { ...schedule, startAt: value, ...(schedule.endAt ? { endAt: new Date(Date.parse(schedule.endAt) + delta).toISOString() } : {}) };
     }
-    const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; return next;
+    const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; else delete next.plannedDate; return next;
   }); };
   const patchScheduledEnd = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => scheduleWithEnd(schedule, value)); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => scheduleWithDue(schedule, value));
+  const patchPlannedDate = (value?: string) => {
+    if (value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; }
+    transformSchedule((schedule) => {
+    const next = { ...schedule };
+    if (value) { next.plannedDate = value; delete next.startAt; delete next.endAt; delete next.travelDuration; delete next.allDay; }
+    else delete next.plannedDate;
+    return next;
+    });
+  };
   const patchQuickDue = (value: string) => transformSchedule((schedule) => ({ ...schedule, dueAt: value }));
   const applyDurationPreset = (preset: string) => {
     if (preset === '1h') patchScheduledDuration(1, 'hours');
@@ -458,7 +467,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           } else setItem(target);
         }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
-        <DatesSection item={item} workspace={workspace} now={now} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} patchQuickDue={patchQuickDue} applyDurationPreset={applyDurationPreset}>
+        <DatesSection item={item} workspace={workspace} now={now} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchPlannedDate={patchPlannedDate} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} patchQuickDue={patchQuickDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           {canManuallyComplete(item) ? <details><summary><FieldIconLabel path="habit.completedDates" label={workspace.calendarPreferences.language === 'ru' ? 'Прогресс и выполнения' : 'Progress & completions'} /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">

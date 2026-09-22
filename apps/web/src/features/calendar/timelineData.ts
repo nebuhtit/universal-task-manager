@@ -1,4 +1,4 @@
-import { compileQuery, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { compileQuery, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { viewItemForEvaluation } from '../views/viewSelectors';
@@ -67,6 +67,8 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     const interval = itemInterval(item);
     if (interval && isSleep(item) && !item.schedule?.allDay && item.state !== 'cancelled' && item.state !== 'archived' && !interval.invalid && !interval.point && intersects(interval, day)) sleep.push(interval);
     if (!accepted(item)) continue;
+    if (item.schedule?.plannedDate && plannedDateForDisplay(item, now, preferences.timezone) !== key) continue;
+    if (item.schedule?.plannedDate && !item.schedule.startAt && !item.schedule.endAt) { undated.push(item); continue; }
     const series = item.occurrence ? mapped.items[item.occurrence.seriesId] : item;
     const rule = series?.recurrence;
     if (rule?.autoRenew && rule.closeAt === 'due' && (!rule.activationOffset || /^PT0[MS]$/.test(rule.activationOffset))) {
@@ -91,7 +93,8 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   const planning = planUndatedTasks(undated, events, sleep, day);
   const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
-    day, events: [...visible, ...planning.proposals], allDay, undated: undated.filter(item => !placedIds.has(item.id)), activeRange, planning,
+    day, events: [...visible, ...planning.proposals], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),
+    plannedTasks: undated.filter(item => !placedIds.has(item.id) && item.schedule?.plannedDate), activeRange, planning,
     hidden: hiding ? hiddenIntervals(sleep, visible, day) : [],
     sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)),
     projectionLimited: desiredPadding > padding,

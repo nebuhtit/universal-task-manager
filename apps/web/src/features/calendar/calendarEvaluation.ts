@@ -9,6 +9,7 @@ import {
   type TimeInterval,
   participatesInTimeStatistics,
   projectOccurrences,
+  plannedDateForDisplay,
   scheduleDateKeysInRange,
   viewPeriodBoundsForDates,
   zonedDateStart,
@@ -90,6 +91,12 @@ export function evaluateCalendarRange(
   const projected = projectOccurrences(calendarWorkspace, rangeStart, rangeEnd)
     .map((row) => ({ row, item: itemForRow(calendarWorkspace, row) }))
     .filter((entry): entry is CalendarProjectedEntry => Boolean(entry.item));
+  for (const item of Object.values(calendarWorkspace.items)) {
+    const key = plannedDateForDisplay(item, now, timeZone);
+    if (!item.deletedAt && item.role !== 'series_template' && key && key >= rangeStartKey && key < rangeEndKey && !projected.some(entry => entry.item.id === item.id)) {
+      projected.push({ item, row: { id: item.id, sourceItemId: item.id, materializedItemId: item.id, virtual: false, title: item.title, state: item.state, preset: item.preset, schedule: { ...item.schedule! }, dueOnly: false } });
+    }
+  }
   const projectedWorkspace = {
     ...workspace,
     items: Object.fromEntries(projected.map(({ item }) => [item.id, item])),
@@ -145,7 +152,8 @@ export function evaluateCalendarRange(
 
   for (const entry of filtered) {
     const scheduleSource = viewItemForEvaluation(entry.item);
-    const keys = scheduleDateKeysInRange(scheduleSource, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone });
+    const planned = plannedDateForDisplay(scheduleSource, now, timeZone);
+    const keys = planned ? [planned] : scheduleDateKeysInRange(scheduleSource, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone });
     for (const key of keys) {
       const bucket = buckets.get(key);
       if (!bucket) continue;

@@ -59,6 +59,7 @@ export const itemJsonSchema = {
       type: 'object', additionalProperties: false, required: ['timezone'],
       properties: {
         timezone: { type: 'string', minLength: 1 }, allDay: { type: 'boolean' },
+        plannedDate: { type: 'string', format: 'date' },
         availableFrom: { type: 'string', format: 'date-time' }, startAt: { type: 'string', format: 'date-time' },
         endAt: { type: 'string', format: 'date-time' }, dueAt: { type: 'string', format: 'date-time' },
         estimatedDuration: { type: 'string' }, travelDuration: { type: 'string' }, actualDuration: { type: 'string' },
