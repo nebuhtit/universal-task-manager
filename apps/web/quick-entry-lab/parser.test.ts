@@ -146,11 +146,11 @@ describe('start-first scheduling', () => {
 });
 
 describe('contextual date completion', () => {
-  it('prioritizes whole and half hours, then quarters, then remaining five-minute values', () => {
-    const expected = ['15:00', '15:15', '15:30', '15:45', '15:05', '15:10', '15:20', '15:25', '15:35', '15:40', '15:50', '15:55'];
+  it('offers only quarter-hour minutes after the hour', () => {
+    const expected = [':00', ':15', ':30', ':45'];
     for (const input of ['Дело @завтра 15:', 'Дело завтра 15:', 'Дело начало завтра 15:']) {
       const labels = suggest(input, input.length, now).options.map(option => option.label);
-      expect(labels.slice(0, 12).map(label => label.match(/15:\d{2}/)?.[0])).toEqual(expected);
+      expect(labels).toEqual(expected);
     }
   });
   it('treats a bare hour as :00 when the caret is after a space', () => {
@@ -172,12 +172,12 @@ describe('contextual date completion', () => {
   it('completes partial minutes without damaging the following command', () => {
     const text = 'Дело @завтра 15:1 напомнить:'; const caret = text.indexOf(' напомнить:');
     const result = suggest(text, caret, now);
-    expect(result.options.slice(0, 2).map(o => o.label)).toEqual(['@завтра 15:15', '@завтра 15:10']);
+    expect(result.options.map(o => o.label)).toEqual([':15']);
     expect(text.slice(0, result.start) + result.options[0]!.insert + text.slice(result.end)).toBe('Дело @завтра 15:15 напомнить:');
   });
   it('completes missing time and empty commands followed by whitespace', () => {
     const text = 'Дело @сегодня ';
-    expect(suggest(text, text.length, now).options[0]!.label).toBe('утром');
+    expect(suggest(text, text.length, now).options[0]!.label).toBe('06:');
     expect(suggest('Дело r: ', 8, now).options[0]!.label).toBe('30м');
   });
   it('offers calendar insertion preserving time and target field', () => {

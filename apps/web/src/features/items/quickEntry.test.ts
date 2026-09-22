@@ -5,12 +5,28 @@ import { createPortablePackage, createWorkspace, parsePortablePackage, serialize
 
 const now = new Date(2026, 8, 21, 16);
 describe('quick entry item integration', () => {
+  it('adds defaults only to new Live text events and retains them on reparse', () => {
+    const item = createQuickEntryItem('Встреча завтра 15:00', now);
+    expect(item.reminders.map(value => [value.relativeTo, value.offset])).toEqual([['start', '-PT120M'], ['start', '-PT1440M']]);
+    expect(applyQuickEntryText(item, quickEntrySource(item)!.text, now).item.reminders.map(value => value.offset)).toEqual(['-PT120M', '-PT1440M']);
+    expect(createQuickEntryItem('Задача до завтра 15:00', now).reminders).toEqual([]);
+    expect(createQuickEntryItem('Простое название', now).reminders).toEqual([]);
+    expect(applyQuickEntryText(item, 'Встреча завтра 16:00', now).item.reminders).toEqual([]);
+  });
+  it('anchors default reminders to travel and recomputes them after travel edits', () => {
+    const item = createQuickEntryItem('Встреча завтра 15:00 дорога 30м', now);
+    expect(item.reminders.map(value => value.at)).toEqual([new Date(2026, 8, 22, 12, 30).toISOString(), new Date(2026, 8, 21, 14, 30).toISOString()]);
+    const changed = syncQuickEntrySource(item, { ...item, schedule: { ...item.schedule!, travelDuration: 'PT60M' } });
+    expect(changed.reminders.map(value => value.at)).toEqual([new Date(2026, 8, 22, 12).toISOString(), new Date(2026, 8, 21, 14).toISOString()]);
+    const explicit = createQuickEntryItem('Встреча завтра 15:00 дорога 30м напомнить выезд-2ч,выезд-1д', now);
+    expect(explicit.reminders).toHaveLength(2);
+  });
   it('accepts repeated reminder commands and keeps unknown text on capture', () => {
     const text = 'Пт 12 даша напомнить 1ч напомнить 1д';
     const draft = parseEntry(text, now);
     expect(draft.errors).toEqual([]); expect(draft.title).toBe('даша');
     const result = createQuickEntryItem(text, now);
-    expect(result.reminders.map(r => r.offset)).toEqual(['-PT60M', '-PT1440M']);
+    expect(result.reminders.map(r => r.offset)).toEqual(['-PT60M', '-PT1440M', '-PT120M']);
     expect(result.reminders.every(r => r.relativeTo === 'start')).toBe(true);
     for (const original of ['Текст напомнить абракадабра', 'завтра', 'кавычка " без конца', 'Задача срок 99:88']) {
       expect(createQuickEntryItem(original, now).title).toBe(original);
@@ -49,7 +65,7 @@ describe('quick entry item integration', () => {
   it('renames a title between commands in place', () => {
     const item = createQuickEntryItem('начало завтра 15:00 стрижка у Маши дорога 45м', now);
     const changed = syncQuickEntrySource(item, { ...item, title: 'укладка у Маши' });
-    expect(quickEntrySource(changed)?.text).toBe('начало вт 22.09.2026 15:00 укладка у Маши дорога 45м');
+    expect(quickEntrySource(changed)?.text).toBe('начало вт 22.09.2026 15:00 укладка у Маши дорога 45м напомнить выезд-120м,выезд-1440м');
     expect(parseEntry(quickEntrySource(changed)!.text, now)).toMatchObject({ title: changed.title, errors: [] });
   });
   it('reparses edited source without changing unrelated item data', () => {

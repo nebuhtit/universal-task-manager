@@ -1,0 +1,23 @@
+.lock-shell:has(.recovery-shell) {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  padding: var(--space-4);
+}
+.recovery-shell {
+  min-width: 0;
+  max-width: 100%;
+  justify-self: center;
+  overflow-wrap: anywhere;
+}
+.recovery-shell .settings-actions,
+.recovery-shell .rule-list,
+.recovery-shell .rule-card { min-width: 0; max-width: 100%; }
+.recovery-shell .ui-button {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: var(--control-height-touch);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.recovery-shell .rule-card { display: grid; gap: var(--space-2); }

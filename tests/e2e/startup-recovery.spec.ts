@@ -18,7 +18,7 @@ async function storedRecords(page: Page) {
 
 test('interrupted startup offers read-only recovery and backup comparison without replacing storage', async ({ page }) => {
   test.setTimeout(180_000);
-  await page.goto('/');
+  await page.goto(process.env.UTM_TEST_URL ?? '/');
   const password = 'recovery-test-password-only';
   await page.getByLabel('Workspace name').fill('Recovery test');
   await page.getByLabel('Password', { exact: true }).fill(password);
@@ -50,6 +50,14 @@ test('interrupted startup offers read-only recovery and backup comparison withou
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.getByText('SAFE RECOVERY MODE', { exact: true })).toBeVisible();
   await expect(page.getByText('Read-only sentinel', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const recovery = page.locator('.recovery-shell');
+  const bounds = await recovery.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.getByRole('button', { name: 'Download encrypted workspace + log' }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: 'Download encrypted workspace + log' })).toBeInViewport();
+  await page.screenshot({ path: `/tmp/utm-recovery-${page.viewportSize()!.width}.png` });
   expect(await storedRecords(page)).toBe(before);
   await expect(page.getByPlaceholder('Add new item')).toHaveCount(0);
   await page.getByRole('button', { name: 'Вернуться к выбору открытия' }).click();

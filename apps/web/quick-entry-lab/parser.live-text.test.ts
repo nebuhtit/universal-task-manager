@@ -42,7 +42,7 @@ it('reads and suggests a clock-only срок without swallowing Enter', () => {
   expect(parseEntry(text, afternoon)).toMatchObject({ title: 'На залив', start: iso(2026, 8, 22, 9, 0), due: iso(2026, 8, 22, 18, 0), errors: [] });
   expect(parseEntry('На залив завтра 09:00 срок 18 00', afternoon)).toMatchObject({ due: iso(2026, 8, 23, 18, 0), errors: [] });
   expect(parseEntry('На залив срок 09:00', afternoon)).toMatchObject({ start: null, due: iso(2026, 8, 23, 9, 0), errors: [] });
-  expect(suggest('На залив сегодня 09:00 срок 18', 'На залив сегодня 09:00 срок 18'.length, afternoon).options.map(option => option.label)).toEqual(['срок 18:00', 'срок 18:15', 'срок 18:30', 'срок 18:45']);
+  expect(suggest('На залив сегодня 09:00 срок 18', 'На залив сегодня 09:00 срок 18'.length, afternoon).options.map(option => option.label)).toEqual([':00', ':15', ':30', ':45']);
   expect(suggest(text, text.length, afternoon).options.map(option => option.label)).toEqual(['срок 18:00']);
   expect(parseEntry(materializeQuickEntryText(text, afternoon), new Date(2026, 8, 29)).due).toBe(iso(2026, 8, 22, 18, 0));
 });
@@ -55,46 +55,41 @@ it('reads a compact same-day clock range after a date', () => {
   expect(parseEntry('съесть 19.09 15-21', now)).toMatchObject({ title: 'съесть', start: iso(2026, 8, 19, 15, 0), end: iso(2026, 8, 19, 21, 0), errors: [] });
 });
 
-it('suggests dayparts and language-matched commands after a date', () => {
+it('suggests ordered hours with localized details after a date', () => {
   const russian = suggest('Съесть завтра ', 'Съесть завтра '.length, now, 'ru');
-  expect(russian.options.map(option => option.label)).toContain('вечером');
-  expect(russian.options.some(option => /напомнить/.test(option.label))).toBe(true);
+  expect(russian.options.map(option => option.label)).toContain('18:');
+  expect(russian.options[0]?.detail).toContain('сент.');
   expect(russian.options.some(option => /morning|remind/.test(option.label))).toBe(false);
   const english = suggest('Eat tomorrow ', 'Eat tomorrow '.length, now, 'en');
-  expect(english.options.some(option => /morning|afternoon|evening|night/.test(option.label))).toBe(true);
+  expect(english.options[0]?.detail).toContain('Sep');
   expect(english.options.some(option => /утром|напомнить/.test(option.label))).toBe(false);
 });
 
-it('turns a dated reminder daypart into due and a reminder at the same time', () => {
-  const input = 'Звонок завтра';
-  const suggestions = suggest(input, input.length, now, 'ru');
-  for (const [label, hour] of [['напомнить утром', 7], ['напомнить днём', 11], ['напомнить вечером', 18], ['напомнить ночью', 21]] as const) {
-    const option = suggestions.options.find(candidate => candidate.label === label)!;
-    expect(option).toBeDefined();
-    const text = input.slice(0, option.replaceStart ?? suggestions.start) + option.insert + input.slice(option.replaceEnd ?? suggestions.end);
+it('retains daypart recognition without suggesting dayparts', () => {
+  for (const [part, hour] of [['утром', 7], ['днём', 11], ['вечером', 18], ['ночью', 21]] as const) {
+    const text = `Звонок срок завтра ${part} напомнить в завтра ${part}`;
     expect(parseEntry(text, now)).toMatchObject({ title: 'Звонок', start: null, due: iso(2026, 8, 23, hour, 0), errors: [] });
     expect(parseEntry(text, now).reminders[0]?.at).toBe(iso(2026, 8, 23, hour, 0));
   }
 });
 
-it('explains reminder suggestions with the actual time and hides past reminders', () => {
-  const future = suggest('Встреча завтра ', 'Встреча завтра '.length, now, 'ru').options;
-  expect(future.some(option => option.label.includes('08:00') && option.detail.includes('60 мин до начала'))).toBe(true);
+it('offers every hour even for today, leaving the selected day unchanged', () => {
   const past = suggest('Встреча вторник ', 'Встреча вторник '.length, now, 'ru').options;
-  expect(past.some(option => option.label.includes('08:00'))).toBe(false);
-  expect(past.some(option => option.label === 'напомнить вечером')).toBe(true);
+  expect(past).toHaveLength(24);
+  expect(past.some(option => option.label === '08:')).toBe(true);
+  expect(past.some(option => /напомнить|утром|evening/.test(option.label))).toBe(false);
 });
 
 it('offers only time choices once a complete date is entered', () => {
   const input = 'на залив 19.09';
   const choices = suggest(input, input.length, now, 'ru');
   expect(choices.ordered).toBe(true);
-  expect(choices.options.map(option => option.label)).toEqual(Array.from({ length: 24 }, (_, index) => `${String((index + 6) % 24).padStart(2, '0')}:00`));
+  expect(choices.options.map(option => option.label)).toEqual(Array.from({ length: 24 }, (_, index) => `${String((index + 6) % 24).padStart(2, '0')}:`));
   expect(choices.options.map(option => option.label)).not.toContain('вечером');
-  expect(choices.options.map(option => option.label)).toContain('19:00');
+  expect(choices.options.map(option => option.label)).toContain('19:');
   expect(choices.options.some(option => /завтра|среда|Выбрать дату/.test(option.label))).toBe(false);
-  const evening = choices.options.find(option => option.label === '19:00')!;
-  expect(input.slice(0, choices.start) + evening.insert + input.slice(choices.end)).toBe('на залив 19.09 19:00 ');
+  const evening = choices.options.find(option => option.label === '19:')!;
+  expect(input.slice(0, choices.start) + evening.insert + input.slice(choices.end)).toBe('на залив 19.09 19:');
 });
 
 it('rolls an elapsed month into next year and treats a bare hour as :00', () => {

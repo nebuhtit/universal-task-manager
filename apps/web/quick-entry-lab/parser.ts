@@ -157,9 +157,10 @@ export function parseEntry(input: string, now: Date): Draft {
       return anchorPhrase ? `${anchorPhrase[1]!.toLowerCase() === 'выезда' ? 'выезд' : anchorPhrase[1]!.toLowerCase() === 'начала' ? 'начало' : 'срок'}-${amount}` : amount;
     }).join(',');
     for (const part of value.toLowerCase().split(',').map(v => v.trim())) {
-      const absolute = /^в\s+(.+)$/.exec(part);
-      const fixed = absolute ? parseDate(absolute[1]!, now) : null;
-      if (fixed) { absoluteReminders.push(fixed.iso); continue; }
+      const absolute = /^(?:в|at)\s+(.+)$/.exec(part);
+      const absoluteValue = absolute?.[1] ?? part;
+      const fixed = parseDate(absoluteValue, now)?.iso ?? nextClock(absoluteValue, now);
+      if (fixed) { absoluteReminders.push(fixed); continue; }
       const m = /^(due|срок|start|начало|leave|выезд)([-+])(.+)$/.exec(part);
       const future = /^(?:через|in)\s*(.+)$/.exec(part);
       const amount = duration(m?.[3] ?? future?.[1] ?? part.replace(/^(?:за\s*|-)/, ''));
@@ -174,8 +175,9 @@ export function parseEntry(input: string, now: Date): Draft {
     const body = (anchor ? value.slice(0, anchor.index) : value).replace(/^за\s+/i, '');
     return body.split(/\s+и\s+|,/).every(part => {
       const token = part.trim().replace(/^день$/i, '1д').replace(/^час$/i, '1ч');
-      const absolute = /^в\s+(.+)$/i.exec(token);
-      if (absolute) return Boolean(parseDate(absolute[1]!, now));
+      const absolute = /^(?:в|at)\s+(.+)$/i.exec(token);
+      const absoluteValue = absolute?.[1] ?? token;
+      if (parseDate(absoluteValue, now) || nextClock(absoluteValue, now)) return true;
       const anchored = /^(?:due|срок|start|начало|leave|выезд)[-+](.+)$/i.exec(token);
       const future = /^(?:через|in)\s*(.+)$/i.exec(token);
       return duration(anchored?.[1] ?? future?.[1] ?? token.replace(/^(?:за\s*|-)/i, '')) !== null;
@@ -183,7 +185,7 @@ export function parseEntry(input: string, now: Date): Draft {
   }
   function commandValuePrefix(value: string, key: string): string {
     const valid = (candidate: string) => ['@', 'срок', 'due', 'начало', 'start', 'opens', 'event opens', 'конец', 'end', 'ends', 'event ends'].includes(key)
-      ? Boolean(parseDate(candidate, now))
+      ? Boolean(parseDate(candidate, now) || nextClock(candidate, now))
       : ['дорога', 'ехать', 'тт', 'tt', 'travel', 'travel time', 'drive', 'длительность', 'duration'].includes(key)
         ? duration(candidate) !== null
         : ['напомнить', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r'].includes(key)
@@ -233,7 +235,7 @@ export function parseEntry(input: string, now: Date): Draft {
   }
   // A date followed by a compact clock range shares the same day on both sides:
   // “завтра 15 - 18 00” means 15:00–18:00, not a 09:00 default event.
-  const compactClockRange = new RegExp(`(?:^|\\s)(${dayExpression})\\s+(\\d{1,2})(?:(?::|\\s)(\\d{2}))?\\s*[-–—]\\s*(\\d{1,2})(?:(?::|\\s)(\\d{2}))?(?=\\s|$)`, 'gi');
+  const compactClockRange = new RegExp(`(?:^|\\s)(?:(?:с|from)\\s+)?(${nextDayExpression}|${dayExpression})\\s+(\\d{1,2})(?:(?::|\\s)(\\d{2}))?\\s*(?:[-–—]|по|to)\\s*(\\d{1,2})(?:(?::|\\s)(\\d{2}))?(?=\\s|$)`, 'gi');
   for (const match of [...text.matchAll(compactClockRange)]) {
     if (consumed.slice(match.index!, match.index! + match[0].length).some(Boolean)) continue;
     once('start'); once('end');
@@ -290,8 +292,8 @@ export function parseEntry(input: string, now: Date): Draft {
       const field = ['начало', 'start', 'opens', 'event opens'].includes(key) ? 'start' : ['конец', 'end', 'ends', 'event ends'].includes(key) ? 'end' : 'due';
       once(field);
       const parsed = parseDate(value, now);
-      const clockDue = field === 'due' && !parsed ? nextClock(value, now, result.start ?? parseEntry(text.slice(0, start), now).start) : null;
-      if (clockDue) result.due = clockDue;
+      const clockValue = !parsed ? nextClock(value, now, result.start ?? parseEntry(text.slice(0, start), now).start) : null;
+      if (clockValue) result[field] = clockValue;
       else if (!parsed) result.errors.push(`Не разобрана дата «${value}». Пример: завтра 15:00.`);
       else {
         if (parsed.timed || field === 'due') result[field] = parsed.iso;
@@ -640,11 +642,58 @@ function suggestInternal(input: string, caret: number, now: Date, language: 'ru'
   return { start, end, options };
 }
 
+/** Clock completion edits only the active clock, never its date or later commands. */
+function stagedClockSuggestions(input: string, caret: number, now: Date, language: 'ru' | 'en') {
+  const masked = input.replace(/"([^"\n]*)"|«([^»\n]*)»/g, value => ' '.repeat(value.length));
+  const before = masked.slice(0, caret);
+  if ((input.slice(0, caret).match(/"/g)?.length ?? 0) % 2 || input.slice(0, caret).lastIndexOf('«') > input.slice(0, caret).lastIndexOf('»')) return null;
+  const namedDate = `\\d{1,2}\\s+(?:${monthPattern})(?:\\s+(?:\\d{4}|\\d{2})(?![\\d:]))?`;
+  const date = new RegExp(`(?:^|[\\s:@])(${namedDate}|${nextDayExpression}|${dayExpression})(?:\\s+(?:в\\s+)?(\\d{1,2})(?:(:|\\s)(\\d{0,2}))?)?\\s*$`, 'i').exec(before);
+  const command = /(?:^|\s)(?:event\s+(?:opens|ends)|начало|конец|срок|due|start|end|opens|ends|до|by|с|from|по|to|напомнить|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/i.exec(before);
+  const range = /(?:\d{1,2}(?::\d{2})?)\s*[-–—]\s*(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/.exec(before);
+  let hour: string | undefined, minute: string | undefined, separator: string | undefined, start: number, detail: string;
+  if (date) {
+    const phrase = date[1]!;
+    const dateStart = date.index + date[0].indexOf(phrase);
+    if (/\d{1,2}(?::|\s)\d{2}\s+$/.test(before.slice(0, dateStart))) return null;
+    const resolved = parseDate(phrase, now)?.iso ?? parseEntry(`Timeline ${phrase}`, now).start;
+    if (!resolved) return null;
+    hour = date[2]; separator = date[3]; minute = date[4];
+    if (!hour && /^\s+(?:в\s+)?\d{1,2}(?::|\s)\d{2}/.test(input.slice(caret))) return null;
+    const dateEnd = date.index + date[0].indexOf(phrase) + phrase.length;
+    start = hour ? dateEnd + before.slice(dateEnd).indexOf(hour) : caret;
+    detail = new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(resolved));
+  } else if (command || range) {
+    const match = command ?? range!;
+    hour = match[1]; separator = match[2]; minute = match[3];
+    // Empty reminder commands still offer relative offsets. Explicit clock input
+    // and absolute reminder dates use the same two-stage clock picker.
+    if (!hour && command) return null;
+    if (command && /(?:напом|remind|\br\b)/i.test(command[0]) && ((!separator && hour?.length === 1) || /^\s*(?:день|дня|дней|час|мин|[mhdмчд])\b/i.test(input.slice(caret)))) return null;
+    start = hour ? caret - /\d{1,2}(?:(?::|\s)\d{0,2})?\s*$/.exec(before)![0].length : caret;
+    detail = language === 'ru' ? 'Время' : 'Time';
+  } else return null;
+  if (hour && (Number(hour) > 23 || (separator && minute?.length === 2))) return null;
+  const end = caret + /^\d*(?::\d*)?/.exec(input.slice(caret))![0].length;
+  if (hour) {
+    const clock = hour.padStart(2, '0');
+    const minutes = ['00', '15', '30', '45'].filter(value => !minute || value.startsWith(minute));
+    return { start, end, ordered: true, options: minutes.map(value => ({ label: `:${value}`, insert: `${clock}:${value}${/^\s/.test(input.slice(end)) ? '' : ' '}`, detail: `${clock}:${value} · ${detail}` })) };
+  }
+  const leading = /\s$/.test(input.slice(0, caret)) ? '' : ' ';
+  return { start, end, ordered: true, options: Array.from({ length: 24 }, (_, index) => {
+    const clock = String((index + 6) % 24).padStart(2, '0');
+    return { label: `${clock}:`, insert: `${leading}${clock}:`, detail };
+  }) };
+}
+
 export function suggest(input: string, caret: number, now: Date = new Date(), interfaceLanguage: 'ru' | 'en' = 'ru'): { start: number; end: number; options: Suggestion[]; ordered?: boolean } {
   const beforeCaret = input.slice(0, caret);
   const activeWord = /[a-zа-яё]+$/i.exec(beforeCaret)?.[0] ?? '';
   const closestWord = activeWord || [...beforeCaret.matchAll(/[a-zа-яё]+/gi)].at(-1)?.[0] || '';
   const language: 'ru' | 'en' = /[а-яё]/i.test(closestWord) ? 'ru' : /[a-z]/i.test(closestWord) ? 'en' : interfaceLanguage;
+  const clock = stagedClockSuggestions(input, caret, now, language);
+  if (clock) return clock;
   const normalized = relaxedCommands(input);
   if (caret === input.length) {
     const masked = input.replace(/"([^"\n]*)"|«([^»\n]*)»/g, value => ' '.repeat(value.length));

@@ -24,3 +24,27 @@ test('Enter and mobile beforeinput capture imperfect prose and repeated reminder
     await expect(editor).toHaveCount(0); await expect(input).toHaveValue('');
   }
 });
+
+test('Live text chooses hours then minutes before opening the editor', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto(process.env.UTM_TEST_URL ?? '/');
+  await page.getByLabel('Workspace name').fill('Clock picker');
+  await page.getByLabel('Password', { exact: true }).fill('clock-picker-test-only');
+  await page.getByLabel('Confirm password', { exact: true }).fill('clock-picker-test-only');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  const input = page.getByPlaceholder('Add new item');
+  await input.fill('Встреча завтра');
+  const options = page.locator('.capture-dock [role=option]');
+  await expect(options).toHaveCount(24);
+  await options.filter({ hasText: /^15:/ }).click();
+  await expect(input).toHaveValue('Встреча завтра 15:');
+  await expect(options).toHaveCount(4);
+  await options.filter({ hasText: /^:30/ }).click();
+  await expect(input).toHaveValue('Встреча завтра 15:30 ');
+  await input.press('Enter');
+  const editor = page.getByRole('dialog', { name: 'Item editor' });
+  await expect(editor).toBeVisible();
+  await expect(editor.getByLabel('Title', { exact: true })).toHaveValue('Встреча');
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+});

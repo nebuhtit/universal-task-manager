@@ -51,11 +51,19 @@ const replacements: Array<{ start: number; end: number; value: string }> = [];
   const currentDue = parseEntry(text, now).due;
   if (currentDue) text = text.replace(/(^|\s)(?:до|by)\s+\d{1,2}(?::|\s)\d{2}(?=\s|$)/i, (match, leading: string) => `${leading}до ${localDateTime(currentDue)}`);
   if (currentDue) text = text.replace(/(^|\s)(?:срок|due)(?::|\s)\s*\d{1,2}(?::|\s)\d{2}(?=\s|$)/i, (match, leading: string) => `${leading}срок:${localDateTime(currentDue)}`);
+  const boundaries = parseEntry(text, now);
+  for (const [keys, at] of [['начало|start|opens|event opens', boundaries.start], ['конец|end|ends|event ends', boundaries.end]] as const) {
+    if (at) text = text.replace(new RegExp(`(^|\\s)(${keys})(?::|\\s)\\s*\\d{1,2}(?::|\\s)\\d{2}(?=\\s|$)`, 'i'), (_match, leading: string, key: string) => `${leading}${key} ${localDateTime(at)}`);
+  }
   if (currentDue && /(?:^|\s)(?:сейчас|now)(?=\s|$)/i.test(text)) {
     text = text.replace(/(?:^|\s)(?:сейчас|now)(?=\s|$)/i, (match) => `${match.startsWith(' ') ? ' ' : ''}до ${localDateTime(currentDue)}`);
     if (!parseEntry(text, now).title) text = `Сейчас ${text}`;
   }
   let nextReminder = 0;
+  text = text.replace(/(^|\s)(напомнить|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2}(?::|\s)\d{2})(?=\s|$)/gi, (match, leading: string, key: string, clock: string) => {
+    const at = parseEntry(`Reminder напомнить ${clock}`, now).reminders[0]?.at;
+    return at ? `${leading}${key} в ${localDateTime(at)}` : match;
+  });
   text = text.replace(/(?:через|in)\s*\d+(?:[.,]\d+)?\s*[a-zа-я]+/gi, value => {
     const reminder = relativeNow[nextReminder++];
     return reminder?.at ? `в ${localDateTime(reminder.at)}` : value;
@@ -92,7 +100,17 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
 export function createQuickEntryItem(text: string, now: Date): UniversalItem {
   const original = text.trim();
   if (!original) throw new Error('Добавьте название.');
-  try { return applyQuickEntryText(createItem('', 'task', now), original, now).item; }
+  try {
+    const created = applyQuickEntryText(createItem('', 'task', now), original, now);
+    if (!created.draft.start) return created.item;
+    const anchor = created.draft.leave ?? created.draft.start;
+    const defaults = [120, 1440].filter(minutes => !created.draft.reminders.some(reminder => reminder.at === new Date(Date.parse(anchor) - minutes * 60_000).toISOString()));
+    if (!defaults.length) return created.item;
+    // Store defaults in Live text as well, so subsequent parsing and changes to
+    // travel time preserve and recalculate them rather than silently dropping them.
+    const key = created.draft.leave ? 'выезд' : 'начало';
+    return applyQuickEntryText(created.item, `${original} напомнить ${defaults.map(minutes => `${key}-${minutes}м`).join(',')}`, now).item;
+  }
   catch {
     // Capture must never discard or block non-empty prose because a command
     // is incomplete. Keep the complete original as title, without guessed dates.

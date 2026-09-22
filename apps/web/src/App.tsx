@@ -35,6 +35,7 @@ import { ResponsiveDialog } from './components/ui/ResponsiveDialog';
 import { Button } from './components/ui/primitives';
 import { DueQuickChoices } from './features/items/DueQuickChoices';
 import './features/settings/settings-hierarchy.css';
+import './features/recovery/recovery.css';
 import { canQuickChangeDue, itemTimeZone } from './features/items/dueQuickActions';
 import { reminderSnoozedUntil, type ReminderSnoozeOption } from './services/reminderSnooze';
 import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
