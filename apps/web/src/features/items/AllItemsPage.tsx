@@ -1,7 +1,8 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useDeferredValue, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ACTIVE_ITEM_VIEW_QUERY, calculateItemSetMetrics, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { PersistedDetails } from '../../components/ui/PersistedDetails';
-import { Button, Checkbox, Disclosure, Surface } from '../../components/ui/primitives';
+import { Button, Checkbox, Disclosure, Input, Surface } from '../../components/ui/primitives';
+import { createItemSearchIndex, searchItems } from './itemSearch';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { formatSystemDateTime } from '../../utils/dates';
 import { ViewMetricsSummary } from '../views/ViewMetricsSummary';
@@ -114,8 +115,13 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
   onDelete: (item: UniversalItem) => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
   const now = useWorkspaceBoundaryNow(workspace);
   const workspaceIndex = getWorkspaceIndex(workspace);
+  const searchIndex = useMemo(() => createItemSearchIndex(workspaceIndex.visibleItems), [workspaceIndex.visibleItems]);
+  const results = useMemo(() => searchItems(searchIndex, deferredQuery), [searchIndex, deferredQuery]);
+  const ru = workspace.calendarPreferences.language === 'ru';
   const recurringItems = workspaceIndex.recurrence.seriesTemplates.filter((item) => !item.habit && !isItemTemplate(item));
   const templateItems = workspaceIndex.visibleItems.filter(isItemTemplate);
   const deletedItems = workspaceIndex.items.filter((item) => Boolean(item.deletedAt));
@@ -128,6 +134,15 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
   const metrics = calculateItemSetMetrics(visibleItems);
   return <section className="page-section">
     <header className="all-items-toolbar"><div><p className="eyebrow">EVERYTHING</p><h1>All items</h1><ViewMetricsSummary metrics={metrics} language={workspace.calendarPreferences.language} /></div><Button onClick={() => setSettingsOpen(true)}>Customize</Button></header>
+    <div className="all-items-search" role="search">
+      <Input type="search" aria-label={ru ? 'Поиск по всем items' : 'Search all items'} placeholder={ru ? 'Название, текст, проект, тег, дата…' : 'Title, text, project, tag, date…'} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setQuery(''); }} maxLength={256} />
+      {query && <Button size="compact" onClick={() => setQuery('')}>{ru ? 'Очистить' : 'Clear search'}</Button>}
+    </div>
+    {query.trim() ? <section aria-busy={query !== deferredQuery}>
+      <p role="status">{ru ? `Найдено: ${results.length}. Сначала совпадения в названии.` : `${results.length} results. Title matches first.`}</p>
+      <div className={longListClass('item-list', results.length)}>{results.map(item => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={state => onState(item, state)} />)}</div>
+      {!results.length && <p className="empty">{ru ? 'Ничего не найдено. Попробуй часть названия или тег.' : 'Nothing found. Try part of a title or a tag.'}</p>}
+    </section> : <>
     <div className="all-sections">
       <ItemSourceSection name="Google Calendar items" uiKey="all:source:google-calendar" items={googleCalendarItems} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState} />
       <ItemSourceSection name="UTM items" uiKey="all:source:utm" items={utmItems} count={utmItemCount} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState}>
@@ -141,6 +156,7 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
     </PersistedDetails>
     <AllItemsCollections items={visibleItems} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState} />
     <DeletedItemsList items={deletedItems} onRestore={onRestore} onClear={onClearTrash} onDelete={onDelete} />
+    </>}
     <AllItemsSettings open={settingsOpen} workspace={workspace} view={view} onClose={() => setSettingsOpen(false)} onSave={onSaveView} />
   </section>;
 }

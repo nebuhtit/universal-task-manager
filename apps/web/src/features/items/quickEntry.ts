@@ -94,6 +94,8 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   const organization = extractOrganization(text);
   const metadata = [...organization.areas.map(name => `area:${JSON.stringify(name)}`), ...organization.projects.map(name => `project:${JSON.stringify(name)}`), ...organization.tags.map(name => `#${JSON.stringify(name)}`)];
   const normalizedText = [materializeQuickEntryText(organization.text, now), ...metadata].join(' ');
+  const previous = extractOrganization(quickEntrySource(item)?.text ?? '');
+  const memberships = (current: string[], old: string[], next: string[]) => [...new Set([...current.filter(name => !old.includes(name)), ...next])];
   const schedule = { timezone: item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...item.schedule };
   if (draft.due) schedule.dueAt = draft.due; else delete schedule.dueAt;
   if (draft.plannedDate) schedule.plannedDate = draft.plannedDate; else delete schedule.plannedDate;
@@ -105,9 +107,9 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
     item: {
       ...item, title: draft.title, schedule, reminders: reminderItems(draft),
       ...(draft.isNote ? { isNote: true, canBeCompleted: false } : {}),
-      ...(draft.areas?.length ? { areas: draft.areas } : {}),
-      ...(draft.projects?.length ? { projects: draft.projects } : {}),
-      ...(draft.tags?.length ? { tags: draft.tags } : {}),
+      areas: memberships(item.areas, previous.areas, draft.areas ?? []),
+      projects: memberships(item.projects, previous.projects, draft.projects ?? []),
+      tags: memberships(item.tags, previous.tags, draft.tags ?? []),
       extensions: { ...item.extensions, [QUICK_ENTRY_SOURCE]: { text: normalizedText, timezone: schedule.timezone, grammarVersion: 2 } satisfies QuickEntrySource },
     }, draft,
   };
@@ -116,6 +118,9 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
 export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate?: string): UniversalItem {
   let original = text.trim();
   if (!original) throw new Error('Добавьте название.');
+  const initial = parseEntry(original, now);
+  if (initial.noDateDefaults) defaultPlannedDate = undefined;
+  if (!initial.isNote && !initial.noDateDefaults && !initial.start && !initial.end && !initial.due && !initial.plannedDate && initial.durationMinutes === null && !initial.errors.length) original += ' длительность 10м';
   if (defaultPlannedDate && !original.startsWith('.')) {
     const masked = original.replace(/"[^"\n]*"|«[^»\n]*»/g, value => ' '.repeat(value.length));
     const explicitDay = new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(masked);
@@ -138,6 +143,7 @@ export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate
       return created.item;
     }
     const anchor = created.draft.leave ?? created.draft.start;
+    if (created.draft.noDefaultReminders) return created.item;
     const defaults = [120, 1440].filter(minutes => !created.draft.reminders.some(reminder => reminder.at === new Date(Date.parse(anchor) - minutes * 60_000).toISOString()));
     if (!defaults.length) return created.item;
     // Store defaults in Live text as well, so subsequent parsing and changes to

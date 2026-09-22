@@ -48,6 +48,24 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const [date, setDate] = useState('');
   const [overlayStyle, setOverlayStyle] = useState<CSSProperties>();
   const parsed = useMemo(() => parseEntry(value, referenceTime), [value, referenceTime]);
+  const highlight = useRef<HTMLDivElement>(null);
+  const [composing, setComposing] = useState(false);
+  const highlighted = !composing && Boolean(parsed.commandSpans?.length);
+  const syncHighlight = () => {
+    const element = control(), layer = highlight.current;
+    if (!element || !layer) return;
+    const style = getComputedStyle(element);
+    for (const property of ['font', 'letter-spacing', 'line-height', 'padding', 'border-width', 'border-radius', 'text-align', 'text-indent', 'box-sizing']) layer.style.setProperty(property, style.getPropertyValue(property));
+    Object.assign(layer.style, { top: `${element.offsetTop}px`, left: `${element.offsetLeft}px`, width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px` });
+    layer.scrollLeft = element.scrollLeft; layer.scrollTop = element.scrollTop;
+  };
+  useLayoutEffect(() => {
+    syncHighlight();
+    const element = control();
+    if (!element || !highlighted) return;
+    const observer = new ResizeObserver(syncHighlight); observer.observe(element);
+    return () => observer.disconnect();
+  }, [value, highlighted, multiline, focused, open]);
   const calendarDate = useMemo(() => {
     if (!onViewCalendarDate || !new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(value)) return null;
     const at = parsed.plannedDate ?? parsed.start ?? parsed.due;
@@ -57,8 +75,8 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return `${fields.year}-${fields.month}-${fields.day}`;
   }, [onViewCalendarDate, parsed.plannedDate, parsed.start, parsed.due, timeZone, value]);
-  const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: orderedOrganizationNames(workspace, 'tag') } : { area: [], project: [], tag: [] }, [workspace]);
-  const suggestions = useMemo(() => organizationSuggestions(value, caret, catalog) ?? suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language, catalog]);
+  const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: [...new Set(Object.values(workspace.items).filter(item => !item.deletedAt).flatMap(item => item.tags))].sort() } : { area: [], project: [], tag: [] }, [workspace]);
+  const suggestions = useMemo<ReturnType<typeof suggest>>(() => organizationSuggestions(value, caret, catalog) ?? suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language, catalog]);
   const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
   useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = suggestions.ordered ? 0 : panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
   useEffect(() => { if (expanded && selected >= 0) document.getElementById(`${id}-option-${selected}`)?.scrollIntoView({ block: 'nearest' }); }, [expanded, selected, id]);
@@ -114,13 +132,17 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const format = (at: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(at));
   const summary = [parsed.plannedDate && `${parsed.plannedDate} · без времени`, parsed.start && `▷ ${format(parsed.start)}`, parsed.end && `→ ${format(parsed.end)}`, parsed.due && `Due ${format(parsed.due)}`, parsed.travelMinutes !== null && `Дорога ${parsed.travelMinutes} мин`, parsed.reminders.length > 0 && `Напоминания: ${parsed.reminders.length}`].filter(Boolean).join(' · ');
   const common = {
+    className: highlighted ? 'live-text-colored-control' : undefined,
+    onCompositionStart: () => setComposing(true),
+    onCompositionEnd: () => setComposing(false),
+    onScroll: syncHighlight,
     value, placeholder, id: inputId, autoFocus, 'aria-label': ariaLabel ?? placeholder, autoComplete: 'off', spellCheck: false, maxLength: 2000,
     role: 'combobox', 'aria-autocomplete': 'list' as const, 'aria-expanded': expanded, 'aria-controls': `${id}-options`,
     'aria-activedescendant': expanded && selected >= 0 ? `${id}-option-${selected}` : undefined,
     onFocus: () => { setFocused(true); setOpen(true); setReferenceTime(now); if (overlaySuggestions) requestAnimationFrame(updateOverlayPosition); },
     onBlur: () => { setFocused(false); setOpen(false); },
     onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { onChange(event.target.value); setCaret(event.target.selectionStart ?? 0); setSelected(-1); setOpen(true); setNotice(''); setReferenceTime(now); if (overlaySuggestions) requestAnimationFrame(updateOverlayPosition); },
-    onSelect: (event: React.SyntheticEvent<HTMLInputElement | HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart ?? 0),
+    onSelect: (event: React.SyntheticEvent<HTMLInputElement | HTMLTextAreaElement>) => { setCaret(event.currentTarget.selectionStart ?? 0); requestAnimationFrame(syncHighlight); },
     onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;
       if (event.key === 'Escape') { if (open) { event.preventDefault(); event.stopPropagation(); } setOpen(false); return; }
@@ -147,6 +169,17 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   return <div className="live-text-input" ref={root}>
     {suggestionPanel && (overlaySuggestions && typeof document !== 'undefined' ? createPortal(suggestionPanel, document.body) : suggestionPanel)}
     {multiline ? <Textarea {...common} ref={textarea} rows={4} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint={overlaySuggestions ? 'done' : 'go'} />}
+    {highlighted && <div ref={highlight} aria-hidden="true" className={`live-text-highlight${multiline ? ' is-multiline' : ''}`}><span>{(() => {
+      let cursor = 0;
+      const parts: React.ReactNode[] = [];
+      for (const span of parsed.commandSpans ?? []) {
+        if (span.start < cursor || span.end > value.length) continue;
+        parts.push(value.slice(cursor, span.start), <span className="live-text-command" key={span.start}>{value.slice(span.start, span.end)}</span>);
+        cursor = span.end;
+      }
+      parts.push(value.slice(cursor), value.endsWith('\n') ? '\u200b' : '');
+      return parts;
+    })()}</span></div>}
     {report && <ResponsiveDialog open onOpenChange={(visible) => { if (!visible) setReport(null); }} title="Ошибка разбора Live text" ariaLabel="Ошибка разбора Live text" finalFocus={() => control() ?? false}>
       <p className="live-text-report-source">{report.input}</p>
       <label>Как должно быть<Textarea aria-label="Как должно быть" value={expected} onChange={(event) => setExpected(event.target.value)} maxLength={2000} rows={4} /></label>

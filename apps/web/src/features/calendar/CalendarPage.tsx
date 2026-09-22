@@ -4,6 +4,7 @@ import {
   type ItemPreset, type ProjectedOccurrence, type UniversalItem, type ViewTimeMetrics, type WorkspaceDocument,
 } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
+import { PersistedDetails } from '../../components/ui/PersistedDetails';
 import { Button, IconButton, Surface } from '../../components/ui/primitives';
 import { ViewMetricsSummary } from '../views/ViewMetricsSummary';
 import { ViewResults } from '../views/ViewResults';
@@ -168,7 +169,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     {preferences.timeline?.mode === 'timeline'
       ? <CalendarTimeline workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} />
       : <Surface className="calendar-day-list">
-        {selected.evaluation.items.some(item => item.schedule?.allDay) && <details open className="calendar-all-day"><summary>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {selected.evaluation.items.filter(item => item.schedule?.allDay).length}</summary><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !item.schedule?.allDay).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></details>}
+        {selected.evaluation.items.some(item => item.schedule?.allDay) && <PersistedDetails uiKey="calendar:all-day" defaultOpen className="calendar-all-day"><summary>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {selected.evaluation.items.filter(item => item.schedule?.allDay).length}</summary><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !item.schedule?.allDay).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></PersistedDetails>}
         <ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => item.schedule?.allDay).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
       </Surface>}
     <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); })} />

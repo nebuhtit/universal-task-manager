@@ -5,6 +5,7 @@ import { isItemTemplate } from '../items/fieldDisplay';
 import { viewItemForEvaluation } from '../views/viewSelectors';
 import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, type TimelineEvent } from './timelineLayout';
 import { planUndatedTasks } from './timelinePlanning';
+import { isCompletelyUndated, showUndatedItem, showOverdueToday } from './calendarVisibility';
 
 export function timelineData(workspace: WorkspaceDocument, key: string, now: Date) {
   const preferences = workspace.calendarPreferences;
@@ -61,6 +62,7 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   };
   const events: TimelineEvent[] = [], allDay: UniversalItem[] = [], undated: UniversalItem[] = [], activeRange: UniversalItem[] = [];
   const sleep: TimelineEvent[] = [];
+  const overdue: UniversalItem[] = [];
   const sleepId = preferences.timeline?.sleepItemId;
   const isSleep = (item: UniversalItem) => item.id === sleepId || item.occurrence?.seriesId === sleepId;
   const sources = preferences.dayView.scheduleSources;
@@ -69,9 +71,14 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     if (interval && isSleep(item) && !item.schedule?.allDay && item.state !== 'cancelled' && item.state !== 'archived' && !interval.invalid && !interval.point && intersects(interval, day)) sleep.push(interval);
     if (!accepted(item)) continue;
     const schedule = item.schedule;
-    const completelyUndated = !schedule?.plannedDate && !schedule?.startAt && !schedule?.endAt && !schedule?.dueAt && !schedule?.availableFrom;
+    const completelyUndated = isCompletelyUndated(item);
+    if (completelyUndated && !showUndatedItem(item, now, preferences.timezone)) continue;
     if (completelyUndated && preferences.timeline?.showUndated !== true) continue;
-    if (item.schedule?.plannedDate && plannedDateForDisplay(item, now, preferences.timezone) !== key) continue;
+    if (showOverdueToday(item, key, now, preferences.timezone, item.occurrence ? mapped.items[item.occurrence.seriesId] : undefined) && (!interval || !intersects(interval, day)) && !item.schedule?.plannedDate) { overdue.push(item); continue; }
+    if (item.schedule?.plannedDate && plannedDateForDisplay(item, now, preferences.timezone) !== key) {
+      if (showOverdueToday(item, key, now, preferences.timezone, item.occurrence ? mapped.items[item.occurrence.seriesId] : undefined)) overdue.push(item);
+      continue;
+    }
     if (item.schedule?.plannedDate && !item.schedule.startAt && !item.schedule.endAt) { undated.push(item); continue; }
     const series = item.occurrence ? mapped.items[item.occurrence.seriesId] : item;
     const rule = series?.recurrence;
@@ -98,7 +105,7 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
     day, events: [...visible, ...planning.proposals], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),
-    plannedTasks: undated.filter(item => !placedIds.has(item.id) && item.schedule?.plannedDate), activeRange, planning,
+    plannedTasks: undated.filter(item => !placedIds.has(item.id) && item.schedule?.plannedDate), activeRange, overdue, planning,
     hidden: hiding ? hiddenIntervals(sleep, visible, day) : [],
     sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)),
     projectionLimited: desiredPadding > padding,

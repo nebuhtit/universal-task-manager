@@ -1,5 +1,6 @@
 import {
   compileQuery,
+  calendarDateKey,
   googleCalendarProjection,
   createOccurrence,
   createViewTimeMetricsAccumulator,
@@ -22,6 +23,7 @@ import {
   type WorkspaceDocument,
 } from '@utm/core';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
+import { showOverdueToday } from './calendarVisibility';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { sortViewItems, viewItemForEvaluation, type ViewEvaluation } from '../views/viewSelectors';
 
@@ -86,6 +88,7 @@ export function evaluateCalendarRange(
   now: Date,
 ): CalendarRangeEvaluation {
   const timeZone = workspace.calendarPreferences.timezone;
+  const today = calendarDateKey(now, timeZone);
   const rangeStart = zonedDateStart(rangeStartKey, timeZone);
   const rangeEnd = zonedDateStart(rangeEndKey, timeZone);
   const calendarWorkspace = { ...workspace, items: Object.fromEntries(Object.values(workspace.items).map((item) => [item.id, googleCalendarProjection(item)])) };
@@ -94,7 +97,8 @@ export function evaluateCalendarRange(
     .filter((entry): entry is CalendarProjectedEntry => Boolean(entry.item));
   for (const item of Object.values(calendarWorkspace.items)) {
     const key = plannedDateForDisplay(item, now, timeZone);
-    if (!itemDeletionTime(calendarWorkspace, item) && item.role !== 'series_template' && key && key >= rangeStartKey && key < rangeEndKey && !projected.some(entry => entry.item.id === item.id)) {
+    const overdue = today >= rangeStartKey && today < rangeEndKey && showOverdueToday(item, today, now, timeZone, item.occurrence ? calendarWorkspace.items[item.occurrence.seriesId] : undefined);
+    if (!itemDeletionTime(calendarWorkspace, item) && item.role !== 'series_template' && ((key && key >= rangeStartKey && key < rangeEndKey) || overdue) && !projected.some(entry => entry.item.id === item.id)) {
       projected.push({ item, row: { id: item.id, sourceItemId: item.id, materializedItemId: item.id, virtual: false, title: item.title, state: item.state, preset: item.preset, schedule: { ...item.schedule! }, dueOnly: false } });
     }
   }
@@ -155,10 +159,12 @@ export function evaluateCalendarRange(
     const scheduleSource = viewItemForEvaluation(entry.item);
     const planned = plannedDateForDisplay(scheduleSource, now, timeZone);
     const keys = planned ? [planned] : scheduleDateKeysInRange(scheduleSource, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone });
+    if (showOverdueToday(scheduleSource, today, now, timeZone, scheduleSource.occurrence ? calendarWorkspace.items[scheduleSource.occurrence.seriesId] : undefined) && !keys.includes(today)) keys.push(today);
     for (const key of keys) {
       const bucket = buckets.get(key);
       if (!bucket) continue;
-      const seriesId = entry.item.role === 'occurrence' && !entry.item.schedule?.plannedDate ? entry.item.occurrence?.seriesId : undefined;
+      const overdueCycle = showOverdueToday(scheduleSource, key, now, timeZone, scheduleSource.occurrence ? calendarWorkspace.items[scheduleSource.occurrence.seriesId] : undefined);
+      const seriesId = entry.item.role === 'occurrence' && !entry.item.schedule?.plannedDate && !overdueCycle ? entry.item.occurrence?.seriesId : undefined;
       bucket.visibleSourceIds.add(seriesId ?? entry.item.id);
       if (!seriesId) {
         if (bucket.standaloneIds.has(entry.item.id)) continue;

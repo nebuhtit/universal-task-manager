@@ -37,7 +37,9 @@ describe('standalone quick entry', () => {
     expect(draft).toMatchObject({ title: 'Стрижка', start: iso(22, 15), travelMinutes: 45, leave: iso(22, 14, 15) });
     expect(draft.reminders.map(r => r.at)).toEqual([iso(21, 14, 15), iso(22, 12, 15)]);
     expect(draft.warnings).toHaveLength(1);
-    expect(parseEntry(examples[1]!, now)).toEqual(draft);
+    const alternate = parseEntry(examples[1]!, now);
+    // Equivalent commands have different offsets in their original strings.
+    expect({ ...alternate, commandSpans: undefined }).toEqual({ ...draft, commandSpans: undefined });
   });
   it('recomputes departure reminders when travel changes', () => {
     const draft = parseEntry(examples[0]!.replace('45м', '1ч'), now);

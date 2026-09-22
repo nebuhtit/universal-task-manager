@@ -53,6 +53,21 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await setup(page);
   const allDayGroup = page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^All day/ }) });
   await allDayGroup.locator('summary').click(); await expect(allDayGroup.locator('.item-card')).toBeHidden();
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await expect(allDayGroup).not.toHaveAttribute('open');
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+  await expect(allDayGroup).not.toHaveAttribute('open');
+  await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
+  await page.clock.fastForward(11_000);
+  await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  if ((page.viewportSize()?.width ?? 0) <= 620) {
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click();
+  } else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
+  await expect(allDayGroup).toBeVisible();
+  await expect(allDayGroup).not.toHaveAttribute('open');
   await allDayGroup.locator('summary').click();
   await expect(allDayGroup.locator('.item-card')).toBeVisible();
   const active = page.locator('.timeline-top-items').filter({ has: page.getByRole('heading', { name: 'Active range', exact: true }) });

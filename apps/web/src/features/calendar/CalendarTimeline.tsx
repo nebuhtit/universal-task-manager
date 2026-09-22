@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { calendarDateKey, effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
+import { PersistedDetails } from '../../components/ui/PersistedDetails';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { Button, Checkbox } from '../../components/ui/primitives';
@@ -86,8 +87,9 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     </div>}
     {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(data.activeRange)}</div>}
     {data.plannedTasks.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks)}</div>}
-    {data.allDay.length > 0 && <details open className="timeline-top-items"><summary>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</summary>{cards(data.allDay)}</details>}
-    {data.undated.length > 0 && <details className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</details>}
+    {data.allDay.length > 0 && <PersistedDetails uiKey="calendar:all-day" defaultOpen className="timeline-top-items"><summary>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</summary>{cards(data.allDay)}</PersistedDetails>}
+    {data.overdue.length > 0 && <PersistedDetails uiKey="calendar:overdue" defaultOpen className="timeline-top-items"><summary>{ru ? 'Просрочено' : 'Overdue'} · {data.overdue.length}</summary>{cards(data.overdue)}</PersistedDetails>}
+    {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}
     <div className="timeline-axis" style={{ height: height + 12 }}>
       {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
       {segments.filter(v => v.hidden).map(v => <div key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }}><span>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</span></div>)}

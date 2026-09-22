@@ -1,4 +1,14 @@
 .live-text-input { position: relative; min-width: 0; width: 100%; }
+.live-text-highlight { position: absolute; pointer-events: none; user-select: none; overflow: hidden; border-style: solid; border-color: transparent; color: var(--color-text); display: flex; align-items: center; white-space: pre; }
+.live-text-highlight > span { flex: none; }
+.live-text-highlight.is-multiline { display: block; white-space: pre-wrap; overflow-wrap: break-word; }
+.live-text-command { color: var(--color-command-recognized); }
+.live-text-colored-control { -webkit-text-fill-color: transparent; caret-color: var(--color-text); }
+.live-text-colored-control::selection { -webkit-text-fill-color: var(--color-text); }
+@media (forced-colors: active) {
+  .live-text-highlight { display: none; }
+  .live-text-colored-control { -webkit-text-fill-color: currentColor; }
+}
 .capture-dock .quick-capture .live-text-input > .ui-control { border-radius: var(--radius-pill); background: transparent; }
 .live-text-input:has(textarea) .live-text-panel { position: relative; bottom: auto; margin-bottom: var(--space-2); }
 .live-text-panel { position: absolute; bottom: calc(100% + var(--space-2)); left: 0; right: 0; max-height: min(40dvh, 20rem); overflow: auto; overscroll-behavior: contain; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-elevated); z-index: 1; }

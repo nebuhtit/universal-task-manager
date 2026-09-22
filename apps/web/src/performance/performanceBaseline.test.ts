@@ -81,11 +81,19 @@ function referenceCalendarMembership(workspace: WorkspaceDocument) {
   const start = new Date('2026-08-31T00:00:00.000Z');
   const end = new Date(start.getTime() + 7 * DAY_MS);
   const items = projectOccurrences(workspace, start, end).map((row) => projectedItem(workspace, row)).filter((item): item is UniversalItem => Boolean(item));
+  for (const item of Object.values(workspace.items)) if (!item.deletedAt && item.role !== 'series_template' && !items.some(candidate => candidate.id === item.id)) items.push(item);
   return Object.fromEntries(Array.from({ length: 7 }, (_, offset) => {
     const date = new Date(start.getTime() + offset * DAY_MS);
     const key = dayKey(date); const view = dayView(key);
     const predicate = awaitCompileQuery(view.query.source, workspace);
-    const selected = items.filter((item) => predicate(item, new Date(date.getTime() + 12 * 3_600_000))).sort((left, right) => {
+    const selected = items.filter((item) => {
+      const due = Date.parse(item.schedule?.dueAt ?? '');
+      const rule = item.recurrence;
+      const active = rule?.autoRenew && rule.closeAt === 'due' && (!rule.activationOffset || /^PT0[MS]$/.test(rule.activationOffset));
+      const overdue = key === dayKey(PERFORMANCE_NOW) && item.state === 'open' && due < PERFORMANCE_NOW.getTime()
+        && (!active || (Date.parse(item.schedule?.startAt ?? '') <= due && due >= date.getTime()));
+      return predicate(item, new Date(date.getTime() + 12 * 3_600_000)) || overdue;
+    }).sort((left, right) => {
       for (const field of ['startAt', 'dueAt'] as const) {
         const leftValue = left.schedule?.[field]; const rightValue = right.schedule?.[field];
         if (!leftValue && rightValue) return -1;
@@ -210,7 +218,8 @@ const measure = async <T,>(operation: () => T | Promise<T>) => {
 const expectedBehaviorHashes: Record<number, string> = {
   // Includes portable byte length: Home deduplication and noon defaults add metadata.
   // Free capacity now uses interval union rather than double-counting overlaps.
-  100: 'c6e174bc',
+  // Calendar Today includes unfinished past-Due items without moving schedules.
+  100: 'cc34d191',
   1_000: '521047c6',
   10_000: '432ad274',
 };

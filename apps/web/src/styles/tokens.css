@@ -74,6 +74,7 @@
   --color-destructive-contrast: #ffffff;
   --color-warning: #9a6700;
   --color-success: #237a3b;
+  --color-command-recognized: color-mix(in srgb, var(--color-success) 75%, var(--color-text) 25%);
   --color-focus-ring: rgba(0, 0, 0, 0.22);
   --color-overlay: rgba(0, 0, 0, 0.42);
 

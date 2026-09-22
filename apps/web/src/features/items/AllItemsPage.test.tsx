@@ -40,6 +40,7 @@ describe('AllItemsPage metrics', () => {
     expect(markup.indexOf('Calendar meeting')).toBeGreaterThan(googleStart);
     expect(markup.indexOf('Calendar meeting')).toBeLessThan(utmStart);
     expect(markup.indexOf('Local task')).toBeGreaterThan(utmStart);
-    expect(markup.match(/all-items-source-section/g)).toHaveLength(2);
+    expect(markup.match(/all-items-source-section/g)).toHaveLength(3);
+    expect(markup).toContain('With reminders');
   });
 });

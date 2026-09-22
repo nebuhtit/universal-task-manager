@@ -4,6 +4,9 @@ import { extractOrganization } from './organization';
 export type Anchor = 'due' | 'start' | 'leave' | 'now';
 export interface ReminderDraft { anchor: Anchor; minutes: number; at: string | null; automatic?: boolean }
 export interface Draft {
+  noDateDefaults?: boolean;
+  noDefaultReminders?: boolean;
+  commandSpans?: Array<{ start: number; end: number }>;
   isNote?: boolean;
   areas?: string[];
   projects?: string[];
@@ -390,6 +393,11 @@ export function parseEntry(input: string, now: Date): Draft {
     break;
   }
   if (/(?:^|\s)(?:напомнить|нап|ехать|завтра|сегодня|послезавтра)(?=\s|$)/i.test(text)) result.errors.push('Незавершённая фраза. Используйте команды или заключите буквальный текст в кавычки.');
+  result.commandSpans = [...input.matchAll(/[a-zа-яё]+/gi)].filter(match => {
+    const word = match[0].toLowerCase();
+    return consumed.slice(match.index!, match.index! + word.length).every(Boolean)
+      && (word in weekdays || word in relativeDays || word in dayPartHours || /^(event|opens|ends|travel|time|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|drive|длительность|due|до|start|end|duration|tt|r)$/.test(word));
+  }).map(match => ({ start: match.index!, end: match.index! + match[0].length }));
   result.title = input.split('').map((char, i) => consumed[i] ? ' ' : char).join('').replace(/"([^"\n]*)"|«([^»\n]*)»/g, (_, a, b) => a ?? b).replace(/\s+/g, ' ').trim();
   if (!result.title && /^(?:сейчас|now)\s*$/i.test(input.trim())) result.title = 'Сейчас';
   if (!result.title) result.errors.push('Добавьте название.');
@@ -433,6 +441,14 @@ const commandVariants: Record<string, string[]> = {
   срок: ['due'], длительность: ['duration'],
 };
 const commands: Suggestion[] = [
+  { label: 'бд / nd', insert: 'бд ', detail: 'Без автоматической даты и длительности' },
+  { label: 'бн', insert: 'бн ', detail: 'Без автоматических напоминаний' },
+  { label: 'area', insert: 'area:', detail: 'Выбрать Area' },
+  { label: 'эриа', insert: 'area:', detail: 'Выбрать Area' },
+  { label: 'project', insert: 'project:', detail: 'Выбрать проект, с Area или без неё' },
+  { label: 'проект', insert: 'project:', detail: 'Выбрать проект, с Area или без неё' },
+  { label: 'тег', insert: '#', detail: 'Выбрать тег' },
+  { label: 'тэг', insert: '#', detail: 'Выбрать тег' },
   { label: 'сегодня', insert: 'сегодня ', detail: 'Начало сегодня' },
   { label: 'today', insert: 'today ', detail: 'Event opens today' },
   { label: 'завтра', insert: 'завтра ', detail: 'Начало завтра' },
@@ -460,7 +476,8 @@ const commands: Suggestion[] = [
   { label: 'drive', insert: 'drive ', detail: 'Travel time' },
   { label: 'длительность', insert: 'длительность ', detail: 'Продолжительность события' },
   { label: 'duration', insert: 'duration ', detail: 'Event duration' },
-  { label: 'напомнить', 'нап', insert: 'напомнить ', detail: 'До начала события или due' },
+  { label: 'напомнить', insert: 'напомнить ', detail: 'До начала события или due' },
+  { label: 'нап', insert: 'нап ', detail: 'Напомнить' },
   { label: 'напомни', insert: 'напомни ', detail: 'Напоминание' },
   { label: 'напоминание', insert: 'напоминание ', detail: 'Напоминание' },
   { label: 'remind', insert: 'remind ', detail: 'Reminder' },
@@ -706,14 +723,25 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
 /** Live capture supports a calendar day without inventing a start time. */
 export function parseLiveEntry(input: string, now: Date): Draft {
   const organization = extractOrganization(input);
-  input = organization.text;
   const fields = { areas: organization.areas, projects: organization.projects, tags: organization.tags };
-  if (input.startsWith('.')) return { ...fields, isNote: true, title: input.slice(1).trim(), start: null, end: null, due: null, leave: null, durationMinutes: null, travelMinutes: null, reminders: [], errors: [], warnings: [] };
+  if (organization.text.startsWith('.')) return { ...fields, commandSpans: organization.commandSpans, isNote: true, title: organization.text.slice(1).trim(), start: null, end: null, due: null, leave: null, durationMinutes: null, travelMinutes: null, reminders: [], errors: [], warnings: [] };
+  input = organization.maskedText;
+  const flagSpans: Array<{ start: number; end: number }> = [];
+  let noDateDefaults = false, noDefaultReminders = false;
+  input = input.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(бд|nd|бн)(?=\s|$)/gi, (match, leading: string | undefined, flag: string | undefined, offset: number) => {
+    if (!flag) return match;
+    if (flag.toLowerCase() === 'бн') noDefaultReminders = true; else noDateDefaults = true;
+    const start = offset + (leading?.length ?? 0); flagSpans.push({ start, end: start + flag.length });
+    return ' '.repeat(match.length);
+  });
   const trailingDuration = /\s+(\d+(?:[.,]\d+)?\s*(?:ч|часа?|часов|h|м|мин|minutes?))\s*$/i.exec(input);
-  const normalized = trailingDuration && !/(?:длительность|duration|напомнить|нап|remind|дорога|travel|tt)\s*$/i.test(input.slice(0, trailingDuration.index))
-    ? input.slice(0, trailingDuration.index) + ` длительность ${trailingDuration[1]}` : input;
-  const withoutDatePreposition = normalized.replace(new RegExp(`"[^"\\n]*"|«[^»\\n]*»|(^|\\s)в\\s+(?=${dateValueExpression}(?=\\s|$))`, 'gi'), (match, leading: string | undefined) => leading ?? match);
-  const result = { ...parseEntry(withoutDatePreposition, now), ...fields };
+  const insertAt = trailingDuration && !/(?:длительность|duration|напомнить|нап|remind|дорога|travel|tt)\s*$/i.test(input.slice(0, trailingDuration.index)) ? trailingDuration.index + 1 : -1;
+  const insertion = 'длительность ';
+  const normalized = insertAt >= 0 ? input.slice(0, insertAt) + insertion + input.slice(insertAt) : input;
+  const withoutDatePreposition = normalized.replace(new RegExp(`"[^"\\n]*"|«[^»\\n]*»|(^|\\s)в\\s+(?=${dateValueExpression}(?=\\s|$))`, 'gi'), (match, leading: string | undefined) => leading === undefined ? match : ' '.repeat(match.length));
+  const result = { ...parseEntry(withoutDatePreposition, now), ...fields, noDateDefaults, noDefaultReminders };
+  const spans = (result.commandSpans ?? []).filter(span => insertAt < 0 || span.end <= insertAt || span.start >= insertAt + insertion.length).map(span => insertAt >= 0 && span.start >= insertAt + insertion.length ? { start: span.start - insertion.length, end: span.end - insertion.length } : span);
+  result.commandSpans = [...organization.commandSpans, ...flagSpans, ...(result.errors.length ? [] : spans)].sort((a, b) => a.start - b.start);
   if (!result.dateOnlyStart || !result.start) return result;
   const day = new Date(result.start);
   result.plannedDate = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
@@ -797,7 +825,7 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
     const terminalDate = new RegExp(`(?:^|\\s)(${dateValueExpression})\\s*$`, 'i').exec(normalized);
     const phrase = terminalDate?.[1] ?? '';
     if (phrase && !/(?:^|\s)(?:след\S*|next)(?=\s|$)/i.test(phrase) && new RegExp(`\\s+(?:${dayPartPattern}|\\d{1,2}(?:(?::|\\s)\\d{2})?)$`, 'i').test(phrase) && parseDate(phrase, now)) {
-      const labels = language === 'ru' ? ['напомнить', 'нап', 'длительность', 'дорога', 'конец', 'срок'] : ['remind', 'duration', 'travel', 'event ends', 'due'];
+      const labels = language === 'ru' ? ['напомнить', 'длительность', 'дорога', 'конец', 'срок'] : ['remind', 'duration', 'travel', 'event ends', 'due'];
       const used = [
         /(?:^|\s)(?:напомнить|нап|напомни|напоминание|remind|reminder|r)(?=\s|:)/i,
         /(?:^|\s)(?:длительность|duration)(?=\s|:)/i,

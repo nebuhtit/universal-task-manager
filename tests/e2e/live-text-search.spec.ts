@@ -1,0 +1,54 @@
+import { expect, test } from '@playwright/test';
+
+test('literal notes, organization, reminder alias and ranked All items search survive reopening', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  await page.goto(process.env.UTM_TEST_URL ?? '/');
+  await page.getByLabel('Workspace name').fill('Search check');
+  await page.getByLabel('Password', { exact: true }).fill('search-test-password');
+  await page.getByLabel('Confirm password').fill('search-test-password');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  const capture = page.getByPlaceholder('Add new item');
+  await capture.fill('. завтра 15:00 нап 2ч area:"Работа" project:"Запуск" #важно');
+  const highlights = page.locator('.live-text-highlight .live-text-command');
+  await expect(highlights).toHaveText(['area', 'project', '#']);
+  await capture.dispatchEvent('compositionstart');
+  await expect(highlights).toHaveCount(0);
+  await capture.dispatchEvent('compositionend');
+  await expect(highlights).toHaveCount(3);
+  await capture.press('Enter');
+  await expect(page.getByRole('checkbox', { name: 'Note', exact: true })).toBeChecked();
+  await expect(page.getByRole('combobox', { name: 'Title', exact: true })).toHaveValue('завтра 15:00 нап 2ч');
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
+  await capture.fill('Встреча завтра 15:00 бн нап 2ч');
+  await expect(highlights).toHaveText(['завтра', 'бн', 'нап']);
+  await page.screenshot({ path: `/tmp/utm-live-highlight-${testInfo.project.name}.png` });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await page.screenshot({ path: `/tmp/utm-live-highlight-${testInfo.project.name}-dark.png` });
+  await capture.press('Enter');
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
+  const openAll = async () => {
+    if ((page.viewportSize()?.width ?? 0) <= 620) {
+      await page.getByRole('button', { name: 'Open navigation' }).click();
+      await page.locator('.mobile-nav-menu').getByRole('button', { name: /^All items(?: \d+)?$/ }).click();
+    } else await page.locator('.sidebar').getByRole('button', { name: /^All items(?: \d+)?$/ }).click();
+  };
+  await openAll();
+  const reminders = page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^With reminders/ }) });
+  await reminders.locator('summary').click();
+  await expect(reminders.getByText('Встреча', { exact: true })).toBeVisible();
+  const search = page.getByRole('searchbox', { name: 'Search all items' });
+  await search.fill('Запуск важно');
+  await expect(page.locator('.item-title')).toHaveText(['завтра 15:00 нап 2ч']);
+  await search.fill('встрча');
+  await expect(page.locator('.item-title')).toHaveText(['Встреча']);
+  await search.press('Escape'); await expect(search).toHaveValue('');
+  await expect(page.getByTestId('save-status')).toHaveCount(0);
+  await page.locator('.sidebar .sidebar-bottom button').filter({ hasText: 'Lock' }).evaluate((element: HTMLButtonElement) => element.click());
+  await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill('search-test-password');
+  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await openAll(); await search.fill('Запуск');
+  await expect(page.locator('.item-title')).toHaveText(['завтра 15:00 нап 2ч']);
+});
