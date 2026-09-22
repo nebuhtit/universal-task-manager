@@ -13,6 +13,8 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
   const touchStartY = useRef<number | null>(null);
   const lastTouchSelection = useRef(0);
+  const calendarTouchStartY = useRef<number | null>(null);
+  const lastCalendarTouch = useRef(0);
   const control = () => multiline ? textarea.current : (inputRef ?? ownInput).current;
   const id = useId();
   const [focused, setFocused] = useState(false), [open, setOpen] = useState(false), [caret, setCaret] = useState(value.length), [selected, setSelected] = useState(-1);
@@ -100,13 +102,14 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
       if (expanded && ['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); setSelected((current) => current < 0 ? event.key === 'ArrowDown' ? 0 : suggestions.options.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.options.length) % suggestions.options.length); }
       else if (expanded && event.key === 'Tab') { event.preventDefault(); setSelected((current) => current < 0 ? event.shiftKey ? suggestions.options.length - 1 : 0 : (current + (event.shiftKey ? -1 : 1) + suggestions.options.length) % suggestions.options.length); }
       else if (expanded && selected >= 0 && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(selected); }
+      else if (event.key === 'Enter' && !multiline && !overlaySuggestions) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
     },
   };
   const suggestionPanel = focused && value.trim() && <div ref={panel} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-overlay' : ''}`} style={overlayStyle}>
       {suggestionsEnabled && summary && <div className="live-text-preview">{summary}</div>}
       {message && <div role="alert" className="ui-field-error">{message}</div>}
       {expanded && overlaySuggestions && <Button size="compact" variant="ghost" aria-label="Close Live text suggestions" onPointerDown={(event) => event.preventDefault()} onClick={() => setOpen(false)}>×</Button>}
-      {calendarDate && <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onClick={() => onViewCalendarDate?.(calendarDate)}>{/[а-яё]/i.test(value) ? 'Посмотреть в календаре' : 'View in calendar'}</Button>}
+      {calendarDate && <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { calendarTouchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (calendarTouchStartY.current !== null && endY !== undefined && Math.abs(endY - calendarTouchStartY.current) < 10) { event.preventDefault(); lastCalendarTouch.current = Date.now(); onViewCalendarDate?.(calendarDate); } calendarTouchStartY.current = null; }} onTouchCancel={() => { calendarTouchStartY.current = null; }} onClick={() => { if (Date.now() - lastCalendarTouch.current > 500) onViewCalendarDate?.(calendarDate); }}>{/[а-яё]/i.test(value) ? 'Посмотреть в календаре' : 'View in calendar'}</Button>}
       <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onClick={() => { setReport({ input: value, parsed, referenceTime: referenceTime.toISOString() }); setExpected(''); setReportError(''); }}>Сообщить о неточности</Button>
       {notice && <small role="status">{notice}</small>}
       {expanded && <div id={`${id}-options`} role="listbox" aria-label="Подсказки Live text" className="live-text-options">

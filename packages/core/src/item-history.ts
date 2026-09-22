@@ -75,7 +75,7 @@ export function addTimerActualTime(item: UniversalItem, session: ItemTimerSessio
   item.actualTimeEntries ??= [];
   const existing = item.actualTimeEntries.find((entry) => entry.sourceSessionId === session.id);
   if (existing) { existing.durationSeconds = session.durationSeconds; syncActualDuration(item); return; }
-  if (session.mode === 'stopwatch' && session.durationSeconds <= 30) return;
+  if (!Number.isFinite(session.durationSeconds) || session.durationSeconds <= 0) return;
   const recurrenceId = session.recurrenceId ?? item.occurrence?.recurrenceId;
   const entry = { id: `timer:${session.id}`, sourceSessionId: session.id, source: session.mode, at: session.startedAt, durationSeconds: session.durationSeconds, comment: '', ...(recurrenceId ? { recurrenceId } : {}) } as NonNullable<UniversalItem['actualTimeEntries']>[number];
   item.actualTimeEntries.push(entry);

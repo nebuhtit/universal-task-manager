@@ -25,13 +25,20 @@ describe('item journals', () => {
     expect(migrateItem(next).value.completionEntries).toEqual([]); expect(next.schedule?.actualDuration).toBe('PT0S'); expect(next.schedule?.estimatedDuration).toBe('PT2H');
     expect(validateItem(next).valid).toBe(true);
   });
-  it('adds measured sessions explicitly, once, and applies the stopwatch threshold', () => {
+  it('adds measured sessions explicitly and once, including short stopwatch sessions', () => {
     const item = createItem('Work'); const session = { id: 's', mode: 'timer' as const, startedAt: '2026-09-20T12:00:00Z', endedAt: '2026-09-20T12:02:00Z', durationSeconds: 120, targetSeconds: 600 };
     addTimerActualTime(item, session); addTimerActualTime(item, session);
     addTimerActualTime(item, { ...session, id: 'short', mode: 'stopwatch', durationSeconds: 30 });
-    expect(item.actualTimeEntries).toHaveLength(1); expect(actualTimeMs(item)).toBe(120000);
-    expect(item.completionEntries).toHaveLength(1); expect(item.actualTimeEntries![0]!.completionId).toBe(item.completionEntries![0]!.id);
-    item.actualTimeEntries![0]!.durationSeconds = 90; syncActualDuration(item); expect(item.schedule?.actualDuration).toBe('PT90S');
+    expect(item.actualTimeEntries).toHaveLength(2); expect(actualTimeMs(item)).toBe(150000);
+    expect(item.completionEntries).toHaveLength(2); expect(item.actualTimeEntries![0]!.completionId).toBe(item.completionEntries![0]!.id);
+    item.actualTimeEntries![0]!.durationSeconds = 90; syncActualDuration(item); expect(item.schedule?.actualDuration).toBe('PT120S');
+  });
+  it('accepts a stopped timer awaiting an explicit completion save', () => {
+    const item = createItem('Timed work');
+    item.activeTimer = { id: 'pending-1', mode: 'stopwatch', startedAt: '2026-09-20T12:00:00Z', stoppedAt: '2026-09-20T12:00:02Z', durationSeconds: 2 };
+    expect(validateItem(item).valid).toBe(true);
+    const restored = migrateItem(JSON.parse(JSON.stringify(item))).value;
+    expect(restored.activeTimer).toEqual(item.activeTimer);
   });
   it('treats existing actual time as one completion without duplicating a matching completion', () => {
     const item = createItem('Measured'); item.actualTimeEntries = [{ id: 'manual-time', at: '2026-09-21T09:00:00Z', durationSeconds: 60, comment: '', source: 'manual' }];

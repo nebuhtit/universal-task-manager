@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.5.2';
-export const APP_RELEASED_AT = '2026-09-22T11:41:12.181Z';
+export const APP_VERSION = '2.5.3';
+export const APP_RELEASED_AT = '2026-09-22T12:03:22.006Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -293,8 +293,8 @@ export interface UniversalItem {
   attachments: LinkAttachment[];
   /** Legacy quick timer sessions; new sessions are recorded as completions. */
   timerHistory?: ItemTimerSession[];
-  /** The single running timer shared by every editor section; journal entries are created when it stops. */
-  activeTimer?: { id: string; mode: 'timer' | 'stopwatch'; startedAt: ISODateTime; targetSeconds?: number };
+  /** Running or stopped-but-not-yet-saved timer. A stopped session survives closing the editor. */
+  activeTimer?: { id: string; mode: 'timer' | 'stopwatch'; startedAt: ISODateTime; targetSeconds?: number; stoppedAt?: ISODateTime; durationSeconds?: number };
   actualTimeEntries?: ActualTimeEntry[];
   completionEntries?: CompletionEntry[];
   /** External events are edited only in their source calendar. */

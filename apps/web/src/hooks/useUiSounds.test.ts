@@ -4,7 +4,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 
 describe('timer alarm recovery', () => {
   it('resumes interrupted audio, retries on return, and removes recovery after stop', async () => {
-    const param = () => ({ setValueAtTime: vi.fn() });
+    const param = () => ({ setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() });
     const nodes: Array<{ stop: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = [];
     const resume = vi.fn().mockResolvedValue(undefined);
     class Context {
@@ -16,7 +16,7 @@ describe('timer alarm recovery', () => {
       }
       createGain() { return { gain: param(), disconnect: vi.fn(), connect: (target: unknown) => target }; }
     }
-    const windowTarget = Object.assign(new EventTarget(), { AudioContext: Context });
+    const windowTarget = Object.assign(new EventTarget(), { AudioContext: Context, setInterval: vi.fn(() => 1), clearInterval: vi.fn() });
     const documentTarget = new EventTarget();
     vi.stubGlobal('window', windowTarget); vi.stubGlobal('document', documentTarget);
     const { startTimerAlarm } = await import('./useUiSounds');
@@ -28,6 +28,8 @@ describe('timer alarm recovery', () => {
     stop(); stop();
     documentTarget.dispatchEvent(new Event('visibilitychange'));
     expect(resume).toHaveBeenCalledTimes(3);
-    for (const node of nodes) { expect(node.stop).toHaveBeenCalledTimes(1); expect(node.disconnect).toHaveBeenCalledTimes(1); }
+    expect(nodes).toHaveLength(12);
+    for (const node of nodes) { expect(node.stop).toHaveBeenCalledTimes(2); expect(node.disconnect).toHaveBeenCalledTimes(1); }
+    expect(windowTarget.clearInterval).toHaveBeenCalledWith(1);
   });
 });

@@ -36,6 +36,17 @@ it('treats a clock-only до as the next due time, not an event start', () => {
   expect(parseEntry(frozen, new Date(2026, 8, 25))).toMatchObject({ title: 'Пук', start: null, due: iso(2026, 8, 23, 9, 0), errors: [] });
 });
 
+it('reads and suggests a clock-only срок without swallowing Enter', () => {
+  const afternoon = new Date(2026, 8, 22, 14, 55);
+  const text = 'На залив сегодня 09:00 срок 18:00';
+  expect(parseEntry(text, afternoon)).toMatchObject({ title: 'На залив', start: iso(2026, 8, 22, 9, 0), due: iso(2026, 8, 22, 18, 0), errors: [] });
+  expect(parseEntry('На залив завтра 09:00 срок 18 00', afternoon)).toMatchObject({ due: iso(2026, 8, 23, 18, 0), errors: [] });
+  expect(parseEntry('На залив срок 09:00', afternoon)).toMatchObject({ start: null, due: iso(2026, 8, 23, 9, 0), errors: [] });
+  expect(suggest('На залив сегодня 09:00 срок 18', 'На залив сегодня 09:00 срок 18'.length, afternoon).options.map(option => option.label)).toEqual(['срок 18:00', 'срок 18:15', 'срок 18:30', 'срок 18:45']);
+  expect(suggest(text, text.length, afternoon).options.map(option => option.label)).toEqual(['срок 18:00']);
+  expect(parseEntry(materializeQuickEntryText(text, afternoon), new Date(2026, 8, 29)).due).toBe(iso(2026, 8, 22, 18, 0));
+});
+
 it('reads a compact same-day clock range after a date', () => {
   expect(parseEntry('съесть завтра 15 - 18 00', now)).toMatchObject({
     title: 'съесть', start: iso(2026, 8, 23, 15, 0), end: iso(2026, 8, 23, 18, 0), durationMinutes: 180, errors: [],

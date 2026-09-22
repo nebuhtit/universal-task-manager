@@ -29,27 +29,33 @@ const formatClock = (milliseconds: number, includeMilliseconds = false) => {
 
 export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwatchStartedAt, onLegacyStop, onActiveTimerChange, onSaveCompletion }: { soundEnabled?: boolean; activeTimer?: RunningTimer | undefined; initialStopwatchStartedAt?: string | undefined; onLegacyStop?: () => void | Promise<void>; onActiveTimerChange?: (timer: RunningTimer | undefined) => void | Promise<void>; onSaveCompletion?: (session: ItemTimerSession) => void | Promise<void> }) {
   const savedStartedAt = activeTimer ? Date.parse(activeTimer.startedAt) : Number.NaN;
-  const resumeSaved = Number.isFinite(savedStartedAt);
+  const pendingSession = activeTimer?.stoppedAt && activeTimer.durationSeconds ? {
+    id: activeTimer.id, mode: activeTimer.mode, startedAt: activeTimer.startedAt, endedAt: activeTimer.stoppedAt,
+    durationSeconds: activeTimer.durationSeconds, ...(activeTimer.targetSeconds ? { targetSeconds: activeTimer.targetSeconds } : {}),
+  } satisfies ItemTimerSession : undefined;
+  const resumeSaved = Number.isFinite(savedStartedAt) && !pendingSession;
   const legacyStartedAt = initialStopwatchStartedAt ? Date.parse(initialStopwatchStartedAt) : Number.NaN;
-  const resumeLegacy = !resumeSaved && Number.isFinite(legacyStartedAt);
-  const [recorded, setRecorded] = useState<ItemTimerSession>();
+  const resumeLegacy = !activeTimer && Number.isFinite(legacyStartedAt);
+  const [recorded, setRecorded] = useState<ItemTimerSession | undefined>(pendingSession);
   const [counted, setCounted] = useState(false);
   const [counting, setCounting] = useState(false);
   const [countError, setCountError] = useState('');
-  const [mode, setMode] = useState<TimerMode>(resumeSaved ? activeTimer!.mode : resumeLegacy ? 'stopwatch' : 'timer');
-  const [minutes, setMinutes] = useState(resumeSaved && activeTimer!.targetSeconds ? Math.max(1, Math.ceil(activeTimer!.targetSeconds / 60)) : 10);
+  const [mode, setMode] = useState<TimerMode>(activeTimer?.mode ?? (resumeLegacy ? 'stopwatch' : 'timer'));
+  const [minutesInput, setMinutesInput] = useState(activeTimer?.targetSeconds ? String(Math.max(1, Math.ceil(activeTimer.targetSeconds / 60))) : '10');
+  const minutes = Math.max(1, Math.floor(Number(minutesInput) || 1));
   const [running, setRunning] = useState(resumeSaved || resumeLegacy);
   const [startedAt, setStartedAt] = useState(resumeSaved ? savedStartedAt : resumeLegacy ? legacyStartedAt : 0);
-  const [elapsedBeforeStart, setElapsedBeforeStart] = useState(0);
+  const [elapsedBeforeStart, setElapsedBeforeStart] = useState(pendingSession ? pendingSession.durationSeconds * 1_000 : 0);
   const [alarming, setAlarming] = useState(false);
   const [intervalSoundEnabled, setIntervalSoundEnabled] = useState(false);
-  const [intervalValue, setIntervalValue] = useState(5);
+  const [intervalValueInput, setIntervalValueInput] = useState('5');
+  const intervalValue = Math.max(1, Math.floor(Number(intervalValueInput) || 1));
   const [intervalUnit, setIntervalUnit] = useState<'minutes' | 'seconds'>('minutes');
   const intervalCueCountRef = useRef(0);
-  const sessionIdRef = useRef<string | undefined>(resumeSaved ? activeTimer!.id : resumeLegacy ? `legacy-stopwatch:${initialStopwatchStartedAt}` : undefined);
+  const sessionIdRef = useRef<string | undefined>(activeTimer?.id ?? (resumeLegacy ? `legacy-stopwatch:${initialStopwatchStartedAt}` : undefined));
   const persistenceRef = useRef<Promise<void>>(Promise.resolve());
   const stopAlarmRef = useRef<() => void>(() => undefined);
-  const now = useClockMilliseconds(mode === 'stopwatch' ? 50 : 250, running);
+  const now = useClockMilliseconds(mode === 'stopwatch' ? 100 : 250, running);
   const elapsed = elapsedBeforeStart + (running ? Math.max(0, now - startedAt) : 0);
   const duration = Math.max(1, minutes) * 60_000;
   const remaining = Math.max(0, duration - elapsed);
@@ -66,10 +72,10 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
 
   useEffect(() => {
     if (!running || !finished) return;
-    record(elapsed);
+    const session = record(elapsed);
     setElapsedBeforeStart(elapsed);
     setRunning(false);
-    persistActive(undefined);
+    persistActive(session ? { id: session.id, mode: session.mode, startedAt: session.startedAt, stoppedAt: session.endedAt, durationSeconds: session.durationSeconds, ...(session.targetSeconds ? { targetSeconds: session.targetSeconds } : {}) } : undefined);
     stopAlarmRef.current();
     stopAlarmRef.current = startTimerAlarm(soundEnabled);
     setAlarming(soundEnabled);
@@ -81,14 +87,14 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
   const persistActive = (value: RunningTimer | undefined) => {
     persistenceRef.current = persistenceRef.current.then(() => onActiveTimerChange?.(value)).then(() => undefined).catch((reason) => setCountError(String(reason)));
   };
-  const record = (durationMilliseconds: number, endedAt = Date.now()) => {
-    const minimumDuration = mode === 'stopwatch' ? 30_000 : 1_000;
-    if (durationMilliseconds <= minimumDuration) return;
+  const record = (durationMilliseconds: number, endedAt = Date.now()): ItemTimerSession | undefined => {
+    if (durationMilliseconds <= 0) return undefined;
     const session: ItemTimerSession = {
       id: sessionIdRef.current ??= crypto.randomUUID(), mode, startedAt: new Date(Math.max(0, endedAt - durationMilliseconds)).toISOString(), endedAt: new Date(endedAt).toISOString(),
-      durationSeconds: Math.round(durationMilliseconds / 1_000), ...(mode === 'timer' ? { targetSeconds: Math.max(1, minutes) * 60 } : {}),
+      durationSeconds: Math.max(1, Math.round(durationMilliseconds / 1_000)), ...(mode === 'timer' ? { targetSeconds: minutes * 60 } : {}),
     };
     setRecorded(session); setCounted(false);
+    return session;
   };
   const endLegacy = () => { if (!resumeLegacy || !running) return; void Promise.resolve().then(onLegacyStop).catch((reason) => setCountError(String(reason))); };
   const reset = () => { endLegacy(); persistActive(undefined); stopAlarm(); setRunning(false); setStartedAt(0); setElapsedBeforeStart(0); intervalCueCountRef.current = 0; sessionIdRef.current = undefined; setRecorded(undefined); setCounted(false); };
@@ -106,9 +112,9 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
     if (finished) { startFresh(); return; }
     if (running) {
       const pausedElapsed = elapsedBeforeStart + Math.max(0, Date.now() - startedAt);
-      record(pausedElapsed);
+      const session = record(pausedElapsed);
       endLegacy();
-      persistActive(undefined);
+      persistActive(session ? { id: session.id, mode: session.mode, startedAt: session.startedAt, stoppedAt: session.endedAt, durationSeconds: session.durationSeconds, ...(session.targetSeconds ? { targetSeconds: session.targetSeconds } : {}) } : undefined);
       setElapsedBeforeStart(pausedElapsed); setRunning(false); return;
     }
     if (recorded) { startFresh(); return; }
@@ -123,16 +129,16 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
       <Select aria-label="Quick timer mode" value={mode} onChange={(event) => changeMode(event.target.value as TimerMode)}>
         <option value="timer">Timer</option><option value="stopwatch">Stopwatch</option>
       </Select>
-      {mode === 'timer' && <label><span>Minutes</span><Input aria-label="Timer minutes" type="number" min="1" step="1" value={minutes} onChange={(event) => { setMinutes(Math.max(1, Math.floor(Number(event.target.value) || 1))); reset(); }} /></label>}
+      {mode === 'timer' && <label><span>Minutes</span><Input aria-label="Timer minutes" type="number" min="1" step="1" value={minutesInput} onChange={(event) => { setMinutesInput(event.target.value); reset(); }} onBlur={() => setMinutesInput(String(minutes))} /></label>}
     </div>
     <output aria-live={finished ? 'polite' : 'off'}>{formatClock(mode === 'timer' ? remaining : elapsed, mode === 'stopwatch')}</output>
     <div className="quick-item-timer-interval">
       <Checkbox label="Interval sound" checked={intervalSoundEnabled} onChange={(event) => setIntervalSoundEnabled(event.target.checked)} />
-      <Input aria-label="Interval sound value" type="number" min="1" step="1" value={intervalValue} disabled={!intervalSoundEnabled} onChange={(event) => setIntervalValue(Math.max(1, Math.floor(Number(event.target.value) || 1)))} />
+      <Input aria-label="Interval sound value" type="number" min="1" step="1" value={intervalValueInput} disabled={!intervalSoundEnabled} onChange={(event) => setIntervalValueInput(event.target.value)} onBlur={() => setIntervalValueInput(String(intervalValue))} />
       <Select aria-label="Interval sound unit" value={intervalUnit} disabled={!intervalSoundEnabled} onChange={(event) => setIntervalUnit(event.target.value as 'minutes' | 'seconds')}><option value="minutes">min</option><option value="seconds">sec</option></Select>
     </div>
     <div className="quick-item-timer-actions">
-      {!running && recorded && onSaveCompletion && <Button size="compact" variant="secondary" disabled={counted || counting} onClick={() => { setCounting(true); setCountError(''); void Promise.resolve().then(() => onSaveCompletion(recorded)).then(() => setCounted(true)).catch((reason) => setCountError(String(reason))).finally(() => setCounting(false)); }}>{counted ? 'Completion saved' : counting ? 'Saving…' : 'Save completion'}</Button>}
+      {!running && recorded && onSaveCompletion && <Button size="compact" variant="secondary" disabled={counted || counting} onClick={() => { setCounting(true); setCountError(''); void persistenceRef.current.then(() => onSaveCompletion(recorded)).then(() => setCounted(true)).catch((reason) => setCountError(String(reason))).finally(() => setCounting(false)); }}>{counted ? 'Completion saved' : counting ? 'Saving…' : 'Save completion'}</Button>}
       {countError && <small role="alert">{countError}</small>}
       {alarming ? <Button size="compact" onClick={stopAlarm}>Stop sound</Button> : <Button size="compact" onClick={toggle}>{running ? 'Stop' : finished || recorded ? 'Restart' : 'Start'}</Button>}
       <Button size="compact" variant="ghost" disabled={!running && elapsedBeforeStart === 0} onClick={reset}>Reset</Button>

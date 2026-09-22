@@ -32,21 +32,35 @@ export const prepareTimerAlarm = () => {
   } catch { /* Optional audio. */ }
 };
 
-/** Starts a quiet, slowly pulsing tone and returns the explicit stop action. */
+/** Repeats a short, bright chime until the user explicitly stops it. */
 export function startTimerAlarm(enabled = true): () => void {
   if (!enabled) return () => undefined;
   try {
     const context = audioContext();
     if (!context) return () => undefined;
-    const tone = context.createOscillator(); const pulse = context.createOscillator();
-    const gain = context.createGain(); const pulseDepth = context.createGain();
-    tone.type = 'sine'; tone.frequency.setValueAtTime(440, context.currentTime);
-    pulse.type = 'sine'; pulse.frequency.setValueAtTime(.28, context.currentTime);
-    gain.gain.setValueAtTime(.05, context.currentTime); pulseDepth.gain.setValueAtTime(.02, context.currentTime);
-    pulse.connect(pulseDepth).connect(gain.gain); tone.connect(gain).connect(context.destination);
-    tone.start(); pulse.start();
+    const voices = new Set<{ tone: OscillatorNode; gain: GainNode }>();
+    const playPhrase = () => {
+      if (stopped) return;
+      try {
+        const start = context.currentTime;
+        for (const [index, frequency] of [660, 830, 990, 830].entries()) {
+          const tone = context.createOscillator(); const gain = context.createGain();
+          const at = start + index * .19;
+          tone.type = 'triangle'; tone.frequency.setValueAtTime(frequency, at);
+          gain.gain.setValueAtTime(.0001, at);
+          gain.gain.exponentialRampToValueAtTime(.065, at + .018);
+          gain.gain.exponentialRampToValueAtTime(.0001, at + .16);
+          tone.connect(gain).connect(context.destination);
+          const voice = { tone, gain }; voices.add(voice);
+          tone.onended = () => { voices.delete(voice); tone.disconnect(); gain.disconnect(); };
+          tone.start(at); tone.stop(at + .17);
+        }
+      } catch { /* Audio is optional; keep the timer usable if the device interrupts it. */ }
+    };
     let stopped = false;
-    const recover = () => { if (!stopped) resumeAudio(context); };
+    playPhrase();
+    const repeat = window.setInterval(playPhrase, 1_800);
+    const recover = () => { if (!stopped && context.state !== 'running') { resumeAudio(context); playPhrase(); } };
     // Retry only for a live alarm, including a fresh user gesture after an OS interruption.
     document.addEventListener('visibilitychange', recover);
     window.addEventListener('pageshow', recover);
@@ -55,12 +69,13 @@ export function startTimerAlarm(enabled = true): () => void {
     return () => {
       if (stopped) return;
       stopped = true;
+      window.clearInterval(repeat);
       document.removeEventListener('visibilitychange', recover);
       window.removeEventListener('pageshow', recover);
       window.removeEventListener('pointerdown', recover);
       window.removeEventListener('keydown', recover);
-      try { tone.stop(); pulse.stop(); } catch { /* Already stopped. */ }
-      tone.disconnect(); pulse.disconnect(); gain.disconnect(); pulseDepth.disconnect();
+      for (const voice of voices) { try { voice.tone.stop(); } catch { /* Already stopped. */ } voice.tone.disconnect(); voice.gain.disconnect(); }
+      voices.clear();
     };
   } catch { return () => undefined; }
 }

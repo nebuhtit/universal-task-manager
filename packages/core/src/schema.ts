@@ -154,7 +154,7 @@ export const itemJsonSchema = {
         },
       },
     },
-    activeTimer: { type: 'object', additionalProperties: false, required: ['id', 'mode', 'startedAt'], properties: { id: { type: 'string', minLength: 1 }, mode: { enum: ['timer', 'stopwatch'] }, startedAt: { type: 'string', format: 'date-time' }, targetSeconds: { type: 'number', exclusiveMinimum: 0 } } },
+    activeTimer: { type: 'object', additionalProperties: false, required: ['id', 'mode', 'startedAt'], properties: { id: { type: 'string', minLength: 1 }, mode: { enum: ['timer', 'stopwatch'] }, startedAt: { type: 'string', format: 'date-time' }, targetSeconds: { type: 'number', exclusiveMinimum: 0 }, stoppedAt: { type: 'string', format: 'date-time' }, durationSeconds: { type: 'number', exclusiveMinimum: 0 } } },
     external: {
       type: 'object', additionalProperties: false,
       required: ['provider', 'connectionId', 'calendarId', 'eventId', 'sourceUrl', 'readOnly', 'syncedAt'],
@@ -510,9 +510,9 @@ export function migrateItem(value: unknown, namespace = 'import:unknown'): Migra
   }
   if (item.activeTimer !== undefined) {
     const timer = item.activeTimer as Record<string, unknown>;
-    if (!timer || typeof timer !== 'object' || Array.isArray(timer) || typeof timer.id !== 'string' || !timer.id || !['timer', 'stopwatch'].includes(String(timer.mode)) || typeof timer.startedAt !== 'string' || !Number.isFinite(Date.parse(timer.startedAt)) || timer.targetSeconds !== undefined && (!Number.isFinite(Number(timer.targetSeconds)) || Number(timer.targetSeconds) <= 0)) {
+    if (!timer || typeof timer !== 'object' || Array.isArray(timer) || typeof timer.id !== 'string' || !timer.id || !['timer', 'stopwatch'].includes(String(timer.mode)) || typeof timer.startedAt !== 'string' || !Number.isFinite(Date.parse(timer.startedAt)) || timer.targetSeconds !== undefined && (!Number.isFinite(Number(timer.targetSeconds)) || Number(timer.targetSeconds) <= 0) || timer.stoppedAt !== undefined && (typeof timer.stoppedAt !== 'string' || !Number.isFinite(Date.parse(timer.stoppedAt))) || timer.durationSeconds !== undefined && (!Number.isFinite(Number(timer.durationSeconds)) || Number(timer.durationSeconds) <= 0) || Boolean(timer.stoppedAt) !== (timer.durationSeconds !== undefined)) {
       delete item.activeTimer;
-      warnings.push('Discarded invalid running timer state');
+      warnings.push('Discarded invalid timer state');
     }
   }
   if (item.role === 'series_template' && item.recurrence && (!item.schedule || typeof item.schedule !== 'object' || Array.isArray(item.schedule) || !(item.schedule as Record<string, unknown>).startAt && !(item.schedule as Record<string, unknown>).dueAt)) {

@@ -15,6 +15,7 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   const idleBackground = await capture.evaluate((element) => getComputedStyle(element).backgroundColor);
   await input.focus();
   await expect.poll(() => capture.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(idleBackground);
+  await expect(capture).toHaveCSS('backdrop-filter', /blur\(22px\)/);
   if ((page.viewportSize()?.width ?? 0) <= 950) {
     await expect(page.locator('.topbar')).toHaveCSS('position', 'fixed');
     await expect(page.locator('.content')).toHaveCSS('padding-top', (page.viewportSize()?.width ?? 0) <= 620 ? '60px' : '64px');
@@ -22,6 +23,15 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   await input.fill('Встреча завтра');
   const options = page.getByRole('listbox', { name: 'Подсказки Live text' });
   await expect(options).toBeVisible();
+  await input.fill('завтра вечером');
+  const calendarShortcut = page.getByRole('button', { name: 'Посмотреть в календаре' });
+  await expect(calendarShortcut).toBeVisible();
+  if ((page.viewportSize()?.width ?? 0) <= 620) await calendarShortcut.tap();
+  else await calendarShortcut.click();
+  await expect(page.locator('.calendar-page')).toBeVisible();
+  await expect(input).toHaveValue('завтра вечером');
+  await expect(options).toBeVisible();
+  await input.fill('Встреча завтра');
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     const panel = await page.locator('.live-text-panel').boundingBox(); const field = await input.boundingBox();

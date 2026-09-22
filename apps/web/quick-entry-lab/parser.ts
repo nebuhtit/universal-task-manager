@@ -92,6 +92,17 @@ export function parseDate(value: string, now: Date): { iso: string; timed: boole
   return { iso: date.toISOString(), timed: true };
 }
 
+function nextClock(value: string, now: Date, anchor?: string | null): string | null {
+  const match = /^(\d{1,2})(?::|\s)(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hour = Number(match[1]), minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  const base = anchor ? new Date(anchor) : new Date(now);
+  base.setHours(hour, minute, 0, 0);
+  if (!anchor && base.getTime() <= now.getTime()) base.setDate(base.getDate() + 1);
+  return base.getHours() === hour && base.getMinutes() === minute ? base.toISOString() : null;
+}
+
 /** Replace only the separator after a known command; offsets stay unchanged. */
 function relaxedCommands(input: string): string {
   const masked = input.replace(/"([^"\n]*)"|«([^»\n]*)»/g, value => ' '.repeat(value.length));
@@ -216,14 +227,8 @@ export function parseEntry(input: string, now: Date): Draft {
   const clockOnlyDue = /(?:^|\s)(?:до|by)\s+(\d{1,2})(?::|\s)(\d{2})(?=\s|$)/gi;
   for (const match of [...text.matchAll(clockOnlyDue)]) {
     once('due');
-    const hour = Number(match[1]), minute = Number(match[2]);
-    if (hour > 23 || minute > 59) result.errors.push(`Некорректное время срока «${match[1]}:${match[2]}».`);
-    else {
-      const next = new Date(now); next.setSeconds(0, 0); next.setHours(hour, minute, 0, 0);
-      if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
-      if (next.getHours() !== hour || next.getMinutes() !== minute) result.errors.push(`Время срока «${match[1]}:${match[2]}» недоступно в этот день.`);
-      else result.due = next.toISOString();
-    }
+    result.due = nextClock(`${match[1]}:${match[2]}`, now);
+    if (!result.due) result.errors.push(`Некорректное время срока «${match[1]}:${match[2]}».`);
     consume(match.index!, match[0].length);
   }
   // A date followed by a compact clock range shares the same day on both sides:
@@ -285,7 +290,9 @@ export function parseEntry(input: string, now: Date): Draft {
       const field = ['начало', 'start', 'opens', 'event opens'].includes(key) ? 'start' : ['конец', 'end', 'ends', 'event ends'].includes(key) ? 'end' : 'due';
       once(field);
       const parsed = parseDate(value, now);
-      if (!parsed) result.errors.push(`Не разобрана дата «${value}». Пример: завтра 15:00.`);
+      const clockDue = field === 'due' && !parsed ? nextClock(value, now, result.start ?? parseEntry(text.slice(0, start), now).start) : null;
+      if (clockDue) result.due = clockDue;
+      else if (!parsed) result.errors.push(`Не разобрана дата «${value}». Пример: завтра 15:00.`);
       else {
         if (parsed.timed || field === 'due') result[field] = parsed.iso;
         if (!parsed.timed && field !== 'due') result.errors.push('Для event opens / ends укажите дату и время.');
@@ -446,6 +453,19 @@ function dateSuggestions(input: string, caret: number, now: Date, language: 'ru'
   if (caret > boundary) return null;
   const raw = input.slice(start + key.length, boundary);
   const value = raw.trim();
+  if (/^(?:срок|due):$/i.test(key)) {
+    const clockOnly = /^(\d{1,2})(?:(?::|\s)(\d{0,2}))?$/.exec(value);
+    if (clockOnly && Number(clockOnly[1]) <= 23) {
+      const hour = clockOnly[1]!.padStart(2, '0');
+      const minutes = clockOnly[2] ?? '';
+      const choices = ['00', '15', '30', '45'].filter(part => !minutes || part.startsWith(minutes));
+      const anchor = parseEntry(input.slice(0, start), now).start;
+      return { start, end: boundary, timeOnly: true, options: choices.flatMap(part => {
+        const at = nextClock(`${hour}:${part}`, now, anchor);
+        return at ? [{ label: `${key.replace(':', ' ')}${hour}:${part}`, insert: `${key}${hour}:${part} `, detail: new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'long' }).format(new Date(at)) } as Suggestion] : [];
+      }) };
+    }
+  }
   const match = /^(\S*)(?:\s+(?:в\s+)?(\d{0,2}(?::\d{0,2}|\s\d{1,2})?))?$/.exec(value);
   if (!match) return null;
   const day = match[1]!.toLowerCase(), clock = (match[2] ?? '').replace(' ', ':');
