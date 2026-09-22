@@ -24,6 +24,31 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   // Includes end-only, undated and moved materialized instances omitted by the
   // legacy date-range projector, without generating duplicate series templates.
   for (const item of items) if (item.role !== 'series_template' || !itemInterval(item)) candidates.set(item.id, item);
+  // Legacy documents can contain an occurrence promoted to a nested series.
+  // Keep its stored history intact, but render one identity per original cycle.
+  const identity = (item: UniversalItem) => {
+    let root = item, depth = 0;
+    const seen = new Set([item.id]);
+    while (root.occurrence && root.recurrenceOverride?.kind !== 'future_split') {
+      const parent = mapped.items[root.occurrence.seriesId];
+      if (!parent || seen.has(parent.id)) break;
+      seen.add(parent.id); root = parent; depth += 1;
+    }
+    return { rootId: root.id, key: item.occurrence && depth ? `${root.id}:${item.occurrence.recurrenceId}` : item.id, depth };
+  };
+  const unique = new Map<string, { item: UniversalItem; depth: number }>();
+  const closedCycles = new Set<string>();
+  for (const item of items) {
+    const { rootId } = identity(item);
+    for (const entry of item.cycleHistory ?? []) closedCycles.add(`${rootId}:${entry.recurrenceId}`);
+    for (const entry of item.completionEntries ?? []) if (entry.recurrenceId && !entry.revokedAt) closedCycles.add(`${rootId}:${entry.recurrenceId}`);
+  }
+  for (const item of candidates.values()) {
+    const { key, depth } = identity(item);
+    if (item.state !== 'open') closedCycles.add(key);
+    const prior = unique.get(key);
+    if (!prior || depth > prior.depth || (depth === prior.depth && !mapped.items[prior.item.id] && mapped.items[item.id])) unique.set(key, { item, depth });
+  }
   const index = getWorkspaceIndex(mapped);
   const source = preferences.dayView.filter.source.trim() || 'true';
   let filter: ReturnType<typeof compileQuery> | undefined;
@@ -37,7 +62,7 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   const sleepId = preferences.timeline?.sleepItemId;
   const isSleep = (item: UniversalItem) => item.id === sleepId || item.occurrence?.seriesId === sleepId;
   const sources = preferences.dayView.scheduleSources;
-  for (const item of candidates.values()) {
+  for (const [cycleKey, { item }] of unique) {
     const interval = itemInterval(item);
     if (interval && isSleep(item) && !item.schedule?.allDay && item.state !== 'cancelled' && item.state !== 'archived' && !interval.invalid && !interval.point && intersects(interval, day)) sleep.push(interval);
     if (!accepted(item)) continue;
@@ -46,7 +71,7 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     if (rule?.autoRenew && rule.closeAt === 'due' && (!rule.activationOffset || /^PT0[MS]$/.test(rule.activationOffset))) {
       const start = Date.parse(item.schedule?.startAt ?? item.schedule?.availableFrom ?? '');
       const end = Date.parse(item.schedule?.dueAt ?? '');
-      const completed = item.state !== 'open' || (item.completionEntries ?? []).some(entry => !entry.revokedAt && entry.recurrenceId === item.occurrence?.recurrenceId)
+      const completed = closedCycles.has(cycleKey) || (item.completionEntries ?? []).some(entry => !entry.revokedAt && entry.recurrenceId === item.occurrence?.recurrenceId)
         || (series?.cycleHistory ?? []).some(entry => entry.recurrenceId === item.occurrence?.recurrenceId);
       if (!completed && end > start && intersects({ start, end }, day)) activeRange.push(item);
       continue;

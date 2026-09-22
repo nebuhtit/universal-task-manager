@@ -19,11 +19,10 @@
 .timeline-now { position: absolute; inset-inline: 0; border-top: 2px solid var(--color-destructive); z-index: 2; pointer-events: none; }
 .timeline-now::before { content: ''; position: absolute; width: var(--space-2); height: var(--space-2); border-radius: var(--radius-pill); background: var(--color-destructive); transform: translate(-50%, -60%); }
 .timeline-now > span { position: absolute; right: calc(100% + var(--space-1)); color: var(--color-destructive); font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); transform: translateY(-100%); }
-.timeline-top-items { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.timeline-top-items { display: block; margin-block: var(--space-3); min-width: 0; }
 .timeline-top-items h2 { width: 100%; font-size: var(--font-size-section); }
 .timeline-top-items summary { margin-bottom: var(--space-2); }
-.timeline-top-items .ui-button { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
 .timeline-sleep-settings { padding: var(--space-3); }
 .timeline-sleep-options, .timeline-more-list { display: grid; gap: var(--space-2); max-height: 40vh; overflow-y: auto; }
-.timeline-active-item, .timeline-event .timeline-calendar-source { display: flex; align-items: center; gap: var(--space-2); }
+.timeline-event .timeline-calendar-source { display: flex; align-items: center; gap: var(--space-2); }
 .timeline-calendar-source svg { width: var(--space-4); height: var(--space-4); }

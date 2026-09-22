@@ -1,9 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { canManuallyComplete, effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
-import { Button, Checkbox } from '../../components/ui/primitives';
+import { Button } from '../../components/ui/primitives';
+import { ItemCard } from '../items/ItemCard';
 import { clockService } from '../../services/clockService';
 import { displayViewValue, readItemField } from '../items/fieldDisplay';
 import { timelineData } from './timelineData';
@@ -59,6 +60,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   for (let at = data.day.start; at < data.day.end; at += 60_000) if (timeLabel(at, zone).endsWith(':00') && !data.hidden.some(v => at >= v.start && at < v.end)) ticks.push(at);
   const columnStyle = (v: { top: number; height: number; column: number; columns: number }) => ({ top: v.top, height: v.height, left: `${v.column / v.columns * 100}%`, width: `${100 / v.columns}%` });
   const open = (item: UniversalItem) => { setMore([]); onEdit(item); };
+  const cards = (items: UniversalItem[]) => <div className="item-list">{items.map(item => <ItemCard key={item.id} item={item} workspace={workspace} now={now} fields={workspace.calendarPreferences.dayView.fields} onEdit={() => open(item)} onState={state => onState?.(item, state)} />)}</div>;
   return <section className="calendar-timeline" aria-label="Timeline">
     <div className="timeline-toolbar">
       <Button size="compact" aria-pressed={settings.hideSleep} onClick={() => onPreferences({ ...settings, hideSleep: !settings.hideSleep })}>{settings.hideSleep ? (ru ? 'Показать полные сутки' : 'Show full day') : (ru ? 'Скрывать сон' : 'Hide sleep')}</Button>
@@ -71,9 +73,9 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     </div>
     {data.sleepMissing && <p className="hint">{ru ? 'Нет интервала сна на этот день. Показаны полные сутки.' : 'No sleep interval for this day. Showing the full day.'}</p>}
     {data.projectionLimited && <p role="status">{ru ? 'Для повторений с длительностью более года показана ограниченная проекция.' : 'Recurrences longer than one year use a limited projection.'}</p>}
-    {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{data.activeRange.map(item => <div className="timeline-active-item" key={item.id}>{onState && canManuallyComplete(item) && <Checkbox label={ru ? `Выполнить ${item.title}` : `Complete ${item.title}`} checked={false} onChange={() => onState(item, 'done')} />}<Button onClick={() => open(item)}>{item.title}</Button></div>)}</div>}
-    {data.allDay.length > 0 && <details open className="timeline-top-items"><summary>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</summary>{data.allDay.map(item => <Button size="compact" key={item.id} onClick={() => open(item)}>{item.title}</Button>)}</details>}
-    {data.undated.length > 0 && <details className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{data.undated.map(item => <Button key={item.id} onClick={() => open(item)}>{item.title}</Button>)}</details>}
+    {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(data.activeRange)}</div>}
+    {data.allDay.length > 0 && <details open className="timeline-top-items"><summary>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</summary>{cards(data.allDay)}</details>}
+    {data.undated.length > 0 && <details className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</details>}
     <div className="timeline-axis" style={{ height: height + 12 }}>
       {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
       {segments.filter(v => v.hidden).map(v => <div key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }}><span>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</span></div>)}

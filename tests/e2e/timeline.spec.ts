@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import * as Automerge from '@automerge/automerge';
-import { createWorkspace, createItem } from '../../packages/core/dist/index.js';
+import { createWorkspace, createItem, createOccurrence } from '../../packages/core/dist/index.js';
 import { createAutomergeDocument, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
 
 const password = 'timeline-fixture-test-only';
@@ -17,6 +17,12 @@ async function setup(page: Page) {
   const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; w.items[sleep.id] = sleep;
   const none = createItem('Undated sentinel', 'task', now); w.items[none.id] = none;
   const allDay = createItem('All day sentinel', 'event', now); allDay.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-23T00:00:00Z', allDay: true }; w.items[allDay.id] = allDay;
+  const series = createItem('Active preparation', 'task', now); series.role = 'series_template'; series.canBeCompleted = true;
+  series.schedule = { timezone: 'UTC', startAt: '2026-09-21T09:00:00Z', dueAt: '2026-09-24T19:00:00Z', estimatedDuration: 'PT1H' };
+  series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', rdates: [], exdates: [], activationOffset: 'PT0M', closeAt: 'due', anchor: 'schedule', autoRenew: true };
+  const nested = createOccurrence(series, new Date(series.schedule.startAt!), 0); nested.role = 'series_template'; nested.recurrence = structuredClone(series.recurrence);
+  const child = createOccurrence(nested, new Date(series.schedule.startAt!), 0);
+  for (const item of [series, nested, child]) w.items[item.id] = item;
   const doc = createAutomergeDocument(w), key = await randomKey();
   const metadata = { version: 1, wrappedKey: await wrapKey(key, password), createdAt: now.toISOString() };
   const block = { version: 1, ...await encryptWithKey(Automerge.save(doc), key, 'utm:local:workspace:v1') }; key.fill(0); Automerge.free(doc);
@@ -45,8 +51,14 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   test.setTimeout(180_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await setup(page);
   const allDayGroup = page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^All day/ }) });
-  await allDayGroup.locator('summary').click(); await expect(allDayGroup.getByRole('button', { name: 'All day sentinel' })).toBeHidden();
+  await allDayGroup.locator('summary').click(); await expect(allDayGroup.locator('.item-card')).toBeHidden();
   await allDayGroup.locator('summary').click();
+  await expect(allDayGroup.locator('.item-card')).toBeVisible();
+  const active = page.locator('.timeline-top-items').filter({ has: page.getByRole('heading', { name: 'Active range', exact: true }) });
+  await expect(active.locator('.item-card')).toHaveCount(1);
+  await expect(active.locator('.item-title')).toHaveText('Active preparation');
+  await active.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-light.png` });
   const saved = await primary(page);
   const minute = page.locator('.timeline-events').getByRole('button', { name: /^One minute title/ }); await minute.scrollIntoViewIfNeeded();
   expect((await minute.boundingBox())!.height).toBeGreaterThanOrEqual(36);
@@ -70,6 +82,10 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.screenshot({ path: `/tmp/utm-timeline-${testInfo.project.name}-dark.png` });
   await expect(page.getByTestId('timeline-now')).toHaveCSS('pointer-events', 'none');
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await active.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-dark.png` });
+  await active.getByRole('button', { name: 'Complete item', exact: true }).click();
+  await expect(active).toHaveCount(0);
   await page.getByRole('button', { name: 'List', exact: true }).click(); await expect(page.locator('.calendar-timeline')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.locator('.calendar-all-day > summary').click();

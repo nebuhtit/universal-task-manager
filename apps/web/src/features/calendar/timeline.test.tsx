@@ -67,6 +67,31 @@ describe('timeline time geometry', () => {
 });
 
 describe('timeline data and UI', () => {
+  it('renders one nested legacy cycle without deleting history or merging equal titles', () => {
+    const series = item('root', { startAt: iso(9), dueAt: iso(81), estimatedDuration: 'PT1H' });
+    series.role = 'series_template'; series.canBeCompleted = true;
+    series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', rdates: [], exdates: [], activationOffset: 'PT0M', closeAt: 'due', anchor: 'schedule', autoRenew: true };
+    const nested = createOccurrence(series, new Date(iso(9)), 0);
+    nested.role = 'series_template'; nested.recurrence = structuredClone(series.recurrence);
+    const child = createOccurrence(nested, new Date(iso(9)), 0);
+    const w = workspace(series, nested, child), before = JSON.stringify(w);
+    expect(timelineData(w, '2026-09-23', now).activeRange.map(value => value.id)).toEqual([child.id]);
+    expect(JSON.stringify(w)).toBe(before);
+    child.state = 'done';
+    expect(timelineData(w, '2026-09-23', now).activeRange).toHaveLength(0);
+    expect(timelineData(w, '2026-09-30', now).activeRange).toHaveLength(1);
+    const independent = { ...structuredClone(series), id: 'independent' }; w.items[independent.id] = independent;
+    child.state = 'open';
+    expect(timelineData(w, '2026-09-23', now).activeRange).toHaveLength(2);
+  });
+  it('uses normal View item cards above the axis, including all-day properties', () => {
+    const event = item('All day title', { allDay: true, startAt: iso(0), endAt: iso(24) });
+    event.tags = ['Visible tag'];
+    const w = workspace(event); w.calendarPreferences.dayView.fields = ['title', 'tags'];
+    const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onState={() => {}} onPreferences={() => {}} />);
+    expect(html).toContain('item-card state-open'); expect(html).toContain('item-main');
+    expect(html).toContain('Visible tag'); expect(html).not.toContain('Complete All day title');
+  });
   it('keeps active-range occurrences above each day, hides only the completed cycle', () => {
     const series = item('range', { startAt: iso(9), endAt: iso(10), dueAt: iso(81), estimatedDuration: 'PT1H' });
     series.role = 'series_template'; series.canBeCompleted = true;
