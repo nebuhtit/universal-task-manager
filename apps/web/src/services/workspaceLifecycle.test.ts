@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import * as Automerge from '@automerge/automerge';
-import { advanceCompletionAnchoredSeries, createItem, createOccurrence, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileCalendarOrganization, reconcileRecurrences, recurrenceCompletionHistory, renameProjectDefinition, reorderTagSubset, updateRecurrenceCompletionTime, type WorkspaceDocument } from '@utm/core';
+import { advanceCompletionAnchoredSeries, createItem, createOccurrence, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileCalendarOrganization, reconcileRecurrences, recurrenceCompletionHistory, renameProjectDefinition, reorderTagSubset, updateRecurrenceCompletionTime, validateWorkspace, type WorkspaceDocument } from '@utm/core';
 import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDocument } from './workspaceLifecycle';
 
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
 
 describe('workspace lifecycle integration', () => {
+  it('validates a current Automerge workspace without cloning it for migration', () => {
+    expect(validateWorkspace(document()).valid).toBe(true);
+  });
   it('does not grow history or update timestamps for empty recurrence checks', () => {
     const source = document();
     const heads = Automerge.getHeads(source);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import * as Automerge from '@automerge/automerge';
 import {
   backfillItemCreationVersions, collectScheduledEvents, consolidateHabitOccurrences, createId, effectiveWorkspaceNow,
-  migrateWorkspace, removeDuplicateReminders, reminderTime, runAutomationEvents, validateWorkspace,
+  migrateWorkspace, removeDuplicateReminders, reminderTime, runAutomationEvents, validateWorkspace, SCHEMA_VERSION,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
@@ -105,11 +105,18 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     // activation attempt. Automerge deliberately makes such instances
     // read-only; cloning gives every attempt an independent writable head and
     // leaves the encrypted source untouched until persistence succeeds.
-    const activationDocument = writableWorkspaceDocument(unlocked.document as Automerge.Doc<WorkspaceDocument>);
-    const sourceVersion = String((activationDocument as WorkspaceDocument).schemaVersion ?? '1.0.0');
+    const sourceVersion = String(unlocked.document.schemaVersion ?? '1.0.0');
     activationStage = 'migration';
-    const now = effectiveWorkspaceNow(activationDocument as WorkspaceDocument); const migration = migrateWorkspace(activationDocument as WorkspaceDocument);
-    const integrity = validateWorkspace(migration.value);
+    // Current, valid documents need no whole-workspace structured clone for a
+    // schema migration. That temporary copy can exhaust mobile Safari after a
+    // large calendar import; keep the repair path for old or invalid data.
+    const currentIntegrity = sourceVersion === SCHEMA_VERSION ? validateWorkspace(unlocked.document) : null;
+    const activationDocument = writableWorkspaceDocument(unlocked.document as Automerge.Doc<WorkspaceDocument>);
+    const now = effectiveWorkspaceNow(activationDocument as WorkspaceDocument);
+    const migration = currentIntegrity?.valid
+      ? { value: activationDocument as WorkspaceDocument, warnings: [] as string[] }
+      : migrateWorkspace(activationDocument as WorkspaceDocument);
+    const integrity = currentIntegrity?.valid ? currentIntegrity : validateWorkspace(migration.value);
     if (!integrity.valid) throw new Error(`Workspace integrity check failed (${integrity.errors.length} issues)`);
     const compactNormalizedDocument = sourceVersion === migration.value.schemaVersion && migration.warnings.length > 0;
     const migrationBase = compactNormalizedDocument
