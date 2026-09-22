@@ -30,6 +30,17 @@ describe('Calendar organization and durable local data', () => {
     reconcileCalendarOrganization(workspace); expect(calendar.managedTag).toBe(tag);
     calendar.areas = []; reconcileCalendarOrganization(workspace); expect(item.areas).toContain('Office');
   });
+  it('does not rewrite every mirrored item when a sync changes nothing', () => {
+    const { workspace, item } = fixture();
+    reconcileCalendarOrganization(workspace);
+    const before = { tags: item.tags, areas: item.areas, projects: item.projects, source: item.extensions?.['utm:calendarOrganization'], order: workspace.organizationPreferences.tagOrder };
+    reconcileCalendarOrganization(workspace);
+    expect(item.tags).toBe(before.tags);
+    expect(item.areas).toBe(before.areas);
+    expect(item.projects).toBe(before.projects);
+    expect(item.extensions?.['utm:calendarOrganization']).toBe(before.source);
+    expect(workspace.organizationPreferences.tagOrder).toBe(before.order);
+  });
   it('removes managed tags and automatic PARA assignments while a calendar is inactive', () => {
     const { workspace, item, calendar } = fixture(); reconcileCalendarOrganization(workspace);
     calendar.selected = false; reconcileCalendarOrganization(workspace);

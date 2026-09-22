@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as Automerge from '@automerge/automerge';
-import { advanceCompletionAnchoredSeries, createItem, createOccurrence, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileRecurrences, recurrenceCompletionHistory, renameProjectDefinition, reorderTagSubset, updateRecurrenceCompletionTime, type WorkspaceDocument } from '@utm/core';
+import { advanceCompletionAnchoredSeries, createItem, createOccurrence, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileCalendarOrganization, reconcileRecurrences, recurrenceCompletionHistory, renameProjectDefinition, reorderTagSubset, updateRecurrenceCompletionTime, type WorkspaceDocument } from '@utm/core';
 import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDocument } from './workspaceLifecycle';
 
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
@@ -14,6 +14,20 @@ describe('workspace lifecycle integration', () => {
     expect(Automerge.getHeads(next)).toEqual(heads);
     expect(next.updatedAt).toBe(source.updatedAt);
     expect(commitWorkspaceDocument(next, 'Subsequent edit', (draft) => { draft.name = 'Changed'; }).name).toBe('Changed');
+  });
+  it('does not grow Automerge history for an unchanged Google calendar organization', () => {
+    const workspace = createWorkspace('Calendar sync');
+    workspace.calendarPreferences.googleCalendar = { connectionId: 'google', calendars: [{ id: 'calendar', name: 'Work', selected: true }], syncTokens: {} };
+    for (let index = 0; index < 100; index += 1) {
+      const item = createItem(`Event ${index}`);
+      item.external = { provider: 'google_calendar', connectionId: 'google', calendarId: 'calendar', eventId: String(index), sourceUrl: 'https://calendar.google.com', readOnly: true, syncedAt: item.createdAt };
+      workspace.items[item.id] = item;
+    }
+    const source = Automerge.from(workspace as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
+    const first = Automerge.change(source, 'First calendar reconciliation', (draft) => reconcileCalendarOrganization(draft as unknown as WorkspaceDocument));
+    const heads = Automerge.getHeads(first);
+    const second = Automerge.change(first, 'Unchanged calendar reconciliation', (draft) => reconcileCalendarOrganization(draft as unknown as WorkspaceDocument));
+    expect(Automerge.getHeads(second)).toEqual(heads);
   });
   it('clones an outdated Automerge instance before another activation attempt', () => {
     const source = document();

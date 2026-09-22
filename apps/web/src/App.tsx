@@ -695,7 +695,7 @@ export default function App() {
       const result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
         setGoogleCalendarSyncStatus(progress.message);
         setToast(`Google Calendar: ${progress.message}`);
-      }, { fullSync: true });
+      });
       setGoogleCalendarSyncStatus('Saving locally…');
       const applied = commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);

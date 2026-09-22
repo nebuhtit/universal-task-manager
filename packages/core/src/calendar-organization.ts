@@ -27,22 +27,26 @@ export interface CalendarOrganizationSource {
   areas: string[];
   projects: string[];
 }
+const sameNames = (left: string[], right: string[]) => left.length === right.length && left.every((name, index) => String(name) === String(right[index]));
+const sameSource = (left: CalendarOrganizationSource | undefined, right: CalendarOrganizationSource) => Boolean(left && String(left.calendarId) === right.calendarId && String(left.tag) === right.tag && String(left.color ?? '') === String(right.color ?? '') && sameNames(left.areas, right.areas) && sameNames(left.projects, right.projects));
 
 /** Materialize source contributions while preserving memberships supplied by the user. */
 export function reconcileCalendarOrganization(workspace: WorkspaceDocument): void {
   const google = workspace.calendarPreferences.googleCalendar;
   if (!google) return;
-  const used = new Set([...Object.values(workspace.items).flatMap((item) => item.tags), ...(workspace.organizationPreferences?.tagOrder ?? []).filter((name): name is string => name !== null)]);
+  const used = new Set([...Object.values(workspace.items).flatMap((item) => item.tags), ...(workspace.organizationPreferences?.tagOrder ?? []).filter((name): name is string => name !== null)].map(String));
   for (const calendar of google.calendars) {
     if (!calendar.managedTag) {
-      const previous = Object.values(workspace.items).map((item) => item.extensions?.[CALENDAR_ORGANIZATION] as unknown as CalendarOrganizationSource | undefined).find((source) => source?.calendarId === calendar.id);
-      if (previous) calendar.managedTag = previous.tag;
+      const previous = Object.values(workspace.items).map((item) => item.extensions?.[CALENDAR_ORGANIZATION] as unknown as CalendarOrganizationSource | undefined).find((source) => source && String(source.calendarId) === String(calendar.id));
+      if (previous) calendar.managedTag = String(previous.tag);
     }
     if (!calendar.selected) {
-      const old = calendar.managedTag;
+      const old = calendar.managedTag ? String(calendar.managedTag) : undefined;
       if (old) {
-        for (const item of Object.values(workspace.items)) item.tags = item.tags.filter((tag) => tag !== old);
-        workspace.organizationPreferences.tagOrder = workspace.organizationPreferences.tagOrder.filter((tag) => tag !== old);
+        for (const item of Object.values(workspace.items)) {
+          if (item.tags.some((tag) => String(tag) === old)) item.tags = item.tags.filter((tag) => String(tag) !== old);
+        }
+        if (workspace.organizationPreferences.tagOrder.some((tag) => String(tag) === old)) workspace.organizationPreferences.tagOrder = workspace.organizationPreferences.tagOrder.filter((tag) => String(tag) !== old);
         if (workspace.organizationPreferences.tagAccents) delete workspace.organizationPreferences.tagAccents[old];
         used.delete(old);
       }
@@ -52,43 +56,50 @@ export function reconcileCalendarOrganization(workspace: WorkspaceDocument): voi
     const base = `C.${calendar.name}`;
     let tag = base;
     let suffix = 2;
-    while (used.has(tag) && tag !== calendar.managedTag) tag = `${base} (${suffix++})`;
-    const old = calendar.managedTag;
+    while (used.has(tag) && tag !== String(calendar.managedTag ?? '')) tag = `${base} (${suffix++})`;
+    const old = calendar.managedTag ? String(calendar.managedTag) : undefined;
     if (old && old !== tag) {
       renameTagDefinition(workspace, old, tag);
       for (const item of Object.values(workspace.items)) {
         const source = item.extensions?.[CALENDAR_ORGANIZATION] as unknown as CalendarOrganizationSource | undefined;
-        if (source?.tag === old) source.tag = tag;
+        if (source && String(source.tag) === old) source.tag = tag;
       }
       used.delete(old);
     }
-    calendar.managedTag = tag;
+    if (String(calendar.managedTag ?? '') !== tag) calendar.managedTag = tag;
     used.add(tag);
-    ensureTagDefinition(workspace, tag, calendar.color ? { accent: calendar.color } : {});
+    if (!workspace.organizationPreferences.tagOrder.some((name) => String(name) === tag) || (calendar.color && String(workspace.organizationPreferences.tagAccents?.[tag] ?? '') !== String(calendar.color))) ensureTagDefinition(workspace, tag, calendar.color ? { accent: String(calendar.color) } : {});
   }
-  const calendars = new Map(google.calendars.map((calendar) => [calendar.id, calendar]));
+  const calendars = new Map(google.calendars.map((calendar) => [String(calendar.id), calendar]));
   for (const item of Object.values(workspace.items)) {
-    if (!item.external || item.external.connectionId !== google.connectionId) continue;
-    const calendar = calendars.get(item.external.calendarId);
+    if (!item.external || String(item.external.connectionId) !== String(google.connectionId)) continue;
+    const calendar = calendars.get(String(item.external.calendarId));
     const previous = item.extensions?.[CALENDAR_ORGANIZATION] as unknown as CalendarOrganizationSource | undefined;
     if (!calendar?.selected || !calendar.managedTag) {
       if (!previous) continue;
-      item.tags = item.tags.filter((tag) => tag !== previous.tag);
-      item.areas = item.areas.filter((name) => !previous.areas.includes(name));
-      item.projects = item.projects.filter((name) => !previous.projects.includes(name));
+      const tags = item.tags.filter((tag) => String(tag) !== String(previous.tag));
+      const areas = item.areas.filter((name) => !previous.areas.some((previousName) => String(previousName) === String(name)));
+      const projects = item.projects.filter((name) => !previous.projects.some((previousName) => String(previousName) === String(name)));
+      if (!sameNames(item.tags, tags)) item.tags = tags;
+      if (!sameNames(item.areas, areas)) item.areas = areas;
+      if (!sameNames(item.projects, projects)) item.projects = projects;
       delete item.extensions?.[CALENDAR_ORGANIZATION];
       continue;
     }
-    const source: CalendarOrganizationSource = { calendarId: calendar.id, tag: calendar.managedTag, areas: [], projects: [], ...(calendar.color ? { color: calendar.color } : {}) };
+    const source: CalendarOrganizationSource = { calendarId: String(calendar.id), tag: String(calendar.managedTag), areas: [], projects: [], ...(calendar.color ? { color: String(calendar.color) } : {}) };
     for (const kind of ['areas', 'projects'] as const) {
-      const manual = item[kind].filter((name) => !previous?.[kind]?.includes(name));
+      const manual = item[kind].filter((name) => !previous?.[kind]?.some((previousName) => String(previousName) === String(name))).map(String);
       const definitions = kind === 'areas' ? workspace.areaDefinitions : workspace.projectDefinitions;
-      const mapped = (calendar[kind] ?? []).filter((name) => Boolean(definitions[name]));
-      source[kind] = mapped.filter((name) => !manual.includes(name));
-      item[kind] = [...new Set([...manual, ...mapped])];
+      const mapped = (calendar[kind] ?? []).map(String).filter((name) => Boolean(definitions[name]));
+      source[kind] = mapped.filter((name) => !manual.some((manualName) => String(manualName) === String(name)));
+      const next = [...new Set([...manual, ...mapped])];
+      if (!sameNames(item[kind], next)) item[kind] = next;
     }
-    item.tags = [...new Set([...item.tags.filter((tag) => tag !== previous?.tag), calendar.managedTag])];
-    item.extensions ??= {};
-    item.extensions[CALENDAR_ORGANIZATION] = JSON.parse(JSON.stringify(source));
+    const tags = [...new Set([...item.tags.filter((tag) => String(tag) !== String(previous?.tag ?? '')).map(String), String(calendar.managedTag)])];
+    if (!sameNames(item.tags, tags)) item.tags = tags;
+    if (!sameSource(previous, source)) {
+      item.extensions ??= {};
+      item.extensions[CALENDAR_ORGANIZATION] = JSON.parse(JSON.stringify(source));
+    }
   }
 }

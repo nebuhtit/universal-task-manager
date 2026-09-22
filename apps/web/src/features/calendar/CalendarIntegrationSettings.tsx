@@ -7,9 +7,10 @@ import { forgetGoogleCalendarAuthorization, GOOGLE_CALENDAR_CLIENT_ID, requestGo
 
 type GoogleSyncLogEntry = { at: string; level: 'info' | 'error'; message: string };
 
-export function CalendarIntegrationSettings({ workspace, commit }: {
+export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
   workspace: WorkspaceDocument;
   commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => boolean | void;
+  onFlush: () => Promise<void>;
 }) {
   const preferences = workspace.calendarPreferences;
   const [googleToken, setGoogleToken] = useState<{ accessToken: string; expiresAt: number } | null>(null);
@@ -34,7 +35,7 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
       diagnosticStage = 'download';
       const result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
         diagnosticStage = progress.stage; setGoogleSyncStatus(progress.message); appendLog(progress.message);
-      }, { fullSync: true });
+      });
       diagnosticStage = 'save';
       setGoogleSyncStatus('Saving events to this workspace…'); appendLog('Saving downloaded events to this workspace.');
       const applied = commit('Sync Google Calendar', (draft) => {
@@ -47,6 +48,7 @@ export function CalendarIntegrationSettings({ workspace, commit }: {
         reconcileCalendarOrganization(draft);
       });
       if (applied === false) throw new Error('Could not save Google synchronization locally.');
+      await onFlush();
       window.dispatchEvent(new Event('utm-retry-google-queue'));
       const eventCount = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);
