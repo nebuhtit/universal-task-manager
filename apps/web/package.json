@@ -15,6 +15,7 @@
     "@base-ui/react": "^1.7.0",
     "@utm/core": "workspace:*",
     "@utm/sdk": "workspace:*",
+    "chrono-node": "^2.10.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",

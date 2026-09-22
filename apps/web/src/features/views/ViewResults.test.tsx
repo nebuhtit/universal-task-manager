@@ -93,6 +93,7 @@ describe('ViewResults manual ordering controls', () => {
       expect(markup).toContain('aria-label="Read-only Google Calendar event"');
       expect(markup).toContain('<button type="button" class="external-calendar-state-marker"');
       expect(markup).not.toContain('state-toggle');
+      if (renderer !== 'table') expect(markup).not.toContain('External source: Google Calendar');
     }
   });
 

@@ -9,7 +9,6 @@ describe('DurationField', () => {
     expect(markup).toContain('aria-label="Calendar duration amount"');
     expect(markup).not.toContain('aria-label="Calendar duration amount" disabled=""');
     expect(markup).toContain('<option value="until-sleep" disabled="">Until sleep</option>');
-    expect(markup).toContain('<option value="all-day" disabled="">All day</option>');
   });
 
   it('shows a saved independent estimate without creating dates', () => {

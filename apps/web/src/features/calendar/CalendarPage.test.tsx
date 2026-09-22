@@ -31,6 +31,7 @@ describe('CalendarPage daily-list contract', () => {
     expect(markup).toContain('calendar-day-list');
     expect(markup).toContain('calendar-day-panel is-week');
     expect(markup).toContain('calendar-day-choice selected today');
+    expect(markup).toContain('aria-current="date"');
     expect((markup.match(/calendar-day-choice/g) ?? [])).toHaveLength(7);
     expect(markup).not.toContain('full-calendar');
     expect(markup).not.toContain('timeGrid');
@@ -64,6 +65,7 @@ describe('CalendarPage daily-list contract', () => {
     expect(css).toContain('grid-template-columns: repeat(7');
     expect(css).toContain('var(--color-surface)');
     expect(css).toContain('var(--color-text)');
+    expect(css).toContain('.calendar-day-choice.today:not(.selected)');
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i);
   });
 });

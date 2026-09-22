@@ -71,3 +71,23 @@ test('end and due dates before Event opens remain invalid', async ({ page }) => 
   await page.getByRole('button', { name: 'Save item' }).click();
   await expect(page.getByRole('alert')).toContainText('Event ends must be after Event opens.');
 });
+
+test('calendar details stay compact at the bottom and persist location and time zone', async ({ page }) => {
+  await createWorkspaceAndItem(page);
+  await page.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00');
+  const details = page.locator('[data-editor-section="calendar-details"]');
+  await details.locator(':scope > summary').click();
+  await details.getByLabel('Location', { exact: true }).fill('Library');
+  await details.getByLabel('Time zone', { exact: true }).fill('Europe/Moscow');
+  await details.getByLabel('Time zone', { exact: true }).blur();
+  await expect(details.getByLabel('All day', { exact: true })).not.toBeChecked();
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    await expect(details.getByLabel('Location', { exact: true })).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await page.getByText('Calendar block', { exact: true }).first().click();
+  await details.locator(':scope > summary').click();
+  await expect(details.getByLabel('Location', { exact: true })).toHaveValue('Library');
+  await expect(details.getByLabel('Time zone', { exact: true })).toHaveValue('Europe/Moscow');
+});

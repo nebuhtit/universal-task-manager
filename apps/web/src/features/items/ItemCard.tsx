@@ -62,7 +62,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
   const displayNow = now ?? new Date();
   const overdueAgeIndicatorEnabled = workspace?.calendarPreferences.appearance.overdueAgeIndicator !== false;
   const showOverdueDueIndicator = overdueAgeIndicatorEnabled && overdueAgeWithoutActiveRange(item, displayNow) !== null;
-  const metadataFields = (fields?.filter((field) => field !== 'title') ?? [])
+  const metadataFields = (fields?.filter((field) => field !== 'title' && field !== 'external.provider') ?? [])
     .map((field) => ({
       field,
       value: field === 'priority' && item.priority !== undefined

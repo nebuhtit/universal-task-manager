@@ -2,7 +2,8 @@ import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode
 import { VIEW_CREATION_DUE_PERIOD_EXTENSION, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { CodeEditor } from '../../components/ui/CodeEditor';
-import { Button, Input } from '../../components/ui/primitives';
+import { Button } from '../../components/ui/primitives';
+import { LiveTextInput } from '../items/LiveTextInput';
 import { persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { ViewResults } from './ViewResults';
 import { formatViewMetricsSummary, ViewMetricsSummary } from './ViewMetricsSummary';
@@ -20,6 +21,7 @@ export function SavedViewSection({ view, workspace, hiddenItemIds, onEditView, o
 }) {
   const [open, setOpen] = useState(() => initialOpen ?? readUiBoolean(`view:${view.id}`, true));
   const [quickTitle, setQuickTitle] = useState('');
+  const [quickError, setQuickError] = useState('');
   const t = useTranslation(workspace.calendarPreferences.language);
   useEffect(() => { persistUiBoolean(`view:${view.id}`, open); }, [open, view.id]);
   const evaluation = useViewEvaluation(workspace, view);
@@ -36,12 +38,12 @@ export function SavedViewSection({ view, workspace, hiddenItemIds, onEditView, o
     event.preventDefault();
     const title = quickTitle.trim();
     if (!title || !onQuickAddItem) return;
-    onQuickAddItem(view, title);
-    setQuickTitle('');
+    try { onQuickAddItem(view, title); setQuickTitle(''); setQuickError(''); }
+    catch (reason) { setQuickError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const toggleOpen = () => setOpen((current) => { const next = !current; onOpenChange?.(next); return next; });
   return <section className={`view-section${reorderHandle ? ' home-view' : ''}${open ? '' : ' is-collapsed'}${view.renderer === 'list' || view.renderer === 'table' ? ' is-reorderable' : ''}`} style={viewStyle}>
     <header className="view-section-summary">{!open && reorderHandle && <div className="view-section-reorder">{reorderHandle}</div>}<button type="button" className="view-section-title" aria-label={`${t(`${open ? 'Collapse' : 'Expand'} ${view.name}`)}${open && metricsSummary ? `. ${metricsSummary.ariaLabel}` : ''}`} aria-expanded={open} onClick={toggleOpen}><h2><UserDataText>{view.name}</UserDataText></h2>{open && metrics && <ViewMetricsSummary metrics={metrics} language={workspace.calendarPreferences.language} />}</button><div className="view-section-actions">{headerActions}{open && onEditView && <button type="button" className="icon-button view-settings-button" aria-label={t(`Edit ${view.name}`)} title={t('Edit view')} onClick={onEditView}><LineIcon name="settings" /></button>}</div></header>
-    {open && <div className="view-section-body">{showTechnicalSummary && <div className="view-query-summary"><CodeEditor readOnly language="dsl" ariaLabel="View filter" value={view.query.source.trim() || 'true'} />{view.area && <code className="sort-preview">Area: {view.area}</code>}{view.project && <code className="sort-preview">Project: {view.project}</code>}{view.list && <code className="sort-preview">List: {view.list}</code>}{Object.keys(view.creationDefaults ?? {}).length > 0 && <code className="sort-preview">New item defaults: {Object.keys(view.creationDefaults ?? {}).length}</code>}{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{t(`${matchingItems} matching items`)}</p></div>}{hasManualOrder && <div className="manual-order-bar"><span>{t('Manual order')}</span><button type="button" onClick={onResetOrder}>{t('Reset order')}</button></div>}<div className="view-results-scroll"><ViewResults view={view} workspace={workspace} evaluation={evaluation} hiddenItemIds={hiddenItemIds} onEdit={onEditItem} onState={onState} onReorder={onReorderItems} celebrationColors={celebrationColors} /></div>{canAdd && (onQuickAddItem ? <form className="view-quick-add" data-quick-capture onSubmit={submitQuickAdd}><Input enterKeyHint="done" value={quickTitle} onChange={(event) => setQuickTitle(event.target.value)} placeholder={t(addLabel)} aria-label={t(`Quick ${addLabel.toLowerCase()}`)} /></form> : <Button className="view-add-item" size="compact" onClick={() => onAddItem(view)}>+ {t(addLabel)}</Button>)}</div>}
+    {open && <div className="view-section-body">{showTechnicalSummary && <div className="view-query-summary"><CodeEditor readOnly language="dsl" ariaLabel="View filter" value={view.query.source.trim() || 'true'} />{view.area && <code className="sort-preview">Area: {view.area}</code>}{view.project && <code className="sort-preview">Project: {view.project}</code>}{view.list && <code className="sort-preview">List: {view.list}</code>}{Object.keys(view.creationDefaults ?? {}).length > 0 && <code className="sort-preview">New item defaults: {Object.keys(view.creationDefaults ?? {}).length}</code>}{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{t(`${matchingItems} matching items`)}</p></div>}{hasManualOrder && <div className="manual-order-bar"><span>{t('Manual order')}</span><button type="button" onClick={onResetOrder}>{t('Reset order')}</button></div>}<div className="view-results-scroll"><ViewResults view={view} workspace={workspace} evaluation={evaluation} hiddenItemIds={hiddenItemIds} onEdit={onEditItem} onState={onState} onReorder={onReorderItems} celebrationColors={celebrationColors} /></div>{canAdd && (onQuickAddItem ? <form className="view-quick-add" data-quick-capture onSubmit={submitQuickAdd}><LiveTextInput value={quickTitle} onChange={(value) => { setQuickTitle(value); setQuickError(''); }} placeholder={t(addLabel)} ariaLabel={t(`Quick ${addLabel.toLowerCase()}`)} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={evaluation.now} error={quickError} /></form> : <Button className="view-add-item" size="compact" onClick={() => onAddItem(view)}>+ {t(addLabel)}</Button>)}</div>}
   </section>;
 }

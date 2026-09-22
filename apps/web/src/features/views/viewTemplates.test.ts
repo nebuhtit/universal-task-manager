@@ -4,7 +4,7 @@ import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_FIELDS, viewFrom
 
 describe('view templates', () => {
   it('provides the requested reusable built-in templates with compact fields', () => {
-    expect(VIEW_TEMPLATE_FIELDS).toEqual(['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project']);
+    expect(VIEW_TEMPLATE_FIELDS).toEqual(['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project', 'scripts']);
     expect(BUILT_IN_VIEW_TEMPLATES.map((view) => view.name)).toEqual(['Inbox', 'All', 'Today', 'Tomorrow', 'This week', 'Some Area', 'Some Project']);
     expect(BUILT_IN_VIEW_TEMPLATES[3]?.query.source).toContain('scheduleInPeriod("tomorrow", "event_open,active,due", false');
     expect(BUILT_IN_VIEW_TEMPLATES[2]?.query.source).toContain('scheduleInPeriod("today", "event_open,event,active,due", true');

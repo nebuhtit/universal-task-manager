@@ -192,15 +192,15 @@
   align-items: center;
   gap: var(--space-2);
   transform: none;
-  border: 1px solid color-mix(in srgb, var(--color-text) 18%, transparent);
-  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 35%, transparent);
+  background: color-mix(in srgb, var(--color-surface-elevated) 38%, transparent);
   color: var(--color-text);
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
   backdrop-filter: blur(18px) saturate(1.15);
 }
 .undo-toast > span { min-width: 0; flex: 1; }
 .undo-toast > strong { min-width: 1.5em; color: var(--color-text-secondary); text-align: center; font-variant-numeric: tabular-nums; }
-.undo-toast .ui-button { border-color: color-mix(in srgb, var(--color-text) 20%, transparent); background: color-mix(in srgb, var(--color-text) 10%, transparent); color: var(--color-text); }
+.undo-toast .ui-button { border-color: color-mix(in srgb, var(--color-border) 38%, transparent); background: color-mix(in srgb, var(--color-surface-elevated) 24%, transparent); color: var(--color-text); }
 
 .backup-reminder { max-width: min(640px, calc(100vw - var(--space-5))); display: flex; align-items: center; gap: var(--space-3); pointer-events: none; }
 .backup-reminder > span { min-width: 0; }

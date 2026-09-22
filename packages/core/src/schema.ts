@@ -341,6 +341,7 @@ export const workspaceJsonSchema = {
         diagnosticsEnabled: { type: 'boolean' },
         showExplanations: { type: 'boolean' },
         headerDateFormat: { enum: ['ru-adaptive', 'numeric', 'interface'] },
+        liveTextSuggestions: { type: 'boolean' },
         hideDuplicateItemsAcrossHomeViews: { type: 'boolean' },
         testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
         backupPreferences: { type: 'object', additionalProperties: false, required: ['reminderDays'], properties: { reminderDays: { type: 'integer', minimum: 0 }, lastBackupAt: { type: 'string', format: 'date-time' }, locationLabel: { type: 'string' } } },
@@ -904,7 +905,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'dayView', 'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'headerDateFormat', 'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
+    'liveTextSuggestions', 'headerDateFormat', 'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
@@ -969,6 +970,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   if (!['en', 'ru', 'es', 'de', 'fr', 'ko'].includes(String(calendarPreferences.language))) calendarPreferences.language = 'en';
   calendarPreferences.diagnosticsEnabled = calendarPreferences.diagnosticsEnabled !== false;
   calendarPreferences.showExplanations = calendarPreferences.showExplanations === true;
+  calendarPreferences.liveTextSuggestions = calendarPreferences.liveTextSuggestions !== false;
   calendarPreferences.headerDateFormat = ['ru-adaptive', 'numeric', 'interface'].includes(String(calendarPreferences.headerDateFormat)) ? calendarPreferences.headerDateFormat : 'ru-adaptive';
   calendarPreferences.hideDuplicateItemsAcrossHomeViews = calendarPreferences.hideDuplicateItemsAcrossHomeViews !== false;
   if (calendarPreferences.googleCalendar !== undefined) {

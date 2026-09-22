@@ -97,7 +97,7 @@ describe('OrganizationManager', () => {
     ensureProjectDefinition(workspace, 'Launch', { areas: ['Work'] });
     const areaViews = paraAreaViews(workspace, 'Work');
     expect(areaViews.map((view) => view.name)).toEqual(['Launch', 'No Project']);
-    expect(areaViews[0]).toMatchObject({ area: 'Work', project: 'Launch', fields: ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'] });
+    expect(areaViews[0]).toMatchObject({ area: 'Work', project: 'Launch', fields: ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project', 'scripts'] });
     expect(areaViews[1]?.query.source).toContain('length(projects) == 0');
     expect(paraProjectView('Launch')).toMatchObject({ project: 'Launch', name: 'Launch' });
     expect(paraTagView('urgent')).toMatchObject({ name: '#urgent', creationDefaults: { tags: ['urgent'] } });

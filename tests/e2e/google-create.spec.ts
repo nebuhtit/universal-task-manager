@@ -137,10 +137,14 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await editor.locator('[data-editor-section="dates"] > summary').click();
   await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('');
   await editor.getByLabel('Event ends', { exact: true }).fill('2030-09-23T13:00');
+  await editor.locator('[data-editor-section="calendar-details"] > summary').click();
   await expect(editor.getByRole('combobox', { name: 'Google Calendar', exact: true })).toHaveValue('test@example.com');
   for (const theme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: theme }); await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme); await page.screenshot({ path: test.info().outputPath('unified-' + theme + '.png') }); }
   await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(1);
+  await page.locator('.all-sections').getByText('Create from UTM', { exact: true }).click();
+  await editor.locator('[data-editor-section="calendar-details"] > summary').click();
   await expect(page.getByText(/Saved in UTM, waiting for sync/)).toBeVisible();
+  await page.keyboard.press('Escape'); await expect(editor).toBeHidden();
   await page.reload(); await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple'); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await navigate('All items'); await page.locator('.all-sections').getByText('Create from UTM', { exact: true }).click();
   await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(2);
@@ -151,10 +155,12 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(patches).toBe(1);
   await expect(page.locator('.all-sections').getByText('Edited linked event', { exact: true })).toHaveCount(1);
   await page.locator('.all-sections').getByText('Edited linked event', { exact: true }).click();
+  await editor.locator('[data-editor-section="calendar-details"] > summary').click();
   await editor.getByRole('combobox', { name: 'Google Calendar', exact: true }).selectOption('other');
   await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden();
   expect(moves).toBe(1); expect(inserts).toBe(2); expect(patches).toBe(1);
   await page.locator('.all-sections').getByText('Edited linked event', { exact: true }).click();
+  await editor.locator('[data-editor-section="calendar-details"] > summary').click();
   await expect(editor.getByRole('combobox', { name: 'Google Calendar', exact: true })).toHaveValue('other');
   await editor.locator('[data-editor-section="dates"] > summary').click();
   await editor.getByRole('button', { name: 'Clear Event ends', exact: true }).click();

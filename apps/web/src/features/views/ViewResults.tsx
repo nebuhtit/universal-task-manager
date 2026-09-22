@@ -135,7 +135,7 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
     onPointerCancel={cancelDrag}
   ><span aria-hidden>⠿</span></button>;
   const stateControl = (item: UniversalItem, stopPropagation = false) => <ItemStateMarker item={item} googleLabel={t('Read-only Google Calendar event')} noteLabel={t('Note item')} onOpen={() => onEdit(item)}><button className="state-toggle" data-sound={isOpen(item) ? 'none' : undefined} aria-label={stateButtonLabel(item)} translate="no" data-utm-user-data onPointerDown={(event) => { if (stopPropagation) event.stopPropagation(); beginStateChange(item, event); }} onClick={(event) => { if (stopPropagation) event.stopPropagation(); finishStateChange(item); }}>{isOpen(item) ? '' : '✓'}</button></ItemStateMarker>;
-  const fieldContent = (item: UniversalItem, omit: string[] = []) => <span className="renderer-fields"><OverdueDueIndicator item={item} now={liveNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} />{visibleFields.filter((field) => !omit.includes(field)).map((field) => {
+  const fieldContent = (item: UniversalItem, omit: string[] = []) => <span className="renderer-fields"><OverdueDueIndicator item={item} now={liveNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} />{visibleFields.filter((field) => field !== 'external.provider' && !omit.includes(field)).map((field) => {
     if (field === 'title') return <strong key={field}><UserDataText>{item.title}</UserDataText></strong>;
     if (field === 'scripts') return readItemScripts(item, renderWorkspace, liveNow).map(({ script, text }) => {
       const managedProgram = script.managedBy === 'event_program';

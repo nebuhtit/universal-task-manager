@@ -16,6 +16,8 @@ import {
   isItemTemplate,
 } from './features/items';
 import { OrganizationManager, createParaStructurePackage } from './features/settings/OrganizationManager';
+import { applyQuickEntryText, createQuickEntryItem, syncQuickEntrySource } from './features/items/quickEntry';
+import { LiveTextInput } from './features/items/LiveTextInput';
 import { AppShell, type AppNotice as Notice, type AppPage as Page } from './components/layout/AppShell';
 import { useLegacyModalDismiss } from './components/ui/useLegacyModalDismiss';
 import { ShellNotices } from './components/layout/ShellNotices';
@@ -596,6 +598,7 @@ export default function App() {
   const undoTimers = useRef(new Map<string, number>());
   const pushError = useRef('');
   const captureInputRef = useRef<HTMLInputElement>(null);
+  const [quickError, setQuickError] = useState('');
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
@@ -1095,7 +1098,7 @@ export default function App() {
         const target = draft.items[itemId];
         if (!target || !canQuickChangeDue(target)) throw new Error('This item cannot be changed here.');
         if (target.schedule?.startAt && Date.parse(at) < Date.parse(target.schedule.startAt)) throw new Error('Due cannot be before Event opens.');
-        const updated = { ...clean(target), schedule: { timezone: itemTimeZone(target), ...target.schedule, dueAt: at }, updatedAt: actionNow.toISOString(), revision: target.revision + 1 };
+        const updated = syncQuickEntrySource(target, { ...clean(target), schedule: { timezone: itemTimeZone(target), ...target.schedule, dueAt: at }, updatedAt: actionNow.toISOString(), revision: target.revision + 1 });
         draft.items[itemId] = updated;
         runAutomationEvents(draft, [{ id: createId(), type: 'item.updated', at: updated.updatedAt, itemId, after: clean(updated), causationId: createId(), depth: 0 }], { now: actionNow });
       });
@@ -1179,21 +1182,23 @@ export default function App() {
     if (deleted) queueUndo('Item permanently deleted', () => commit('Undo permanent item deletion', (draft) => { draft.items[item.id] = clean(snapshot); if (snapshot.deletedAt) draft.tombstones[item.id] = snapshot.deletedAt; }));
   };
   const persistQuickItem = (item: UniversalItem) => {
-    commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
+    const saved = commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
+    if (!saved) throw new Error('Не удалось сохранить item. Текст остаётся в строке ввода.');
     setEditorIsNew(true); setEditor(item);
   };
   const captureQuickItem = () => {
     if (!quick.trim()) return;
-    // Quick capture should only preserve what the user actually entered.
-    // Calendar dates are added by calendar/view creation flows or explicitly
-    // in the editor, never implicitly by the global capture field.
-    persistQuickItem(createItem(quick.trim(), 'task', currentWorkspaceNow()));
-    setQuick('');
+    try { persistQuickItem(createQuickEntryItem(quick.trim(), currentWorkspaceNow())); setQuick(''); setQuickError(''); }
+    catch (reason) { setQuickError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const captureQuickViewItem = (view: SavedView, title: string) => {
     const value = title.trim();
     if (!value) return;
-    persistQuickItem(applyViewCreationDefaults(createItem(value, 'task', currentWorkspaceNow()), view, workspace));
+    try {
+      const now = currentWorkspaceNow();
+      const base = applyViewCreationDefaults(createItem('', 'task', now), view, workspace);
+      persistQuickItem(applyQuickEntryText(base, value, now).item);
+    } catch (reason) { throw reason; }
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
@@ -1214,7 +1219,7 @@ export default function App() {
       </Suspense>
     </AppShell>
     {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due'} ariaLabel="Quick Due" footer={<Button disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
-    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><input ref={captureInputRef} enterKeyHint="done" value={quick} onChange={(event) => setQuick(event.target.value)} placeholder="Add new item" aria-label="Add new item"/></form></div>}
+    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onChange={(value) => { setQuick(value); setQuickError(''); }} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} error={quickError} /></form></div>}
     {quickCompletion && <QuickCompletionInput
       open
       value={quickCompletion.completedAt}
