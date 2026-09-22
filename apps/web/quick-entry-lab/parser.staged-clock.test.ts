@@ -10,6 +10,28 @@ function choose(text: string, label: string, caret = text.length) {
   return text.slice(0, result.start) + option!.insert + text.slice(result.end);
 }
 
+it.each(['Даша чт 17 00-', 'Даша чт 17:00 -', 'Даша с чт 17:00 по ', 'Даша завтра 17:00-', 'Даша 12.06.2027 17:00-'])('orders range-end hours from the start: %s', text => {
+  const options = suggest(text, text.length, now).options;
+  expect(options[0]?.label).toBe('17:');
+  expect(options[6]?.label).toBe('23:');
+  expect(options[7]?.label).toBe('следующий день 00:');
+  const withHour = choose(text, 'следующий день 00:');
+  const parsed = parseEntry(choose(withHour, ':15'), now);
+  expect(parsed.errors).toEqual([]);
+  expect(Date.parse(parsed.end!) - Date.parse(parsed.start!)).toBe(7.25 * 3600000);
+  const next = new Date(parsed.start!); next.setDate(next.getDate() + 1);
+  expect(new Date(parsed.end!).getDate()).toBe(next.getDate());
+});
+
+it.each(['due ', 'до ', 'срок ', 'напомнить ', 'конец '])('reuses entered date and clock after %s', command => {
+  const text = `Даша 12.06 15:00 ${command}`;
+  const options = suggest(text, text.length, now).options;
+  if (command !== 'конец ') {
+    expect(options[0]?.label).toContain('2027-06-12 15:00');
+    expect(options.every(option => option.label.endsWith('15:00'))).toBe(true);
+  } else expect(options[0]?.label).toBe('15:');
+});
+
 it.each(['сегодня', 'завтра', 'вторник', 'среда', '18.09', '12.02', 'след пятница', '13 марта 27', 'tomorrow', 'next friday'])('uses two stages for %s', day => {
   const text = `Встреча ${day}`;
   expect(suggest(text, text.length, now).options.map(value => value.label)).toEqual(hours);

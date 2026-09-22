@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as Automerge from '@automerge/automerge';
 import { applyGoogleCalendarSync, createWorkspace, type GoogleCalendarPreferences } from '@utm/core';
 import { GOOGLE_CALENDAR_SYNC_CONCURRENCY, synchronizeGoogleCalendars } from './googleCalendar';
 
@@ -8,6 +9,17 @@ const preferences = (): GoogleCalendarPreferences => ({ connectionId: 'connectio
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('Google Calendar browser synchronization', () => {
+  it('can persist an incremental response without reusing Automerge objects', async () => {
+    const workspace = createWorkspace('Sync regression');
+    const now = new Date();
+    workspace.calendarPreferences.googleCalendar = { ...preferences(), calendars: [{ id: 'primary', name: 'Main', selected: true, areas: [], projects: [] }], syncTokens: { primary: 'old' }, syncWindow: { timeMin: new Date(now.getTime() - 86400000).toISOString(), timeMax: new Date(now.getTime() + 86400000).toISOString(), refreshedAt: now.toISOString() } };
+    const doc = Automerge.from(workspace as unknown as Record<string, unknown>) as unknown as Automerge.Doc<typeof workspace>;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ items: [{ id: 'primary', summary: 'Main', primary: true }] })).mockResolvedValueOnce(jsonResponse({ items: [], nextSyncToken: 'new' })));
+    const result = await synchronizeGoogleCalendars('test-token', doc.calendarPreferences.googleCalendar!);
+    const saved = Automerge.change(doc, draft => { draft.calendarPreferences.googleCalendar = { ...JSON.parse(JSON.stringify(draft.calendarPreferences.googleCalendar)), calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow }; });
+    expect(saved.calendarPreferences.googleCalendar?.syncTokens.primary).toBe('new');
+    expect(Automerge.load<typeof workspace>(Automerge.save(saved)).calendarPreferences.googleCalendar?.syncTokens.primary).toBe('new');
+  });
   it('bounds the initial download to one year behind and ahead and reports page progress', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ items: [{ id: 'primary', summary: 'Main', primary: true }] }))

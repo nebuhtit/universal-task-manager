@@ -4,6 +4,9 @@ import {
   createOccurrence,
   createViewTimeMetricsAccumulator,
   itemDurationInsidePeriod,
+  occupiedIntervals,
+  unionDuration,
+  type TimeInterval,
   participatesInTimeStatistics,
   projectOccurrences,
   scheduleDateKeysInRange,
@@ -117,6 +120,7 @@ export function evaluateCalendarRange(
     visibleSourceIds: Set<string>;
     reservedSourceIds: Set<string>;
     reservedDurationMs: number;
+    reservedIntervals: TimeInterval[];
   }>();
   for (let key = rangeStartKey; key < rangeEndKey; key = shiftDateKey(key, 1)) {
     buckets.set(key, {
@@ -128,6 +132,7 @@ export function evaluateCalendarRange(
       visibleSourceIds: new Set(),
       reservedSourceIds: new Set(),
       reservedDurationMs: 0,
+      reservedIntervals: [],
     });
   }
 
@@ -188,7 +193,9 @@ export function evaluateCalendarRange(
       const bucket = buckets.get(key);
       if (!bucket || bucket.visibleSourceIds.has(sourceId) || bucket.reservedSourceIds.has(sourceId)) continue;
       bucket.reservedSourceIds.add(sourceId);
-      bucket.reservedDurationMs += itemDurationInsidePeriod(entry.item, viewPeriodBoundsForDates(key, key, timeZone));
+      const period = viewPeriodBoundsForDates(key, key, timeZone);
+      if (entry.item.schedule?.startAt || entry.item.external?.startAt) bucket.reservedIntervals.push(...occupiedIntervals(entry.item, period));
+      else bucket.reservedDurationMs += itemDurationInsidePeriod(entry.item, period);
     }
   }
 
@@ -196,7 +203,7 @@ export function evaluateCalendarRange(
     const items = sortViewItems(projectedWorkspace, bucket.view, bucket.entries.map(({ item }) => item), now);
     const entriesById = new Map(bucket.entries.map((entry) => [entry.item.id, entry]));
     const entries = items.map((item) => entriesById.get(item.id)).filter((entry): entry is CalendarProjectedEntry => Boolean(entry));
-    const metrics = bucket.metrics.finish(bucket.reservedDurationMs);
+    const metrics = bucket.metrics.finish(bucket.reservedDurationMs + unionDuration(bucket.reservedIntervals), bucket.reservedIntervals);
     if (!bucket.view.statistics?.showActualTime) delete metrics.actualDurationMs;
     return [key, { entries, view: bucket.view, metrics, evaluation: { items, metrics, now } }];
   }));

@@ -209,7 +209,8 @@ const measure = async <T,>(operation: () => T | Promise<T>) => {
 
 const expectedBehaviorHashes: Record<number, string> = {
   // Includes portable byte length: Home deduplication and noon defaults add metadata.
-  100: 'd1775e8f',
+  // Free capacity now uses interval union rather than double-counting overlaps.
+  100: 'c6e174bc',
   1_000: '521047c6',
   10_000: '432ad274',
 };

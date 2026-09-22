@@ -67,6 +67,29 @@ describe('timeline time geometry', () => {
 });
 
 describe('timeline data and UI', () => {
+  it('keeps active-range occurrences above each day, hides only the completed cycle', () => {
+    const series = item('range', { startAt: iso(9), endAt: iso(10), dueAt: iso(81), estimatedDuration: 'PT1H' });
+    series.role = 'series_template'; series.canBeCompleted = true;
+    series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', rdates: [], exdates: [], activationOffset: 'PT0M', closeAt: 'due', anchor: 'schedule', autoRenew: true };
+    const w = workspace(series);
+    const before = JSON.stringify(w);
+    expect(timelineData(w, '2026-09-23', now).activeRange).toHaveLength(1);
+    expect(timelineData(w, '2026-09-23', now).events).toHaveLength(0);
+    expect(JSON.stringify(w)).toBe(before);
+    const occurrence = createOccurrence(series, new Date(iso(9)), 0); occurrence.state = 'done'; w.items[occurrence.id] = occurrence;
+    expect(timelineData(w, '2026-09-23', now).activeRange).toHaveLength(0);
+    expect(timelineData(w, '2026-09-30', now).activeRange).toHaveLength(1);
+  });
+  it('shows event span instead of stale estimate and uses source calendar color and icon', () => {
+    const event = item('span', { startAt: iso(13, 15), endAt: iso(19), estimatedDuration: 'PT168H' });
+    event.external = { provider: 'google_calendar', calendarId: 'c', connectionId: 'connection', eventId: 'e', sourceUrl: 'https://calendar.google.com/', readOnly: true, syncedAt: iso(10) };
+    const w = workspace(event); w.calendarPreferences.dayView.fields = ['title', 'schedule.estimatedDuration', 'external.provider'];
+    w.calendarPreferences.googleCalendar = { connectionId: 'connection', calendars: [{ id: 'c', name: 'Work', color: '#12ab34', selected: true }], syncTokens: {} };
+    const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(html).not.toContain('168'); expect(html).toContain('5 h 45 min');
+    expect(html).toContain('border-color:#12ab34'); expect(html).toContain('aria-label="Google Calendar"');
+    expect(event.schedule?.estimatedDuration).toBe('PT168H');
+  });
   it('keeps one linked Google identity and leaves local history untouched', () => {
     const linked = item('linked', { dueAt: iso(18), estimatedDuration: 'PT20M' });
     linked.extensions = { 'utm:googleCreate': { eventId: 'remote', calendarId: 'calendar', accountEmail: 'test' } };

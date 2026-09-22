@@ -43,6 +43,7 @@ export const itemJsonSchema = {
     role: { enum: ['standalone', 'series_template', 'occurrence'] },
     preset: { enum: ['task', 'event', 'habit', 'blank'] },
     isNote: { type: 'boolean' },
+    canBeCompleted: { type: 'boolean' },
     title: { type: 'string' }, bodyMarkdown: { type: 'string' }, location: { type: 'string' },
     state: { enum: ['open', 'done', 'cancelled', 'auto_closed', 'archived'] },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },

@@ -99,7 +99,8 @@ describe('calendar range evaluation', () => {
     broken.filter.source = 'state ==';
     const result = evaluateCalendarRange(workspace, '2026-10-24', '2026-10-27', broken, now);
     expect(Object.keys(result.days)).toEqual(['2026-10-24', '2026-10-25', '2026-10-26']);
-    expect(Object.values(result.days).every((day) => day.evaluation.items.length === 0 && day.metrics.periodDurationMs === 86_400_000)).toBe(true);
+    expect(Object.values(result.days).every((day) => day.evaluation.items.length === 0)).toBe(true);
+    expect(Object.values(result.days).map(day => day.metrics.periodDurationMs)).toEqual([24, 25, 24].map(hours => hours * 3600000));
   });
 
   it('keeps a hidden reserved item out of the day while still subtracting its time', () => {

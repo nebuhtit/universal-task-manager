@@ -243,7 +243,11 @@ export function parseEntry(input: string, now: Date): Draft {
     const opens = parseDate(`${day} ${match[2]}:${match[3] ?? '00'}`, now);
     const ends = parseDate(`${day} ${match[4]}:${match[5] ?? '00'}`, now);
     if (!opens || !ends) result.errors.push(`Не разобран диапазон «${match[0].trim()}».`);
-    else { result.start = opens.iso; result.end = ends.iso; }
+    else {
+      const end = new Date(ends.iso);
+      if (end.getTime() < Date.parse(opens.iso)) end.setDate(end.getDate() + 1);
+      result.start = opens.iso; result.end = end.toISOString();
+    }
     consume(match.index!, match[0].length);
   }
   // A paired “с … по …” sets event boundaries, independently of due.
@@ -650,7 +654,10 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
   const namedDate = `\\d{1,2}\\s+(?:${monthPattern})(?:\\s+(?:\\d{4}|\\d{2})(?![\\d:]))?`;
   const date = new RegExp(`(?:^|[\\s:@])(${namedDate}|${nextDayExpression}|${dayExpression})(?:\\s+(?:в\\s+)?(\\d{1,2})(?:(:|\\s)(\\d{0,2}))?)?\\s*$`, 'i').exec(before);
   const command = /(?:^|\s)(?:event\s+(?:opens|ends)|начало|конец|срок|due|start|end|opens|ends|до|by|с|from|по|to|напомнить|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/i.exec(before);
-  const range = /(?:\d{1,2}(?::\d{2})?)\s*[-–—]\s*(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/.exec(before);
+  const range = /(?:\d{1,2}(?:(?::|\s)\d{2})?)\s*[-–—]\s*(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/.exec(before);
+  const rangePrefix = range ? before.replace(/[-–—]\s*\d{0,2}(?:(?::|\s)\d{0,2})?\s*$/, '') : command && /(?:по|to|конец|end|ends)\s*$/i.test(command[0]) ? before.slice(0, command.index) : '';
+  const startMarker = /(?:^|\s)(?:с|from)\s+/i.exec(rangePrefix);
+  const rangeStart = rangePrefix ? (startMarker ? parseDate(rangePrefix.slice(startMarker.index + startMarker[0].length).trim(), now)?.iso : parseEntry(rangePrefix, now).start) : undefined;
   let hour: string | undefined, minute: string | undefined, separator: string | undefined, start: number, detail: string;
   if (date) {
     const phrase = date[1]!;
@@ -668,7 +675,7 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
     hour = match[1]; separator = match[2]; minute = match[3];
     // Empty reminder commands still offer relative offsets. Explicit clock input
     // and absolute reminder dates use the same two-stage clock picker.
-    if (!hour && command) return null;
+    if (!hour && command && !rangeStart) return null;
     if (command && /(?:напом|remind|\br\b)/i.test(command[0]) && ((!separator && hour?.length === 1) || /^\s*(?:день|дня|дней|час|мин|[mhdмчд])\b/i.test(input.slice(caret)))) return null;
     start = hour ? caret - /\d{1,2}(?:(?::|\s)\d{0,2})?\s*$/.exec(before)![0].length : caret;
     detail = language === 'ru' ? 'Время' : 'Time';
@@ -682,8 +689,10 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
   }
   const leading = /\s$/.test(input.slice(0, caret)) ? '' : ' ';
   return { start, end, ordered: true, options: Array.from({ length: 24 }, (_, index) => {
-    const clock = String((index + 6) % 24).padStart(2, '0');
-    return { label: `${clock}:`, insert: `${leading}${clock}:`, detail };
+    const firstHour = rangeStart ? new Date(rangeStart).getHours() : 6;
+    const clock = String((index + firstHour) % 24).padStart(2, '0');
+    const nextDay = rangeStart && index + firstHour >= 24;
+    return { label: `${nextDay ? language === 'ru' ? 'следующий день ' : 'next day ' : ''}${clock}:`, insert: `${leading}${clock}:`, detail: nextDay ? language === 'ru' ? 'На следующий день после начала' : 'Day after the range start' : detail };
   }) };
 }
 
@@ -694,6 +703,20 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
   const language: 'ru' | 'en' = /[а-яё]/i.test(closestWord) ? 'ru' : /[a-z]/i.test(closestWord) ? 'en' : interfaceLanguage;
   const clock = stagedClockSuggestions(input, caret, now, language);
   if (clock) return clock;
+  const nextCommand = /(?:^|\s)(до|due|срок|начало|start|opens|конец|end|ends|напомнить|напомни|remind|reminder)(?::|\s)\s*$/i.exec(beforeCaret);
+  if (nextCommand) {
+    const previous = parseEntry(input.slice(0, nextCommand.index), now);
+    const anchor = previous.start ?? previous.due ?? previous.end;
+    if (anchor) {
+      const at = new Date(anchor);
+      const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+      const date = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+      const key = nextCommand[1]!;
+      const prefix = /напом|remind/i.test(key) ? `${key}${nextCommand[0].includes(':') ? ':' : ''} в` : key;
+      const days = [date, ...(language === 'ru' ? ['сегодня', 'завтра', ...russianWeekdays] : ['today', 'tomorrow', ...englishWeekdays])];
+      return { start: nextCommand.index + nextCommand[0].indexOf(key), end: caret, ordered: true, options: days.map((day, index) => ({ label: `${key} ${day} ${time}`, insert: `${prefix} ${day} ${time} `, detail: index === 0 ? language === 'ru' ? 'Указанные дата и время' : 'Entered date and time' : language === 'ru' ? 'Сохранить указанное время' : 'Keep entered time' })) };
+    }
+  }
   const normalized = relaxedCommands(input);
   if (caret === input.length) {
     const masked = input.replace(/"([^"\n]*)"|«([^»\n]*)»/g, value => ' '.repeat(value.length));

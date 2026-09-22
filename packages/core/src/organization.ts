@@ -75,7 +75,7 @@ export function calculateItemSetMetrics(items: Iterable<UniversalItem>): ItemSet
   for (const item of items) {
     if (seen.has(item.id)) continue;
     seen.add(item.id);
-    if (item.deletedAt || item.role === 'series_template' || item.state === 'cancelled' || item.state === 'archived' || item.external?.readOnly || !participatesInTimeStatistics(item)) continue;
+    if (item.deletedAt || item.role === 'series_template' || item.state === 'cancelled' || item.state === 'archived' || item.external?.readOnly || item.isNote || item.canBeCompleted === false || !participatesInTimeStatistics(item)) continue;
     totalItems += 1;
     const duration = effectiveItemDurationMs(item);
     totalDurationMs += duration;
@@ -100,7 +100,7 @@ export function calculateProjectMetrics(workspace: WorkspaceDocument, now = new 
     totalDurationMs: 0, completedDurationMs: 0, deadlineOverdue: false,
   } satisfies ProjectMetrics]));
   for (const item of Object.values(workspace.items)) {
-    if (item.deletedAt || item.role === 'series_template' || item.state === 'cancelled' || item.state === 'archived' || !participatesInTimeStatistics(item)) continue;
+    if (item.deletedAt || item.role === 'series_template' || item.state === 'cancelled' || item.state === 'archived' || item.external?.readOnly || item.isNote || item.canBeCompleted === false || !participatesInTimeStatistics(item)) continue;
     const completed = item.state === 'done' || item.state === 'auto_closed';
     const duration = effectiveItemDurationMs(item);
     const deadline = !completed && item.schedule?.dueAt && Number.isFinite(Date.parse(item.schedule.dueAt)) ? item.schedule.dueAt : undefined;

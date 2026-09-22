@@ -1,4 +1,10 @@
 .calendar-display-switch, .timeline-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-block: var(--space-3); }
+.calendar-display-switch { width: fit-content; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.calendar-display-switch .ui-button { border-color: transparent; background: transparent; color: var(--color-text-secondary); }
+.calendar-display-switch .ui-button[aria-pressed="true"] { background: var(--color-surface-elevated); color: var(--color-text); border-color: var(--color-border); font-weight: var(--font-weight-semibold); box-shadow: var(--shadow-surface); }
+.timeline-toolbar { gap: var(--space-3); font-size: var(--font-size-secondary); }
+.timeline-toolbar > details > summary { border: 0; margin: 0; padding: var(--space-2); font-size: var(--font-size-secondary); }
+.calendar-all-day > summary { padding-block: var(--space-2); font-weight: var(--font-weight-semibold); }
 .timeline-axis { position: relative; margin: var(--space-6) var(--space-1) var(--space-6) calc(var(--control-height-touch) + var(--space-3)); isolation: isolate; }
 .timeline-tick { position: absolute; inset-inline: 0; border-top: 1px solid var(--color-border); pointer-events: none; }
 .timeline-tick > span { position: absolute; right: calc(100% + var(--space-2)); transform: translateY(-50%); font-size: var(--font-size-caption); color: var(--color-text-secondary); }
@@ -19,3 +25,5 @@
 .timeline-top-items .ui-button { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
 .timeline-sleep-settings { padding: var(--space-3); }
 .timeline-sleep-options, .timeline-more-list { display: grid; gap: var(--space-2); max-height: 40vh; overflow-y: auto; }
+.timeline-active-item, .timeline-event .timeline-calendar-source { display: flex; align-items: center; gap: var(--space-2); }
+.timeline-calendar-source svg { width: var(--space-4); height: var(--space-4); }

@@ -3,6 +3,12 @@ import { createItem, createWorkspace, itemJsonSchema } from '@utm/core';
 import { displayViewValue, isItemTemplate, readItemField, relationContext, viewFieldLabel, viewFieldOptions } from './fieldDisplay';
 
 describe('item field display helpers', () => {
+  it('formats compound and seconds durations without substituting seven days', () => {
+    expect(displayViewValue('PT5H45M', 'schedule.estimatedDuration')).toBe('5 h 45 min');
+    expect(displayViewValue('PT20700S', 'schedule.estimatedDuration')).toBe('5 h 45 min');
+    expect(displayViewValue('P1W', 'schedule.estimatedDuration')).toBe('168 h');
+    expect(displayViewValue('Pbroken', 'schedule.estimatedDuration')).toBe('Pbroken');
+  });
   it('calculates a display duration from item dates', () => {
     const item = createItem('Timed item');
     item.schedule = { timezone: 'UTC', startAt: '2026-08-26T10:00:00.000Z', endAt: '2026-08-26T11:30:00.000Z' };

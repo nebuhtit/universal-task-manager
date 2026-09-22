@@ -5,5 +5,6 @@ export function isCalendarItem(item: UniversalItem): boolean {
   return Boolean(item.external || (item.schedule?.startAt && item.schedule?.endAt));
 }
 export function canManuallyComplete(item: UniversalItem): boolean {
-  return !item.isNote && !item.schedule?.allDay && !isCalendarItem(item);
+  if (item.isNote || item.external?.readOnly || item.canBeCompleted === false) return false;
+  return item.canBeCompleted === true || (!item.schedule?.allDay && !isCalendarItem(item));
 }

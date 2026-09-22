@@ -13,7 +13,7 @@ export function syncActualDuration(item: UniversalItem): void {
 }
 
 export function ensureActualTimeCompletion(item: UniversalItem, entry: NonNullable<UniversalItem['actualTimeEntries']>[number], at?: string, preferExisting = false): CompletionEntry | undefined {
-  if (item.external?.readOnly || item.isNote) return undefined;
+  if (item.external?.readOnly || item.isNote || item.canBeCompleted === false) return undefined;
   item.completionEntries ??= [];
   const linked = entry.completionId ? item.completionEntries.find((completion) => completion.id === entry.completionId) : undefined;
   if (linked) return linked;
@@ -34,7 +34,7 @@ export function initializeItemHistory(item: UniversalItem): void {
   if (!item.actualTimeEntries && item.schedule?.actualDuration) {
     item.actualTimeEntries = [{ id: `imported-time:${item.id}`, durationSeconds: actualTimeMs(item) / 1000, comment: 'Imported', source: 'imported', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) }];
   }
-  if (!item.completionEntries && !item.external?.readOnly && !item.isNote) {
+  if (!item.completionEntries && !item.external?.readOnly && !item.isNote && item.canBeCompleted !== false) {
     const entries: CompletionEntry[] = (item.cycleHistory ?? []).filter((cycle) => cycle.state === 'done' || cycle.state === 'auto_closed').map((cycle) => ({ id: `cycle:${item.id}:${cycle.recurrenceId}`, at: cycle.closedAt, kind: cycle.state === 'auto_closed' || cycle.actor !== 'user' ? 'automatic' : 'manual', comment: '', recurrenceId: cycle.recurrenceId }));
     for (const day of item.habit?.completedDates ?? []) {
       if (!entries.some((entry) => entry.recurrenceId?.slice(0, 10) === day)) entries.push({ id: `habit:${item.id}:${day}`, at: `${day}T00:00:00.000Z`, kind: 'manual', comment: 'Imported', recurrenceId: `${day}T00:00:00.000Z` });
@@ -57,7 +57,7 @@ export function initializeItemHistory(item: UniversalItem): void {
 }
 
 export function recordCompletionTransition(item: UniversalItem, previousState: UniversalItem['state'], now: string): void {
-  if (item.external?.readOnly || item.isNote) return;
+  if (item.external?.readOnly || item.isNote || item.canBeCompleted === false) return;
   if ((item.state === 'done' || item.state === 'auto_closed') && item.state !== previousState) {
     item.completionEntries ??= [];
     const at = item.closure?.at ?? now;

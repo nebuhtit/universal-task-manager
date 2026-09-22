@@ -354,13 +354,18 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
       <p className="eyebrow">UNIVERSAL TASK MANAGER</p>
       <span className="auth-beta" aria-label="Beta version">BETA</span>
       <h1>{exists ? 'Unlock your workspace' : 'Build your own system'}</h1>
-      {exists && interrupted && <p role="status">Предыдущий запуск не завершился. Можно открыть данные в безопасном режиме без синхронизации, миграции и фоновых изменений. Прерванный запуск не обязательно означает повреждение данных.</p>}
+      {exists && interrupted && <p role="status">Предыдущий запуск не подтвердил завершение. Это не обязательно означает повреждение данных и не запрещает обычный вход.</p>}
       {exists && unconfirmedSave && <p role="alert">Последнее сохранение не было подтверждено. На диске может быть предыдущая версия; не очищайте данные сайта. Сохраните резервную копию перед восстановлением.</p>}
       {!online && <p className="offline-notice" role="status"><strong>No internet connection.</strong> Offline mode is active. You can still download the encrypted local database and troubleshooting log below; online hosting features are unavailable.</p>}
       <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
       <label className="language-picker">Language<select value={language} onChange={(event) => setLanguage(event.target.value as WorkspaceLanguage)}>{interfaceLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <form onSubmit={submit}>
-        {exists && <label className="check"><input type="checkbox" checked={safeEntry} onChange={(event) => setSafeEntry(event.target.checked)} disabled={busy} />Безопасное открытие — только просмотр, без записи в workspace</label>}
+        {exists && <><label className="check"><input type="checkbox" aria-describedby="workspace-opening-help" checked={safeEntry} onChange={(event) => setSafeEntry(event.target.checked)} disabled={busy} />Безопасное открытие — только просмотр, без записи в workspace</label>
+          <div id="workspace-opening-help">
+            <p><strong>Как войти как обычно:</strong> снимите галочку «Безопасное открытие», введите пароль, если он запрашивается, и нажмите Unlock. Приложение попробует открыть текущий workspace для обычной работы.</p>
+            <p className="muted">С галочкой доступен только просмотр: без сохранения изменений, синхронизации и фоновой обработки. Импортировать бэкап или очищать данные сайта для обычного входа не нужно.</p>
+            <p role="status">{safeEntry ? 'Сейчас выбран безопасный просмотр. Для обычного входа снимите галочку выше.' : 'Сейчас выбран обычный вход. Нажмите Unlock, чтобы попробовать открыть workspace.'}</p>
+          </div></>}
         {!exists && <label>{selectedBackup ? 'Backup file' : 'Workspace name'}<input value={selectedBackup ? selectedBackup.name : name} readOnly={Boolean(selectedBackup)} onChange={(event) => setName(event.target.value)} required /></label>}
         {(selectedBackup || (!plaintext && !(!exists && unencryptedTestWorkspace))) && <label>{selectedBackup ? 'Backup password' : 'Password'}<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>}
         {!exists && !selectedBackup && !unencryptedTestWorkspace && <label>Confirm password<input type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
@@ -723,10 +728,13 @@ export default function App() {
     return () => window.removeEventListener('utm-retry-google-queue', retry);
   }, [workspace]);
 
+  const googleSyncInFlight = useRef(false);
+  const startupGoogleSync = useRef<string | null>(null);
   const syncGoogleCalendarFromHome = async () => {
     const google = workspace?.calendarPreferences.googleCalendar;
-    if (!workspace || !google || googleCalendarSyncing) return;
+    if (!workspace || !google || recovery || googleSyncInFlight.current) return;
     if (!GOOGLE_CALENDAR_CLIENT_ID) { setToast('This build needs a Google OAuth client ID before sync is available.'); return; }
+    googleSyncInFlight.current = true;
     const startedAt = performance.now();
     setGoogleCalendarSyncing(true);
     setGoogleCalendarSyncStatus('Authorizing Google Calendar…');
@@ -761,8 +769,18 @@ export default function App() {
       setToast(`Google Calendar sync failed: ${message}`);
       recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
       commit('Record Google Calendar sync error', (draft) => { if (draft.calendarPreferences.googleCalendar) draft.calendarPreferences.googleCalendar.lastError = message; });
-    } finally { setGoogleCalendarSyncing(false); setGoogleCalendarSyncStatus(''); }
+    } finally { googleSyncInFlight.current = false; setGoogleCalendarSyncing(false); setGoogleCalendarSyncStatus(''); }
   };
+  useEffect(() => {
+    if (!workspace || !session) { startupGoogleSync.current = null; return; }
+    if (recovery) return;
+    const key = workspace.workspaceId;
+    if (startupGoogleSync.current === key) return;
+    // One attempt per opened workspace, never a retry loop after a failed login.
+    startupGoogleSync.current = key;
+    if (!workspace.calendarPreferences.googleCalendar || !GOOGLE_CALENDAR_CLIENT_ID) return;
+    void syncGoogleCalendarFromHome();
+  }, [workspace?.workspaceId, workspace?.calendarPreferences.googleCalendar?.connectionId, session, recovery]);
   useEffect(() => {
     const openHostItem = (event: Event) => {
       const itemId = (event as CustomEvent<{ itemId?: string }>).detail?.itemId;

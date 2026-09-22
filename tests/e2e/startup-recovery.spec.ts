@@ -34,6 +34,11 @@ test('interrupted startup offers read-only recovery and backup comparison withou
   await page.reload();
   const safe = page.getByRole('checkbox', { name: /Безопасное открытие/ });
   await expect(safe).toBeChecked();
+  await expect(page.getByText('Как войти как обычно:', { exact: true })).toBeVisible();
+  await expect(page.getByText('Сейчас выбран безопасный просмотр.', { exact: false })).toBeVisible();
+  await safe.uncheck();
+  await expect(page.getByText('Сейчас выбран обычный вход.', { exact: false })).toBeVisible();
+  await safe.check();
   await page.getByText('Help', { exact: true }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Save encrypted recovery copy + log' }).click();

@@ -17,7 +17,7 @@ export function syncCompletionCounter(item: UniversalItem, now = new Date().toIS
   const result = countGoalResult(item);
   if (!result || !item.progress) return;
   item.progress.current = result.count;
-  if (item.isNote || item.external || item.role === 'series_template') return;
+  if (item.isNote || item.canBeCompleted === false || item.external?.readOnly || (item.external && item.canBeCompleted !== true) || item.role === 'series_template') return;
   if (result.met && item.state === 'open') {
     item.state = 'done';
     item.closure = { at: now, actor: 'automation', reason: 'rule' };

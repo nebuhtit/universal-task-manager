@@ -108,14 +108,28 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   };
   const openItem = (item: UniversalItem) => {
     const row = rowsById.get(item.id);
-    const source = row ? materialize(row) : workspace.items[item.id] ?? item;
+    const source = row ? materialize(row) : resolveTimelineItem(item);
     if (source) onEditItem(source);
   };
   const changeState = (item: UniversalItem, state: UniversalItem['state'], color?: string) => {
     if (item.external?.readOnly) { window.open(item.external.sourceUrl, '_blank', 'noopener,noreferrer'); return; }
     const row = rowsById.get(item.id);
-    const source = row ? materialize(row) : workspace.items[item.id] ?? item;
+    const source = row ? materialize(row) : resolveTimelineItem(item);
     if (source) window.setTimeout(() => onState(source, state, color), 0);
+  };
+
+  const resolveTimelineItem = (item: UniversalItem): UniversalItem | undefined => {
+    if (workspace.items[item.id]) return workspace.items[item.id];
+    if (!item.occurrence) return item;
+    let result: UniversalItem | undefined;
+    commit('Materialize timeline occurrence', draft => {
+      const series = draft.items[item.occurrence!.seriesId];
+      if (!series) return;
+      const occurrence = createOccurrence(series, new Date(item.occurrence!.recurrenceId), 0);
+      draft.items[occurrence.id] = occurrence;
+      result = structuredClone(occurrence);
+    });
+    return result;
   };
 
   return <section className="calendar-page page-section">
@@ -145,13 +159,16 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       </div>
     </Surface>
 
-    <div className="calendar-display-switch" aria-label="Calendar display mode">
+    <div className="calendar-display-switch" role="group" aria-label="Calendar display mode">
       <Button size="compact" aria-pressed={preferences.timeline?.mode !== 'timeline'} onClick={() => commit('Calendar list mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'list', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>{preferences.language === 'ru' ? 'Список' : 'List'}</Button>
       <Button size="compact" aria-pressed={preferences.timeline?.mode === 'timeline'} onClick={() => commit('Calendar timeline mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'timeline', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>Timeline</Button>
     </div>
     {preferences.timeline?.mode === 'timeline'
-      ? <CalendarTimeline workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} onEdit={onEditItem} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} />
-      : <Surface className="calendar-day-list"><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></Surface>}
+      ? <CalendarTimeline workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} />
+      : <Surface className="calendar-day-list">
+        {selected.evaluation.items.some(item => item.schedule?.allDay) && <details open className="calendar-all-day"><summary>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {selected.evaluation.items.filter(item => item.schedule?.allDay).length}</summary><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !item.schedule?.allDay).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></details>}
+        <ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => item.schedule?.allDay).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
+      </Surface>}
     <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); })} />
   </section>;
 }

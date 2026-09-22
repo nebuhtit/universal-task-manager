@@ -7,6 +7,23 @@ const periodView = (source = 'state == "open" && scheduleInPeriod("today", "even
 });
 
 describe('view time statistics', () => {
+  it('unions overlapping events and reservations instead of subtracting them twice', () => {
+    const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
+    const items = [[10, 12], [11, 13], [12, 14]].map(([start, end]) => {
+      const item = createItem('Busy');
+      item.schedule = { timezone: 'UTC', startAt: `2026-08-31T${start}:00:00Z`, endAt: `2026-08-31T${end}:00:00Z`, estimatedDuration: 'PT168H' };
+      workspace.items[item.id] = item;
+      return item;
+    });
+    const view = periodView(); view.statistics!.reservedItemIds = [items[2]!.id];
+    const before = JSON.stringify(workspace);
+    expect(calculateViewTimeMetrics(workspace, view, items.slice(0, 2), new Date('2026-08-31T12:00:00Z')).freeDurationMs).toBe(20 * 3600000);
+    expect(JSON.stringify(workspace)).toBe(before);
+  });
+  it.each([['2026-03-29', 23], ['2026-10-25', 25]])('uses real day length across DST on %s', (day, hours) => {
+    const period = inferViewPeriod(periodView(), new Date(`${day}T12:00:00Z`), { timeZone: 'Europe/Berlin' });
+    expect(period?.durationMs).toBe(Number(hours) * 3600000);
+  });
   it('optionally counts hidden completed work while retaining date and tag restrictions', () => {
     const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
     const now = new Date('2026-08-31T12:00:00Z');

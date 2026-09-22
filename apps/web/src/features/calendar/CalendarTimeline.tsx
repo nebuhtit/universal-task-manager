@@ -1,7 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { canManuallyComplete, effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { LineIcon } from '../../components/ui/icons';
+import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
-import { Button, Input } from '../../components/ui/primitives';
+import { Button, Checkbox } from '../../components/ui/primitives';
 import { clockService } from '../../services/clockService';
 import { displayViewValue, readItemField } from '../items/fieldDisplay';
 import { timelineData } from './timelineData';
@@ -30,15 +32,15 @@ export function TimelineNow({ workspace, segments, suppliedNow }: { workspace: W
   return <div className={`timeline-now${segment.hidden ? ' is-hidden-time' : ''}`} style={{ top }} data-testid="timeline-now" aria-label={`Current time ${timeLabel(at, workspace.calendarPreferences.timezone)}`}><span>{timeLabel(at, workspace.calendarPreferences.timezone)}</span></div>;
 }
 
-export const CalendarTimeline = memo(function CalendarTimeline({ workspace, dateKey, now, suppliedNow, onEdit, onPreferences }: {
+export const CalendarTimeline = memo(function CalendarTimeline({ workspace, dateKey, now, suppliedNow, onEdit, onState, onPreferences }: {
   workspace: WorkspaceDocument; dateKey: string; now: Date; suppliedNow?: Date | undefined;
   onEdit: (item: UniversalItem) => void;
+  onState?: ((item: UniversalItem, state: UniversalItem['state']) => void) | undefined;
   onPreferences: (settings: NonNullable<WorkspaceDocument['calendarPreferences']['timeline']>) => void;
 }) {
   const ru = workspace.calendarPreferences.language === 'ru';
   const zone = workspace.calendarPreferences.timezone;
   const settings = workspace.calendarPreferences.timeline ?? { mode: 'timeline' as const, hideSleep: false };
-  const [search, setSearch] = useState('');
   const [more, setMore] = useState<UniversalItem[]>([]);
   const [columns, setColumns] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches ? 2 : 4);
   useEffect(() => {
@@ -51,7 +53,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   const segments = useMemo(() => buildSegments(data.day, data.hidden), [data]);
   const layout = useMemo(() => layoutEvents(data.events, data.day, segments, columns), [data, segments, columns]);
   const height = Math.max((segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0), ...layout.events.map(v => v.top + v.height), ...layout.more.map(v => v.top + v.height));
-  const sleepCandidates = Object.values(workspace.items).filter(item => !item.deletedAt && item.role !== 'occurrence' && item.schedule && !item.schedule.allDay && item.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  const sleepCandidates = Object.values(workspace.items).filter(item => !item.deletedAt && item.role !== 'occurrence' && item.schedule && !item.schedule.allDay);
   const selectedSleep = settings.sleepItemId ? workspace.items[settings.sleepItemId] : undefined;
   const ticks: number[] = [];
   for (let at = data.day.start; at < data.day.end; at += 60_000) if (timeLabel(at, zone).endsWith(':00') && !data.hidden.some(v => at >= v.start && at < v.end)) ticks.push(at);
@@ -63,24 +65,33 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
       <details><summary>{ru ? 'Настройки Timeline' : 'Timeline settings'}</summary><div className="timeline-sleep-settings">
         <p>{ru ? 'Сжимать свободное время выбранного item. Другие события остаются видимыми.' : 'Collapse unoccupied time of one item. Other events remain visible.'}</p>
         <p>{ru ? 'Выбрано: ' : 'Selected: '}{selectedSleep?.title ?? (ru ? 'ничего' : 'none')}</p>
-        <Input aria-label={ru ? 'Найти item сна' : 'Find sleep item'} placeholder={ru ? 'Поиск' : 'Search'} value={search} onChange={event => setSearch(event.target.value)} />
-        <div className="timeline-sleep-options"><Button size="compact" onClick={() => { const { sleepItemId: _id, ...rest } = settings; onPreferences({ ...rest, hideSleep: false }); }}>{ru ? 'Без исключения' : 'None'}</Button>{sleepCandidates.map(item => <Button size="compact" key={item.id} aria-pressed={item.id === settings.sleepItemId} onClick={() => onPreferences({ ...settings, sleepItemId: item.id, hideSleep: true })}>{item.title}</Button>)}</div>
+        <Button size="compact" onClick={() => { const { sleepItemId: _id, ...rest } = settings; onPreferences({ ...rest, hideSleep: false }); }}>{ru ? 'Без исключения' : 'None'}</Button>
+        <SearchableDisclosureList uiKey="timeline:sleep-picker" summary={ru ? 'Выбрать другой item…' : 'Choose another item…'} items={sleepCandidates} getSearchText={item => item.title} searchLabel={ru ? 'Найти item сна' : 'Find sleep item'} renderItem={item => <Button size="compact" key={item.id} aria-pressed={item.id === settings.sleepItemId} onClick={event => { onPreferences({ ...settings, sleepItemId: item.id, hideSleep: true }); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{item.title}</Button>} />
       </div></details>
     </div>
     {data.sleepMissing && <p className="hint">{ru ? 'Нет интервала сна на этот день. Показаны полные сутки.' : 'No sleep interval for this day. Showing the full day.'}</p>}
     {data.projectionLimited && <p role="status">{ru ? 'Для повторений с длительностью более года показана ограниченная проекция.' : 'Recurrences longer than one year use a limited projection.'}</p>}
-    {data.allDay.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Весь день' : 'All day'}</h2>{data.allDay.map(item => <Button key={item.id} onClick={() => open(item)}>{item.title}</Button>)}</div>}
+    {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{data.activeRange.map(item => <div className="timeline-active-item" key={item.id}>{onState && canManuallyComplete(item) && <Checkbox label={ru ? `Выполнить ${item.title}` : `Complete ${item.title}`} checked={false} onChange={() => onState(item, 'done')} />}<Button onClick={() => open(item)}>{item.title}</Button></div>)}</div>}
+    {data.allDay.length > 0 && <details open className="timeline-top-items"><summary>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</summary>{data.allDay.map(item => <Button size="compact" key={item.id} onClick={() => open(item)}>{item.title}</Button>)}</details>}
     {data.undated.length > 0 && <details className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{data.undated.map(item => <Button key={item.id} onClick={() => open(item)}>{item.title}</Button>)}</details>}
     <div className="timeline-axis" style={{ height: height + 12 }}>
       {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
       {segments.filter(v => v.hidden).map(v => <div key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }}><span>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</span></div>)}
       <div className="timeline-events">
         {layout.events.map(event => {
-          const extra = event.height >= 72 ? workspace.calendarPreferences.dayView.fields.filter(field => field !== 'title').map(field => displayViewValue(readItemField(event.item, field, workspace, now), field, workspace.calendarPreferences.language)).filter(Boolean) : [];
+          const organization = event.item.extensions?.['utm:calendarOrganization'] as { color?: string; tag?: string } | undefined;
+          const calendar = workspace.calendarPreferences.googleCalendar?.calendars.find(value => value.id === event.item.external?.calendarId);
+          const color = calendar?.color ?? organization?.color;
+          const safeColor = color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined;
+          const extra = event.height >= 72 ? workspace.calendarPreferences.dayView.fields.filter(field => field !== 'title' && field !== 'external.provider').map(field => {
+            const value = field === 'schedule.estimatedDuration' && !event.point ? `PT${Math.round((event.end - event.start) / 1000)}S` : readItemField(event.item, field, workspace, now);
+            return { field, text: displayViewValue(value, field, workspace.calendarPreferences.language) };
+          }).filter(entry => entry.text) : [];
           const interval = `${timeLabel(event.start, zone)}${event.point ? '' : `–${timeLabel(event.end, zone)}`}`;
-          return <button type="button" key={event.item.id} className="timeline-event" style={columnStyle(event)} onClick={() => open(event.item)} title={`${event.item.title} · ${interval}`} aria-label={`${event.item.title} · ${interval}`} data-testid="timeline-event">
+          return <button type="button" key={event.item.id} className="timeline-event" style={{ ...columnStyle(event), ...(safeColor ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={`${event.item.title} · ${interval}`} aria-label={`${event.item.title} · ${interval}`} data-testid="timeline-event">
             <strong>{event.invalid && '⚠ '}{event.continuedBefore && '← '}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
-            {event.height >= 54 && <small>{interval}</small>}{extra.map((text, i) => <small key={i}>{text}</small>)}
+            {event.height >= 54 && <small>{interval}</small>}{extra.map(({ field, text }, i) => <small key={i} style={safeColor && (field === 'tags' || field === 'external.calendarId') ? { color: safeColor } : undefined}>{text}</small>)}
+            {event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
           </button>;
         })}
         {layout.more.map((block, i) => <button type="button" key={i} className="timeline-event timeline-more" style={columnStyle(block)} onClick={() => setMore(block.items)}>More · {block.items.length}</button>)}

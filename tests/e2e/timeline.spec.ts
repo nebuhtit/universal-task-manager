@@ -16,6 +16,7 @@ async function setup(page: Page) {
   const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T14:00:00Z', endAt: '2026-09-22T14:01:00Z' }; w.items[short.id] = short;
   const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; w.items[sleep.id] = sleep;
   const none = createItem('Undated sentinel', 'task', now); w.items[none.id] = none;
+  const allDay = createItem('All day sentinel', 'event', now); allDay.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-23T00:00:00Z', allDay: true }; w.items[allDay.id] = allDay;
   const doc = createAutomergeDocument(w), key = await randomKey();
   const metadata = { version: 1, wrappedKey: await wrapKey(key, password), createdAt: now.toISOString() };
   const block = { version: 1, ...await encryptWithKey(Automerge.save(doc), key, 'utm:local:workspace:v1') }; key.fill(0); Automerge.free(doc);
@@ -43,6 +44,9 @@ async function primary(page: Page) {
 test('timeline titles, More, clock, sleep, dark mode and persisted display choice', async ({ page }, testInfo) => {
   test.setTimeout(180_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await setup(page);
+  const allDayGroup = page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^All day/ }) });
+  await allDayGroup.locator('summary').click(); await expect(allDayGroup.getByRole('button', { name: 'All day sentinel' })).toBeHidden();
+  await allDayGroup.locator('summary').click();
   const saved = await primary(page);
   const minute = page.locator('.timeline-events').getByRole('button', { name: /^One minute title/ }); await minute.scrollIntoViewIfNeeded();
   expect((await minute.boundingBox())!.height).toBeGreaterThanOrEqual(36);
@@ -57,6 +61,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.clock.fastForward(60_000); await expect.poll(() => line.evaluate(el => (el as HTMLElement).style.top)).not.toBe(top);
   expect(await primary(page)).toBe(saved);
   await page.getByText('Timeline settings', { exact: true }).click();
+  await page.getByText('Choose another item…', { exact: true }).click();
   await page.getByRole('button', { name: 'Sleep source', exact: true }).click();
   await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
   await page.getByRole('button', { name: 'Show full day', exact: true }).click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
@@ -66,6 +71,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(page.getByTestId('timeline-now')).toHaveCSS('pointer-events', 'none');
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'List', exact: true }).click(); await expect(page.locator('.calendar-timeline')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.calendar-all-day > summary').click();
+  await expect(page.locator('.calendar-all-day').getByText('All day sentinel', { exact: true })).toBeHidden();
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
   const lock = page.locator('.sidebar .sidebar-bottom button').filter({ hasText: 'Lock' }); await lock.evaluate((el: HTMLButtonElement) => el.click());
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible(); await page.reload();

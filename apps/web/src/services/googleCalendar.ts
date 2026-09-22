@@ -218,7 +218,8 @@ export async function synchronizeGoogleCalendars(accessToken: string, preference
   const syncedAt = new Date().toISOString();
   // A manual refresh reconciles the mirror even if a previous delta was lost.
   const priorWindow = options.fullSync ? undefined : reusableSyncWindow(preferences);
-  const syncWindow = priorWindow ?? freshSyncWindow();
+  // Never return a document-owned object for insertion into a new Automerge map.
+  const syncWindow = priorWindow ? { ...priorWindow } : freshSyncWindow();
   const syncTokens = priorWindow ? { ...preferences.syncTokens } : {};
   const batches: GoogleCalendarSyncBatch[] = [];
   const selectedCalendars = calendars.filter((entry) => entry.selected);

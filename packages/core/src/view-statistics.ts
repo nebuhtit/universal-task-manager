@@ -24,7 +24,29 @@ export interface ViewTimeMetrics extends ItemSetMetrics {
 export interface ViewTimeMetricsAccumulator {
   add(item: UniversalItem): void;
   remove(item: UniversalItem): void;
-  finish(reservedDurationMs?: number): ViewTimeMetrics;
+  finish(reservedDurationMs?: number, reservedIntervals?: TimeInterval[]): ViewTimeMetrics;
+}
+export type TimeInterval = { start: number; end: number };
+export function unionDuration(intervals: TimeInterval[]): number {
+  let total = 0, end = -Infinity;
+  for (const interval of [...intervals].sort((a, b) => a.start - b.start)) {
+    total += Math.max(0, interval.end - Math.max(interval.start, end));
+    end = Math.max(end, interval.end);
+  }
+  return total;
+}
+function clippedInterval(start: number, end: number, period: ViewPeriodBounds): TimeInterval[] {
+  const clipped = { start: Math.max(start, period.start.getTime()), end: Math.min(end, period.endExclusive.getTime()) };
+  return clipped.end > clipped.start ? [clipped] : [];
+}
+export function occupiedIntervals(item: UniversalItem, period: ViewPeriodBounds): TimeInterval[] {
+  const linked = item.external?.readOnly === false && item.external.startAt ? item.external : undefined;
+  const start = Date.parse(linked?.startAt ?? item.schedule?.startAt ?? '');
+  if (!Number.isFinite(start)) return [];
+  const explicitEnd = Date.parse(linked?.endAt ?? item.schedule?.endAt ?? '');
+  const end = Number.isFinite(explicitEnd) ? explicitEnd : start + effectiveItemDurationMs(item);
+  const event = (linked?.allDay ?? item.schedule?.allDay) || item.external?.transparency === 'transparent' ? [] : clippedInterval(start, end, period);
+  return [...event, ...clippedInterval(start - travelDurationMs(item), start, period)];
 }
 
 function shiftDateKey(key: string, days: number): string {
@@ -71,14 +93,8 @@ export function viewPeriodBoundsForDates(startDate: string, endDate: string, tim
     endDate,
     start: zonedDateStart(startDate, timeZone),
     endExclusive: zonedDateStart(shiftDateKey(endDate, 1), timeZone),
-    durationMs: dateCount(startDate, endDate) * DAY_MS,
+    durationMs: zonedDateStart(shiftDateKey(endDate, 1), timeZone).getTime() - zonedDateStart(startDate, timeZone).getTime(),
   };
-}
-
-function dateCount(start: string, end: string): number {
-  const startOrdinal = Date.parse(`${start}T00:00:00.000Z`);
-  const endOrdinal = Date.parse(`${end}T00:00:00.000Z`);
-  return Number.isFinite(startOrdinal) && Number.isFinite(endOrdinal) ? Math.floor((endOrdinal - startOrdinal) / DAY_MS) + 1 : 0;
 }
 
 /** Infers one finite resource period from a visual schedule filter or the built-in legacy Today/Week filters. */
@@ -103,7 +119,7 @@ export function inferViewPeriod(view: Pick<SavedView, 'query'>, now: Date, optio
     endDate: bounds.end,
     start: zonedDateStart(bounds.start, timeZone),
     endExclusive: zonedDateStart(endExclusiveDate, timeZone),
-    durationMs: dateCount(bounds.start, bounds.end) * DAY_MS,
+    durationMs: zonedDateStart(endExclusiveDate, timeZone).getTime() - zonedDateStart(bounds.start, timeZone).getTime(),
   };
 }
 
@@ -138,7 +154,7 @@ export function itemDurationInsidePeriod(item: UniversalItem, period: ViewPeriod
   if (!Number.isFinite(start)) return duration > 0 ? duration : 0;
   const end = Number.isFinite(explicitEnd) && explicitEnd > start ? explicitEnd : start + duration;
   const eventOverlap = overlap(start, end, period);
-  const event = item.schedule?.allDay || item.external?.transparency === 'transparent' || duration <= 0 ? 0 : eventOverlap > 0 ? eventOverlap : duration;
+  const event = item.schedule?.allDay || item.external?.transparency === 'transparent' ? 0 : eventOverlap;
   return event + overlap(start - travel, start, period);
 }
 
@@ -152,10 +168,11 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
   let plannedDurationMs = 0;
   let actualDurationMs = 0;
   const seen = new Set<string>();
+  const occupied = new Map<string, TimeInterval[]>();
   const apply = (item: UniversalItem, direction: 1 | -1) => {
     if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && participatesInTimeStatistics(item) && (!item.external?.readOnly || item.external.transparency !== 'transparent')) actualDurationMs += direction * actualTimeMs(item);
     const duration = effectiveItemDurationMs(item);
-    if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && !item.external?.readOnly && participatesInTimeStatistics(item)) {
+    if (!item.deletedAt && item.role !== 'series_template' && item.state !== 'cancelled' && item.state !== 'archived' && !item.external?.readOnly && item.canBeCompleted !== false && !item.isNote && participatesInTimeStatistics(item)) {
       totalItems += direction;
       totalDurationMs += direction * duration;
       if (item.state === 'done' || item.state === 'auto_closed') {
@@ -163,7 +180,11 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
         completedDurationMs += direction * duration;
       } else if (item.state === 'open') remainingDurationMs += direction * duration;
     }
-  if (period && eligible(item)) plannedDurationMs += direction * itemDurationInsidePeriod(item, period);
+    if (period && eligible(item)) {
+      const anchored = Boolean(item.external?.startAt ?? item.schedule?.startAt);
+      if (anchored) { if (direction === 1) occupied.set(item.id, occupiedIntervals(item, period)); else occupied.delete(item.id); }
+      else plannedDurationMs += direction * itemDurationInsidePeriod(item, period);
+    }
   };
   return {
     add(item) {
@@ -175,7 +196,7 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
       if (!seen.delete(item.id)) return;
       apply(item, -1);
     },
-    finish(reservedDurationMs = 0) {
+    finish(reservedDurationMs = 0, reservedIntervals: TimeInterval[] = []) {
       const base: ViewTimeMetrics = {
         totalItems,
         completedItems,
@@ -188,7 +209,7 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
       return {
         ...base,
         periodDurationMs: period.durationMs,
-        freeDurationMs: period.durationMs - plannedDurationMs - reservedDurationMs,
+        freeDurationMs: period.durationMs - plannedDurationMs - unionDuration([...occupied.values()].flat().concat(reservedIntervals)) - Math.max(0, reservedDurationMs - unionDuration(reservedIntervals)),
       };
     },
   };
@@ -219,8 +240,8 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
   const items = viewStatisticsItems(workspace, view, matchingItems, now, matchesForStatistics);
   const period = inferViewPeriod(view, now, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
   const accumulator = createViewTimeMetricsAccumulator(period ?? undefined);
-  const finish = (reserved = 0) => {
-    const metrics = accumulator.finish(reserved);
+  const finish = (reserved = 0, intervals: TimeInterval[] = []) => {
+    const metrics = accumulator.finish(reserved, intervals);
     if (!view.statistics?.showActualTime) delete metrics.actualDurationMs;
     return metrics;
   };
@@ -229,6 +250,7 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
 
   const matchingIds = new Set(items.filter(eligible).map((item) => item.id));
   let reservedDurationMs = 0;
+  const reservedIntervals: TimeInterval[] = [];
   const reservedIds = new Set(view.statistics?.reservedItemIds ?? []);
   if (reservedIds.size) {
     let occurrences: ReturnType<typeof projectOccurrences> = [];
@@ -247,8 +269,11 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
         ? Math.max(0, Math.min((Number.isFinite(end) && end > start ? end : start + fullDuration), period.endExclusive.getTime()) - Math.max(start, period.start.getTime()))
         : fullDuration;
       const occurrenceTravel = Number.isFinite(start) ? overlap(start - travelDurationMs(source), start, period) : 0;
-      if (occurrenceDuration > 0 || occurrenceTravel > 0) reservedDurationMs += occurrenceDuration + occurrenceTravel;
+      if (Number.isFinite(start)) {
+        const reservation = { ...source, schedule: occurrence.schedule };
+        reservedIntervals.push(...occupiedIntervals(reservation, period));
+      } else if (occurrenceDuration > 0 || occurrenceTravel > 0) reservedDurationMs += occurrenceDuration + occurrenceTravel;
     }
   }
-  return finish(reservedDurationMs);
+  return finish(reservedDurationMs + unionDuration(reservedIntervals), reservedIntervals);
 }

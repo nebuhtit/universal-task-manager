@@ -1,5 +1,6 @@
 import {
   APP_VERSION,
+  durationToMs,
   dueDateBuckets,
   type ItemPreset,
   type ItemScriptField,
@@ -7,7 +8,7 @@ import {
   type WorkspaceDocument,
   type WorkspaceLanguage,
 } from '@utm/core';
-import { calendarDurationMs, parseFriendlyDuration, toIsoDuration } from '../../utils/durations';
+import { toIsoDuration } from '../../utils/durations';
 import { formatViewDate } from '../../utils/dates';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 
@@ -17,6 +18,7 @@ export const stateNames: Record<UniversalItem['state'], string> = { open: 'Activ
 export type ViewFieldOption = { path: string; label: string; group: string };
 
 const builtInViewFields: ViewFieldOption[] = [
+  { path: 'canBeCompleted', label: 'Can be completed', group: 'Core' },
   { path: 'title', label: 'Title', group: 'Core' }, { path: 'bodyMarkdown', label: 'Description', group: 'Core' }, { path: 'location', label: 'Location', group: 'Core' },
   { path: 'state', label: 'State', group: 'Core' }, { path: 'preset', label: 'Preset', group: 'Core' }, { path: 'isNote', label: 'Note', group: 'Core' },
   { path: 'isHabit', label: 'Habit', group: 'Core' }, { path: 'activeRange', label: 'Inside active range now', group: 'Core' }, { path: 'activeRangeWhenSet', label: 'Inside active range now (if set)', group: 'Core' }, { path: 'activeRangeWhenSetOrOverdue', label: 'Inside active range now (if set), or overdue', group: 'Core' },
@@ -254,8 +256,11 @@ export const displayViewValue = (value: unknown, field: string, language?: Works
   if (field === 'external.transparency' && value === 'opaque') return 'Busy';
   if (field === 'external.transparency' && value === 'transparent') return 'Free';
   if ((field.endsWith('Duration') || field.endsWith('Offset')) && typeof value === 'string' && /^P/.test(value)) {
-    const parsed = parseFriendlyDuration(value);
-    const totalMinutes = Math.round(calendarDurationMs(parsed.amount, parsed.unit) / 60_000);
+    let milliseconds: number;
+    try { milliseconds = /^P\d+W$/.test(value) ? Number(value.slice(1, -1)) * 604800000 : durationToMs(value); }
+    catch { return value; }
+    if (!Number.isFinite(milliseconds)) return value;
+    const totalMinutes = Math.round(milliseconds / 60_000);
     if (totalMinutes < 60) return `${totalMinutes} min`;
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;

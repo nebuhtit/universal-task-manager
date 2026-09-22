@@ -216,7 +216,7 @@ describe('relaxed syntax', () => {
     const opens = 'Встреча с ';
     expect(suggest(opens, opens.length, now).options[0]?.label).toBe('с сегодня 09:00');
     const ends = 'Встреча с завтра 10:00 по ';
-    expect(suggest(ends, ends.length, now).options[0]?.label).toBe('по 2026-09-22 11:00');
+    expect(suggest(ends, ends.length, now).options[0]?.label).toBe('10:');
     expect(suggest('Встреча с другом', 'Встреча с другом'.length, now).options).toEqual([]);
   });
   it.each(['Встреча с завтра', 'Встреча по пятницу', 'Встреча с завтра по', 'Встреча с завтра по завтра'])('requires a complete and ordered range: %s', value => {
