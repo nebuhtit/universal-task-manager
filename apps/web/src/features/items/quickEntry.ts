@@ -90,7 +90,14 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
 }
 
 export function createQuickEntryItem(text: string, now: Date): UniversalItem {
-  return applyQuickEntryText(createItem('', 'task', now), text, now).item;
+  const original = text.trim();
+  if (!original) throw new Error('Добавьте название.');
+  try { return applyQuickEntryText(createItem('', 'task', now), original, now).item; }
+  catch {
+    // Capture must never discard or block non-empty prose because a command
+    // is incomplete. Keep the complete original as title, without guessed dates.
+    return createItem(original, 'task', now);
+  }
 }
 
 const commandDate = (key: string) => new RegExp(`(^|\\s)(${key})\\s+(${dateValueExpression})(?=\\s|$)`, 'i');

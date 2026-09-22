@@ -1,0 +1,77 @@
+import { expect, test, type Page } from '@playwright/test';
+import * as Automerge from '@automerge/automerge';
+import { createWorkspace, createItem } from '../../packages/core/dist/index.js';
+import { createAutomergeDocument, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
+
+const password = 'timeline-fixture-test-only';
+const now = new Date('2026-09-22T12:00:00Z');
+async function setup(page: Page) {
+  const w = createWorkspace('Timeline', now); w.calendarPreferences.timezone = 'UTC';
+  w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = 'true';
+  w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false };
+  for (let i = 0; i < 6; i++) {
+    const item = createItem(`Overlap ${i}`, 'task', now);
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-22T12:00:00Z', endAt: '2026-09-22T13:00:00Z' }; w.items[item.id] = item;
+  }
+  const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T14:00:00Z', endAt: '2026-09-22T14:01:00Z' }; w.items[short.id] = short;
+  const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; w.items[sleep.id] = sleep;
+  const none = createItem('Undated sentinel', 'task', now); w.items[none.id] = none;
+  const doc = createAutomergeDocument(w), key = await randomKey();
+  const metadata = { version: 1, wrappedKey: await wrapKey(key, password), createdAt: now.toISOString() };
+  const block = { version: 1, ...await encryptWithKey(Automerge.save(doc), key, 'utm:local:workspace:v1') }; key.fill(0); Automerge.free(doc);
+  await page.clock.install({ time: now });
+  await page.goto(process.env.UTM_TEST_URL ?? '/');
+  await page.getByLabel('Workspace name').waitFor();
+  await page.evaluate(async ({ metadata, block }) => {
+    const db = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open('utm-secure-v1'); r.onsuccess = () => resolve(r.result); });
+    await new Promise<void>((resolve, reject) => { const tx = db.transaction('encrypted-records', 'readwrite'), s = tx.objectStore('encrypted-records'); s.put(metadata, 'metadata'); s.put(block, 'workspace'); s.put(block, 'workspace-export-safe'); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
+  }, { metadata, block });
+  await page.reload(); await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await expect(page.getByPlaceholder('Add new item')).toBeVisible({ timeout: 30_000 });
+  if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click(); }
+  else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
+  await expect(page.locator('.calendar-timeline')).toBeVisible();
+}
+
+async function primary(page: Page) {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open('utm-secure-v1'); r.onsuccess = () => resolve(r.result); });
+    try { return await new Promise<string>(resolve => { const r = db.transaction('encrypted-records').objectStore('encrypted-records').get('workspace'); r.onsuccess = () => resolve(JSON.stringify(r.result)); }); } finally { db.close(); }
+  });
+}
+
+test('timeline titles, More, clock, sleep, dark mode and persisted display choice', async ({ page }, testInfo) => {
+  test.setTimeout(180_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await setup(page);
+  const saved = await primary(page);
+  const minute = page.locator('.timeline-events').getByRole('button', { name: /^One minute title/ }); await minute.scrollIntoViewIfNeeded();
+  expect((await minute.boundingBox())!.height).toBeGreaterThanOrEqual(36);
+  await expect(minute.locator('strong')).toHaveText('One minute title');
+  const more = page.getByRole('button', { name: /^More ·/ }).first(); await more.click();
+  const dialog = page.getByRole('dialog', { name: 'Timeline overlapping items' }); await expect(dialog).toBeVisible();
+  expect(await dialog.getByRole('button', { name: /^Overlap/ }).count()).toBe((page.viewportSize()?.width ?? 0) <= 620 ? 5 : 3);
+  await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+  if ((page.viewportSize()?.width ?? 0) > 620) await expect(more).toBeFocused();
+  const line = page.getByTestId('timeline-now'); const top = await line.evaluate(el => (el as HTMLElement).style.top);
+  await page.screenshot({ path: `/tmp/utm-timeline-${testInfo.project.name}-light.png` });
+  await page.clock.fastForward(60_000); await expect.poll(() => line.evaluate(el => (el as HTMLElement).style.top)).not.toBe(top);
+  expect(await primary(page)).toBe(saved);
+  await page.getByText('Timeline settings', { exact: true }).click();
+  await page.getByRole('button', { name: 'Sleep source', exact: true }).click();
+  await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
+  await page.getByRole('button', { name: 'Show full day', exact: true }).click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await minute.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `/tmp/utm-timeline-${testInfo.project.name}-dark.png` });
+  await expect(page.getByTestId('timeline-now')).toHaveCSS('pointer-events', 'none');
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'List', exact: true }).click(); await expect(page.locator('.calendar-timeline')).toHaveCount(0);
+  await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
+  const lock = page.locator('.sidebar .sidebar-bottom button').filter({ hasText: 'Lock' }); await lock.evaluate((el: HTMLButtonElement) => el.click());
+  await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible(); await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await expect(page.getByPlaceholder('Add new item')).toBeVisible({ timeout: 30_000 });
+  if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click(); }
+  else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true'); expect(errors).toEqual([]);
+});

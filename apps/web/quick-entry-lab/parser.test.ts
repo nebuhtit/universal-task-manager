@@ -69,7 +69,8 @@ describe('standalone quick entry', () => {
     expect(parseEntry('Встреча @понедельник 10:00', now).due).toBe(iso(21, 10));
     expect(parseEntry('Встреча @понедельник 10:00', now).warnings.length).toBeGreaterThan(0);
   });
-  it.each(['Дело @31.02.2026 15:00', 'Дело @2026-02-29 15:00', 'Дело @завтра 24:00', 'Дело @завтра 15:75', 'Дело @', 'Дело tt:-5m', 'Дело tt:0m', 'Дело r:leave-1h', 'Дело r:start-30m', 'Дело r:', 'Дело неизвестно:1ч', 'Дело @завтра 15:00 @сегодня 16:00', 'Дело r:in1h r:in2h', 'Дело напомнить за', '"Дело @завтра 15:00', ''])('reports incomplete or invalid input: %s', text => { expect(parseEntry(text, now).errors.length).toBeGreaterThan(0); });
+  it.each(['Дело @31.02.2026 15:00', 'Дело @2026-02-29 15:00', 'Дело @завтра 24:00', 'Дело @завтра 15:75', 'Дело @', 'Дело tt:-5m', 'Дело tt:0m', 'Дело r:leave-1h', 'Дело r:start-30m', 'Дело r:', 'Дело неизвестно:1ч', 'Дело @завтра 15:00 @сегодня 16:00', 'Дело напомнить за', '"Дело @завтра 15:00', ''])('reports incomplete or invalid input: %s', text => { expect(parseEntry(text, now).errors.length).toBeGreaterThan(0); });
+  it('adds repeated reminder commands', () => { const parsed = parseEntry('Дело r:in1h r:in2h', now); expect(parsed.errors).toEqual([]); expect(parsed.reminders.map(r => r.minutes)).toEqual([60, 120]); });
   it.each([['45min', 45], ['1ч30м', 90], ['1h 30m', 90], ['1.5h', 90], ['2 дня', 2880], ['10xyz', null], ['-1ч', null], ['Infinityh', null], ['999999999d', null]])('parses duration %s', (text, expected) => { expect(duration(String(text))).toBe(expected); });
   it('rejects oversized input early', () => { expect(parseEntry('x'.repeat(2001), now).errors).toEqual(['Максимум 2000 символов.']); });
   it('rejects zero travel in the natural-language form', () => { expect(parseEntry('Дело завтра в 15 00 ехать 0 мин', now).errors.length).toBeGreaterThan(0); });

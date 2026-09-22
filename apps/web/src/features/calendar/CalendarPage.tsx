@@ -10,6 +10,7 @@ import { ViewResults } from '../views/ViewResults';
 import { completionHoldsSnapshot, subscribeCompletionHolds } from '../views/viewSelectors';
 import { useViewNow, useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
 import { CalendarDayViewEditor } from './CalendarDayViewEditor';
+import { CalendarTimeline } from './CalendarTimeline';
 import { calendarDayView, evaluateCalendarRange } from './calendarEvaluation';
 import './calendar.css';
 
@@ -144,7 +145,13 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       </div>
     </Surface>
 
-    <Surface className="calendar-day-list"><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></Surface>
+    <div className="calendar-display-switch" aria-label="Calendar display mode">
+      <Button size="compact" aria-pressed={preferences.timeline?.mode !== 'timeline'} onClick={() => commit('Calendar list mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'list', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>{preferences.language === 'ru' ? 'Список' : 'List'}</Button>
+      <Button size="compact" aria-pressed={preferences.timeline?.mode === 'timeline'} onClick={() => commit('Calendar timeline mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'timeline', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>Timeline</Button>
+    </div>
+    {preferences.timeline?.mode === 'timeline'
+      ? <CalendarTimeline workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} onEdit={onEditItem} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} />
+      : <Surface className="calendar-day-list"><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></Surface>}
     <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); })} />
   </section>;
 }

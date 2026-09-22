@@ -149,7 +149,7 @@ export function parseEntry(input: string, now: Date): Draft {
   const pending: Array<{ anchor: Anchor | 'auto'; minutes: number }> = [];
   const absoluteReminders: string[] = [];
   function reminders(value: string) {
-    once('напомнить');
+    // Reminder commands are additive; unlike start/due they may repeat.
     const anchorPhrase = /\s+до\s+(выезда|начала|срока)\s*$/i.exec(value);
     if (anchorPhrase) value = value.slice(0, anchorPhrase.index);
     value = value.replace(/^за\s+/i, '').split(/\s+и\s+|,/).map(part => {

@@ -6,9 +6,10 @@ import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { saveLiveTextReport } from './liveTextReports';
 import './live-text.css';
 
-export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, timeZone }: {
+export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, timeZone, onSubmit }: {
   value: string; onChange: (value: string) => void; workspaceId: string; suggestionsEnabled?: boolean;
   inputRef?: RefObject<HTMLInputElement | null>; multiline?: boolean; overlaySuggestions?: boolean; placeholder?: string; ariaLabel?: string; now: Date; error?: string; id?: string; autoFocus?: boolean; language?: string; onViewCalendarDate?: (dateKey: string) => void; timeZone?: string;
+  onSubmit?: (text: string) => void;
 }) {
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
   const touchStartY = useRef<number | null>(null);
@@ -16,6 +17,24 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
   const calendarTouchStartY = useRef<number | null>(null);
   const lastCalendarTouch = useRef(0);
   const control = () => multiline ? textarea.current : (inputRef ?? ownInput).current;
+  const lastSubmit = useRef({ value: '', at: 0 });
+  const submitControl = (element: HTMLInputElement | HTMLTextAreaElement) => {
+    const text = element.value;
+    if (!text.trim() || (lastSubmit.current.value === text && performance.now() - lastSubmit.current.at < 500)) return;
+    lastSubmit.current = { value: text, at: performance.now() };
+    if (onSubmit) onSubmit(text); else element.form?.requestSubmit();
+  };
+  useEffect(() => {
+    const element = control();
+    if (!element || multiline || overlaySuggestions) return;
+    // Some iOS keyboard actions expose beforeinput instead of a useful keydown.
+    const beforeInput = (event: Event) => {
+      const input = event as InputEvent;
+      if (!input.isComposing && ['insertLineBreak', 'insertParagraph'].includes(input.inputType)) { event.preventDefault(); submitControl(element); }
+    };
+    element.addEventListener('beforeinput', beforeInput);
+    return () => element.removeEventListener('beforeinput', beforeInput);
+  }, [onSubmit, multiline, overlaySuggestions]);
   const id = useId();
   const [focused, setFocused] = useState(false), [open, setOpen] = useState(false), [caret, setCaret] = useState(value.length), [selected, setSelected] = useState(-1);
   const pendingCaret = useRef<number | null>(null);
@@ -50,7 +69,8 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
     const viewportTop = window.visualViewport?.offsetTop ?? 0;
     const dialogTop = element.closest('.ui-dialog-popup')?.getBoundingClientRect().top ?? viewportTop;
     const availableAbove = Math.max(0, rect.top - Math.max(viewportTop, dialogTop));
-    const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
+    const footerTop = element.closest('.ui-dialog-popup')?.querySelector('.ui-dialog-footer')?.getBoundingClientRect().top;
+    const viewportBottom = Math.min(viewportTop + (window.visualViewport?.height ?? window.innerHeight), footerTop ?? Infinity);
     const availableBelow = Math.max(0, viewportBottom - rect.bottom);
     if (window.innerWidth <= 620 && availableBelow >= 96) {
       setOverlayStyle({ left: rect.left, width: rect.width, top: `calc(${rect.bottom}px + var(--space-2))`, bottom: 'auto', maxHeight: `max(0px, calc(${availableBelow}px - 2 * var(--space-2)))` });
@@ -64,7 +84,7 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
     });
   };
   useLayoutEffect(() => {
-    if (!expanded || !overlaySuggestions) { setOverlayStyle(undefined); return; }
+    if (!focused || !open || !overlaySuggestions) { setOverlayStyle(undefined); return; }
     const updatePosition = () => {
       updateOverlayPosition();
     };
@@ -74,7 +94,7 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
     window.visualViewport?.addEventListener('resize', updatePosition);
     window.visualViewport?.addEventListener('scroll', updatePosition);
     return () => { window.removeEventListener('resize', updatePosition); window.removeEventListener('scroll', updatePosition, true); window.visualViewport?.removeEventListener('resize', updatePosition); window.visualViewport?.removeEventListener('scroll', updatePosition); };
-  }, [expanded, overlaySuggestions, value]);
+  }, [focused, open, overlaySuggestions, value]);
   const replace = (start: number, end: number, insert: string) => {
     pendingCaret.current = start + insert.length;
     onChange(value.slice(0, start) + insert + value.slice(end));
@@ -101,14 +121,14 @@ export function LiveTextInput({ value, onChange, workspaceId, language = 'ru', s
       if (event.key === 'Escape') { if (open) { event.preventDefault(); event.stopPropagation(); } setOpen(false); return; }
       // On iPhone the keyboard action is a form submission, even when a
       // suggestion was highlighted earlier. Space still applies that option.
-      if (event.key === 'Enter' && !multiline && !overlaySuggestions && window.matchMedia('(pointer: coarse)').matches) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); return; }
+      if (event.key === 'Enter' && !multiline && !overlaySuggestions && window.matchMedia('(pointer: coarse)').matches) { event.preventDefault(); submitControl(event.currentTarget); return; }
       if (expanded && ['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); setSelected((current) => current < 0 ? event.key === 'ArrowDown' ? 0 : suggestions.options.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.options.length) % suggestions.options.length); }
       else if (expanded && event.key === 'Tab') { event.preventDefault(); setSelected((current) => current < 0 ? event.shiftKey ? suggestions.options.length - 1 : 0 : (current + (event.shiftKey ? -1 : 1) + suggestions.options.length) % suggestions.options.length); }
       else if (expanded && selected >= 0 && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(selected); }
-      else if (event.key === 'Enter' && !multiline && !overlaySuggestions) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
+      else if (event.key === 'Enter' && !multiline && !overlaySuggestions) { event.preventDefault(); submitControl(event.currentTarget); }
     },
   };
-  const suggestionPanel = focused && value.trim() && <div ref={panel} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-overlay' : ''}`} style={overlayStyle}>
+  const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div ref={panel} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-overlay' : ''}`} style={overlayStyle}>
       {suggestionsEnabled && summary && <div className="live-text-preview">{summary}</div>}
       {message && <div role="alert" className="ui-field-error">{message}</div>}
       {expanded && overlaySuggestions && <Button size="compact" variant="ghost" aria-label="Close Live text suggestions" onPointerDown={(event) => event.preventDefault()} onClick={() => setOpen(false)}>×</Button>}

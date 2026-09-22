@@ -5,6 +5,17 @@ import { createPortablePackage, createWorkspace, parsePortablePackage, serialize
 
 const now = new Date(2026, 8, 21, 16);
 describe('quick entry item integration', () => {
+  it('accepts repeated reminder commands and keeps unknown text on capture', () => {
+    const text = 'Пт 12 даша напомнить 1ч напомнить 1д';
+    const draft = parseEntry(text, now);
+    expect(draft.errors).toEqual([]); expect(draft.title).toBe('даша');
+    const result = createQuickEntryItem(text, now);
+    expect(result.reminders.map(r => r.offset)).toEqual(['-PT60M', '-PT1440M']);
+    expect(result.reminders.every(r => r.relativeTo === 'start')).toBe(true);
+    for (const original of ['Текст напомнить абракадабра', 'завтра', 'кавычка " без конца', 'Задача срок 99:88']) {
+      expect(createQuickEntryItem(original, now).title).toBe(original);
+    }
+  });
   it('freezes English dates in a dashed range and updates its end in place', () => {
     const item = createQuickEntryItem('Meeting tomorrow 10:00 - tomorrow 11:00 travel 30m remind 15m', now);
     expect(item.title).toBe('Meeting');

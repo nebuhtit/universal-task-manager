@@ -1230,9 +1230,9 @@ export default function App() {
     if (!saved) throw new Error('Не удалось сохранить item. Текст остаётся в строке ввода.');
     setEditorIsNew(true); setEditor(item);
   };
-  const captureQuickItem = () => {
-    if (!quick.trim()) return;
-    try { persistQuickItem(createQuickEntryItem(quick.trim(), currentWorkspaceNow())); setQuick(''); setQuickError(''); }
+  const captureQuickItem = (text = quick) => {
+    if (!text.trim()) return;
+    try { persistQuickItem(createQuickEntryItem(text.trim(), currentWorkspaceNow())); setQuick(''); setQuickError(''); }
     catch (reason) { setQuickError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const captureQuickViewItem = (view: SavedView, title: string) => {
@@ -1264,7 +1264,7 @@ export default function App() {
       </Suspense>
     </AppShell>
     {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due'} ariaLabel="Quick Due" footer={<Button disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
-    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onChange={(value) => { setQuick(value); setQuickError(''); }} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} error={quickError} timeZone={workspace.calendarPreferences.timezone} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form></div>}
+    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} error={quickError} timeZone={workspace.calendarPreferences.timezone} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form></div>}
     {quickCompletion && <QuickCompletionInput
       open
       value={quickCompletion.completedAt}
