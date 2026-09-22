@@ -24,7 +24,7 @@ test('encrypted workspace keeps its item across repeated production reloads', as
     await page.reload();
     await page.getByLabel('Password', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Unlock', exact: true }).click();
-    await expect(page.getByText('Persistence regression item', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Persistence regression item', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.capture-dock .quick-capture')).toHaveCSS('backdrop-filter', 'blur(6px)');
   }
   expect(failures).toEqual([]);

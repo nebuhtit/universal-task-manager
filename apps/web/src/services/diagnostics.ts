@@ -1,3 +1,4 @@
+import { clearStartupLog } from './startupDiagnostics';
 export const DIAGNOSTICS_KEY = 'utm:diagnostics:v1';
 export const DIAGNOSTICS_ENABLED_KEY = 'utm:diagnostics-enabled:v1';
 export const DIAGNOSTICS_CHANGED_EVENT = 'utm:diagnostics-changed';
@@ -89,6 +90,7 @@ export const recordDiagnostic = (entry: Omit<DiagnosticEntry, 'at'>): void => {
 };
 
 export const clearDiagnostics = (): void => {
+  clearStartupLog();
   try {
     localStorage.removeItem(DIAGNOSTICS_KEY);
     window.dispatchEvent(new Event(DIAGNOSTICS_CHANGED_EVENT));

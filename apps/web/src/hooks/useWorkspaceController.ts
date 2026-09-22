@@ -12,6 +12,8 @@ import {
 } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
 import { diagnosticFailureCode, recordDiagnostic } from '../services/diagnostics';
+import { beginStartup, failStartup, finishStartup, interruptedStartup, startupCheckpoint } from '../services/startupDiagnostics';
+import { acquireWorkspaceWriter, releaseWorkspaceWriter, markPendingSave, clearPendingSave } from '../services/workspaceWriter';
 import { clockService } from '../services/clockService';
 import { getWorkspaceIndex } from '../services/workspaceIndex';
 import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDocument } from '../services/workspaceLifecycle';
@@ -31,13 +33,18 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const [boot, setBoot] = useState<'checking' | 'empty' | 'locked' | 'ready'>('checking');
   const [passwordProtection, setPasswordProtection] = useState<PasswordProtectionStatus | 'checking'>('checking');
   const [session, setSession] = useState<UnlockedWorkspace | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'loaded' | 'saving' | 'saved' | 'error'>('loaded');
   const sessionRef = useRef<UnlockedWorkspace | null>(null);
   const persistenceQueue = useRef<LatestPersistenceQueue<PersistenceOperation> | null>(null);
   if (!persistenceQueue.current) {
     persistenceQueue.current = new LatestPersistenceQueue(
       async ({ session: target }) => persistWorkspace(target),
-      ({ message, startedAt }) => recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) }),
+      ({ session: target, message, startedAt }) => {
+        if (sessionRef.current?.document === target.document) { clearPendingSave(); setSaveStatus('saved'); }
+        recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
+      },
       (reason, { message, startedAt }) => {
+        setSaveStatus('error');
         recordDiagnostic({ kind: 'error', message: 'Workspace persistence is delayed and retained for retry', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
         onToast(`Save is delayed; your latest change remains open and will retry: ${reason instanceof Error ? reason.message : String(reason)}`);
       },
@@ -50,9 +57,11 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   useEffect(() => {
     void localWorkspaceMode().then(async (mode) => {
       if (!mode) { setBoot('empty'); return; }
+      if (interruptedStartup()) { setBoot('locked'); return; }
       if (mode === 'plaintext') {
+        beginStartup('automatic');
         setPasswordProtection('plaintext');
-        try { await activate(await unlockUnencryptedLocalWorkspace()); }
+        try { await acquireWorkspaceWriter(); await activate(await unlockUnencryptedLocalWorkspace()); }
         catch (reason) {
           recordDiagnostic({ kind: 'error', message: 'Automatic test workspace entry failed', operation: 'Unlock unencrypted test workspace', outcome: 'failed', details: diagnosticFailureCode(reason) });
           setBoot('locked');
@@ -62,7 +71,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       const protection = await passwordProtectionStatus();
       setPasswordProtection(protection);
       if (protection === 'disabled') {
-        try { await activate(await unlockLocalWorkspaceWithoutPassword()); }
+        beginStartup('automatic');
+        try { await acquireWorkspaceWriter(); await activate(await unlockLocalWorkspaceWithoutPassword()); }
         catch (reason) {
           recordDiagnostic({ kind: 'error', message: 'Saved device unlock failed', operation: 'Unlock without password', outcome: 'failed', details: diagnosticFailureCode(reason) });
           setBoot('locked');
@@ -84,11 +94,13 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       onToast(`Save failed; nothing was changed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
     }
     const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);
+    markPendingSave(); setSaveStatus('saving');
     persistenceQueue.current?.enqueue({ session: next, message, startedAt });
     return true;
   };
 
   const activate = async (unlocked: UnlockedWorkspace, selectedLanguage?: WorkspaceLanguage) => {
+    await acquireWorkspaceWriter();
     const activationStartedAt = performance.now();
     let activationCheckpointAt = activationStartedAt;
     const activationStages: Record<string, number> = {};
@@ -99,6 +111,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       activationCheckpointAt = now;
     };
     try {
+      startupCheckpoint('migration', 'started');
       deliveredReminderIds.current.clear();
     let notifications: Array<{ title: string; body: string; itemId?: string; reminderIds?: string[] }> = [];
     // Reuse a fresh storage document. A retry with an outdated head is forked
@@ -128,14 +141,18 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       backfillItemCreationVersions(targetWorkspace); Object.values(targetWorkspace.items).forEach(removeDuplicateReminders); consolidateHabitOccurrences(targetWorkspace, now);
     });
     finishActivationStage('migration');
+    startupCheckpoint('migration', 'completed', { items: Object.keys(migratedDocument.items).length });
     if (migration.warnings.length > 0) recordDiagnostic({ kind: 'result', message: 'Legacy workspace data normalized during entry', operation: 'Activate workspace', outcome: 'succeeded', details: JSON.stringify({ warningCount: migration.warnings.length, schemaVersion: migration.value.schemaVersion }) });
     let reconciliation: ReconcileResult; let warning = '';
     activationStage = 'recurrence';
+    startupCheckpoint('recurrence', 'started');
     try { reconciliation = await reconcileOffMainThread(migratedDocument as WorkspaceDocument, now); }
     catch (reason) { reconciliation = { created: [], updated: [], autoClosed: [], removedIds: [], untouched: 0 }; warning = reason instanceof Error ? reason.message : String(reason); }
     if (reconciliation.errors?.length) warning = `${reconciliation.errors.length} incompatible recurring item${reconciliation.errors.length === 1 ? '' : 's'} skipped`;
     finishActivationStage('recurrence');
+    startupCheckpoint('recurrence', 'completed');
     activationStage = 'apply-recurrence';
+    startupCheckpoint('preparation', 'started');
     let updated = applyReconciliationResult(migratedDocument as Automerge.Doc<WorkspaceDocument>, reconciliation, now, 'Unlock reconciliation');
     if (reconciliation.errors?.length) updated = Automerge.change(updated, 'Quarantine incompatible recurrence', (draft) => {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
@@ -171,8 +188,11 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     for (const item of Object.values(updated.items)) { if (item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) { const at = reminderTime(item, reminder); if (at && new Date(at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } } }
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
     activationStage = 'persistence';
+    startupCheckpoint('preparation', 'completed');
+    startupCheckpoint('persistence', 'started');
     const changedDuringActivation = compactNormalizedDocument || Automerge.getHeads(updated).join('|') !== Automerge.getHeads(activationDocument).join('|');
-    const activationPersistence = sourceVersion !== migration.value.schemaVersion
+    if (changedDuringActivation) { markPendingSave(); setSaveStatus('saving'); }
+    const activationPersistence = sourceVersion !== migration.value.schemaVersion || compactNormalizedDocument
       ? saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`)
       : changedDuringActivation
         ? persistWorkspace({ ...unlocked, document: updated })
@@ -181,7 +201,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
           : Promise.resolve();
     let persistenceTimer: ReturnType<typeof setTimeout> | undefined;
     const persistenceOutcome = await Promise.race([
-      activationPersistence.then(() => 'saved' as const, (reason) => ({ failed: reason } as const)),
+      activationPersistence.then(() => { startupCheckpoint('persistence', 'completed'); return 'saved' as const; }, (reason) => { startupCheckpoint('persistence', 'failed'); return { failed: reason } as const; }),
       new Promise<'pending'>((resolve) => { persistenceTimer = setTimeout(() => resolve('pending'), ACTIVATION_PERSISTENCE_WAIT_MS); }),
     ]);
     if (persistenceTimer) clearTimeout(persistenceTimer);
@@ -189,15 +209,30 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       recordDiagnostic({ kind: 'result', message: 'Activation save continues in the background', operation: 'Activate workspace persistence', outcome: 'succeeded', details: JSON.stringify({ waitMs: ACTIVATION_PERSISTENCE_WAIT_MS }) });
       void activationPersistence.catch((reason) => recordDiagnostic({ kind: 'error', message: 'Background activation save failed', operation: 'Activate workspace persistence', outcome: 'failed', details: diagnosticFailureCode(reason) }));
     } else if (typeof persistenceOutcome === 'object') {
+      setSaveStatus('error'); markPendingSave();
       warning = warning || 'Initial save failed and will retry after the next change';
       recordDiagnostic({ kind: 'error', message: 'Activation save failed without blocking entry', operation: 'Activate workspace persistence', outcome: 'failed', details: diagnosticFailureCode(persistenceOutcome.failed) });
     }
     finishActivationStage('persistence');
     activationStage = 'session';
     persistenceQueue.current?.clearPending();
-    const activated = { ...unlocked, document: updated }; sessionRef.current = activated; setSession(activated);
+    const activated = { ...unlocked, document: updated };
+    if (typeof persistenceOutcome === 'object') {
+      // Do not enter an editable session after a failed migration save: later
+      // ordinary writes must not bypass its required rollback checkpoint.
+      throw new Error('Initial workspace save failed. Original data is retained. Retry opening or use safe recovery mode.');
+    } else if (persistenceOutcome === 'saved') { clearPendingSave(); setSaveStatus('loaded'); }
+    else {
+      // Wait before exposing an editable session: no ordinary write may race
+      // the migration checkpoint or its original persistence operation.
+      await activationPersistence;
+      clearPendingSave(); setSaveStatus('loaded');
+    }
+    sessionRef.current = activated; setSession(activated);
     setPasswordProtection(unlocked.storageMode === 'plaintext' ? 'plaintext' : await passwordProtectionStatus());
     setBoot('ready');
+    startupCheckpoint('render', 'started');
+    if (unlocked.recoveredFromMirror) onToast('Opened a verified local recovery copy because the primary record could not be read. Check your latest changes and export a backup.');
     if (disabledAutomations) onToast(`Workspace opened. ${disabledAutomations} invalid automation schedules disabled; their settings are retained for repair.`);
     const activationDurationMs = Math.round(performance.now() - activationStartedAt);
     if (warning || activationDurationMs >= 1_500) recordDiagnostic({ kind: 'result', message: warning ? 'Workspace activation completed with a recurrence warning' : 'Workspace activation was slow', operation: 'Activate workspace', outcome: 'succeeded', durationMs: activationDurationMs, details: JSON.stringify({ stages: activationStages, recurrenceWarning: Boolean(warning), created: reconciliation.created.length, updated: reconciliation.updated.length, autoClosed: reconciliation.autoClosed.length, removed: reconciliation.removedIds.length, reminders: notifications.length }) });
@@ -207,10 +242,18 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     setNotices(notifications.map((notice) => ({ id: createId(), title: notice.title, body: notice.body, at: now.toISOString(), ...(notice.itemId ? { itemId: notice.itemId } : {}), ...(notice.reminderIds?.length ? { reminderIds: notice.reminderIds } : {}) })));
       if ('Notification' in window && Notification.permission === 'granted') notifications.forEach((notice) => new Notification(notice.title, { body: notice.body, ...(notice.itemId ? { tag: `reminder:${notice.itemId}` } : {}) }));
     } catch (reason) {
+      failStartup();
       recordDiagnostic({ kind: 'error', message: `Workspace activation failed at ${activationStage}`, operation: 'Activate workspace', outcome: 'failed', durationMs: Math.round(performance.now() - activationStartedAt), details: diagnosticFailureCode(reason) });
       throw reason;
     }
   };
+
+  useEffect(() => {
+    if (boot !== 'ready') return;
+    // Leave the attempt pending through first paint and immediate mount effects.
+    const timer = window.setTimeout(finishStartup, 10_000);
+    return () => window.clearTimeout(timer);
+  }, [boot]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -310,6 +353,10 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
         recordDiagnostic({ kind: 'error', message: 'Workspace flush on page exit failed', operation: 'Flush workspace before page exit', outcome: 'failed', details: diagnosticFailureCode(reason) });
       });
     };
+    const warnUnsaved = (event: BeforeUnloadEvent) => {
+      if (saveStatus === 'saving' || saveStatus === 'error') { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', warnUnsaved);
     document.addEventListener('visibilitychange', flushBeforeBackground);
     window.addEventListener('pagehide', flushBeforePageExit);
     window.addEventListener('beforeunload', flushBeforePageExit);
@@ -317,8 +364,9 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       document.removeEventListener('visibilitychange', flushBeforeBackground);
       window.removeEventListener('pagehide', flushBeforePageExit);
       window.removeEventListener('beforeunload', flushBeforePageExit);
+      window.removeEventListener('beforeunload', warnUnsaved);
     };
-  }, []);
+  }, [saveStatus]);
 
   const lockWorkspace = async () => {
     if (session?.storageMode === 'plaintext') { onToast('An unencrypted test workspace cannot be locked. Create an encrypted workspace to use password lock.'); return; }
@@ -326,6 +374,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     try { await flushPersistence(); }
     catch (reason) { onToast(`Cannot lock until the latest change is saved: ${reason instanceof Error ? reason.message : String(reason)}`); return; }
     if (session) lock(session); deliveredReminderIds.current.clear(); sessionRef.current = null; setSession(null); setBoot('locked');
+    finishStartup();
+    releaseWorkspaceWriter();
   };
   const adoptSession = async (next: UnlockedWorkspace, lockCurrent = false) => {
     await flushPersistence();
@@ -334,5 +384,5 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); void refreshPasswordProtection();
   };
   const resetReminderDelivery = (ids: string[]) => ids.forEach((id) => deliveredReminderIds.current.delete(id));
-  return { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery };
+  return { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery };
 }

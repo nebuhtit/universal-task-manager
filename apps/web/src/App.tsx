@@ -28,6 +28,9 @@ import { playCompletionSoundUnlessPreviewed, useUiSounds } from './hooks/useUiSo
 import { useViewport } from './hooks/useViewport';
 import { useDisplayedBuild } from './hooks/useDisplayedBuild';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
+import { beginStartup, failStartup, finishStartup, interruptedStartup, readStartupLog, startupCheckpoint } from './services/startupDiagnostics';
+import { closeReadOnlyWorkspace, localWorkspaceMode, openLocalRecoveryReadOnly, unlockUnencryptedLocalWorkspace } from '@utm/sdk';
+import { acquireWorkspaceWriter, PENDING_SAVE_KEY } from './services/workspaceWriter';
 import { ResponsiveDialog } from './components/ui/ResponsiveDialog';
 import { Button } from './components/ui/primitives';
 import { DueQuickChoices } from './features/items/DueQuickChoices';
@@ -86,14 +89,14 @@ const downloadText = (content: string, filename: string, type = 'application/jso
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
-const exportSafeDiagnostics = () => readDiagnostics().map(({ details, ...entry }) => {
+const exportSafeDiagnostics = () => [...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
   if (/google|calendar/i.test(`${entry.operation} ${entry.message}`)) return { ...entry, message: 'External calendar operation details omitted from export' };
   // Failure categories are intentionally finite and contain no workspace
   // content. Preserve them so an exported log can identify the failing stage.
   return details && ['password-or-encrypted-data', 'browser-storage', 'workspace-document', 'recurrence-processing', 'unexpected'].includes(details)
     ? { ...entry, details }
     : entry;
-});
+})];
 const downloadDiagnosticsFile = () => downloadText(JSON.stringify(exportSafeDiagnostics(), null, 2), 'utm-diagnostics.json');
 const downloadOfflineRecoveryKit = async () => {
   const module = document.querySelector<HTMLScriptElement>('script[type="module"][src]');
@@ -183,16 +186,21 @@ async function portableFromFile(file: File, workspace: WorkspaceDocument): Promi
   return { source: serializePortablePackage(result.package), warnings: result.warnings };
 }
 
-function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void> }) {
+function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void>; onSafeReady: (session: UnlockedWorkspace, backupPreview?: boolean) => void }) {
   const displayedBuild = useDisplayedBuild();
   const [name, setName] = useState('My workspace');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [interrupted] = useState(interruptedStartup);
+  const [safeEntry, setSafeEntry] = useState(interrupted);
+  const [unconfirmedSave] = useState(() => { try { return Boolean(localStorage.getItem(PENDING_SAVE_KEY)); } catch { return false; } });
+  const [plaintext, setPlaintext] = useState(false);
+  useEffect(() => { if (exists) void localWorkspaceMode().then((mode) => setPlaintext(mode === 'plaintext')); }, [exists]);
   const [selectedBackup, setSelectedBackup] = useState<File | null>(null);
   const [unencryptedTestWorkspace, setUnencryptedTestWorkspace] = useState(false);
-  const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
+  const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length + readStartupLog().length);
   const [decryptFile, setDecryptFile] = useState<File | null>(null);
   const [decryptPassword, setDecryptPassword] = useState('');
   const [decryptError, setDecryptError] = useState('');
@@ -218,7 +226,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     return installDomLocalization(language);
   }, [language]);
   useEffect(() => {
-    const refresh = () => setDiagnosticCount(readDiagnostics().length);
+    const refresh = () => setDiagnosticCount(readDiagnostics().length + readStartupLog().length);
     window.addEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
   }, []);
@@ -243,18 +251,22 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     if (selectedBackup) { await importWorkspace(selectedBackup); return; }
     const startedAt = performance.now();
     const operation = exists ? 'Unlock local workspace' : unencryptedTestWorkspace ? 'Create unencrypted test workspace' : 'Create encrypted workspace';
+    beginStartup(safeEntry && exists ? 'safe' : 'local');
     setError(''); setBusy(true);
     try {
       if (!exists && !unencryptedTestWorkspace && password !== confirm) throw new Error('Passwords do not match');
+      if (!exists || !safeEntry) await acquireWorkspaceWriter();
       const unlocked = exists
-        ? await unlockLocalWorkspace(password)
+        ? plaintext ? await unlockUnencryptedLocalWorkspace() : await unlockLocalWorkspace(password, { readOnly: safeEntry })
         : unencryptedTestWorkspace
           ? await createUnencryptedLocalWorkspace(name, language)
           : await createLocalWorkspace(password, name, language);
-      await onReady(unlocked, language);
+      if (safeEntry && exists) { startupCheckpoint('render', 'started', { items: Object.keys(unlocked.document.items ?? {}).length }); onSafeReady(unlocked); }
+      else await onReady(unlocked, language);
       const durationMs = Math.round(performance.now() - startedAt);
       if (durationMs >= 1_500) recordDiagnostic({ kind: 'result', message: 'Workspace entry was slow', operation, outcome: 'succeeded', durationMs });
     } catch (reason) {
+      failStartup();
       recordDiagnostic({ kind: 'error', message: 'Workspace entry failed', operation, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -268,9 +280,17 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
     }
     const startedAt = performance.now();
     const operation = 'Import encrypted workspace at setup';
+    beginStartup('backup');
     setBusy(true); setError('');
     try {
       const backup = await readEncryptedBackup(file);
+      if (safeEntry || exists) {
+        const preview = await openLocalRecoveryReadOnly(backup, password);
+        startupCheckpoint('render', 'started', { items: Object.keys(preview.document.items ?? {}).length });
+        onSafeReady(preview, true);
+        return;
+      }
+      await acquireWorkspaceWriter();
       const unlocked = await importAsLocalWorkspace(backup, password);
       await onReady(unlocked, language);
       const durationMs = Math.round(performance.now() - startedAt);
@@ -284,9 +304,11 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   };
 
   const unlockWithFaceId = async () => {
+    beginStartup('local');
     const startedAt = performance.now();
     setBusy(true); setError('');
     try {
+      await acquireWorkspaceWriter();
       await onReady(await unlockLocalWorkspaceWithFaceId(), language);
       recordDiagnostic({ kind: 'result', message: 'Face ID workspace entry succeeded', operation: 'Unlock local workspace with Face ID', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
     } catch (reason) {
@@ -296,7 +318,7 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
   };
 
   useEffect(() => {
-    if (!exists || faceId !== 'configured' || faceIdAttempted.current || selectedBackup || decryptFile) return;
+    if (!exists || interrupted || safeEntry || faceId !== 'configured' || faceIdAttempted.current || selectedBackup || decryptFile) return;
     faceIdAttempted.current = true;
     void unlockWithFaceId();
   }, [decryptFile, exists, faceId, selectedBackup]);
@@ -331,26 +353,30 @@ function LockScreen({ exists, onReady }: { exists: boolean; onReady: (session: U
       <p className="eyebrow">UNIVERSAL TASK MANAGER</p>
       <span className="auth-beta" aria-label="Beta version">BETA</span>
       <h1>{exists ? 'Unlock your workspace' : 'Build your own system'}</h1>
+      {exists && interrupted && <p role="status">Предыдущий запуск не завершился. Можно открыть данные в безопасном режиме без синхронизации, миграции и фоновых изменений. Прерванный запуск не обязательно означает повреждение данных.</p>}
+      {exists && unconfirmedSave && <p role="alert">Последнее сохранение не было подтверждено. На диске может быть предыдущая версия; не очищайте данные сайта. Сохраните резервную копию перед восстановлением.</p>}
       {!online && <p className="offline-notice" role="status"><strong>No internet connection.</strong> Offline mode is active. You can still download the encrypted local database and troubleshooting log below; online hosting features are unavailable.</p>}
       <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
       <label className="language-picker">Language<select value={language} onChange={(event) => setLanguage(event.target.value as WorkspaceLanguage)}>{interfaceLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <form onSubmit={submit}>
+        {exists && <label className="check"><input type="checkbox" checked={safeEntry} onChange={(event) => setSafeEntry(event.target.checked)} disabled={busy} />Безопасное открытие — только просмотр, без записи в workspace</label>}
         {!exists && <label>{selectedBackup ? 'Backup file' : 'Workspace name'}<input value={selectedBackup ? selectedBackup.name : name} readOnly={Boolean(selectedBackup)} onChange={(event) => setName(event.target.value)} required /></label>}
-        {!(!exists && unencryptedTestWorkspace) && <label>{selectedBackup ? 'Backup password' : 'Password'}<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>}
+        {(selectedBackup || (!plaintext && !(!exists && unencryptedTestWorkspace))) && <label>{selectedBackup ? 'Backup password' : 'Password'}<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>}
         {!exists && !selectedBackup && !unencryptedTestWorkspace && <label>Confirm password<input type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
         {!exists && !selectedBackup && <label className="check"><input type="checkbox" checked={unencryptedTestWorkspace} onChange={(event) => { setUnencryptedTestWorkspace(event.target.checked); setError(''); }} />Create a local test workspace without password or encryption</label>}
         {!exists && unencryptedTestWorkspace && <p className="error" role="alert">Test mode: anyone with access to this browser profile can read these items. Do not use it for personal data, and do not rely on it as a backup.</p>}
         {error && <p className="error" role="alert">{error}</p>}
         {!selectedBackup && <button className="primary wide" disabled={busy}>{busy ? 'Working…' : exists ? 'Unlock' : unencryptedTestWorkspace ? 'Create unencrypted test workspace' : 'Create encrypted workspace'}</button>}
-        {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Importing…' : 'Import selected backup'}</button>}
+        {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Working…' : safeEntry || exists ? 'Посмотреть бэкап без импорта' : 'Import selected backup'}</button>}
       </form>
-      {exists && faceId === 'configured' && <button className="secondary wide" type="button" disabled={busy} onClick={() => void unlockWithFaceId()}>Unlock with Face ID</button>}
+      {exists && faceId === 'configured' && <button className="secondary wide" type="button" disabled={busy || safeEntry} onClick={() => void unlockWithFaceId()}>Unlock with Face ID</button>}
       {exists && <p className="hint">Password unlock is always available, including if Face ID is unavailable, cancelled, or changes on this device.</p>}
-      {!exists && <div className="import-lock">
+      {<div className="import-lock">
         <span>Already have an encrypted workspace?</span>
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
         <input ref={fileRef} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setUnencryptedTestWorkspace(false); setName(file.name); setConfirm(''); setError(''); }} />
-        <small>Choose the file first, enter its password, then tap Import selected backup.</small>
+        <small>{exists ? 'Бэкап откроется только для просмотра. Текущее хранилище не будет заменено.' : 'Choose the file first, enter its password, then tap Import selected backup.'}</small>
+        {selectedBackup && <button type="button" className="text-button" onClick={() => setSelectedBackup(null)} disabled={busy}>Отменить выбор файла</button>}
       </div>}
       <details className="install-guide" open={!online}>
         <summary>Help</summary>
@@ -423,10 +449,27 @@ const compareVersions = (left: string, right: string) => {
   return 0;
 };
 
-function RecoveryShell({ session, reason, onRetry }: { session: UnlockedWorkspace | undefined; reason: string; onRetry?: () => void }) {
+function RecoveryShell({ session, reason, onRetry, backupPreview = false }: { session: UnlockedWorkspace | undefined; reason: string; onRetry?: () => void; backupPreview?: boolean | undefined }) {
+  useEffect(() => {
+    if (!session) return;
+    const timer = window.setTimeout(finishStartup, 10_000);
+    return () => window.clearTimeout(timer);
+  }, [session]);
   const raw = session?.document as unknown as Partial<WorkspaceDocument> | undefined;
   const items = raw?.items && typeof raw.items === 'object' ? Object.values(raw.items).filter((item): item is UniversalItem => Boolean(item && typeof item === 'object')) : [];
-  return <main className="lock-shell"><section className="lock-card recovery-shell"><p className="eyebrow">SAFE RECOVERY MODE</p><h1>Your workspace data is still available</h1><p className="error" role="alert">{reason}</p><p>Recurrence, scripts, automations, reminders, push and saved filters are disabled in this mode.</p><div className="settings-actions"><button className="primary" onClick={() => void downloadLockedRecoveryCopy()}>Download encrypted workspace + log</button>{onRetry && <button className="secondary" onClick={onRetry}>Retry normal startup</button>}</div>{items.length > 0 && <section><h2>Readable items ({items.length})</h2><div className="rule-list">{items.slice(0, 200).map((item) => <article className="rule-card" key={String(item.id)}><strong>{typeof item.title === 'string' ? item.title : 'Untitled item'}</strong><small>{typeof item.state === 'string' ? item.state : 'unknown'}{item.schedule?.startAt ? ` · ${formatRussianDateTime(item.schedule.startAt)}` : item.schedule?.dueAt ? ` · ${formatRussianDateTime(item.schedule.dueAt)}` : ''}</small>{typeof item.bodyMarkdown === 'string' && item.bodyMarkdown && <p>{item.bodyMarkdown.slice(0, 240)}</p>}</article>)}</div></section>}</section></main>;
+  return <main className="lock-shell"><section className="lock-card recovery-shell">
+    <p className="eyebrow">SAFE RECOVERY MODE</p><h1>Your workspace data is still available</h1>
+    <p role="status">{reason}</p>
+    <p>Recurrence, scripts, automations, reminders, push and saved filters are disabled in this mode.</p>
+    <div className="settings-actions">
+      {!backupPreview && session?.storageMode !== 'plaintext' && <Button onClick={() => void downloadLockedRecoveryCopy()}>Download encrypted workspace + log</Button>}
+      <Button onClick={downloadDiagnosticsFile}>Download log</Button>
+      {onRetry && <Button onClick={onRetry}>Вернуться к выбору открытия</Button>}
+    </div>
+    {items.length > 0 && <section><h2>Readable items ({items.length})</h2><p>Показаны первые 200 записей; остальные данные не изменены.</p><div className="rule-list">
+      {items.slice(0, 200).map((item) => <article className="rule-card" key={String(item.id)}><strong>{typeof item.title === 'string' ? item.title : 'Untitled item'}</strong><small>{typeof item.state === 'string' ? item.state : 'unknown'}</small>{typeof item.bodyMarkdown === 'string' && item.bodyMarkdown && <p>{item.bodyMarkdown.slice(0, 240)}</p>}</article>)}
+    </div></section>}
+  </section></main>;
 }
 
 function MigrationGate({ session, language, onUpdate, onRecovery }: { session: UnlockedWorkspace; language: WorkspaceLanguage; onUpdate: (session: UnlockedWorkspace, language: WorkspaceLanguage) => void; onRecovery: (reason: string) => void }) {
@@ -600,10 +643,10 @@ export default function App() {
   const pushError = useRef('');
   const captureInputRef = useRef<HTMLInputElement>(null);
   const [quickError, setQuickError] = useState('');
-  const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length);
+  const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length + readStartupLog().length);
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
-  const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string } | null>(null);
-  const { boot, session, workspace, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery } = useWorkspaceController({ onToast: setToast, setNotices });
+  const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string; backupPreview?: boolean | undefined; isolatedPreview?: boolean } | null>(null);
+  const { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery } = useWorkspaceController({ onToast: setToast, setNotices });
   const workspaceLatest = useRef(workspace);
   workspaceLatest.current = workspace;
   const googleWrites = useRef(new Set<string>());
@@ -871,14 +914,14 @@ export default function App() {
     });
   };
   useEffect(() => {
-    const capture = (kind: DiagnosticEntry['kind'], message: string, details?: string) => { recordDiagnostic({ kind, message, page, ...(details ? { details } : {}) }); setDiagnosticCount(readDiagnostics().length); };
+    const capture = (kind: DiagnosticEntry['kind'], message: string, details?: string) => { recordDiagnostic({ kind, message, page, ...(details ? { details } : {}) }); setDiagnosticCount(readDiagnostics().length + readStartupLog().length); };
     const onError = (event: ErrorEvent) => capture('error', event.message || 'Unknown error', event.error?.stack);
     const onRejection = (event: PromiseRejectionEvent) => capture('unhandledrejection', event.reason instanceof Error ? event.reason.message : String(event.reason));
     window.addEventListener('error', onError); window.addEventListener('unhandledrejection', onRejection);
     return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onRejection); };
   }, [page]);
   useEffect(() => {
-    const refresh = () => setDiagnosticCount(readDiagnostics().length);
+    const refresh = () => setDiagnosticCount(readDiagnostics().length + readStartupLog().length);
     window.addEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
   }, []);
@@ -1151,10 +1194,10 @@ export default function App() {
     if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
   };
 
-  if (recovery) return <RecoveryShell session={recovery.session} reason={recovery.reason} onRetry={() => { setRecovery(null); setPendingUpgrade(null); }} />;
+  if (recovery) return <RecoveryShell session={recovery.session} reason={recovery.reason} backupPreview={recovery.backupPreview} onRetry={() => { if (recovery.session && recovery.isolatedPreview) closeReadOnlyWorkspace(recovery.session); setRecovery(null); setPendingUpgrade(null); }} />;
   if (pendingUpgrade) return <MigrationGate session={pendingUpgrade.session} language={pendingUpgrade.language} onUpdate={(next, language) => { setPendingUpgrade(null); void activate(next, language).catch((reason) => setRecovery({ session: next, reason: reason instanceof Error ? reason.message : String(reason) })); }} onRecovery={(reason) => setRecovery({ session: pendingUpgrade.session, reason })} />;
   if (boot === 'checking') return <main className="splash"><div className="brand-mark">U</div><p>Opening encrypted workspace…</p></main>;
-  if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={enterWorkspace} />;
+  if (boot === 'empty' || boot === 'locked') return <LockScreen exists={boot === 'locked'} onReady={enterWorkspace} onSafeReady={(next, backupPreview) => setRecovery({ session: next, backupPreview, isolatedPreview: true, reason: 'Безопасное открытие: исходное хранилище не изменено. Доступен только просмотр и экспорт журнала.' })} />;
   if (!workspace || !session) return null;
   const quickDueItem = quickDueTarget ? resolveQuickDueItem(workspace, quickDueTarget) : null;
   const allItemsView = allItemsViewFor(workspace);
@@ -1205,6 +1248,7 @@ export default function App() {
 
   return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onSnoozeNotice={snoozeNotice} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
+      <p className="hint" role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : saveStatus === 'error' ? 'Не сохранено. Последние изменения пока только в памяти.' : saveStatus === 'saved' ? 'Сохранено на этом устройстве.' : 'Загружена последняя локальная версия.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
       {page === 'calendar' && <CalendarPage workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={openWorkspaceItem} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
@@ -1332,7 +1376,7 @@ export default function App() {
         const updatedSeries = draft.items[record.seriesId];
         if (updatedSeries) series = clean(updatedSeries);
       });
-      if (saved && result.changed) setToast(result.rescheduled ? 'Completion time saved. Next cycle updated.' : 'Completion time saved.');
+      if (saved && result.changed) void flushPersistence().then(() => setToast(result.rescheduled ? 'Completion time saved. Next cycle updated.' : 'Completion time saved.')).catch(() => setToast('Completion time is not saved yet. Retry local saving.'));
       return { series, rescheduled: result.rescheduled };
     }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', currentWorkspaceNow()); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={async (item, options) => { if (googleWrites.current.has(item.id)) throw new Error('Google synchronization for this item is still running. Your draft is kept here; retry saving shortly.'); const actionNow = currentWorkspaceNow(); const isNew = !workspace.items[item.id]; let recurrenceError = ''; let googleCandidate: UniversalItem | undefined; const saved = commit(isNew ? 'Create item' : 'Update item', (draft) => { const before = draft.items[item.id]; draft.items[item.id] = clean(item); if (before?.extensions?.[GOOGLE_SAVE_EXTENSION]) { draft.items[item.id]!.extensions ??= {}; draft.items[item.id]!.extensions![GOOGLE_SAVE_EXTENSION] = clean(before.extensions[GOOGLE_SAVE_EXTENSION]); } if (before?.external?.readOnly === false) { const target = draft.items[item.id]!; target.external = clean(before.external); target.extensions ??= {}; for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey']) { if (before.extensions?.[key] !== undefined) target.extensions[key] = clean(before.extensions[key]); else delete target.extensions[key]; } } item.areas.forEach((area) => ensureAreaDefinition(draft, area)); item.projects.forEach((project) => { const existing = draft.projectDefinitions[project]; const converted = options?.convertedProject === project; ensureProjectDefinition(draft, project, !existing || converted ? { areas: [...new Set([...(existing?.areas ?? []), ...item.areas])] } : {}); }); item.tags.forEach((tag) => ensureTagDefinition(draft, tag)); if (item.list) ensureListDefinition(draft, item.list, { kind: 'list' }); if (before?.state === 'open' && (item.state === 'done' || item.state === 'cancelled') && item.occurrence && item.closure?.at) advanceCompletionAnchoredSeries(draft, item, item.closure.at); const event = { id: createId(), type: isNew ? 'item.created' as const : 'item.updated' as const, at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }; runAutomationEvents(draft, [event], { now: actionNow }); if (item.role === 'series_template') { try { reconcileRecurrences(draft, actionNow); } catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); } } reconcileCalendarOrganization(draft); googleCandidate = clean(googleActionItem(draft, draft.items[item.id]!)); }); if (!saved) throw new Error('Could not save item.'); if (saved) { recordDiagnostic({ kind: 'result', message: options?.convertedProject ? 'Item converted to Project and saved' : 'Item organization saved', operation: 'Save item organization', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, areas: item.areas.length, projects: item.projects.length, tags: item.tags.length, converted: Boolean(options?.convertedProject) }) }); setEditorIsNew(false);
       await flushPersistence();

@@ -43,7 +43,8 @@ const workspaceWorker = (): Worker | undefined => {
 };
 
 async function prepareOffMainThread(session: UnlockedWorkspace): Promise<PreparedLocalWorkspaceSave> {
-  const target = workspaceWorker();
+  let target: Worker | undefined;
+  try { target = workspaceWorker(); } catch { target = undefined; }
   if (!target) return await prepareLocalWorkspaceSave(session.document, session.dataKey, session.storageMode);
   const id = nextRequestId++;
   // Transfer the compressed document with its history instead of replaying
@@ -98,6 +99,7 @@ export function persistWorkspace(session: UnlockedWorkspace): Promise<void> {
 
 async function persistWorkspaceInOrder(session: UnlockedWorkspace): Promise<void> {
   const prepared = await prepareOffMainThread(session);
+  prepared.receipt = { sourceUpdatedAt: String(session.document.updatedAt), sourceItemCount: Object.keys(session.document.items).length, sourceHeads: Automerge.getHeads(session.document) };
   await commitPreparedLocalWorkspaceSave(prepared);
   if (session.storageMode !== 'plaintext') await persistObsidianWorkspace();
 }
