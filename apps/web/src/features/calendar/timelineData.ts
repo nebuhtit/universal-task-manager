@@ -3,6 +3,7 @@ import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { viewItemForEvaluation } from '../views/viewSelectors';
 import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, type TimelineEvent } from './timelineLayout';
+import { planUndatedTasks } from './timelinePlanning';
 
 export function timelineData(workspace: WorkspaceDocument, key: string, now: Date) {
   const preferences = workspace.calendarPreferences;
@@ -87,8 +88,10 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   }
   const hiding = preferences.timeline?.hideSleep === true && sleep.length > 0;
   const visible = hiding ? events.filter(event => !isSleep(event.item)) : events;
+  const planning = planUndatedTasks(undated, events, sleep, day);
+  const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
-    day, events: visible, allDay, undated, activeRange,
+    day, events: [...visible, ...planning.proposals], allDay, undated: undated.filter(item => !placedIds.has(item.id)), activeRange, planning,
     hidden: hiding ? hiddenIntervals(sleep, visible, day) : [],
     sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)),
     projectionLimited: desiredPadding > padding,

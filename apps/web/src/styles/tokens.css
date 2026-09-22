@@ -85,6 +85,7 @@
   --motion-easing-standard: ease;
   --motion-easing-enter: ease-out;
   --opacity-disabled: 0.62;
+  --opacity-tentative-surface: 55%;
 
   /* Shared layout */
   --layout-sidebar-width: 236px;

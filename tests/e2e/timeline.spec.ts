@@ -16,6 +16,7 @@ async function setup(page: Page) {
   const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T14:00:00Z', endAt: '2026-09-22T14:01:00Z', travelDuration: 'PT30M' }; w.items[short.id] = short;
   const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; w.items[sleep.id] = sleep;
   const none = createItem('Undated sentinel', 'task', now); w.items[none.id] = none;
+  const proposed = createItem('Tentative task', 'task', now); proposed.schedule = { timezone: 'UTC', estimatedDuration: 'PT2H' }; w.items[proposed.id] = proposed;
   const allDay = createItem('All day sentinel', 'event', now); allDay.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-23T00:00:00Z', allDay: true }; w.items[allDay.id] = allDay;
   const series = createItem('Active preparation', 'task', now); series.role = 'series_template'; series.canBeCompleted = true;
   series.schedule = { timezone: 'UTC', startAt: '2026-09-21T09:00:00Z', dueAt: '2026-09-24T19:00:00Z', estimatedDuration: 'PT1H' };
@@ -60,6 +61,15 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await active.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-light.png` });
   const saved = await primary(page);
+  const tentative = page.getByTestId('timeline-tentative');
+  await expect(tentative).toHaveCount(1);
+  await expect(tentative).toHaveCSS('border-top-style', 'dotted');
+  await expect(tentative).toHaveAttribute('aria-label', 'Tentative · Tentative task · 07:00–09:00');
+  await expect(page.getByTestId('timeline-planning-summary')).toContainText('After tasks');
+  await tentative.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-light.png` });
+  await tentative.focus();
+  await expect(tentative).toBeFocused();
   const minute = page.locator('.timeline-events').getByRole('button', { name: /^One minute title/ }); await minute.scrollIntoViewIfNeeded();
   expect((await minute.boundingBox())!.height).toBeGreaterThanOrEqual(36);
   await expect(minute.locator('strong')).toHaveText('One minute title');
@@ -81,6 +91,8 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
   await page.getByRole('button', { name: 'Show full day', exact: true }).click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await tentative.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-dark.png` });
   await minute.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-timeline-${testInfo.project.name}-dark.png` });
   await expect(page.getByTestId('timeline-now')).toHaveCSS('pointer-events', 'none');
