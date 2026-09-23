@@ -6,7 +6,7 @@ import { recordCompletionTransition } from './item-history.js';
 import { syncCompletionCounter } from './completion-goals.js';
 
 it('preserves legacy behavior and opts local events in and out without deleting history', () => {
-  const item = createItem('Event');
+  const item = createItem('Event', 'event');
   expect(canManuallyComplete(item)).toBe(true);
   item.schedule = { timezone: 'UTC', startAt: '2026-09-22T10:00:00Z', endAt: '2026-09-22T11:00:00Z' };
   expect(canManuallyComplete(item)).toBe(false);
@@ -24,4 +24,12 @@ it('preserves legacy behavior and opts local events in and out without deleting 
   expect(canManuallyComplete(item)).toBe(false);
   item.state = 'done'; recordCompletionTransition(item, 'open', '2026-09-22T12:00:00Z');
   expect(item.completionEntries).toHaveLength(1);
+});
+
+it('keeps a scheduled local task completable in its editor and reminders', () => {
+  const task = createItem('Prepare food', 'task');
+  task.schedule = { timezone: 'UTC', startAt: '2026-09-23T12:00:00Z', endAt: '2026-09-23T15:00:00Z' };
+  expect(canManuallyComplete(task)).toBe(true);
+  task.canBeCompleted = false;
+  expect(canManuallyComplete(task)).toBe(false);
 });

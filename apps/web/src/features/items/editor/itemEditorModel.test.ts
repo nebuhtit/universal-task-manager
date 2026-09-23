@@ -19,11 +19,13 @@ describe('item editor normalization', () => {
     const workspace = createWorkspace(); workspace.items[item.id] = structuredClone(item);
     expect(normalize({ item, workspace }).eventProgram).toEqual(item.eventProgram);
   });
-  it('allows a local task with a cleared end but forbids completing a calendar item', () => {
+  it('allows scheduled tasks to be completed but keeps ordinary calendar events non-completable', () => {
     const item = createItem('Local'); item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z' };
     expect(normalize({ item }).schedule?.endAt).toBeUndefined();
     item.schedule.endAt = '2030-09-20T13:00:00Z'; item.state = 'done';
-    expect(() => normalize({ item })).toThrow('cannot be marked completed');
+    expect(normalize({ item }).state).toBe('done');
+    const event = createItem('Meeting', 'event'); event.schedule = structuredClone(item.schedule); event.state = 'done';
+    expect(() => normalize({ item: event })).toThrow('cannot be marked completed');
   });
   it('keeps dates required while a Google creation response is uncertain', () => {
     const item = createItem('Pending'); const workspace = createWorkspace('Pending');

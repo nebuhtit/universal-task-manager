@@ -840,7 +840,7 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
   }
   const clock = stagedClockSuggestions(input, caret, now, language);
   if (clock) return clock;
-  const nextCommand = /(?:^|\s)(до|due|срок|начало|start|opens|конец|end|ends|напомнить|нап|напомни|remind|reminder)(?::|\s)\s*$/i.exec(beforeCaret);
+  const nextCommand = /(?:^|\s)(до|due|срок|начало|start|opens|конец|end|ends|напомнить|нап|напомни|remind|reminder)(?::|\s|$)\s*$/i.exec(beforeCaret);
   if (nextCommand) {
     const previous = parseEntry(input.slice(0, nextCommand.index), now);
     const anchor = previous.start ?? previous.due ?? previous.end;
@@ -852,6 +852,18 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
       const prefix = /напом|remind/i.test(key) ? `${key}${nextCommand[0].includes(':') ? ':' : ''} в` : key;
       const days = [date, ...(language === 'ru' ? ['сегодня', 'завтра', ...russianWeekdays] : ['today', 'tomorrow', ...englishWeekdays])];
       return { start: nextCommand.index + nextCommand[0].indexOf(key), end: caret, ordered: true, options: days.map((day, index) => ({ label: `${key} ${day} ${time}`, insert: `${prefix} ${day} ${time} `, detail: index === 0 ? language === 'ru' ? 'Указанные дата и время' : 'Entered date and time' : language === 'ru' ? 'Сохранить указанное время' : 'Keep entered time' })) };
+    }
+    if (/^(?:до|due|срок)$/i.test(nextCommand[1]!)) {
+      const key = nextCommand[1]!;
+      const today = language === 'ru' ? 'сегодня' : 'today';
+      const days = language === 'ru' ? ['завтра', 'послезавтра', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'] : ['tomorrow', ...englishWeekdays];
+      const clocks = [12, 15, 18].flatMap(hour => {
+        const at = new Date(now); at.setHours(hour, 0, 0, 0);
+        if (at.getTime() <= now.getTime()) return [];
+        const time = `${String(hour).padStart(2, '0')}:00`;
+        return [{ label: `${key} ${today} ${time}`, insert: `${key} ${today} ${time} `, detail: language === 'ru' ? 'Сегодня · ближайшее время' : 'Today · upcoming time' }];
+      });
+      return { start: nextCommand.index + nextCommand[0].indexOf(key), end: caret, ordered: true, options: [...clocks, ...days.map(day => ({ label: `${key} ${day} 09:00`, insert: `${key} ${day} 09:00 `, detail: language === 'ru' ? 'Другой день' : 'Another day' }))] };
     }
   }
   const normalized = relaxedCommands(input);

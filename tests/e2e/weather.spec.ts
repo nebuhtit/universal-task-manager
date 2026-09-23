@@ -53,8 +53,7 @@ test('weather beta: settings, gradient, haze, keyboard, themes, errors and compl
   await expect(page.getByTestId('weather-background')).toBeVisible(); await expect(page.locator('.weather-solar')).toHaveCount(1);
   await expect(page.locator('.weather-solar-marker')).toHaveCount(2); await expect(page.getByTestId('weather-haze').first()).toHaveCSS('opacity', '0.5');
   await expect(page.getByTestId('weather-background')).toHaveCSS('pointer-events', 'none');
-  await page.locator('.weather-legend summary').focus(); await page.keyboard.press('Enter'); await expect(page.locator('.weather-legend')).toHaveAttribute('open');
-  await expect(page.locator('.weather-legend')).toContainText('Astronomical dawn');
+  await expect(page.locator('.weather-legend')).toHaveCount(0);
   const marker = page.locator('.weather-solar-marker').first(); await marker.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-weather-${testInfo.project.name}-light.png` });
   const event = page.locator('.timeline-event').filter({ hasText: 'Weather interaction sentinel' }); await event.focus(); await expect(event).toBeFocused();

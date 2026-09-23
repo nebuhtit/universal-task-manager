@@ -20,6 +20,9 @@ describe('AppShell', () => {
       onDismissPopup={noop} onDeleteNotice={noop} onOpenNotice={noop} onCompleteNotice={noop} onTransfer={noop} onLock={noop}
     ><p>Content</p></AppShell>);
     expect(render()).toContain('aria-label="Complete: Task"');
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-23T12:00:00Z', endAt: '2026-09-23T15:00:00Z' };
+    delete item.canBeCompleted;
+    expect(render()).toContain('aria-label="Complete: Task"');
     item.state = 'done';
     expect(render()).not.toContain('aria-label="Complete: Task"');
     item.state = 'open';

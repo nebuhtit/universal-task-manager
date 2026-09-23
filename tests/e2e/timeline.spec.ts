@@ -51,12 +51,12 @@ async function primary(page: Page) {
 test('timeline titles, More, clock, sleep, dark mode and persisted display choice', async ({ page }, testInfo) => {
   test.setTimeout(180_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await setup(page);
-  const allDayGroup = page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^All day/ }) });
-  await allDayGroup.locator('summary').click(); await expect(allDayGroup.locator('.item-card')).toBeHidden();
+  const allDayButton = page.locator('.timeline-toolbar').getByRole('button', { name: /^All day/ });
+  await allDayButton.click(); await expect(page.locator('.timeline-all-day-items')).toHaveCount(0);
   await page.getByRole('button', { name: 'List', exact: true }).click();
-  await expect(allDayGroup).not.toHaveAttribute('open');
+  await expect(page.locator('.calendar-all-day')).not.toHaveAttribute('open');
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await expect(allDayGroup).not.toHaveAttribute('open');
+  await expect(allDayButton).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
   await page.clock.fastForward(11_000);
   await page.reload();
@@ -66,10 +66,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click();
   } else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
-  await expect(allDayGroup).toBeVisible();
-  await expect(allDayGroup).not.toHaveAttribute('open');
-  await allDayGroup.locator('summary').click();
-  await expect(allDayGroup.locator('.item-card')).toBeVisible();
+  await expect(allDayButton).toHaveAttribute('aria-pressed', 'false');
+  await allDayButton.click();
+  await expect(page.locator('.timeline-all-day-items .item-card')).toBeVisible();
   const active = page.locator('.timeline-top-items').filter({ has: page.getByRole('heading', { name: 'Active range', exact: true }) });
   await expect(active.locator('.item-card')).toHaveCount(1);
   await expect(active.locator('.item-title')).toHaveText('Active preparation');
@@ -77,11 +76,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-light.png` });
   const tentative = page.getByTestId('timeline-tentative');
   await expect(tentative).toHaveCount(0);
-  await page.getByText('Timeline settings', { exact: true }).click();
-  const showUndated = page.getByRole('checkbox', { name: 'Show items without a date, time or Due' });
-  await expect(showUndated).not.toBeChecked();
-  await showUndated.check();
-  await page.getByText('Timeline settings', { exact: true }).click();
+  const showUndated = page.locator('.timeline-toolbar').getByRole('button', { name: /^No date/ });
+  await expect(showUndated).toHaveAttribute('aria-pressed', 'false');
+  await showUndated.click();
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
   const saved = await primary(page);
   await expect(tentative).toHaveCount(1);
@@ -95,6 +92,10 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   const minute = page.locator('.timeline-events').getByRole('button', { name: /^One minute title/ }); await minute.scrollIntoViewIfNeeded();
   expect((await minute.boundingBox())!.height).toBeGreaterThanOrEqual(36);
   await expect(minute.locator('strong')).toHaveText('One minute title');
+  await minute.click();
+  const editor = page.getByRole('dialog');
+  await expect(editor.getByRole('button', { name: 'Complete item', exact: true })).toBeVisible();
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByTestId('timeline-travel')).toHaveCSS('border-top-style', 'dashed');
   await expect(page.getByTestId('timeline-travel')).toContainText('30 min');
   await expect(minute).toHaveCSS('border-top-style', 'solid');
@@ -136,8 +137,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true'); expect(errors).toEqual([]);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await page.getByText('Timeline settings', { exact: true }).click();
-  await expect(showUndated).toBeChecked();
-  await showUndated.uncheck();
+  await expect(showUndated).toHaveAttribute('aria-pressed', 'true');
+  await showUndated.click();
   await expect(tentative).toHaveCount(0);
 });

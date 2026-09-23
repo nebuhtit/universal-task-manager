@@ -6,5 +6,5 @@ export function isCalendarItem(item: UniversalItem): boolean {
 }
 export function canManuallyComplete(item: UniversalItem): boolean {
   if (item.isNote || item.external?.readOnly || item.canBeCompleted === false) return false;
-  return item.canBeCompleted === true || (!item.schedule?.allDay && !isCalendarItem(item));
+  return item.canBeCompleted === true || item.preset === 'task' || (!item.schedule?.allDay && !isCalendarItem(item));
 }

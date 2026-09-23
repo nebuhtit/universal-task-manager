@@ -28,6 +28,19 @@ it('suggests relative and future clock reminders after н/r, with more durations
   expect(parseEntry(completed, clock).errors).toEqual([]);
 });
 
+it('offers upcoming times before other days after до or due', () => {
+  const clock = new Date(2026, 8, 23, 10, 10);
+  for (const command of ['до', 'до ', 'due ']) {
+    const text = `Приготовить еду 3ч ${command}`;
+    const result = suggest(text, text.length, clock, command.startsWith('d') ? 'en' : 'ru');
+    expect(result.options.slice(0, 3).map(option => option.label)).toEqual(command.startsWith('d') ? ['due today 12:00', 'due today 15:00', 'due today 18:00'] : ['до сегодня 12:00', 'до сегодня 15:00', 'до сегодня 18:00']);
+    const completed = text.slice(0, result.start) + result.options[0]!.insert + text.slice(result.end);
+    expect(parseEntry(completed, clock).due).toBe(new Date(2026, 8, 23, 12).toISOString());
+  }
+  const late = suggest('Еда до ', 'Еда до '.length, new Date(2026, 8, 23, 16), 'ru');
+  expect(late.options[0]?.label).toBe('до сегодня 18:00');
+});
+
 it.each(['Даша чт 17 00-', 'Даша чт 17:00 -', 'Даша с чт 17:00 по ', 'Даша завтра 17:00-', 'Даша 12.06.2027 17:00-'])('orders range-end hours from the start: %s', text => {
   const options = suggest(text, text.length, now).options;
   expect(options[0]?.label).toBe('18:');

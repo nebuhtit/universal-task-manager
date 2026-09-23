@@ -2,10 +2,10 @@ import { WeatherTimeline } from '../weather/WeatherTimeline';
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { calendarDateKey, effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
-import { PersistedDetails } from '../../components/ui/PersistedDetails';
+import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
-import { Button, Checkbox } from '../../components/ui/primitives';
+import { Button } from '../../components/ui/primitives';
 import { ItemCard } from '../items/ItemCard';
 import { clockService } from '../../services/clockService';
 import { displayViewValue, readItemField } from '../items/fieldDisplay';
@@ -44,6 +44,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   const ru = workspace.calendarPreferences.language === 'ru';
   const zone = workspace.calendarPreferences.timezone;
   const settings = workspace.calendarPreferences.timeline ?? { mode: 'timeline' as const, hideSleep: false };
+  const [allDayOpen, setAllDayOpen] = useState(() => readUiBoolean('calendar:all-day', true));
   const [more, setMore] = useState<UniversalItem[]>([]);
   const [columns, setColumns] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches ? 2 : 4);
   useEffect(() => {
@@ -69,6 +70,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
       <Button size="compact" aria-pressed={settings.hideSleep} onClick={() => onPreferences({ ...settings, hideSleep: !settings.hideSleep })}>{settings.hideSleep ? (ru ? 'Показать полные сутки' : 'Show full day') : (ru ? 'Скрывать сон' : 'Hide sleep')}</Button>
       {data.overdue.length > 0 && <Button size="compact" aria-pressed={settings.showOverdue !== false} onClick={() => onPreferences({ ...settings, showOverdue: settings.showOverdue === false })}>{ru ? 'Просрочено' : 'Overdue'} · {data.overdue.length}</Button>}
       <Button size="compact" aria-pressed={settings.showUndated === true} onClick={() => onPreferences({ ...settings, showUndated: settings.showUndated !== true })}>{ru ? 'Без даты' : 'No date'}{data.undated.length ? ` · ${data.undated.length}` : ''}</Button>
+      {data.allDay.length > 0 && <Button size="compact" aria-pressed={allDayOpen} onClick={() => { persistUiBoolean('calendar:all-day', !allDayOpen); setAllDayOpen(!allDayOpen); }}>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</Button>}
       <details><summary>{ru ? 'Настройки Timeline' : 'Timeline settings'}</summary><div className="timeline-sleep-settings">
         {workspace.calendarPreferences.showExplanations && <><p className="hint">{ru ? 'Duration недатированных задач учитывается в предварительном плане. Даты задач не меняются.' : 'Undated task durations count towards tentative planning. Item dates stay unchanged.'}</p><p>{ru ? 'Сжимается только свободная часть времени выбранного item.' : 'Only unoccupied time of the selected item is collapsed.'}</p></>}
         <p className="timeline-selected-sleep">{ru ? 'Сон: ' : 'Sleep: '}{selectedSleep?.title ?? (ru ? 'не выбран' : 'none')}</p>
@@ -89,9 +91,8 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     </div>}
     {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(data.activeRange)}</div>}
     {data.plannedTasks.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks)}</div>}
-    {data.allDay.length > 0 && <PersistedDetails uiKey="calendar:all-day" defaultOpen className="timeline-top-items"><summary>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</summary>{cards(data.allDay)}</PersistedDetails>}
+    {data.allDay.length > 0 && allDayOpen && <div className="timeline-top-items timeline-all-day-items">{cards(data.allDay)}</div>}
     {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}
-    <WeatherTimeline dateKey={dateKey} zone={zone} ru={ru} segments={segments} legend />
     <div className="timeline-axis" style={{ height: height + 12 }}>
       <WeatherTimeline dateKey={dateKey} zone={zone} ru={ru} segments={segments} />
       {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
