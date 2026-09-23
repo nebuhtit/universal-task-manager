@@ -43,7 +43,9 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   const saved = workspace.items[item.id];
   if (item.eventProgram?.blocks.length && item.schedule?.allDay && !saved?.schedule?.allDay) throw new Error('Remove the program before switching to All day.');
   if (programOverflow(item).length && (JSON.stringify(saved?.eventProgram) !== JSON.stringify(item.eventProgram) || saved?.schedule?.startAt !== item.schedule?.startAt || saved?.schedule?.endAt !== item.schedule?.endAt)) throw new Error('Program blocks are outside the event. Extend the event or adjust the program.');
-  if ((item.external || workspace.items[item.id]?.extensions?.['utm:googleSave']) && (!item.schedule?.startAt || !item.schedule.endAt)) throw new Error('Linked events require both Event opens and Event ends.');
+  const pendingGoogle = workspace.items[item.id]?.extensions?.['utm:googleSave'] as { kind?: string } | undefined;
+  if (pendingGoogle && pendingGoogle.kind !== 'delete' && (!item.schedule?.startAt || !item.schedule.endAt)) throw new Error('Linked events require both Event opens and Event ends.');
+  if (item.external && !item.schedule?.endAt && !item.schedule?.dueAt) throw new Error('Keep a Due date when removing Event ends from a linked item.');
   if (!canManuallyComplete(item) && item.state === 'done' && workspace.items[item.id]?.state !== 'done') throw new Error('Calendar events cannot be marked completed.');
   let result = {
     ...clean(item), title: item.title.trim(), tags: commaList(input.tags), contexts: commaList(input.contexts),

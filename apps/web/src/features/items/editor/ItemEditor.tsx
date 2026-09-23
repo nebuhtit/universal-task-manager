@@ -72,7 +72,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
   onDuplicate?: (item: UniversalItem) => void;
   onTimerStateSave?: (itemId: string, timer: UniversalItem['activeTimer']) => void | Promise<void>;
-  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string; google?: GoogleSaveOptions }) => void | Promise<void>; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
+  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { convertedProject?: string; google?: GoogleSaveOptions; deleteGoogleEvent?: boolean }) => void | Promise<void>; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
@@ -232,7 +232,9 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     }
     const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; else delete next.plannedDate; return next;
   }); };
-  const patchScheduledEnd = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => scheduleWithLinkedEnd(schedule, value)); };
+  const patchScheduledEnd = (value?: string) => { if (!value && item.eventProgram?.blocks.length) { setError('Remove the event program before clearing Event ends.'); return; } transformSchedule((schedule) => {
+    return scheduleWithLinkedEnd(schedule, value);
+  }); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => ({ ...scheduleWithDue(schedule, value), dueDateOnly: false }));
   const patchPlannedDate = (value?: string) => {
     if (!value && clearScheduleReason) { setError(clearScheduleReason); return; }
@@ -251,9 +253,9 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     return next;
     });
   };
-  const patchDateOnlyEnd = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => {
+  const patchDateOnlyEnd = (value?: string) => { if (!value && item.eventProgram?.blocks.length) { setError('Remove the event program before clearing Event ends.'); return; } transformSchedule((schedule) => {
     const next = { ...schedule };
-    if (!value) { delete next.endAt; delete next.estimatedDuration; if (next.allDay && next.startAt) { next.plannedDate = calendarDateKey(new Date(next.startAt), next.timezone); delete next.startAt; delete next.allDay; } return next; }
+    if (!value) { delete next.endAt; if (next.allDay && next.startAt) { next.plannedDate = calendarDateKey(new Date(next.startAt), next.timezone); delete next.startAt; delete next.allDay; } return next; }
     const startDay = next.plannedDate ?? (next.allDay && next.startAt ? calendarDateKey(new Date(next.startAt), next.timezone) : undefined);
     if (!startDay || value < startDay) return next;
     next.startAt = zonedDateStart(startDay, next.timezone).toISOString();
@@ -420,10 +422,15 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         setItem(itemToSave);
       }
       const normalized = normalizeItemForSave({ item: itemToSave, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now });
+      const deleteGoogleEvent = Boolean(googleLink && !normalized.schedule?.endAt);
+      if (deleteGoogleEvent && !workspace.items[item.id]?.external) throw new Error('This Google link belongs to a recurrence occurrence. Open that occurrence to remove its Event ends.');
+      if (deleteGoogleEvent && !window.confirm(workspace.calendarPreferences.language === 'ru'
+        ? 'Удалить связанное событие из Google Календаря? Item останется в UTM. Удаление произойдёт сейчас или при ближайшей синхронизации.'
+        : 'Delete the linked event from Google Calendar? The item stays in UTM. Deletion will happen now or at the next sync.')) return;
       syncCompletionCounter(normalized, now.toISOString());
       if (normalized.closure?.reason !== 'rule') recordCompletionTransition(normalized, initial.state, now.toISOString());
       syncCompletionCounter(normalized, now.toISOString());
-      await onSave(normalized, { ...(convertedProject ? { convertedProject } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
+      await onSave(normalized, { ...(convertedProject ? { convertedProject } : {}), ...(deleteGoogleEvent ? { deleteGoogleEvent: true } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
     } catch (reason) { setGoogleConflict(reason instanceof GoogleEditConflict); setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { savingRef.current = false; setSaving(false); }
   };

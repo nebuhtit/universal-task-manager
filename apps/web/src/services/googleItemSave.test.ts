@@ -11,6 +11,17 @@ const calendars = { items: [{ id: 'source', primary: true, accessRole: 'owner', 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 describe('unified Google item save', () => {
+  it('deletes a linked event after the local end was cleared, and treats an already deleted event as success', async () => {
+    const item = fixture(); delete item.schedule!.endAt;
+    const operation: GoogleSaveOperation = { kind: 'delete', calendarId: 'source', destination: 'source', eventId: 'event', accountEmail: 'source', draft: { title: '', description: '', location: '', start: '', end: '', allDay: false, timeZone: 'UTC', busy: true } };
+    item.extensions = { [GOOGLE_SAVE_EXTENSION]: operation };
+    const fetch = vi.fn(async () => new Response(null, { status: 204 })); vi.stubGlobal('fetch', fetch);
+    const persist = vi.fn(async () => {}); const apply = vi.fn(async () => {});
+    const args = { token: 'test', workspaceId: 'workspace', accountEmail: 'source', item, options: { calendarId: 'source', busy: true, baseline: item }, persist, apply };
+    await saveGoogleItem(args);
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/events/event'), expect.objectContaining({ method: 'DELETE' }));
+    expect(apply).toHaveBeenCalledWith('source', { id: 'event', status: 'cancelled' }, true);
+  });
   it('prepares an idempotent durable operation without authorization or network', async () => {
     const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
     const item = fixture(); const args = { workspaceId: 'workspace', accountEmail: 'source', item, options: { calendarId: 'source', busy: true, baseline: item } };

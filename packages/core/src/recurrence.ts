@@ -608,7 +608,7 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
   let untouched = 0;
   consolidateHabitOccurrences(workspace, now);
   const templates = Object.values(workspace.items).filter(
-    (item) => item.role === 'series_template' && item.recurrence && recurrenceAnchor(item) && !itemDeletionTime(workspace, item),
+    (item) => item.role === 'series_template' && !item.occurrence && item.recurrence && recurrenceAnchor(item) && !itemDeletionTime(workspace, item),
   );
   for (const series of templates) {
     try {

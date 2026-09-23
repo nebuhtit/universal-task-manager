@@ -45,6 +45,16 @@ describe('Google Calendar workspace mirror', () => {
     expect(workspace.items['google:primary:same-event']).toEqual(before);
   });
 
+  it('does not recreate a Google mirror while its linked UTM item is queued for deletion', () => {
+    const workspace = createWorkspace('Pending deletion');
+    const item = createItem('Local range');
+    item.extensions = { 'utm:googleSave': { kind: 'delete', calendarId: 'primary', eventId: 'event-1', accountEmail: 'owner@example.com' } };
+    workspace.items[item.id] = item;
+    const event = { id: 'event-1', summary: 'Old event', start: { dateTime: '2026-08-31T10:00:00Z' }, end: { dateTime: '2026-08-31T11:00:00Z' } };
+    applyGoogleCalendarSync(workspace, { connectionId: 'connection-1', calendarId: 'primary', events: [event], syncedAt, fullSync: true });
+    expect(Object.values(workspace.items)).toEqual([item]);
+  });
+
   it('repairs an already mirrored recurring item even when its Google etag is unchanged', () => {
     const workspace = createWorkspace('Google repair');
     const event = {

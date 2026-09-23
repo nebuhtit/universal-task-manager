@@ -81,7 +81,7 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
   });
 }
 
-export async function googleJson<T>(url: string, accessToken: string, body?: unknown, options?: { method?: 'PATCH' | 'POST'; etag?: string }): Promise<T> {
+export async function googleJson<T>(url: string, accessToken: string, body?: unknown, options?: { method?: 'PATCH' | 'POST' | 'DELETE'; etag?: string }): Promise<T> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), GOOGLE_REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -98,6 +98,7 @@ export async function googleJson<T>(url: string, accessToken: string, body?: unk
     Object.assign(error, { status: response.status, details: body.slice(0, 500) });
     throw error;
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 

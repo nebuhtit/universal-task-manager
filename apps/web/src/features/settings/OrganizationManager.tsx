@@ -156,23 +156,25 @@ function ViewActions({ view, workspace, commit }: { view: SavedView; workspace: 
   return <div className="organization-view-actions"><Button size="compact" variant={pinned ? 'primary' : 'secondary'} className={`organization-pin-home${pinned ? ' is-pinned' : ''}`} aria-label={label} aria-pressed={pinned} title={label} onClick={toggle}><LineIcon name="pin"/><span>{pinned ? 'Pinned' : 'Pin to Home'}</span></Button></div>;
 }
 
-export function splitParaEvents(view: SavedView): { items: SavedView; events: SavedView } {
+export function splitParaCompletionViews(view: SavedView): { completable: SavedView; other: SavedView } {
   return {
-    items: { ...view, query: { source: `(${view.query.source}) && (schedule.startAt == null || schedule.endAt == null)` } },
-    events: { ...view, id: `${view.id}:events`, name: 'Events', query: { source: `(${view.query.source}) && schedule.startAt != null && schedule.endAt != null` } },
+    completable: { ...view, query: { source: `(${view.query.source}) && canComplete == true` } },
+    other: { ...view, id: `${view.id}:other`, name: 'Other items and events', query: { source: `(${view.query.source}) && canComplete != true` } },
   };
 }
 
 function ScopedView({ view, workspace, commit, onEditItem, onState, onAddItem, onQuickAddItem, celebrationColors }: { view: SavedView; workspace: WorkspaceDocument; commit: Commit; onEditItem: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void; onAddItem: (view: SavedView) => void; onQuickAddItem: (view: SavedView, title: string) => void; celebrationColors?: ReadonlyMap<string, string> | undefined }) {
-  const uiKey = `para-events:${view.id}`;
-  const [showEvents, setShowEvents] = useState(() => readUiBoolean(uiKey, false));
-  useEffect(() => { setShowEvents(readUiBoolean(uiKey, false)); }, [uiKey]);
+  const completableKey = `para-completable:${view.id}`;
+  const otherKey = `para-events:${view.id}`;
+  const [showCompletable, setShowCompletable] = useState(() => readUiBoolean(completableKey, true));
+  const [showOther, setShowOther] = useState(() => readUiBoolean(otherKey, false));
+  useEffect(() => { setShowCompletable(readUiBoolean(completableKey, true)); setShowOther(readUiBoolean(otherKey, false)); }, [completableKey, otherKey]);
   const viewTags = Array.isArray(view.creationDefaults?.tags) ? view.creationDefaults.tags.filter((tag): tag is string => typeof tag === 'string') : [];
   const accent = view.project ? organizationAccentFor(workspace, 'project', view.project) : view.area ? organizationAccentFor(workspace, 'area', view.area) : viewTags.length === 1 ? organizationAccentFor(workspace, 'tag', viewTags[0]) : undefined;
   const displayView = accent ? { ...view, accent } : view;
-  const { items: itemsView, events: eventsView } = splitParaEvents(displayView);
-  const actions = <div className="organization-view-actions"><Checkbox checked={showEvents} onChange={(event) => { setShowEvents(event.target.checked); persistUiBoolean(uiKey, event.target.checked); }} label="Show events" /><ViewActions view={displayView} workspace={workspace} commit={commit} /></div>;
-  return <><SavedViewSection view={itemsView} workspace={workspace} onEditItem={onEditItem} onState={onState} onRendererChange={() => {}} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} allowAdd initialOpen {...(celebrationColors ? { celebrationColors } : {})} showTechnicalSummary={false} headerActions={actions} />{showEvents && <SavedViewSection view={eventsView} workspace={workspace} onEditItem={onEditItem} onState={onState} onRendererChange={() => {}} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} initialOpen {...(celebrationColors ? { celebrationColors } : {})} showTechnicalSummary={false} />}</>;
+  const { completable, other } = splitParaCompletionViews(displayView);
+  const language = workspace.calendarPreferences.language;
+  return <><div className="organization-view-actions organization-scope-filters"><Button size="compact" variant={showCompletable ? 'primary' : 'secondary'} aria-pressed={showCompletable} onClick={() => { if (showCompletable && !showOther) return; setShowCompletable(!showCompletable); persistUiBoolean(completableKey, !showCompletable); }}>{language === 'ru' ? 'Можно завершить' : 'Completable items'}</Button><Button size="compact" variant={showOther ? 'primary' : 'secondary'} aria-pressed={showOther} onClick={() => { if (showOther && !showCompletable) return; setShowOther(!showOther); persistUiBoolean(otherKey, !showOther); }}>{language === 'ru' ? 'Остальные' : 'Other items and events'}</Button><ViewActions view={displayView} workspace={workspace} commit={commit} /></div>{showCompletable && <SavedViewSection view={completable} workspace={workspace} onEditItem={onEditItem} onState={onState} onRendererChange={() => {}} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} allowAdd initialOpen {...(celebrationColors ? { celebrationColors } : {})} showTechnicalSummary={false} />}{showOther && <SavedViewSection view={other} workspace={workspace} onEditItem={onEditItem} onState={onState} onRendererChange={() => {}} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} initialOpen {...(celebrationColors ? { celebrationColors } : {})} showTechnicalSummary={false} />}</>;
 }
 
 function ProjectAreaLinks({ project, workspace, commit }: { project: string; workspace: WorkspaceDocument; commit: Commit }) {

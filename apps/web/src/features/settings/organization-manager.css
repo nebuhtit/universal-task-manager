@@ -104,6 +104,7 @@
 .organization-scoped-project-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-border); }
 .organization-scoped-project-controls > .organization-project-name { font-size: var(--font-size-section); }
 .organization-view-actions { display: flex; align-items: center; gap: var(--space-2); }
+.organization-scope-filters { flex-wrap: wrap; justify-content: flex-end; padding-bottom: var(--space-2); }
 .organization-pin-home { color: var(--color-text-secondary); }
 .organization-pin-home.is-pinned { color: var(--color-accent-contrast); }
 .organization-pin-home .line-icon { width: var(--space-4); height: var(--space-4); }

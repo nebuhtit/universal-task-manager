@@ -45,6 +45,13 @@ describe('item editor normalization', () => {
     item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z' };
     expect(() => normalize({ item, workspace })).toThrow('require both');
   });
+  it('keeps a linked item with Due after Event ends is cleared', () => {
+    const item = createItem('Linked'); const workspace = createWorkspace('Linked');
+    item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z', dueAt: '2030-09-24T12:00:00Z', estimatedDuration: 'PT45M' };
+    item.external = { provider: 'google_calendar', connectionId: 'conn', calendarId: 'cal', eventId: 'event', sourceUrl: 'https://calendar.google.com', syncedAt: '2030-09-20T12:00:00Z', readOnly: false };
+    workspace.items[item.id] = structuredClone(item);
+    expect(normalize({ item, workspace }).schedule?.endAt).toBeUndefined();
+  });
   it('normalizes scalar editor drafts before save', () => { const result = normalize(); expect(result.title).toBe('Test item'); expect(result.tags).toEqual(['work', 'test']); expect(result.updatedAt).toBe('2026-08-26T12:00:00.000Z'); });
   it('preserves the non-actionable note marker', () => { const item = createItem('Reference'); item.isNote = true; expect(normalize({ item }).isNote).toBe(true); });
   it('rejects an end before the opening date', () => { const item = createItem('Invalid'); item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:00Z', endAt: '2026-08-26T11:00:00Z' }; expect(() => normalize({ item })).toThrow('Event ends must be after'); });

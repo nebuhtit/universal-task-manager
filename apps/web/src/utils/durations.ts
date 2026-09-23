@@ -60,7 +60,7 @@ export const scheduleWithDuration = (schedule: Schedule, duration?: { amount: nu
   }
   next.estimatedDuration = toIsoDuration(duration.amount, duration.unit);
   const start = next.startAt ? Date.parse(next.startAt) : Number.NaN;
-  if (Number.isFinite(start)) next.endAt = new Date(start + calendarDurationMs(duration.amount, duration.unit)).toISOString();
+  if (schedule.endAt && Number.isFinite(start)) next.endAt = new Date(start + calendarDurationMs(duration.amount, duration.unit)).toISOString();
   return next;
 };
 
@@ -98,7 +98,7 @@ export const scheduleWithEnd = (schedule: Schedule, endAt?: string): Schedule =>
 /** Editor linkage: an explicit end owns the estimate, just as an estimate owns the end. */
 export const scheduleWithLinkedEnd = (schedule: Schedule, endAt?: string): Schedule => {
   const next = scheduleWithEnd(schedule, endAt);
-  if (!endAt) { delete next.estimatedDuration; return next; }
+  if (!endAt) return next;
   const start = next.startAt ? Date.parse(next.startAt) : Number.NaN;
   const end = Date.parse(endAt);
   if (Number.isFinite(start) && Number.isFinite(end) && end > start) {

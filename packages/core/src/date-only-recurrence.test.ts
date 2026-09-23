@@ -43,6 +43,17 @@ it('does not recreate a deleted cycle and cascades deletion to nested descendant
   expect(itemDeletionTime(workspace, series)).toBeUndefined();
 });
 
+it('projects a nested recurring template only through its parent series', () => {
+  const { workspace, series } = fixture();
+  const first = createOccurrence(series, new Date('2026-10-21T22:00:00Z'), 0);
+  const nested = makeSeries(first, 'FREQ=WEEKLY;BYDAY=TH');
+  workspace.items[nested.id] = nested;
+  const rows = projectOccurrences(workspace, new Date('2026-10-21T00:00:00Z'), new Date('2026-10-23T00:00:00Z'));
+  expect(rows.filter((row) => row.materializedItemId === nested.id)).toHaveLength(1);
+  reconcileRecurrences(workspace, new Date('2026-10-30T12:00:00Z'));
+  expect(Object.values(workspace.items).some((item) => item.occurrence?.seriesId === nested.id)).toBe(false);
+});
+
 it('hides legacy live children of deleted parents without mutating them', () => {
   const { workspace, series } = fixture();
   const child = createOccurrence(series, new Date('2026-10-21T22:00:00Z'), 0);

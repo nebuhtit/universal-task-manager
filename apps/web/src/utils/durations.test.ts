@@ -53,6 +53,10 @@ describe('duration utilities', () => {
     const shortened = scheduleWithLinkedEnd(stretched, '2026-09-26T19:30:00.000Z');
     expect(shortened.estimatedDuration).toBe('PT90M');
     expect(scheduleWithDuration(shortened, { amount: 45, unit: 'minutes' }).endAt).toBe('2026-09-26T18:45:00.000Z');
-    expect(scheduleWithLinkedEnd(shortened).estimatedDuration).toBeUndefined();
+    const withoutEnd = scheduleWithLinkedEnd(shortened);
+    expect(withoutEnd.endAt).toBeUndefined();
+    expect(withoutEnd.estimatedDuration).toBe('PT90M');
+    expect(scheduleWithDuration(withoutEnd, { amount: 2, unit: 'hours' })).toMatchObject({ estimatedDuration: 'PT2H' });
+    expect(scheduleWithDuration(withoutEnd, { amount: 2, unit: 'hours' }).endAt).toBeUndefined();
   });
 });

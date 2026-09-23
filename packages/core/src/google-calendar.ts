@@ -207,6 +207,10 @@ export function googleCalendarProjection(item: UniversalItem): UniversalItem {
 /** Applies one full or incremental calendar response in-place. */
 export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: GoogleCalendarSyncBatch): { added: number; updated: number; removed: number } {
   const seen = new Set<string>();
+  const pendingDeletions = new Set(Object.values(workspace.items).flatMap((item) => {
+    const pending = item.extensions?.['utm:googleSave'] as { kind?: string; calendarId?: string; eventId?: string } | undefined;
+    return pending?.kind === 'delete' && pending.calendarId && pending.eventId ? [externalId(pending.calendarId, pending.eventId)] : [];
+  }));
   const linkedByEvent = new Map<string, UniversalItem>();
   const restoredByKey = new Map<string, UniversalItem>();
   for (const item of Object.values(workspace.items)) if (!item.deletedAt && !item.external?.readOnly) {
@@ -222,6 +226,12 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
   let added = 0; let updated = 0; let removed = 0;
   for (const event of batch.events) {
     const id = externalId(batch.calendarId, event.id);
+    if (pendingDeletions.has(id)) {
+      seen.add(id);
+      const mirror = workspace.items[id];
+      if (mirror?.external?.readOnly) { delete workspace.items[id]; delete workspace.tombstones[id]; removed += 1; }
+      continue;
+    }
     seen.add(id);
     const linked = linkedByEvent.get(id);
     if (linked) seen.add(linked.id);

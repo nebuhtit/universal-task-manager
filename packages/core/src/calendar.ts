@@ -37,7 +37,9 @@ function projection(item: UniversalItem, sourceItemId = item.id, virtual = false
 export function projectOccurrences(workspace: WorkspaceDocument, rangeStart: Date, rangeEnd: Date): ProjectedOccurrence[] {
   if (!(rangeStart < rangeEnd)) throw new Error('Calendar range end must be after its start');
   const output: ProjectedOccurrence[] = [];
-  const templates = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.recurrence && recurrenceAnchor(item) && !itemDeletionTime(workspace, item));
+  // A legacy item can be both a materialized occurrence and a series template.
+  // Its parent already projects that cycle; projecting it again creates twins.
+  const templates = Object.values(workspace.items).filter((item) => item.role === 'series_template' && !item.occurrence && item.recurrence && recurrenceAnchor(item) && !itemDeletionTime(workspace, item));
   const knownSeries = new Set(templates.map((item) => item.id));
 
   for (const item of Object.values(workspace.items)) {

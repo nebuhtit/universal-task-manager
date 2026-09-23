@@ -1,18 +1,24 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { compileQuery, createItem, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition } from '@utm/core';
-import { OrganizationManager, createParaStructurePackage, paraAreaViews, paraProjectView, paraTagView, paraViewsForExport, pinParaView, splitParaEvents, unpinParaView } from './OrganizationManager';
+import { OrganizationManager, createParaStructurePackage, paraAreaViews, paraProjectView, paraTagView, paraViewsForExport, pinParaView, splitParaCompletionViews, unpinParaView } from './OrganizationManager';
 import { applyViewCreationDefaults } from '../views/applyCreationDefaults';
 
 describe('OrganizationManager', () => {
-  it('separates scheduled events from other PARA items without changing the saved tag filter', () => {
-    const { items, events } = splitParaEvents(paraTagView('C.Surf'));
+  it('separates completable items from every other item without changing the saved tag filter', () => {
+    const { completable, other } = splitParaCompletionViews(paraTagView('C.Surf'));
     const task = createItem('Task'); task.tags = ['C.Surf'];
-    const event = createItem('Event'); event.tags = ['C.Surf']; event.schedule = { timezone: 'UTC', startAt: '2030-01-01T12:00:00Z', endAt: '2030-01-01T13:00:00Z' };
-    expect(compileQuery(items.query.source)(task)).toBe(true);
-    expect(compileQuery(items.query.source)(event)).toBe(false);
-    expect(compileQuery(events.query.source)(task)).toBe(false);
-    expect(compileQuery(events.query.source)(event)).toBe(true);
+    const event = createItem('Event', 'event'); event.tags = ['C.Surf']; event.schedule = { timezone: 'UTC', startAt: '2030-01-01T12:00:00Z', endAt: '2030-01-01T13:00:00Z' };
+    const completableEvent = createItem('Tickable event'); completableEvent.tags = ['C.Surf']; completableEvent.schedule = structuredClone(event.schedule); completableEvent.canBeCompleted = true;
+    const nonCompletable = createItem('Untickable'); nonCompletable.tags = ['C.Surf']; nonCompletable.canBeCompleted = false;
+    expect(compileQuery(completable.query.source)(task)).toBe(true);
+    expect(compileQuery(completable.query.source)(event)).toBe(false);
+    expect(compileQuery(completable.query.source)(completableEvent)).toBe(true);
+    expect(compileQuery(completable.query.source)(nonCompletable)).toBe(false);
+    expect(compileQuery(other.query.source)(task)).toBe(false);
+    expect(compileQuery(other.query.source)(event)).toBe(true);
+    expect(compileQuery(other.query.source)(completableEvent)).toBe(false);
+    expect(compileQuery(other.query.source)(nonCompletable)).toBe(true);
   });
   it('renders an already-open legacy workspace before persistence migration completes', () => {
     const workspace = createWorkspace('Legacy settings');

@@ -5,7 +5,7 @@ import { canEditGoogleEvent, googleEventChanges, GoogleEditConflict, updateSingl
 
 export const GOOGLE_SAVE_EXTENSION = 'utm:googleSave';
 export interface GoogleSaveOperation {
-  kind: 'create' | 'edit' | 'move';
+  kind: 'create' | 'edit' | 'move' | 'delete';
   calendarId: string;
   destination: string;
   eventId: string;
@@ -65,6 +65,14 @@ export async function saveGoogleItem(args: {
 }): Promise<void> {
   const { token, item, options, persist, apply } = args;
   let pending = item.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
+  if (pending?.kind === 'delete') {
+    if (pending.accountEmail !== args.accountEmail) throw new Error('Reconnect the original Google account to delete this event.');
+    await persist({ ...pending, attempted: true });
+    try { await googleJson<void>(eventUrl(pending.calendarId, pending.eventId), token, undefined, { method: 'DELETE' }); }
+    catch (reason) { if ((reason as { status?: number }).status !== 404 && (reason as { status?: number }).status !== 410) throw reason; }
+    await apply(pending.calendarId, { id: pending.eventId, status: 'cancelled' }, true);
+    return;
+  }
   const draft = itemGoogleDraft(item, options.busy);
   if (pending && options.rebased && pending.kind !== 'create' && pending.baseline?.etag !== options.baseline.external?.etag) pending = { ...pending, draft, baseline: itemGoogleBaseline(options.baseline), attempted: false };
   const newerDraft = Boolean(pending && ((Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => key === 'travelDuration' ? (pending!.draft[key] ?? '') !== (draft[key] ?? '') : pending!.draft[key] !== draft[key]) || pending.destination !== options.calendarId));
