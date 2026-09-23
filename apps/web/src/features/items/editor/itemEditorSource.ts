@@ -8,8 +8,13 @@ export function itemEditorSource(workspace: WorkspaceDocument | undefined, item:
   return series && workspace && !itemDeletionTime(workspace, series) ? series : workspace?.items[item.id] ?? item;
 }
 
-/** A Google event belongs to one live cycle, never the recurrence template. */
+/** Prefer an existing identity before resolving a template to its live cycle.
+ * Older workspaces can contain linked templates, including nested templates.
+ * Redirecting those to a child loses the link needed to queue deletion.
+ */
 export function googleActionItem(workspace: WorkspaceDocument, item: UniversalItem): UniversalItem {
-  if (item.role !== 'series_template') return workspace.items[item.id] ?? item;
-  return Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id) ?? item;
+  const saved = workspace.items[item.id] ?? item;
+  const pending = saved.extensions?.['utm:googleSave'] as { kind?: string } | undefined;
+  if (saved.external || pending?.kind === 'delete' || saved.role !== 'series_template') return saved;
+  return Object.values(workspace.items).find((entry) => !itemDeletionTime(workspace, entry) && entry.occurrence?.seriesId === saved.id) ?? saved;
 }
