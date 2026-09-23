@@ -13,6 +13,7 @@ import { formatViewDate } from '../../utils/dates';
 import { formatComputedDuration } from '../items';
 import { FieldIcon } from '../items/FieldIcon';
 import { SavedViewSection } from '../views/SavedViewSection';
+import { persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { VIEW_TEMPLATE_FIELDS } from '../views/viewTemplates';
 import { useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
 import { UserDataText } from '../../i18n-react';
@@ -155,11 +156,23 @@ function ViewActions({ view, workspace, commit }: { view: SavedView; workspace: 
   return <div className="organization-view-actions"><Button size="compact" variant={pinned ? 'primary' : 'secondary'} className={`organization-pin-home${pinned ? ' is-pinned' : ''}`} aria-label={label} aria-pressed={pinned} title={label} onClick={toggle}><LineIcon name="pin"/><span>{pinned ? 'Pinned' : 'Pin to Home'}</span></Button></div>;
 }
 
+export function splitParaEvents(view: SavedView): { items: SavedView; events: SavedView } {
+  return {
+    items: { ...view, query: { source: `(${view.query.source}) && (schedule.startAt == null || schedule.endAt == null)` } },
+    events: { ...view, id: `${view.id}:events`, name: 'Events', query: { source: `(${view.query.source}) && schedule.startAt != null && schedule.endAt != null` } },
+  };
+}
+
 function ScopedView({ view, workspace, commit, onEditItem, onState, onAddItem, onQuickAddItem, celebrationColors }: { view: SavedView; workspace: WorkspaceDocument; commit: Commit; onEditItem: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void; onAddItem: (view: SavedView) => void; onQuickAddItem: (view: SavedView, title: string) => void; celebrationColors?: ReadonlyMap<string, string> | undefined }) {
+  const uiKey = `para-events:${view.id}`;
+  const [showEvents, setShowEvents] = useState(() => readUiBoolean(uiKey, false));
+  useEffect(() => { setShowEvents(readUiBoolean(uiKey, false)); }, [uiKey]);
   const viewTags = Array.isArray(view.creationDefaults?.tags) ? view.creationDefaults.tags.filter((tag): tag is string => typeof tag === 'string') : [];
   const accent = view.project ? organizationAccentFor(workspace, 'project', view.project) : view.area ? organizationAccentFor(workspace, 'area', view.area) : viewTags.length === 1 ? organizationAccentFor(workspace, 'tag', viewTags[0]) : undefined;
   const displayView = accent ? { ...view, accent } : view;
-  return <SavedViewSection view={displayView} workspace={workspace} onEditItem={onEditItem} onState={onState} onRendererChange={() => {}} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} allowAdd initialOpen {...(celebrationColors ? { celebrationColors } : {})} showTechnicalSummary={false} headerActions={<ViewActions view={displayView} workspace={workspace} commit={commit} />} />;
+  const { items: itemsView, events: eventsView } = splitParaEvents(displayView);
+  const actions = <div className="organization-view-actions"><Checkbox checked={showEvents} onChange={(event) => { setShowEvents(event.target.checked); persistUiBoolean(uiKey, event.target.checked); }} label="Show events" /><ViewActions view={displayView} workspace={workspace} commit={commit} /></div>;
+  return <><SavedViewSection view={itemsView} workspace={workspace} onEditItem={onEditItem} onState={onState} onRendererChange={() => {}} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} allowAdd initialOpen {...(celebrationColors ? { celebrationColors } : {})} showTechnicalSummary={false} headerActions={actions} />{showEvents && <SavedViewSection view={eventsView} workspace={workspace} onEditItem={onEditItem} onState={onState} onRendererChange={() => {}} onAddItem={onAddItem} onQuickAddItem={onQuickAddItem} initialOpen {...(celebrationColors ? { celebrationColors } : {})} showTechnicalSummary={false} />}</>;
 }
 
 function ProjectAreaLinks({ project, workspace, commit }: { project: string; workspace: WorkspaceDocument; commit: Commit }) {

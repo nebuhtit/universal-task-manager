@@ -8,7 +8,8 @@ import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { Button } from '../../components/ui/primitives';
 import { ItemCard } from '../items/ItemCard';
 import { clockService } from '../../services/clockService';
-import { displayViewValue, readItemField } from '../items/fieldDisplay';
+import { displayViewValue, readItemField, viewFieldLabel } from '../items/fieldDisplay';
+import { FieldIcon } from '../items/FieldIcon';
 import { timelineData } from './timelineData';
 import { calendarUndatedItems } from './calendarVisibility';
 import { buildSegments, layoutEvents, positionAt, type Segment } from './timelineLayout';
@@ -132,7 +133,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
           return <button type="button" data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travelBack ? 'travel-back' : event.travel ? 'travel' : 'event'}`} className={`timeline-event${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}${event.tentativeOverdue ? ' timeline-tentative-overdue' : ''}`} style={{ ...columnStyle(event), ...(safeColor && !event.tentativeOverdue ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travelBack ? 'timeline-travel-back' : event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
             <strong>{(event.invalid || overdue) && '⚠ '}{event.continuedBefore && '← '}{travelLabel ? `${travelLabel} · ` : ''}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
             {overdue && event.height >= 72 && <small>{ru ? 'Не выполнено в плановый день' : 'Planned day missed'}: {event.item.schedule?.plannedDate}</small>}
-            {event.tentative && event.height >= 54 && <small>{tentativeLabel.trim()}</small>}{extra.map(({ field, text }, i) => <small key={i} style={safeColor && (field === 'tags' || field === 'external.calendarId') ? { color: safeColor } : undefined}>{text}</small>)}
+            {event.tentative && event.height >= 54 && <small>{tentativeLabel.trim()}</small>}{extra.map(({ field, text }, i) => <small className="timeline-property" key={i} style={safeColor && (field === 'tags' || field === 'external.calendarId') ? { color: safeColor } : undefined}><FieldIcon path={field} label={viewFieldLabel(workspace, field)} />{text}</small>)}
             {!event.travel && event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
           </button>;
         })}

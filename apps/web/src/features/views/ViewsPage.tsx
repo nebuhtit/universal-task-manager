@@ -28,7 +28,7 @@ import { ViewPortabilityEditor } from './ViewPortabilityEditor';
 import { ViewEditorSection } from './ViewEditorSection';
 import { useWorkspaceBoundaryNow } from './useViewEvaluation';
 import { modernizeLegacyViewScope } from './legacyViewScope';
-import { BUILT_IN_VIEW_TEMPLATES, completableTemplateQuery, isViewTemplate, VIEW_TEMPLATE_EXTENSION, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
+import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_EXTENSION, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
 import { ViewStatisticsEditor } from './ViewStatisticsEditor';
 import './views-editor.css';
 
@@ -339,7 +339,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       const id = createId();
       const extensions: Record<string, unknown> = { ...editing.extensions, [VIEW_TEMPLATE_EXTENSION]: true };
       delete extensions[MANUAL_ORDER_EXTENSION];
-      const saved: SavedView = { ...clean(editing), id, name: templateName.trim(), query: { ...editing.query, source: completableTemplateQuery(editing.query.source) }, sortSource: serializeSortRules(parsedSort), sort: parsedSort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })), extensions };
+      const saved: SavedView = { ...clean(editing), id, name: templateName.trim(), sortSource: serializeSortRules(parsedSort), sort: parsedSort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })), extensions };
       commit('Save view template', (draft) => { draft.views[id] = clean(saved); });
       setSelectedTemplateId(id);
       setTemplateName(`${editing.name} template`);
@@ -362,7 +362,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   };
 
   const views = orderedSavedViews(workspace);
-  const homeViews = views.map((view) => ({ ...view, query: { ...view.query, source: completableTemplateQuery(view.query.source) } }));
+  const homeViews = views;
   const isExpanded = (view: SavedView) => viewExpansion[view.id] ?? readUiBoolean(`view:${view.id}`, true);
   const expandedViewIds = new Set(views.filter(isExpanded).map((view) => view.id));
   const hiddenItemsByView = workspace.calendarPreferences.hideDuplicateItemsAcrossHomeViews

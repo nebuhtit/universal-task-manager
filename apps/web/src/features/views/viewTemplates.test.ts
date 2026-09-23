@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, compileQuery, createItem } from '@utm/core';
 import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
+import { filterFieldOptions } from './fieldCatalog';
+import { createWorkspace } from '@utm/core';
 
 describe('view templates', () => {
   it('provides the requested reusable built-in templates with compact fields', () => {
@@ -57,10 +59,11 @@ describe('view templates', () => {
     expect(view.extensions).toEqual({ custom: true });
   });
 
-  it('adds completion eligibility when an existing user template is applied', () => {
+  it('preserves an editable completion condition when a user template is applied', () => {
     const source = { ...BUILT_IN_VIEW_TEMPLATES[5]!, query: { source: 'state == "open"' } };
     const applied = viewFromTemplate(source, 'new-view');
-    expect(applied.query.source).toBe('(state == "open") && canComplete == true');
+    expect(applied.query.source).toBe('state == "open"');
     expect(source.query.source).toBe('state == "open"');
+    expect(filterFieldOptions(createWorkspace()).some((field) => field.path === 'canComplete')).toBe(true);
   });
 });

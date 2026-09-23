@@ -9,7 +9,7 @@ describe('calendar card fields', () => {
     expect(calendarListFields(settings)).toContain('schedule.startAt');
     expect(calendarTimelineFields(settings)).not.toContain('schedule.startAt');
     expect(calendarTimelineFields(settings)).not.toContain('schedule.dueAt');
-    expect(calendarTimelineFields(settings)).toContain('reminders');
+    expect(calendarTimelineFields(settings)).toContain('reminderTiming');
   });
 
   it('preserves independent user choices for List and Timeline', () => {

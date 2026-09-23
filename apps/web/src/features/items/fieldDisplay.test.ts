@@ -35,6 +35,7 @@ describe('item field display helpers', () => {
     expect(reminders[1]).toContain('normal');
     expect(reminders[2]).toBe('15min before Event opens · urgent');
     expect(displayViewValue(reminders, 'reminders')).not.toContain('{');
+    expect(displayViewValue(readItemField(item, 'reminderTiming', workspace), 'reminderTiming')).toBe('2 h before due · 14:00 · 15 min before start');
     expect(viewFieldOptions(workspace).filter((field) => ['reminders', 'hasActiveReminders', 'nextReminderAt'].includes(field.path)).map((field) => field.group))
       .toEqual(['Reminders', 'Reminders', 'Reminders']);
     expect(viewFieldOptions(workspace).filter((field) => ['reminders', 'hasActiveReminders', 'nextReminderAt'].includes(field.path)).map((field) => field.label))

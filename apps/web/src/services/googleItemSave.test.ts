@@ -40,6 +40,29 @@ describe('unified Google item save', () => {
     await saveGoogleItem(args);
     expect(inserts).toBe(2); expect(apply).toHaveBeenCalledOnce(); expect(item.schedule!.estimatedDuration).toBe('PT20M');
   });
+  it('finishes a pending create and then sends a newer local edit to the same Google event', async () => {
+    const item = fixture();
+    const oldDraft = itemGoogleDraft(item, true);
+    item.title = 'Updated meeting';
+    item.extensions = { [GOOGLE_SAVE_EXTENSION]: { kind: 'create', calendarId: 'source', destination: 'source', eventId: 'utm123456', accountEmail: 'source', draft: oldDraft } };
+    let creates = 0; let edits = 0;
+    const remote = { id: 'utm123456', etag: 'v1', summary: 'Meeting', start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' } };
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      if (init?.method === 'POST') { creates++; return reply(remote); }
+      if (init?.method === 'PATCH') { edits++; return reply({ ...remote, etag: 'v2', summary: 'Updated meeting' }); }
+      return reply(remote);
+    }));
+    const persist = async (op: GoogleSaveOperation) => { item.extensions![GOOGLE_SAVE_EXTENSION] = structuredClone(op); };
+    const apply = vi.fn(async (_calendarId: string, _event: unknown, _finished: boolean, next?: GoogleSaveOperation) => {
+      if (next) item.extensions![GOOGLE_SAVE_EXTENSION] = structuredClone(next);
+      else delete item.extensions![GOOGLE_SAVE_EXTENSION];
+    });
+    await saveGoogleItem({ token: 'test', workspaceId: 'workspace', accountEmail: 'source', item, options: { calendarId: 'source', busy: true, baseline: fixture() }, persist, apply });
+    expect(creates).toBe(1); expect(edits).toBe(1);
+    expect(apply).toHaveBeenNthCalledWith(1, 'source', expect.objectContaining({ id: 'utm123456' }), true, expect.objectContaining({ draft: expect.objectContaining({ title: 'Updated meeting' }) }));
+    expect(item.extensions![GOOGLE_SAVE_EXTENSION]).toBeUndefined();
+  });
   it('recovers a lost move response without patching or moving twice', async () => {
     const item = fixture(); item.external = { provider: 'google_calendar', connectionId: 'connection', eventId: 'event', calendarId: 'source', sourceUrl: '', readOnly: false, syncedAt: '', startAt: item.schedule!.startAt!, endAt: item.schedule!.endAt!, etag: 'v1' };
     let remote = { id: 'event', iCalUID: 'unique', summary: item.title, description: '', location: '', etag: 'v1', start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' } };

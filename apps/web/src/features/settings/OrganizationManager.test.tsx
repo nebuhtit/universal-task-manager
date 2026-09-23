@@ -1,10 +1,19 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { createItem, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition } from '@utm/core';
-import { OrganizationManager, createParaStructurePackage, paraAreaViews, paraProjectView, paraTagView, paraViewsForExport, pinParaView, unpinParaView } from './OrganizationManager';
+import { compileQuery, createItem, createWorkspace, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition } from '@utm/core';
+import { OrganizationManager, createParaStructurePackage, paraAreaViews, paraProjectView, paraTagView, paraViewsForExport, pinParaView, splitParaEvents, unpinParaView } from './OrganizationManager';
 import { applyViewCreationDefaults } from '../views/applyCreationDefaults';
 
 describe('OrganizationManager', () => {
+  it('separates scheduled events from other PARA items without changing the saved tag filter', () => {
+    const { items, events } = splitParaEvents(paraTagView('C.Surf'));
+    const task = createItem('Task'); task.tags = ['C.Surf'];
+    const event = createItem('Event'); event.tags = ['C.Surf']; event.schedule = { timezone: 'UTC', startAt: '2030-01-01T12:00:00Z', endAt: '2030-01-01T13:00:00Z' };
+    expect(compileQuery(items.query.source)(task)).toBe(true);
+    expect(compileQuery(items.query.source)(event)).toBe(false);
+    expect(compileQuery(events.query.source)(task)).toBe(false);
+    expect(compileQuery(events.query.source)(event)).toBe(true);
+  });
   it('renders an already-open legacy workspace before persistence migration completes', () => {
     const workspace = createWorkspace('Legacy settings');
     delete (workspace as Partial<typeof workspace>).organizationPreferences;

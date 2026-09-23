@@ -35,7 +35,6 @@ export const isViewTemplate = (view: SavedView): boolean => view.extensions?.[VI
 export function viewFromTemplate(source: SavedView, id: string): SavedView {
   const next: SavedView = JSON.parse(JSON.stringify(source)) as SavedView;
   next.id = id;
-  next.query = { ...next.query, source: completableTemplateQuery(next.query.source) };
   const extensions = { ...next.extensions };
   delete extensions[VIEW_TEMPLATE_EXTENSION];
   delete extensions['utm:manualOrder'];

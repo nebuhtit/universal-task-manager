@@ -10,5 +10,5 @@ export function calendarListFields(settings: CalendarDayViewPreferences): string
 }
 
 export function calendarTimelineFields(settings: CalendarDayViewPreferences): string[] {
-  return settings.timelineFields ?? [...new Set([...settings.fields.filter(field => !scheduleClockFields.has(field)), 'reminders'])];
+  return settings.timelineFields ?? [...new Set([...settings.fields.filter(field => !scheduleClockFields.has(field) && field !== 'reminders'), 'reminderTiming'])];
 }

@@ -44,7 +44,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'progress.target', label: 'Progress target', group: 'Progress & habit' }, { path: 'progress.unit', label: 'Progress unit', group: 'Progress & habit' },
   { path: 'habit.target', label: 'Habit target', group: 'Progress & habit' }, { path: 'habit.unit', label: 'Habit unit', group: 'Progress & habit' },
   { path: 'habit.streakMode', label: 'Habit streak mode', group: 'Progress & habit' }, { path: 'habit.completedDates', label: 'Habit completed dates', group: 'Progress & habit' },
-  { path: 'reminders', label: 'Active reminders', group: 'Reminders' }, { path: 'hasActiveReminders', label: 'Has active reminders', group: 'Reminders' },
+  { path: 'reminders', label: 'Active reminders', group: 'Reminders' }, { path: 'reminderTiming', label: 'Reminder time / offset', group: 'Reminders' }, { path: 'hasActiveReminders', label: 'Has active reminders', group: 'Reminders' },
   { path: 'nextReminderAt', label: 'Next resolved active reminder', group: 'Reminders' }, { path: 'relations', label: 'Relations', group: 'Connections' },
   { path: 'subtasks', label: 'Subtasks', group: 'Connections' }, { path: 'parent', label: 'Parent item', group: 'Connections' },
   { path: 'isSubtask', label: 'Subtask', group: 'Connections' }, { path: 'isParent', label: 'Parent item', group: 'Connections' },
@@ -133,7 +133,7 @@ export const exampleViewFieldValue = (path: string): string => {
     'recurrence.closeAt': 'Next activation', 'recurrence.anchor': 'Scheduled time', 'recurrence.autoRenew': 'Yes',
     'progress.mode': 'Counter', 'progress.current': '2', 'progress.target': '4', 'progress.unit': 'chapters',
     'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
-    reminders: 'Mon 09:00 · normal, Thu 17:00 · urgent', hasActiveReminders: 'Yes', nextReminderAt: 'Mon 09:00', relations: 'Related: Project brief', attachments: 'Research link',
+    reminders: 'Mon 09:00 · normal, Thu 17:00 · urgent', reminderTiming: '09:00 · 2 h before start', hasActiveReminders: 'Yes', nextReminderAt: 'Mon 09:00', relations: 'Related: Project brief', attachments: 'Research link',
     googleCalendarAllDay: 'Yes', 'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar', 'external.connectionId': 'Google account', 'external.eventId': 'event_123',
     'external.transparency': 'Busy', 'external.sourceUrl': 'Open in Google Calendar', 'external.readOnly': 'Yes', 'external.syncedAt': 'Today, 09:45',
     'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
@@ -194,6 +194,18 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
   }
   if (field === 'hasActiveReminders') return (index?.remindersFor(item).length ?? item.reminders.filter((reminder) => !reminder.acknowledgedAt).length) > 0;
   if (field === 'nextReminderAt') return index?.remindersFor(item).find((entry) => entry.resolvedAt)?.resolvedAt;
+  if (field === 'reminderTiming') return (index?.remindersFor(item) ?? []).map(({ reminder, resolvedAt }) => {
+    if (reminder.mode === 'absolute') {
+      if (!resolvedAt) return '';
+      return new Intl.DateTimeFormat('en-GB', { timeZone: workspace?.calendarPreferences.timezone ?? 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(resolvedAt));
+    }
+    if (!reminder.offset) return '';
+    let milliseconds: number;
+    try { milliseconds = durationToMs(reminder.offset.replace(/^-/, '')); } catch { return ''; }
+    const minutes = Math.round(milliseconds / 60_000);
+    const amount = minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
+    return `${amount} ${reminder.offset.startsWith('-') ? 'before' : 'after'} ${reminder.relativeTo ?? 'due'}`;
+  }).filter(Boolean);
   if (field === 'reminders') {
     const labels = reminderLabels(workspace?.calendarPreferences.language);
     const unitLabels = { seconds: 'sec', minutes: 'min', hours: 'h', days: 'd', weeks: 'wk', months: 'mo', years: 'y' } as const;
@@ -252,7 +264,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
 
 export const displayViewValue = (value: unknown, field: string, language?: WorkspaceLanguage): string => {
   if (value === undefined || value === null || value === '') return '';
-  if (field === 'reminders' && Array.isArray(value)) return value.map(entry => typeof entry === 'string' ? entry : entry && typeof entry === 'object' && 'label' in entry ? String(entry.label) : '').filter(Boolean).join(' · ');
+  if ((field === 'reminders' || field === 'reminderTiming') && Array.isArray(value)) return value.map(entry => typeof entry === 'string' ? entry : entry && typeof entry === 'object' && 'label' in entry ? String(entry.label) : '').filter(Boolean).join(' · ');
   if (field === 'external.provider' && value === 'google_calendar') return 'Google Calendar';
   if (field === 'external.transparency' && value === 'opaque') return 'Busy';
   if (field === 'external.transparency' && value === 'transparent') return 'Free';

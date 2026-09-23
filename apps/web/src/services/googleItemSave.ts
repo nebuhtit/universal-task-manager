@@ -61,13 +61,21 @@ export async function saveGoogleItem(args: {
   token: string; workspaceId: string; accountEmail: string; item: UniversalItem; options: GoogleSaveOptions;
   allowPast?: boolean;
   persist: (operation: GoogleSaveOperation) => Promise<void>;
-  apply: (calendarId: string, event: GoogleCalendarEvent, finished: boolean) => Promise<void>;
+  apply: (calendarId: string, event: GoogleCalendarEvent, finished: boolean, nextOperation?: GoogleSaveOperation) => Promise<void>;
 }): Promise<void> {
   const { token, item, options, persist, apply } = args;
   let pending = item.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
   const draft = itemGoogleDraft(item, options.busy);
   if (pending && options.rebased && pending.kind !== 'create' && pending.baseline?.etag !== options.baseline.external?.etag) pending = { ...pending, draft, baseline: itemGoogleBaseline(options.baseline), attempted: false };
-  if (pending && ((Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => key === 'travelDuration' ? (pending!.draft[key] ?? '') !== (draft[key] ?? '') : pending!.draft[key] !== draft[key]) || pending.destination !== options.calendarId)) throw new Error('Finish the pending Google save before changing its event fields. Your latest input is still in the editor.');
+  const newerDraft = Boolean(pending && ((Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => key === 'travelDuration' ? (pending!.draft[key] ?? '') !== (draft[key] ?? '') : pending!.draft[key] !== draft[key]) || pending.destination !== options.calendarId));
+  const finish = async (calendarId: string, event: GoogleCalendarEvent) => {
+    if (!newerDraft || !pending) { await apply(calendarId, event, true); return; }
+    // Atomically link the completed operation and queue the newer draft. A crash
+    // between the two remote writes must never discard the user's latest edit.
+    const next: GoogleSaveOperation = { kind: 'edit', calendarId, destination: options.calendarId, eventId: event.id, accountEmail: args.accountEmail, baseline: event, draft };
+    await apply(calendarId, event, true, next);
+    await saveGoogleItem({ ...args, item: { ...item, extensions: { ...item.extensions, [GOOGLE_SAVE_EXTENSION]: next } }, options: { ...options, rebased: false } });
+  };
   const link = options.baseline.external;
   let operation: GoogleSaveOperation = pending ?? {
     kind: link ? 'edit' : 'create', calendarId: link?.calendarId ?? options.calendarId, destination: options.calendarId,
@@ -79,14 +87,14 @@ export async function saveGoogleItem(args: {
   if (operation.kind === 'create') {
     await persist(operation);
     const event = await createSingleGoogleEvent(token, operation as GoogleCreateOperation);
-    await apply(operation.calendarId, event, true); return;
+    await finish(operation.calendarId, event); return;
   }
   if (operation.kind === 'edit') {
     const edit = operation as GoogleEditOperation;
     const retrying = operation.attempted === true;
     await persist({ ...operation, attempted: true });
     const event = await updateSingleGoogleEvent(token, { ...edit, attempted: retrying }, Date.now, args.allowPast);
-    if (operation.destination === operation.calendarId) { await apply(operation.calendarId, event, true); return; }
+    if (operation.destination === operation.calendarId) { await finish(operation.calendarId, event); return; }
     operation = { ...operation, kind: 'move', baseline: event, attempted: false };
     await persist(operation);
     await apply(operation.calendarId, event, false);
@@ -96,7 +104,7 @@ export async function saveGoogleItem(args: {
   if (operation.attempted) {
     try {
       const moved = await googleJson<GoogleCalendarEvent>(eventUrl(operation.destination, operation.eventId), token);
-      if (moved.status !== 'cancelled' && moved.iCalUID && moved.iCalUID === operation.baseline?.iCalUID) { await apply(operation.destination, moved, true); return; }
+      if (moved.status !== 'cancelled' && moved.iCalUID && moved.iCalUID === operation.baseline?.iCalUID) { await finish(operation.destination, moved); return; }
     } catch (error) { if ((error as { status?: number }).status !== 404) throw error; }
   }
   const current = await googleJson<GoogleCalendarEvent>(eventUrl(operation.calendarId, operation.eventId), token);
@@ -108,5 +116,5 @@ export async function saveGoogleItem(args: {
   let moved: GoogleCalendarEvent;
   try { moved = await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}/move?destination=${encodeURIComponent(operation.destination)}&sendUpdates=all`, token, {}, { method: 'POST', etag: current.etag }); }
   catch (reason) { if ((reason as { status?: number }).status === 412) throw new GoogleEditConflict(); throw reason; }
-  await apply(operation.destination, moved, true);
+  await finish(operation.destination, moved);
 }
