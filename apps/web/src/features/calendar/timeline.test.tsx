@@ -186,6 +186,14 @@ describe('timeline data and UI', () => {
     expect(data.allDay.map(i => i.id)).toEqual(['all']); expect(data.undated.map(i => i.id)).toEqual(['none']);
     expect(data.events.map(i => i.item.id)).toEqual(['due']); expect(JSON.stringify(w)).toBe(before);
   });
+  it('anchors a planned-day item with a timed Due at the deadline, not the current time', () => {
+    const due = item('due-planned', { plannedDate: '2026-09-22', dueAt: iso(19, 52), estimatedDuration: 'PT10M' });
+    const w = workspace(due);
+    const data = timelineData(w, '2026-09-22', now);
+    expect(data.events).toMatchObject([{ item: { id: 'due-planned' }, start: at(19, 42), end: at(19, 52) }]);
+    expect(data.undated).toHaveLength(0);
+    expect(data.planning.proposals).toHaveLength(0);
+  });
   it('shows an undated series once instead of generating undated repeats', () => {
     const series = item('undated series'); series.role = 'series_template';
     series.recurrence = { rrule: 'FREQ=DAILY', rdates: [], exdates: [], timezone: 'UTC', autoRenew: false, anchor: 'schedule', closeAt: 'never' };

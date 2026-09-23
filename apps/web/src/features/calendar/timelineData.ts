@@ -80,7 +80,9 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
       if (overdueToday) overdue.push(item);
       continue;
     }
-    if (item.schedule?.plannedDate && !item.schedule.startAt && !item.schedule.endAt) { undated.push(item); continue; }
+    // A planned day can coexist with an explicit deadline. The deadline then
+    // anchors the block; only date-only work needs a tentative placement.
+    if (item.schedule?.plannedDate && !item.schedule.startAt && !item.schedule.endAt && !item.schedule.dueAt && !item.schedule.availableFrom) { undated.push(item); continue; }
     const series = item.occurrence ? mapped.items[item.occurrence.seriesId] : item;
     const rule = series?.recurrence;
     if (rule?.autoRenew && rule.closeAt === 'due' && (!rule.activationOffset || /^PT0[MS]$/.test(rule.activationOffset))) {
