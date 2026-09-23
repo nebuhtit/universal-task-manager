@@ -1,4 +1,8 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
+
+const openDates = async (editor: Locator) => {
+  await editor.locator('[data-editor-section="dates"]').evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+};
 
 test('infers missing event boundaries and generates the script on Save without Apply', async ({ page }) => {
   await page.goto('/');
@@ -10,7 +14,7 @@ test('infers missing event boundaries and generates the script on Save without A
   await page.getByPlaceholder('Add new item').press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   const program = editor.locator('.event-program');
-  if (!(await editor.locator('[data-editor-section="dates"]').getAttribute('open') !== null)) await editor.locator('[data-editor-section="dates"] > summary').click();
+  await openDates(editor);
   await program.locator(':scope > summary').click();
   await program.getByRole('button', { name: 'Add block', exact: true }).click();
   await program.getByLabel('Block title 1', { exact: true }).fill('First');
@@ -25,12 +29,12 @@ test('infers missing event boundaries and generates the script on Save without A
   await expect(editor).toBeHidden();
   await page.getByText('New program', { exact: true }).first().click();
   await expect(editor.locator('.item-script-row')).toHaveCount(1);
-  if (!(await editor.locator('[data-editor-section="dates"]').getAttribute('open') !== null)) await editor.locator('[data-editor-section="dates"] > summary').click();
+  await openDates(editor);
   await program.locator(':scope > summary').click();
   await program.getByLabel('Block title 1', { exact: true }).fill('Discarded edit');
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByText('New program', { exact: true }).first().click();
-  if (!(await editor.locator('[data-editor-section="dates"]').getAttribute('open') !== null)) await editor.locator('[data-editor-section="dates"] > summary').click();
+  await openDates(editor);
   await program.locator(':scope > summary').click();
   await expect(program.getByLabel('Block title 1', { exact: true })).toHaveValue('First');
 });
@@ -44,12 +48,11 @@ test('program edits, shifts, trims with confirmation and saves one managed scrip
   await page.getByPlaceholder('Add new item').fill('Program workshop');
   await page.getByPlaceholder('Add new item').press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
-  const dates = editor.locator('[data-editor-section="dates"]');
-  await dates.locator(':scope > summary').click();
+  await openDates(editor);
   await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-21T17:00');
   await editor.getByLabel('Event ends', { exact: true }).fill('2030-09-21T21:00');
   const program = editor.locator('.event-program');
-  if (!(await editor.locator('[data-editor-section="dates"]').getAttribute('open') !== null)) await editor.locator('[data-editor-section="dates"] > summary').click();
+  await openDates(editor);
   await program.locator(':scope > summary').click();
   await program.getByRole('button', { name: 'Add block', exact: true }).click();
   await program.getByLabel('Block title 1', { exact: true }).fill('Lesson');
@@ -69,7 +72,7 @@ test('program edits, shifts, trims with confirmation and saves one managed scrip
   await editor.getByLabel('Event ends', { exact: true }).fill('2030-09-22T18:30');
   await expect(program.locator('.program-block')).toHaveCount(1);
   await expect(program.getByLabel('Block end 1', { exact: true })).toHaveValue('18:30');
-  const travel = editor.locator('.travel-time-disclosure');
+  const travel = editor.locator('.travel-time-disclosure').first();
   await travel.locator(':scope > summary').click();
   await expect(travel.getByLabel('Travel time amount')).toHaveValue('');
   await travel.getByRole('button', { name: '45 min', exact: true }).click();
@@ -90,7 +93,7 @@ test('program edits, shifts, trims with confirmation and saves one managed scrip
   await editor.getByRole('button', { name: 'Save item', exact: true }).click();
   await expect(editor).toBeHidden();
   await page.getByText('Program workshop', { exact: true }).first().click();
-  if (!(await editor.locator('[data-editor-section="dates"]').getAttribute('open') !== null)) await editor.locator('[data-editor-section="dates"] > summary').click();
+  await openDates(editor);
   await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('2030-09-22T19:00');
   await program.locator(':scope > summary').click();
   await expect(program.locator('.program-block')).toHaveCount(1);
