@@ -113,7 +113,7 @@
 .calendar-google-log time { font-variant-numeric: tabular-nums; }
 
 @media (max-width: 720px) {
-  .calendar-page { padding: var(--space-4) var(--space-2) 100px; }
+  .calendar-page { padding: var(--space-4) var(--space-2) 0; }
   .calendar-title h1 { font-size: var(--font-size-section); }
   .calendar-navigator { padding: var(--space-2); }
   .calendar-navigator-toolbar { align-items: stretch; }
