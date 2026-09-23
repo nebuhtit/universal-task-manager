@@ -94,6 +94,33 @@ export function positionAt(at: number, segments: Segment[]): number {
   return at <= (segments[0]?.start ?? at) ? 0 : (segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0);
 }
 
+/** Place flexible-range cues only in rows not occupied by real or hidden blocks. */
+export function placeActiveRangeCues<T>(items: T[], segments: Segment[], blocked: { top: number; height: number }[], preferredTop = 0): { item: T; top: number; height: number }[] {
+  const height = MIN_CARD_HEIGHT;
+  const occupied = blocked.map(value => ({ start: value.top, end: value.top + value.height }));
+  const result: { item: T; top: number; height: number }[] = [];
+  for (const item of items) {
+    let chosen: number | undefined;
+    for (const earliest of [preferredTop, 0]) {
+      for (const segment of segments) {
+        if (segment.hidden) continue;
+        const end = segment.top + segment.height;
+        let top = Math.max(segment.top, earliest);
+        for (const interval of mergeIntervals(occupied.filter(value => value.end > top && value.start < end))) {
+          if (interval.start - top >= height) break;
+          top = Math.max(top, interval.end);
+        }
+        if (top + height <= end && !occupied.some(value => value.start < top + height && value.end > top)) { chosen = top; break; }
+      }
+      if (chosen !== undefined) break;
+    }
+    if (chosen === undefined) continue;
+    result.push({ item, top: chosen, height });
+    occupied.push({ start: chosen, end: chosen + height });
+  }
+  return result;
+}
+
 export function layoutEvents(events: TimelineEvent[], day: Interval, segments: Segment[], limit: number): { events: PlacedEvent[]; more: MoreBlock[] } {
   const sorted = events.filter(v => intersects(v, day)).sort((a, b) => a.start - b.start || a.end - b.end || a.item.id.localeCompare(b.item.id)).map(event => {
     const top = positionAt(Math.max(day.start, event.start), segments);

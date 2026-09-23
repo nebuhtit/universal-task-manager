@@ -94,6 +94,21 @@ test('calendar statistics stay pinned and blank Timeline swipes change day witho
   await expect(page.getByRole('dialog', { name: 'Quick Due' })).toContainText('Move Due');
 });
 
+test('active-range work is an unfilled outline on successive days and opens its item', async ({ page }) => {
+  await setup(page);
+  const cue = page.getByTestId('timeline-active-range');
+  await expect(cue).toHaveCount(1);
+  await expect(cue).toContainText('Active preparation');
+  await expect(cue).toContainText('15 min / day');
+  await expect(cue).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await swipeTouch(page, '.timeline-axis', 290, 120);
+  await expect(page.locator('.calendar-heading-date h1')).toContainText('September 23, 2026');
+  await expect(cue).toHaveCount(1);
+  await cue.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await cue.click();
+  await expect(page.getByRole('dialog')).toContainText('Active preparation');
+});
+
 test('timeline titles, More, clock, sleep, dark mode and persisted display choice', async ({ page }, testInfo) => {
   test.setTimeout(180_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await setup(page);
@@ -115,9 +130,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(allDayButton).toHaveAttribute('aria-pressed', 'false');
   await allDayButton.click();
   await expect(page.locator('.timeline-all-day-items .item-card')).toBeVisible();
-  const active = page.locator('.timeline-top-items').filter({ has: page.getByRole('heading', { name: 'Active range', exact: true }) });
-  await expect(active.locator('.item-card')).toHaveCount(1);
-  await expect(active.locator('.item-title')).toHaveText('Active preparation');
+  const active = page.getByTestId('timeline-active-range');
+  await expect(active).toHaveCount(1);
+  await expect(active).toContainText('Active preparation');
   await active.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-light.png` });
   const tentative = page.getByTestId('timeline-tentative');
@@ -171,7 +186,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await active.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-dark.png` });
-  await active.getByRole('button', { name: 'Complete item', exact: true }).click();
+  await active.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await active.click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Complete item', exact: true }).click();
   await expect(active).toHaveCount(0);
   await page.getByRole('button', { name: 'List', exact: true }).click(); await expect(page.locator('.calendar-timeline')).toHaveCount(0);
   const listUndated = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^No date/ });

@@ -1,7 +1,7 @@
 import { WeatherTimeline } from '../weather/WeatherTimeline';
 import { calendarTimelineFields } from './calendarCardFields';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type TouchEvent } from 'react';
-import { calendarDateKey, effectiveWorkspaceNow, occupiedIntervals, viewPeriodBoundsForDates, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { activeRangeDailyDuration, calendarDateKey, effectiveWorkspaceNow, occupiedIntervals, viewPeriodBoundsForDates, zonedDateTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
@@ -12,7 +12,7 @@ import { displayViewValue, readItemField, viewFieldLabel } from '../items/fieldD
 import { FieldIcon } from '../items/FieldIcon';
 import { timelineData } from './timelineData';
 import { calendarUndatedItems } from './calendarVisibility';
-import { buildSegments, layoutEvents, positionAt, type Segment } from './timelineLayout';
+import { buildSegments, layoutEvents, placeActiveRangeCues, positionAt, type Segment } from './timelineLayout';
 import './timeline.css';
 
 const timeFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -80,11 +80,17 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   const layout = useMemo(() => layoutEvents(data.events, data.day, segments, columns), [data, segments, columns]);
   const hiddenReserve = useMemo(() => {
     const period = viewPeriodBoundsForDates(dateKey, dateKey, zone);
-    return reservedItems.flatMap(item => occupiedIntervals(item, period).flatMap(interval => segments.filter(segment => !segment.hidden && segment.start < interval.end && segment.end > interval.start).map(segment => {
+    return reservedItems.flatMap(item => activeRangeDailyDuration(item, period) !== null ? [] : occupiedIntervals(item, period).flatMap(interval => segments.filter(segment => !segment.hidden && segment.start < interval.end && segment.end > interval.start).map(segment => {
       const start = Math.max(interval.start, segment.start), end = Math.min(interval.end, segment.end);
       return { id: `${item.id}:${start}`, title: item.title, top: positionAt(start, segments), height: Math.max(2, positionAt(end, segments) - positionAt(start, segments)) };
     })));
   }, [reservedItems, dateKey, zone, segments]);
+  const rangeCues = useMemo(() => {
+    const morning = zonedDateTime(dateKey, 9, 0, zone).getTime();
+    const preferred = dateKey === calendarDateKey(now, zone) ? Math.max(morning, Math.floor(now.getTime() / 3_600_000) * 3_600_000) : morning;
+    return placeActiveRangeCues(data.activeRange, segments, [...layout.events, ...layout.more, ...hiddenReserve], positionAt(preferred, segments));
+  }, [data.activeRange, segments, layout, hiddenReserve, dateKey, zone, now]);
+  const rangeFallback = data.activeRange.filter(item => !rangeCues.some(cue => cue.item.id === item.id));
   const height = Math.max((segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0), ...layout.events.map(v => v.top + v.height), ...layout.more.map(v => v.top + v.height));
   const ticks: number[] = [];
   for (let at = data.day.start; at < data.day.end; at += 60_000) if (timeLabel(at, zone).endsWith(':00') && !data.hidden.some(v => at >= v.start && at < v.end)) ticks.push(at);
@@ -105,13 +111,18 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
       {workspace.calendarPreferences.showExplanations && <small>{ru ? 'За выбранные сутки. Точечные блоки — предложение, даты задач не меняются.' : 'For the selected day. Dotted blocks are proposals; task dates stay unchanged.'}</small>}
       {workspace.calendarPreferences.showExplanations && data.planning.warnings.map(({ item, reason }) => <small key={item.id}>{item.title}: {reason === 'deadline' ? (ru ? 'Не помещается до Due' : 'Does not fit before Due') : reason === 'fragmented' ? (ru ? 'Времени суммарно хватает, но нет непрерывного окна' : 'Enough total time, but no continuous slot') : (ru ? 'Недостаточно свободного времени' : 'Not enough available time')}</small>)}
     </div>}
-    {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(data.activeRange)}</div>}
+    {rangeFallback.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(rangeFallback)}</div>}
     {data.plannedTasks.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks)}</div>}
     {data.allDay.length > 0 && allDayOpen && <div className="timeline-top-items timeline-all-day-items">{cards(data.allDay)}</div>}
     {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}
     <div className="timeline-axis" style={{ height: height + 12 }} onTouchStart={beginBackgroundSwipe} onTouchEnd={endBackgroundSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
       <WeatherTimeline dateKey={dateKey} zone={zone} ru={ru} segments={segments} />
       <div className="timeline-hidden-reserves" aria-label={ru ? 'Скрытые закреплённые items' : 'Hidden reserved items'}>{hiddenReserve.map(reserve => <div className="timeline-hidden-reserve" data-testid="timeline-hidden-reserve" key={reserve.id} style={{ top: reserve.top, height: reserve.height }} title={reserve.title}><span>{reserve.title}</span></div>)}</div>
+      <div className="timeline-active-ranges">{rangeCues.map(({ item, top, height }) => {
+        const share = activeRangeDailyDuration(item, viewPeriodBoundsForDates(dateKey, dateKey, zone)) ?? 0;
+        const label = `${ru ? 'Активный диапазон' : 'Active range'} · ${item.title}${share ? ` · ${durationLabel(share)}${ru ? ' на день' : ' per day'}` : ''}`;
+        return <button type="button" className="timeline-active-range" key={item.id} data-testid="timeline-active-range" style={{ top, height }} title={label} aria-label={label} onClick={() => open(item)}><span>{item.title}</span>{share > 0 && <small>{durationLabel(share)}{ru ? ' / день' : ' / day'}</small>}</button>;
+      })}</div>
       {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
       {segments.filter(v => v.hidden).map(v => <button type="button" key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }} aria-expanded={false} onClick={() => onPreferences({ ...settings, hideSleep: false })}>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</button>)}
       {!settings.hideSleep && data.sleepGaps.length > 0 && <button type="button" className="timeline-night-collapse" style={{ top: positionAt(data.sleepGaps[0]!.start, segments) }} aria-expanded={true} onClick={() => onPreferences({ ...settings, hideSleep: true })}>{ru ? 'Свернуть ночь' : 'Collapse night'} {timeLabel(data.sleepGaps[0]!.start, zone)}–{timeLabel(data.sleepGaps.at(-1)!.end, zone)}</button>}

@@ -1,4 +1,4 @@
-import { compileQuery, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { activeRangeBounds, compileQuery, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { itemDeletionTime } from '@utm/core';
 import { isItemTemplate } from '../items/fieldDisplay';
@@ -76,6 +76,14 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     if (completelyUndated && preferences.timeline?.showUndated !== true) continue;
     const overdueToday = showOverdueToday(item, key, now, preferences.timezone, item.occurrence ? mapped.items[item.occurrence.seriesId] : undefined);
     if (overdueToday && ((!schedule?.startAt && !schedule?.endAt) || !interval || !intersects(interval, day))) { overdue.push(item); continue; }
+    const series = item.occurrence ? mapped.items[item.occurrence.seriesId] : item;
+    const range = activeRangeBounds(item);
+    if (range) {
+      const completed = closedCycles.has(cycleKey) || (item.completionEntries ?? []).some(entry => !entry.revokedAt && entry.recurrenceId === item.occurrence?.recurrenceId)
+        || (series?.cycleHistory ?? []).some(entry => entry.recurrenceId === item.occurrence?.recurrenceId);
+      if (!completed && item.state === 'open' && intersects(range, day)) activeRange.push(item);
+      continue;
+    }
     if (item.schedule?.plannedDate && plannedDateForDisplay(item, now, preferences.timezone) !== key) {
       if (overdueToday) overdue.push(item);
       continue;
@@ -83,16 +91,6 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     // A planned day can coexist with an explicit deadline. The deadline then
     // anchors the block; only date-only work needs a tentative placement.
     if (item.schedule?.plannedDate && !item.schedule.startAt && !item.schedule.endAt && !item.schedule.dueAt && !item.schedule.availableFrom) { undated.push(item); continue; }
-    const series = item.occurrence ? mapped.items[item.occurrence.seriesId] : item;
-    const rule = series?.recurrence;
-    if (rule?.autoRenew && rule.closeAt === 'due' && (!rule.activationOffset || /^PT0[MS]$/.test(rule.activationOffset))) {
-      const start = Date.parse(item.schedule?.startAt ?? item.schedule?.availableFrom ?? '');
-      const end = Date.parse(item.schedule?.dueAt ?? '');
-      const completed = closedCycles.has(cycleKey) || (item.completionEntries ?? []).some(entry => !entry.revokedAt && entry.recurrenceId === item.occurrence?.recurrenceId)
-        || (series?.cycleHistory ?? []).some(entry => entry.recurrenceId === item.occurrence?.recurrenceId);
-      if (!completed && end > start && intersects({ start, end }, day)) activeRange.push(item);
-      continue;
-    }
     if (!interval) { undated.push(item); continue; }
     const scheduledBy = item.schedule?.startAt || item.schedule?.endAt ? ['event_open', 'event', 'active'] : item.schedule?.dueAt ? ['due', 'active'] : ['active'];
     if (!sources.some(value => scheduledBy.includes(value))) continue;

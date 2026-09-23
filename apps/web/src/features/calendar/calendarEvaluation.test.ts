@@ -37,6 +37,35 @@ function rangeFor(sources: CalendarDayViewPreferences['scheduleSources']) {
 const idsByDay = (result: ReturnType<typeof rangeFor>) => Object.fromEntries(Object.entries(result.days).map(([key, day]) => [key, day.evaluation.items.map((item) => item.id)]));
 
 describe('calendar range evaluation', () => {
+  it('shows and subtracts a flexible range on every active day only', () => {
+    const workspace = createWorkspace('Flexible range', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    const task = createItem('Draft report', 'task', now);
+    task.schedule = { timezone: 'UTC', startAt: '2026-08-31T16:00:00Z', dueAt: '2026-09-02T09:00:00Z', plannedDate: '2026-09-01', estimatedDuration: 'PT3H' };
+    workspace.items[task.id] = task;
+    const result = evaluateCalendarRange(workspace, '2026-08-31', '2026-09-04', settings(['active']), now);
+    for (const key of ['2026-08-31', '2026-09-01', '2026-09-02']) {
+      expect(result.days[key]?.entries.map(entry => entry.item.id)).toEqual([task.id]);
+      expect(result.days[key]?.metrics.freeDurationMs).toBe(23 * 3_600_000);
+    }
+    expect(result.days['2026-09-03']?.entries).toEqual([]);
+    expect(result.days['2026-09-03']?.metrics.freeDurationMs).toBe(24 * 3_600_000);
+  });
+  it('counts a filtered reserved active range once on each active day', () => {
+    const workspace = createWorkspace('Reserved range', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    const task = createItem('Hidden flexible work', 'task', now);
+    task.schedule = { timezone: 'UTC', startAt: '2026-08-31T09:00:00Z', dueAt: '2026-09-01T18:00:00Z', estimatedDuration: 'PT2H' };
+    workspace.items[task.id] = task;
+    const prefs = settings(['active']);
+    prefs.filter.source = 'title != "Hidden flexible work"';
+    prefs.statistics = { showTime: true, reservedItemIds: [task.id] };
+    const result = evaluateCalendarRange(workspace, '2026-08-31', '2026-09-03', prefs, now);
+    expect(result.days['2026-08-31']?.metrics.freeDurationMs).toBe(23 * 3_600_000);
+    expect(result.days['2026-09-01']?.metrics.freeDurationMs).toBe(23 * 3_600_000);
+    expect(result.days['2026-09-02']?.metrics.freeDurationMs).toBe(24 * 3_600_000);
+    expect(result.days['2026-08-31']?.entries).toEqual([]);
+  });
   it('keeps a Due inside the range even when Event opens and ends are outside it', () => {
     const workspace = createWorkspace('Cross-boundary Due', now);
     workspace.calendarPreferences.timezone = 'UTC';

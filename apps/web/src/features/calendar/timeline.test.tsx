@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { applyGoogleCalendarSync, createItem, createOccurrence, createWorkspace, migrateWorkspace, validateWorkspace, type UniversalItem } from '@utm/core';
-import { dayBounds, itemInterval, hiddenIntervals, buildSegments, layoutEvents, positionAt } from './timelineLayout';
+import { dayBounds, itemInterval, hiddenIntervals, buildSegments, layoutEvents, placeActiveRangeCues, positionAt } from './timelineLayout';
 import { timelineData } from './timelineData';
 import { CalendarTimeline, TimelineNow } from './CalendarTimeline';
 import { displayViewValue, readItemField } from '../items/fieldDisplay';
@@ -20,6 +20,12 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it('places active-range outlines outside events, hidden reserves, and collapsed sleep', () => {
+    const segments = buildSegments(day, [{ start: at(0), end: at(8) }]);
+    const cues = placeActiveRangeCues(['a', 'b'], segments, [{ top: 36, height: 60 }, { top: 132, height: 60 }]);
+    expect(cues).toEqual([{ item: 'a', top: 96, height: 36 }, { item: 'b', top: 192, height: 36 }]);
+    expect(placeActiveRangeCues(['a'], buildSegments(day, []), [{ top: 0, height: 24 * 60 }])).toEqual([]);
+  });
   it('shows selected reminder metadata inside a timed block without repeating its interval', () => {
     const reminderItem = item('Reminder metadata', { startAt: iso(14), endAt: iso(16) });
     reminderItem.reminders = [{ id: 'r', mode: 'absolute', at: iso(15), urgency: 'normal', repeatUntilAcknowledged: false }];
@@ -135,18 +141,30 @@ describe('timeline data and UI', () => {
     expect(html).toContain('item-card state-open'); expect(html).toContain('item-main');
     expect(html).toContain('Visible tag'); expect(html).not.toContain('Complete All day title');
   });
-  it('keeps active-range occurrences above each day, hides only the completed cycle', () => {
-    const series = item('range', { startAt: iso(9), endAt: iso(10), dueAt: iso(81), estimatedDuration: 'PT1H' });
+  it('shows active-range outlines on each day and hides only the completed cycle', () => {
+    const series = item('range', { startAt: iso(9), dueAt: iso(81), estimatedDuration: 'PT1H' });
     series.role = 'series_template'; series.canBeCompleted = true;
     series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', rdates: [], exdates: [], activationOffset: 'PT0M', closeAt: 'due', anchor: 'schedule', autoRenew: true };
     const w = workspace(series);
     const before = JSON.stringify(w);
     expect(timelineData(w, '2026-09-23', now).activeRange).toHaveLength(1);
     expect(timelineData(w, '2026-09-23', now).events).toHaveLength(0);
+    const markup = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-23" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(markup).toContain('data-testid="timeline-active-range"');
+    expect(markup).toContain('15 min / day');
     expect(JSON.stringify(w)).toBe(before);
     const occurrence = createOccurrence(series, new Date(iso(9)), 0); occurrence.state = 'done'; w.items[occurrence.id] = occurrence;
     expect(timelineData(w, '2026-09-23', now).activeRange).toHaveLength(0);
     expect(timelineData(w, '2026-09-30', now).activeRange).toHaveLength(1);
+  });
+  it('keeps an active-range cue on every day even when a planned date is set', () => {
+    const flexible = item('flexible', { startAt: iso(9), dueAt: iso(81), plannedDate: '2026-09-24', estimatedDuration: 'PT1H' });
+    const w = workspace(flexible);
+    expect(timelineData(w, '2026-09-22', now).activeRange).toHaveLength(1);
+    expect(timelineData(w, '2026-09-23', now).activeRange).toHaveLength(1);
+    expect(timelineData(w, '2026-09-24', now).activeRange).toHaveLength(1);
+    expect(timelineData(w, '2026-09-25', now).activeRange).toHaveLength(1);
+    expect(timelineData(w, '2026-09-26', now).activeRange).toHaveLength(0);
   });
   it('shows event span instead of stale estimate and uses source calendar color and icon', () => {
     const event = item('span', { startAt: iso(13, 15), endAt: iso(19), estimatedDuration: 'PT168H' });

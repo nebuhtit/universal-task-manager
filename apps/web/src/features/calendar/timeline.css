@@ -10,11 +10,16 @@
 .timeline-axis { position: relative; margin: var(--space-6) var(--space-1) var(--space-6) calc(var(--control-height-touch) + var(--space-3)); isolation: isolate; }
 .timeline-tick { position: absolute; inset-inline: 0; border-top: 1px solid var(--color-border); pointer-events: none; }
 .timeline-tick > span { position: absolute; right: calc(100% + var(--space-2)); transform: translateY(-50%); font-size: var(--font-size-caption); color: var(--color-text-secondary); }
-.timeline-events { position: absolute; inset: 0; }
+.timeline-events { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .timeline-hidden-reserves { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .timeline-hidden-reserve { position: absolute; inset-inline: 0; overflow: hidden; border: 1.5px dotted color-mix(in srgb, var(--color-border-strong) 55%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-text-secondary) 7%, transparent); color: color-mix(in srgb, var(--color-text-secondary) 55%, transparent); font-size: var(--font-size-caption); }
 .timeline-hidden-reserve span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-inline: var(--space-2); }
-.timeline-event { position: absolute; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; text-align: start; overflow: hidden; min-width: 0; box-sizing: border-box; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-surface-muted) var(--opacity-timeline-event-surface), transparent); color: var(--color-text); padding: var(--space-1) var(--space-2); font-size: var(--font-size-secondary); cursor: pointer; }
+.timeline-active-ranges { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.timeline-active-range { position: absolute; inset-inline: 0; display: flex; align-items: center; gap: var(--space-2); overflow: hidden; box-sizing: border-box; padding-inline: var(--space-2); border: 1.5px dashed color-mix(in srgb, var(--color-border-strong) 65%, transparent); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font-size: var(--font-size-caption); text-align: start; cursor: pointer; pointer-events: auto; }
+.timeline-active-range span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeline-active-range small { margin-inline-start: auto; white-space: nowrap; }
+.timeline-active-range:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+.timeline-event { position: absolute; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; text-align: start; overflow: hidden; min-width: 0; box-sizing: border-box; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-surface-muted) var(--opacity-timeline-event-surface), transparent); color: var(--color-text); padding: var(--space-1) var(--space-2); font-size: var(--font-size-secondary); cursor: pointer; pointer-events: auto; }
 .timeline-calendar-tinted { background: color-mix(in srgb, var(--timeline-calendar-color) var(--opacity-calendar-event-tint), color-mix(in srgb, var(--color-surface-muted) var(--opacity-timeline-event-surface), transparent)); }
 .timeline-event strong, .timeline-event small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
 .timeline-event strong { font-weight: var(--font-weight-semibold); }

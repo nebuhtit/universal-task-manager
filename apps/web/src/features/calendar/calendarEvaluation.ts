@@ -1,9 +1,11 @@
 import {
   compileQuery,
+  activeRangeBounds,
   calendarDateKey,
   googleCalendarProjection,
   createOccurrence,
   createViewTimeMetricsAccumulator,
+  activeRangeDailyDuration,
   itemDurationInsidePeriod,
   occupiedIntervals,
   unionDuration,
@@ -101,7 +103,7 @@ export function evaluateCalendarRange(
     const key = plannedDateForDisplay(item, now, timeZone);
     const overdue = today >= rangeStartKey && today < rangeEndKey && showOverdueToday(item, today, now, timeZone, item.occurrence ? calendarWorkspace.items[item.occurrence.seriesId] : undefined);
     // A boundary outside the range can still have a Due or active span inside it.
-    const scheduledHere = !key && scheduleDateKeysInRange(item, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone }).length > 0;
+    const scheduledHere = (!key || activeRangeBounds(item)) && scheduleDateKeysInRange(item, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone }).length > 0;
     if (!itemDeletionTime(calendarWorkspace, item) && item.role !== 'series_template' && ((key && key >= rangeStartKey && key < rangeEndKey) || scheduledHere || overdue) && !projectedIds.has(item.id)) {
       projected.push({ item, row: { id: item.id, sourceItemId: item.id, materializedItemId: item.id, virtual: false, title: item.title, state: item.state, preset: item.preset, schedule: { ...item.schedule! }, dueOnly: false } });
       projectedIds.add(item.id);
@@ -165,7 +167,7 @@ export function evaluateCalendarRange(
   for (const entry of filtered) {
     const scheduleSource = viewItemForEvaluation(entry.item);
     const planned = plannedDateForDisplay(scheduleSource, now, timeZone);
-    const keys = planned ? [planned] : scheduleDateKeysInRange(scheduleSource, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone });
+    const keys = planned && !activeRangeBounds(scheduleSource) ? [planned] : scheduleDateKeysInRange(scheduleSource, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone });
     if (showOverdueToday(scheduleSource, today, now, timeZone, scheduleSource.occurrence ? calendarWorkspace.items[scheduleSource.occurrence.seriesId] : undefined) && !keys.includes(today)) keys.push(today);
     for (const key of keys) {
       const bucket = buckets.get(key);
@@ -218,7 +220,9 @@ export function evaluateCalendarRange(
       if (bucket.visibleSourceIds.has(sourceId) || bucket.reservedSourceIds.has(sourceId)) continue;
       bucket.reservedSourceIds.add(sourceId);
       const period = viewPeriodBoundsForDates(key, key, timeZone);
-      if (entry.item.schedule?.startAt || entry.item.external?.startAt) bucket.reservedIntervals.push(...occupiedIntervals(entry.item, period));
+      const activeShare = activeRangeDailyDuration(entry.item, period);
+      if (activeShare !== null) bucket.reservedDurationMs += activeShare;
+      else if (entry.item.schedule?.startAt || entry.item.external?.startAt) bucket.reservedIntervals.push(...occupiedIntervals(entry.item, period));
       else bucket.reservedDurationMs += itemDurationInsidePeriod(entry.item, period);
     }
   }

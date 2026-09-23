@@ -1,5 +1,5 @@
 import {
-  createViewTimeMetricsAccumulator, itemDurationInsidePeriod, occupiedIntervals,
+  activeRangeDailyDuration, createViewTimeMetricsAccumulator, itemDurationInsidePeriod, occupiedIntervals,
   participatesInTimeStatistics, unionDuration, viewPeriodBoundsForDates,
   type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
@@ -52,7 +52,9 @@ export function calendarVisibleCapacity(
   let reservedUnanchoredMs = 0;
   for (const item of day.reservedItems) {
     if (visibleSources.has(item.occurrence?.seriesId ?? item.id) || !participatesInTimeStatistics(item) || item.external?.transparency === 'transparent') continue;
-    if (item.external?.startAt || item.schedule?.startAt) reservedIntervals.push(...occupiedIntervals(item, period));
+    const activeShare = activeRangeDailyDuration(item, period);
+    if (activeShare !== null) reservedUnanchoredMs += activeShare;
+    else if (item.external?.startAt || item.schedule?.startAt) reservedIntervals.push(...occupiedIntervals(item, period));
     else reservedUnanchoredMs += itemDurationInsidePeriod(item, period);
   }
   const reservedMs = reservedUnanchoredMs + unionDuration(reservedIntervals);

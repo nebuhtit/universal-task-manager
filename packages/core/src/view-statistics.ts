@@ -1,4 +1,4 @@
-import { compileQuery, schedulePeriodBounds, type QueryTemporalOptions, type SchedulePeriod } from './dsl.js';
+import { calendarDateKey, compileQuery, schedulePeriodBounds, type QueryTemporalOptions, type SchedulePeriod } from './dsl.js';
 import { actualTimeMs } from './item-history.js';
 import { projectOccurrences } from './calendar.js';
 import { effectiveItemDurationMs, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
@@ -13,6 +13,7 @@ export interface ViewPeriodBounds {
   start: Date;
   endExclusive: Date;
   durationMs: number;
+  timeZone: string;
 }
 
 export interface ViewTimeMetrics extends ItemSetMetrics {
@@ -56,6 +57,28 @@ export function occupiedIntervals(item: UniversalItem, period: ViewPeriodBounds)
   return [...event, ...clippedInterval(start - travelDurationMs(item), start, period), ...clippedInterval(end, end + travelDurationMs(item, true), period)];
 }
 
+/** Flexible work between Event opens and Due is not a fixed calendar booking. */
+export function activeRangeBounds(item: UniversalItem): { start: number; end: number } | null {
+  if (item.external || item.schedule?.endAt || item.schedule?.allDay || !item.schedule?.dueAt) return null;
+  const start = Date.parse(item.schedule.startAt ?? '');
+  const end = Date.parse(item.schedule.dueAt);
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
+}
+
+/** Equal calendar-day shares, inclusive of both boundary dates and independent of DST. */
+export function activeRangeDailyDuration(item: UniversalItem, period: ViewPeriodBounds): number | null {
+  const range = activeRangeBounds(item);
+  if (!range) return null;
+  const first = calendarDateKey(new Date(range.start), period.timeZone);
+  const last = calendarDateKey(new Date(range.end), period.timeZone);
+  const days = Math.round((Date.parse(`${last}T00:00:00Z`) - Date.parse(`${first}T00:00:00Z`)) / DAY_MS) + 1;
+  const overlapStart = period.startDate > first ? period.startDate : first;
+  const overlapEnd = period.endDate < last ? period.endDate : last;
+  if (overlapStart > overlapEnd || days <= 0) return 0;
+  const included = Math.round((Date.parse(`${overlapEnd}T00:00:00Z`) - Date.parse(`${overlapStart}T00:00:00Z`)) / DAY_MS) + 1;
+  return effectiveItemDurationMs(item) * included / days;
+}
+
 function shiftDateKey(key: string, days: number): string {
   const [year, month, day] = key.split('-').map(Number);
   const value = new Date(Date.UTC(year!, month! - 1, day!));
@@ -96,6 +119,7 @@ export function zonedDateStart(key: string, timeZone: string): Date { return zon
 export function viewPeriodBoundsForDates(startDate: string, endDate: string, timeZone = 'UTC'): ViewPeriodBounds {
   return {
     period: 'custom',
+    timeZone,
     startDate,
     endDate,
     start: zonedDateStart(startDate, timeZone),
@@ -122,6 +146,7 @@ export function inferViewPeriod(view: Pick<SavedView, 'query'>, now: Date, optio
   const endExclusiveDate = shiftDateKey(bounds.end, 1);
   return {
     period: selected.period,
+    timeZone,
     startDate: bounds.start,
     endDate: bounds.end,
     start: zonedDateStart(bounds.start, timeZone),
@@ -188,6 +213,8 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
       } else if (item.state === 'open') remainingDurationMs += direction * duration;
     }
     if (period && eligible(item)) {
+      const activeShare = activeRangeDailyDuration(item, period);
+      if (activeShare !== null) { plannedDurationMs += direction * activeShare; return; }
       const anchored = Boolean(item.external?.startAt ?? item.schedule?.startAt) || Boolean(item.schedule?.endAt && travelDurationMs(item, true) > 0);
       if (anchored) { if (direction === 1) occupied.set(item.id, occupiedIntervals(item, period)); else occupied.delete(item.id); }
       else plannedDurationMs += direction * itemDurationInsidePeriod(item, period);
@@ -276,8 +303,10 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
         ? Math.max(0, Math.min((Number.isFinite(end) && end > start ? end : start + fullDuration), period.endExclusive.getTime()) - Math.max(start, period.start.getTime()))
         : fullDuration;
       const occurrenceTravel = Number.isFinite(start) ? overlap(start - travelDurationMs(source), start, period) : 0;
+      const reservation = { ...source, schedule: occurrence.schedule };
+      const activeShare = activeRangeDailyDuration(reservation, period);
+      if (activeShare !== null) { reservedDurationMs += activeShare; continue; }
       if (Number.isFinite(start)) {
-        const reservation = { ...source, schedule: occurrence.schedule };
         reservedIntervals.push(...occupiedIntervals(reservation, period));
       } else if (occurrenceDuration > 0 || occurrenceTravel > 0) reservedDurationMs += occurrenceDuration + occurrenceTravel;
     }

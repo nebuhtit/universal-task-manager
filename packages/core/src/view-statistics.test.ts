@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateViewTimeMetrics, createItem, createWorkspace, inferViewPeriod, migrateView, type SavedView } from './index.js';
+import { activeRangeDailyDuration, calculateViewTimeMetrics, createItem, createWorkspace, inferViewPeriod, migrateView, viewPeriodBoundsForDates, type SavedView } from './index.js';
 
 const periodView = (source = 'state == "open" && scheduleInPeriod("today", "event", false, 7, "", "")'): SavedView => ({
   id: 'period', name: 'Today', query: { source }, renderer: 'list', sort: [], fields: ['title'],
@@ -7,6 +7,26 @@ const periodView = (source = 'state == "open" && scheduleInPeriod("today", "even
 });
 
 describe('view time statistics', () => {
+  it('shares flexible active-range duration across inclusive calendar dates, not fixed start time', () => {
+    const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
+    const task = createItem('Flexible work');
+    task.schedule = { timezone: 'UTC', startAt: '2026-09-22T16:00:00Z', dueAt: '2026-09-24T09:00:00Z', estimatedDuration: 'PT3H' };
+    workspace.items[task.id] = task;
+    const view = (key: string) => periodView(`scheduleInPeriod("custom", "active", false, 7, "${key}", "${key}")`);
+    for (const key of ['2026-09-22', '2026-09-23', '2026-09-24']) {
+      expect(activeRangeDailyDuration(task, viewPeriodBoundsForDates(key, key, 'UTC'))).toBe(3_600_000);
+      expect(calculateViewTimeMetrics(workspace, view(key), [task]).freeDurationMs).toBe(23 * 3_600_000);
+    }
+    expect(calculateViewTimeMetrics(workspace, view('2026-09-25'), [task]).freeDurationMs).toBe(24 * 3_600_000);
+  });
+  it('uses calendar-day shares across DST and keeps explicit events fixed', () => {
+    const task = createItem('Range');
+    task.schedule = { timezone: 'Europe/Berlin', startAt: '2026-03-28T22:00:00Z', dueAt: '2026-03-30T08:00:00Z', estimatedDuration: 'PT6H' };
+    expect(activeRangeDailyDuration(task, viewPeriodBoundsForDates('2026-03-29', '2026-03-29', 'Europe/Berlin'))).toBe(2 * 3_600_000);
+    expect(activeRangeDailyDuration(task, viewPeriodBoundsForDates('2026-03-27', '2026-03-27', 'Europe/Berlin'))).toBe(0);
+    task.schedule.endAt = '2026-03-29T09:00:00Z';
+    expect(activeRangeDailyDuration(task, viewPeriodBoundsForDates('2026-03-29', '2026-03-29', 'Europe/Berlin'))).toBeNull();
+  });
   it('counts travel as busy and unions its overlap with another event', () => {
     const workspace = createWorkspace(); workspace.calendarPreferences.timezone = 'UTC';
     const meeting = createItem('Meeting', 'event');

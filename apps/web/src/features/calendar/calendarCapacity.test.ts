@@ -5,6 +5,20 @@ import { evaluateCalendarRange } from './calendarEvaluation';
 import { calendarUndatedItems } from './calendarVisibility';
 
 describe('calendar visible capacity', () => {
+  it('subtracts the daily share of a hidden active-range reserve on each active day', () => {
+    const now = new Date('2026-09-22T12:00:00Z');
+    const workspace = createWorkspace('Flexible reserve', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    workspace.calendarPreferences.dayView.filter.source = 'title != "Hidden range"';
+    const task = createItem('Hidden range', 'task', now);
+    task.schedule = { timezone: 'UTC', startAt: '2026-09-22T09:00:00Z', dueAt: '2026-09-23T18:00:00Z', estimatedDuration: 'PT2H' };
+    workspace.items[task.id] = task;
+    workspace.calendarPreferences.dayView.statistics = { showTime: true, reservedItemIds: [task.id] };
+    const days = evaluateCalendarRange(workspace, '2026-09-22', '2026-09-25', workspace.calendarPreferences.dayView, now).days;
+    expect(calendarVisibleCapacity(workspace, days['2026-09-22']!, '2026-09-22', now, [], true)).toEqual({ freeMs: 11 * 3_600_000, hiddenReservedMs: 3_600_000 });
+    expect(calendarVisibleCapacity(workspace, days['2026-09-23']!, '2026-09-23', now, [], true)).toEqual({ freeMs: 23 * 3_600_000, hiddenReservedMs: 3_600_000 });
+    expect(calendarVisibleCapacity(workspace, days['2026-09-24']!, '2026-09-24', now, [], true)).toEqual({ freeMs: 24 * 3_600_000, hiddenReservedMs: 0 });
+  });
   it('tracks Overdue and No date switches and counts a hidden reserve only once', () => {
     const now = new Date('2026-09-23T12:00:00Z');
     const workspace = createWorkspace('Capacity', now);
