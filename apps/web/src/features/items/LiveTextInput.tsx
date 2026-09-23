@@ -5,7 +5,7 @@ import { dateValueExpression, parseLiveEntry as parseEntry, suggest, type Draft 
 import { Button, Input, Textarea } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { saveLiveTextReport } from './liveTextReports';
-import { timelineData } from '../calendar/timelineData';
+import { createLiveDayPreview } from './liveDayPreview';
 import { buildSegments, positionAt } from '../calendar/timelineLayout';
 import './live-text.css';
 
@@ -78,7 +78,9 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     return `${fields.year}-${fields.month}-${fields.day}`;
   }, [workspace, parsed.plannedDate, parsed.start, parsed.due, timeZone, value]);
   const previewMinute = Math.floor(referenceTime.getTime() / 60_000);
-  const dayPreview = useMemo(() => calendarDate && workspace ? timelineData(workspace, calendarDate, referenceTime) : null, [calendarDate, workspace, previewMinute]);
+  const previewModel = useMemo(createLiveDayPreview, []);
+  const previewRequested = focused && open && suggestionsEnabled && calendarDate !== viewedTimelineDate;
+  const dayPreview = useMemo(() => previewRequested && calendarDate && workspace ? previewModel.evaluate(workspace, calendarDate, referenceTime) : null, [previewRequested, calendarDate, workspace, previewMinute, previewModel]);
   const previewSegments = useMemo(() => dayPreview ? buildSegments(dayPreview.day, dayPreview.hidden) : [], [dayPreview]);
   const previewHeight = previewSegments.at(-1) ? previewSegments.at(-1)!.top + previewSegments.at(-1)!.height : 1;
   const previewPercent = (at: number) => positionAt(at, previewSegments) / previewHeight * 100;
@@ -161,7 +163,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div className={`live-text-panel${overlaySuggestions ? ' live-text-panel-inline' : ''}`}>
       {dayPreview && calendarDate && visiblePreview && <button ref={previewButton} type="button" className="live-day-preview" aria-label={language === 'ru' ? `Открыть ${calendarDate} в Timeline` : `Open ${calendarDate} in Timeline`} onPointerDown={(event) => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => { if (Date.now() - lastCalendarTouch.current > 500) viewCalendarDate(); }}>
         <div className="live-day-preview-heading"><strong>{new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${calendarDate}T12:00:00Z`))}</strong><span>{language === 'ru' ? `Событий: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · весь день: ${dayPreview.allDay.length}` : ''}` : `Events: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · all day: ${dayPreview.allDay.length}` : ''}`}</span></div>
-        <div className="live-day-preview-track" aria-hidden="true">{previewSegments.filter(segment => segment.hidden).map(segment => <span key={segment.start} className="live-day-preview-hidden" style={{ left: `${previewPercent(segment.start)}%`, width: `${segment.height / previewHeight * 100}%` }} />)}{dayPreviewEvents.filter(event => !previewSegments.some(segment => segment.hidden && event.start >= segment.start && event.end <= segment.end)).map((event, index) => <span key={`${event.item.id}-${index}`} className="live-day-preview-event" style={{ left: `${previewPercent(event.start)}%`, width: `${Math.max(0.8, previewPercent(Math.min(event.end, dayPreview.day.end)) - previewPercent(Math.max(event.start, dayPreview.day.start)))}%` }} />)}</div>
+        <div className="live-day-preview-track" aria-hidden="true">{previewSegments.filter(segment => segment.hidden).map(segment => <span key={segment.start} className="live-day-preview-hidden" style={{ left: `${previewPercent(segment.start)}%`, width: `${segment.height / previewHeight * 100}%` }} />)}{dayPreview.reserves.map((reserve, index) => <span key={`reserve-${index}`} className="live-day-preview-reserve" style={{ left: `${previewPercent(reserve.start)}%`, width: `${Math.max(0.8, previewPercent(reserve.end) - previewPercent(reserve.start))}%` }} />)}{dayPreviewEvents.filter(event => !previewSegments.some(segment => segment.hidden && event.start >= segment.start && event.end <= segment.end)).map((event, index) => <span key={`${event.item.id}-${index}`} className="live-day-preview-event" style={{ left: `${previewPercent(event.start)}%`, width: `${Math.max(0.8, previewPercent(Math.min(event.end, dayPreview.day.end)) - previewPercent(Math.max(event.start, dayPreview.day.start)))}%` }} />)}</div>
         <div className="live-day-preview-hours" aria-hidden="true">{[dayPreview.day.start, dayPreview.day.start + (dayPreview.day.end - dayPreview.day.start) / 4, dayPreview.day.start + (dayPreview.day.end - dayPreview.day.start) / 2, dayPreview.day.start + (dayPreview.day.end - dayPreview.day.start) * 3 / 4, dayPreview.day.end].filter((at, index, values) => index === 0 || index === values.length - 1 || (previewPercent(at) - previewPercent(values[index - 1]!) >= 15 && previewPercent(at) <= 85)).map(at => <span key={at} style={{ left: `${previewPercent(at)}%` }}>{previewClock(at)}</span>)}</div>
         {dayPreviewEvents.length > 0 && <div className="live-day-preview-labels">{dayPreviewEvents.slice(0, 3).map((event, index) => <span key={`${event.item.id}-${index}`}>{previewClock(event.start)} {event.item.title}</span>)}{dayPreviewEvents.length > 3 && <span>+{dayPreviewEvents.length - 3}</span>}</div>}
       </button>}

@@ -29,6 +29,7 @@
 .live-day-preview-track { position: relative; height: var(--space-2); border-radius: var(--radius-pill); background: var(--color-surface-muted); overflow: hidden; }
 .live-day-preview-event { position: absolute; top: 0; bottom: 0; min-width: 2px; border-radius: var(--radius-pill); background: var(--color-accent); opacity: .72; }
 .live-day-preview-hidden { position: absolute; top: 0; bottom: 0; background: var(--color-border-strong); opacity: .55; }
+.live-day-preview-reserve { position: absolute; inset-block: 0; border-radius: var(--radius-pill); background: var(--color-text-secondary); opacity: .2; }
 .live-day-preview-hours { position: relative; height: 1.2em; color: var(--color-text-secondary); }
 .live-day-preview-hours span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .live-day-preview-hours span:first-child { transform: none; }

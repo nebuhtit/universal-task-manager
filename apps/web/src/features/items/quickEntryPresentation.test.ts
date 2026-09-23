@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { applyQuickEntryText, createQuickEntryItem, formatQuickEntryForEditor, quickEntrySource } from './quickEntry';
+import { applyQuickEntryEditorText } from './quickEntry';
+import { applyQuickEntryText, createQuickEntryItem, formatQuickEntryForEditor, quickEntrySource, syncQuickEntrySource } from './quickEntry';
 
 describe('quick entry presentation', () => {
+  it('hides the default start reminder pair but retains it when editing the title', () => {
+    const now = new Date('2026-09-23T12:00:00Z');
+    const item = createQuickEntryItem('Встреча завтра 17:00 напомнить начало-120м, начало-1440м', now);
+    const text = formatQuickEntryForEditor(quickEntrySource(item)!.text);
+    expect(text).not.toContain('начало-');
+    const saved = applyQuickEntryEditorText(item, text.replace('Встреча', 'Звонок'), now).item;
+    expect(saved.title).toBe('Звонок');
+    expect(saved.reminders.map(r => r.offset)).toEqual(item.reminders.map(r => r.offset));
+    expect(formatQuickEntryForEditor(quickEntrySource(saved)!.text)).not.toContain('начало-');
+    const cleared = syncQuickEntrySource(saved, { ...saved, reminders: [] });
+    expect(applyQuickEntryEditorText(cleared, formatQuickEntryForEditor(quickEntrySource(cleared)!.text), now).item.reminders).toEqual([]);
+  });
   it('keeps all absolute reminders', () => {
     const now = new Date('2026-09-23T12:00:00Z');
     const item = createQuickEntryItem('Звонок н через полчаса', now);

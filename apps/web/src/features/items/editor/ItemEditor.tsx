@@ -24,7 +24,7 @@ import { useWorkspaceNow } from '../../../hooks/useClock';
 import { inferredPreset, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
-import { formatQuickEntryForEditor, applyQuickEntryText, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
+import { formatQuickEntryForEditor, applyQuickEntryEditorText as applyQuickEntryText, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
 import { LiveTextInput } from '../LiveTextInput';
 import { parseLiveEntry as parseEntry } from '../../../../quick-entry-lab/parser';
 import { ItemSection } from './ItemSection';

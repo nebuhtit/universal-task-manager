@@ -97,6 +97,7 @@ function reminderItems(draft: Draft): UniversalItem['reminders'] {
 
 /** Presentation only: keep quoted titles and decimal commas untouched. */
 export function formatQuickEntryForEditor(text: string): string {
+  text = text.replace(editorDefaultReminders, '').trimEnd();
   let quote = '', result = '';
   for (let index = 0; index < text.length; index++) {
     const char = text[index]!;
@@ -106,6 +107,15 @@ export function formatQuickEntryForEditor(text: string): string {
     if (!quote && char === ',' && text[index + 1] && !/\s/.test(text[index + 1]!) && !(/\d/.test(text[index - 1] ?? '') && /\d/.test(text[index + 1]!))) result += ' ';
   }
   return result;
+}
+
+const editorDefaultReminders = /\s+(?:напомнить|remind)\s+(?:начало|start)-120[мm],\s*(?:начало|start)-1440[мm]\s*$/i;
+
+/** Hidden default reminder syntax remains part of the source, not the visible title. */
+export function applyQuickEntryEditorText(item: UniversalItem, text: string, now: Date) {
+  const hidden = quickEntrySource(item)?.text.match(editorDefaultReminders)?.[0];
+  const expanded = hidden && !parseEntry(text, now).reminders.length ? text.trimEnd() + hidden : text;
+  return applyQuickEntryText(item, expanded, now);
 }
 
 export function applyQuickEntryText(item: UniversalItem, text: string, now: Date): { item: UniversalItem; draft: Draft } {
