@@ -2,11 +2,30 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AppShell, type AppNotice } from './AppShell';
 import { ShellNotices } from './ShellNotices';
-import { createWorkspace } from '@utm/core';
+import { createItem, createWorkspace } from '@utm/core';
 
 const noop = () => undefined;
 
 describe('AppShell', () => {
+  it('offers completion only for an open completable notice item', () => {
+    const workspace = createWorkspace('Reminders');
+    const item = createItem('Task');
+    item.canBeCompleted = true;
+    workspace.items[item.id] = item;
+    const notice: AppNotice = { id: 'notice-1', title: item.title, body: 'Reminder', at: item.createdAt, itemId: item.id };
+    const render = () => renderToStaticMarkup(<AppShell page="home" workspace={workspace} onPage={noop} openItems={1}
+      notices={[notice]} popupNoticeIds={[]} noticeCenterOpen mobileNavOpen={false}
+      backupReminder={false} onBackupReminder={noop} onDismissBackupReminder={noop}
+      onNewView={noop} onToggleNotices={noop} onToggleNavigation={noop} onCloseNavigation={noop}
+      onDismissPopup={noop} onDeleteNotice={noop} onOpenNotice={noop} onCompleteNotice={noop} onTransfer={noop} onLock={noop}
+    ><p>Content</p></AppShell>);
+    expect(render()).toContain('aria-label="Complete: Task"');
+    item.state = 'done';
+    expect(render()).not.toContain('aria-label="Complete: Task"');
+    item.state = 'open';
+    item.canBeCompleted = false;
+    expect(render()).not.toContain('aria-label="Complete: Task"');
+  });
   it('keeps navigation and notice actions as named native buttons', () => {
     const notice: AppNotice = { id: 'notice-1', title: 'Reminder', body: 'Call', at: '2026-08-26T08:00:00.000Z' };
     const markup = renderToStaticMarkup(<AppShell

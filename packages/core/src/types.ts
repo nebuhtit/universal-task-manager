@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.7.1';
-export const APP_RELEASED_AT = '2026-09-23T04:43:15.000Z';
+export const APP_VERSION = '2.8.0';
+export const APP_RELEASED_AT = '2026-09-23T06:32:14.236Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -646,7 +646,7 @@ export interface CalendarPreferences {
   language: WorkspaceLanguage;
   appearance: { mode: 'system' | 'light' | 'dark' | 'scheduled'; lightAt: string; darkAt: string; tickSound: boolean; uiSound: boolean; overdueAgeIndicator: boolean; /** Records the one-time upgrade that enabled calm sounds by default. */ soundDefaultsVersion?: 1 };
   dayView: CalendarDayViewPreferences;
-  timeline?: { mode: 'list' | 'timeline'; hideSleep: boolean; sleepItemId?: string; showUndated?: boolean };
+  timeline?: { mode: 'list' | 'timeline'; hideSleep: boolean; sleepItemId?: string; showUndated?: boolean; showOverdue?: boolean };
   /** Opt-in local operation logs used for troubleshooting; never uploaded automatically. */
   diagnosticsEnabled: boolean;
   /** Optional inline guides and explanatory copy; disabled by default for a compact interface. */

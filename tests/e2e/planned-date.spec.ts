@@ -11,8 +11,8 @@ test('Live text date-only item survives save, swipe rescheduling and reopen with
   await capture.fill('Отчёт завтра 2ч'); await capture.press('Enter');
   const summary = page.locator('.editor-scroll > details > summary').filter({ hasText: 'Dates & time' }).first();
   if (!await summary.locator('..').evaluate(el => (el as HTMLDetailsElement).open)) await summary.click();
-  await expect(page.getByLabel('Planned date', { exact: true })).toHaveValue('2026-09-23');
-  await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Event opens date', { exact: true })).toHaveValue('2026-09-23');
+  await expect(page.getByLabel('Event opens precision')).toHaveValue('date');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
   const card = page.locator('.item-card').filter({ hasText: 'Отчёт' }).first();
   await expect(card).toBeVisible();
@@ -34,6 +34,6 @@ test('Live text date-only item survives save, swipe rescheduling and reopen with
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await card.locator('.item-main').click();
   if (!await summary.locator('..').evaluate(el => (el as HTMLDetailsElement).open)) await summary.click();
-  await expect(page.getByLabel('Planned date', { exact: true })).toHaveValue('2026-09-22');
-  await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Event opens date', { exact: true })).toHaveValue('2026-09-22');
+  await expect(page.getByLabel('Event opens precision')).toHaveValue('date');
 });

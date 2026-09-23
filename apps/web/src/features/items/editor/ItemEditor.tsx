@@ -165,7 +165,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
       if (parsed.due) schedule.dueAt = parsed.due;
       if (parsed.travelMinutes !== null && interpreted.schedule?.travelDuration) schedule.travelDuration = interpreted.schedule.travelDuration;
       if (parsed.travelBackMinutes !== undefined && interpreted.schedule?.travelBackDuration) schedule.travelBackDuration = interpreted.schedule.travelBackDuration;
-      if (parsed.durationMinutes !== null && (parsed.start || parsed.due) && interpreted.schedule?.estimatedDuration) schedule.estimatedDuration = interpreted.schedule.estimatedDuration;
+      if (parsed.durationMinutes !== null && interpreted.schedule?.estimatedDuration) schedule.estimatedDuration = interpreted.schedule.estimatedDuration;
       return syncQuickEntrySource(current, { ...current, title: parsed.title, schedule, reminders: parsed.reminders.length ? interpreted.reminders : current.reminders });
     });
   };
@@ -231,7 +231,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     if (value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; }
     transformSchedule((schedule) => {
     const next = { ...schedule };
-    if (value) { next.plannedDate = value; delete next.startAt; delete next.endAt; delete next.travelDuration; delete next.allDay; }
+    if (value) { next.plannedDate = value; delete next.startAt; delete next.endAt; delete next.travelDuration; delete next.travelBackDuration; delete next.allDay; }
     else delete next.plannedDate;
     return next;
     });
@@ -338,7 +338,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const exportItem = (format: PortableFormat, metadata = false) => onExportItem(item, format, metadata);
 
   const [programValid, setProgramValid] = useState(true);
-  const save = async ({ dismissKeyboard = false }: { dismissKeyboard?: boolean } = {}) => {
+  const save = async ({ dismissKeyboard = false, complete = false }: { dismissKeyboard?: boolean; complete?: boolean } = {}) => {
     if (sourceEditing) { setError('Примените или отмените правку строки быстрого ввода перед сохранением.'); return; }
     if (!googleEvent && titleText !== initial.title) {
       const titleErrors = parseEntry(titleText, now).errors;
@@ -354,7 +354,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         suppressFocusRestore.current = true;
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
-      let itemToSave = item;
+      let itemToSave = complete ? { ...item, state: 'done' as const, closure: { at: now.toISOString(), actor: 'user' as const, reason: 'manual' as const } } : item;
       const overflowingBlocks = programOverflow(item);
       const programStart = Date.parse(item.schedule?.startAt ?? '');
       if (overflowingBlocks.length && Number.isFinite(programStart) && item.eventProgram?.blocks.every((block) => block.startOffsetSeconds >= 0)) {
@@ -442,7 +442,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         </section> : <details className="description-section"><summary>Строка быстрого ввода</summary><div className="details-body"><p style={{ whiteSpace: 'pre-wrap' }}>{quickEntrySource(item)!.text}</p><Button variant="secondary" onClick={() => { setSourceDraft(quickEntrySource(item)!.text); setSourceEditing(true); }}>Изменить строку</Button></div></details>)}
         {!sourceEditing && <>
         <div className="item-title-field">
-          <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{!googleEvent && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
+          <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{canManuallyComplete(item) && item.state === 'open' && workspace.items[item.id] && <button type="button" className="state-toggle editor-complete" aria-label={workspace.calendarPreferences.language === 'ru' ? 'Выполнить item' : 'Complete item'} title={workspace.calendarPreferences.language === 'ru' ? 'Выполнить и сохранить' : 'Complete and save'} disabled={saving || sourceEditing} onClick={() => void save({ complete: true })} />}{!googleEvent && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
           {googleEvent ? <input id={titleFieldId} ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly value={item.title} placeholder="What needs to happen?" /> : <LiveTextInput id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} ariaLabel="Title" value={titleText} onChange={updateTitleText} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} overlaySuggestions now={now} placeholder="What needs to happen?" />}
           {!googleEvent && item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>

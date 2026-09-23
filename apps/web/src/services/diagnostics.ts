@@ -34,6 +34,33 @@ export const diagnosticFailureCode = (reason: unknown): string => {
   return 'unexpected';
 };
 
+export type GoogleCalendarSyncStage = 'authorization' | 'outgoing-changes' | 'calendar-list' | 'events' | 'complete' | 'save' | 'flush';
+
+/**
+ * This is the only external-calendar detail allowed into an exported
+ * diagnostic log. It deliberately excludes URLs, calendar IDs, event data,
+ * and Google response bodies.
+ */
+export const googleCalendarFailureDetails = (stage: GoogleCalendarSyncStage, reason: unknown): string => {
+  const status = (reason as { status?: unknown } | null)?.status;
+  const httpStatus = typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
+  return JSON.stringify({ stage, failureCode: diagnosticFailureCode(reason), ...(httpStatus === undefined ? {} : { httpStatus }) });
+};
+
+export const safeGoogleCalendarFailureDetails = (details: string | undefined): string | undefined => {
+  if (!details) return undefined;
+  try {
+    const value = JSON.parse(details) as { stage?: unknown; failureCode?: unknown; httpStatus?: unknown };
+    const stages: GoogleCalendarSyncStage[] = ['authorization', 'outgoing-changes', 'calendar-list', 'events', 'complete', 'save', 'flush'];
+    const codes = ['password-or-encrypted-data', 'browser-storage', 'workspace-document', 'recurrence-processing', 'unexpected'];
+    if (!stages.includes(value.stage as GoogleCalendarSyncStage) || !codes.includes(value.failureCode as string)) return undefined;
+    const httpStatus = typeof value.httpStatus === 'number' && Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599 ? value.httpStatus : undefined;
+    return JSON.stringify({ stage: value.stage, failureCode: value.failureCode, ...(httpStatus === undefined ? {} : { httpStatus }) });
+  } catch {
+    return undefined;
+  }
+};
+
 export const diagnosticsEnabled = (): boolean => {
   try { return localStorage.getItem(DIAGNOSTICS_ENABLED_KEY) !== 'false'; }
   catch { return true; }

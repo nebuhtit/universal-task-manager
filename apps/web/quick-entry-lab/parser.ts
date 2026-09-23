@@ -459,12 +459,13 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
   if (result.start && result.end && result.end <= result.start) result.errors.push('Event ends должен быть позже event opens.');
   if (result.due && result.due.includes('T') && new Date(result.due) < now) result.warnings.push('Due уже в прошлом. Дата не перенесена автоматически.');
   for (const reminder of pending) {
-    const anchor = reminder.anchor === 'auto' ? result.start ? 'start' : 'due' : reminder.anchor;
+    const anchor = reminder.anchor === 'auto' ? result.start ? 'start' : result.due ? 'due' : 'now' : reminder.anchor;
     const base = anchor === 'now' ? now.toISOString() : anchor === 'leave' ? result.leave : anchor === 'due' ? result.due?.includes('T') ? result.due : null : result.start;
-    const at = base ? addMinutes(base, reminder.minutes) : null;
+    const minutes = reminder.anchor === 'auto' && anchor === 'now' ? Math.abs(reminder.minutes) : reminder.minutes;
+    const at = base ? addMinutes(base, minutes) : null;
     if (!at) result.errors.push(anchor === 'leave' ? 'Для напоминания до выезда нужны event opens и дорога.' : anchor === 'due' ? 'Для напоминания от due укажите дату и время due.' : 'Для напоминания до начала нужно время event opens.');
     if (at && new Date(at) < now) result.warnings.push('Есть напоминание в прошлом. Оно не будет перенесено автоматически.');
-    result.reminders.push({ ...reminder, anchor, at, ...(reminder.anchor === 'auto' ? { automatic: true } : {}) });
+    result.reminders.push({ ...reminder, minutes, anchor, at, ...(reminder.anchor === 'auto' ? { automatic: true } : {}) });
   }
   for (const at of absoluteReminders) {
     if (new Date(at) < now) result.warnings.push('Есть напоминание в прошлом. Оно не будет перенесено автоматически.');
@@ -773,6 +774,10 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
 
 /** Live capture supports a calendar day without inventing a start time. */
 export function bareDurationInsertion(input: string): number {
+  const inline = /\s+((?:\d+(?:[.,]\d+)?\s*(?:часов|часа?|hours?|ч|h|минуты?|мин|minutes?|min|м|m)\s*)+)(?=\s+(?:н|r|нап|напомнить|напомни|remind|reminder)(?::|\s)|$)/gi;
+  for (const match of input.matchAll(inline)) {
+    if (!/(?:длительность|duration|дл|dr|напомнить|нап|напомни|н|r|reminder|remind(?:\s+me)?|за|через|in|дорога|ехать|тт|drive|обратно(?:\s+по)?|travel(?:\s+(?:back|time))?|ттб|ttb|тб|tb|tt)\s*$/i.test(input.slice(0, match.index))) return match.index! + 1;
+  }
   const trailing = /\s+((?:\d+(?:[.,]\d+)?\s*(?:часов|часа?|hours?|ч|h|минуты?|мин|minutes?|min|м|m)\s*)+)$/i.exec(input);
   if (!trailing || /(?:длительность|duration|дл|dr|напомнить|нап|напомни|н|r|reminder|remind(?:\s+me)?|за|через|in|дорога|ехать|тт|drive|обратно(?:\s+по)?|travel(?:\s+(?:back|time))?|ттб|ttb|тб|tb|tt)\s*$/i.test(input.slice(0, trailing.index))) return -1;
   return trailing.index + 1;

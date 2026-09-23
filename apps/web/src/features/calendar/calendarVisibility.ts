@@ -16,14 +16,16 @@ export function showUndatedItem(item: UniversalItem, now: Date, zone: string) {
 export function showOverdueToday(item: UniversalItem, key: string, now: Date, zone: string, series?: UniversalItem) {
   if (item.deletedAt || item.state !== 'open' || key !== calendarDateKey(now, zone)) return false;
   const due = Date.parse(item.schedule?.dueAt ?? '');
-  if (!Number.isFinite(due) || due >= now.getTime()) return false;
+  const missedDue = Number.isFinite(due) && due < now.getTime();
+  const missedPlannedDate = Boolean(item.schedule?.plannedDate && item.schedule.plannedDate < key);
+  if (!missedDue && !missedPlannedDate) return false;
   const start = Date.parse(item.schedule?.startAt ?? '');
   const rule = (series ?? item).recurrence;
   const activeRange = rule?.autoRenew && rule.closeAt === 'due' && (!rule.activationOffset || /^PT0[MS]$/.test(rule.activationOffset));
   if (activeRange) {
     const dayStart = zonedDateStart(key, zone).getTime();
     // Due is already before now on this day; an active range must reach this day.
-    if (!Number.isFinite(start) || start > due || due < dayStart) return false;
+    if (!Number.isFinite(start) || !Number.isFinite(due) || start > due || due < dayStart) return false;
   }
   return true;
 }

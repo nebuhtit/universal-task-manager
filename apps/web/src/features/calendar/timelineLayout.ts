@@ -1,7 +1,7 @@
 import { durationToMs, effectiveItemDurationMs, zonedDateStart, type UniversalItem } from '@utm/core';
 
 export type Interval = { start: number; end: number };
-export type TimelineEvent = Interval & { item: UniversalItem; point: boolean; invalid: boolean; travel?: boolean; travelBack?: boolean; tentative?: boolean };
+export type TimelineEvent = Interval & { item: UniversalItem; point: boolean; invalid: boolean; travel?: boolean; travelBack?: boolean; tentative?: boolean; tentativeOverdue?: boolean };
 export type Segment = Interval & { top: number; height: number; hidden: boolean };
 export type PlacedEvent = TimelineEvent & { top: number; height: number; column: number; columns: number; continuedBefore: boolean; continuedAfter: boolean };
 export type MoreBlock = { top: number; height: number; column: number; columns: number; items: UniversalItem[] };

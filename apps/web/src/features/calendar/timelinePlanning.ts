@@ -2,15 +2,21 @@ import { effectiveItemDurationMs, timeCapacity, type UniversalItem } from '@utm/
 import { mergeIntervals, type Interval, type TimelineEvent } from './timelineLayout';
 
 /** Read-only proposals for the selected day, never schedule mutations. */
-export function planUndatedTasks(items: UniversalItem[], events: TimelineEvent[], sleep: Interval[], day: Interval, now?: Date) {
-  const tasks = items.filter(item => item.state === 'open' && !item.deletedAt && !item.isNote && item.canBeCompleted !== false
+export function planUndatedTasks(items: UniversalItem[], events: TimelineEvent[], sleep: Interval[], day: Interval, now?: Date, overdueItems: UniversalItem[] = []) {
+  const eligible = (item: UniversalItem) => item.state === 'open' && !item.deletedAt && !item.isNote && item.canBeCompleted !== false
     && item.role !== 'series_template' && !item.schedule?.allDay
-    && !item.schedule?.startAt && !item.schedule?.endAt && (!item.schedule?.dueAt || Boolean(item.schedule.plannedDate)) && (!item.schedule?.availableFrom || Boolean(item.schedule.plannedDate))
-    && Number.isFinite(effectiveItemDurationMs(item)) && effectiveItemDurationMs(item) > 0)
+    && !item.schedule?.startAt && !item.schedule?.endAt
+    && Number.isFinite(effectiveItemDurationMs(item)) && effectiveItemDurationMs(item) > 0;
+  const regularTasks = items.filter(item => eligible(item) && (!item.schedule?.dueAt || Boolean(item.schedule.plannedDate)) && (!item.schedule?.availableFrom || Boolean(item.schedule.plannedDate)));
+  const regularIds = new Set(regularTasks.map(item => item.id));
+  const overdueTasks = overdueItems.filter(item => eligible(item) && !regularIds.has(item.id));
+  const tasks = [...overdueTasks, ...regularTasks]
     .sort((a, b) => (Date.parse(a.schedule?.dueAt ?? '') || Infinity) - (Date.parse(b.schedule?.dueAt ?? '') || Infinity) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   const clip = (intervals: Interval[]) => mergeIntervals(intervals.map(v => ({ start: Math.max(day.start, v.start), end: Math.min(day.end, v.end) })));
   const busy = clip([...sleep, ...events.filter(event => !event.invalid && (event.travel || event.item.external?.transparency !== 'transparent'))]);
-  const taskDurationMs = tasks.reduce((sum, item) => sum + effectiveItemDurationMs(item), 0);
+  const taskDurationMs = regularTasks.reduce((sum, item) => sum + effectiveItemDurationMs(item), 0);
+  const overdueDurationMs = overdueTasks.reduce((sum, item) => sum + effectiveItemDurationMs(item), 0);
+  const overdueIds = new Set(overdueTasks.map(item => item.id));
   const calendarFreeMs = timeCapacity(day, busy).availableMs;
   // Morning/overnight sleep ends before the end of this day; evening sleep does
   // not push all proposals past midnight. Without a sleep interval use day start.
@@ -30,7 +36,8 @@ export function planUndatedTasks(items: UniversalItem[], events: TimelineEvent[]
   const warnings: Array<{ item: UniversalItem; reason: 'deadline' | 'fragmented' | 'capacity' }> = [];
   for (const item of tasks) {
     const duration = effectiveItemDurationMs(item);
-    const due = Date.parse(item.schedule?.dueAt ?? '');
+    const isOverdue = overdueIds.has(item.id);
+    const due = isOverdue ? Number.NaN : Date.parse(item.schedule?.dueAt ?? '');
     const earliest = Date.parse(item.schedule?.availableFrom ?? '');
     const startIn = (v: Interval) => Math.max(v.start, Number.isFinite(earliest) ? earliest : v.start);
     const endIn = (v: Interval) => Math.min(v.end, Number.isFinite(due) ? due : v.end);
@@ -42,11 +49,11 @@ export function planUndatedTasks(items: UniversalItem[], events: TimelineEvent[]
       continue;
     }
     const start = startIn(gap);
-    proposals.push({ item, start, end: start + duration, point: false, invalid: false, tentative: true });
+    proposals.push({ item, start, end: start + duration, point: false, invalid: false, tentative: true, ...(isOverdue ? { tentativeOverdue: true } : {}) });
     if (start > gap.start) gaps.push({ start: gap.start, end: start });
     gap.start = start + duration;
     gaps.sort((a, b) => a.start - b.start);
   }
   const remainingToday = timeCapacity({ start: planningStart, end: day.end }, busy, taskDurationMs);
-  return { proposals, unplaced, warnings, calendarFreeMs, taskDurationMs, remainingMs: timeCapacity(day, busy, taskDurationMs).remainingMs, remainingTodayMs: remainingToday.remainingMs, availableTodayMs: remainingToday.availableMs };
+  return { proposals, unplaced, warnings, calendarFreeMs, taskDurationMs, overdueDurationMs, remainingMs: timeCapacity(day, busy, taskDurationMs).remainingMs, remainingAfterOverdueMs: timeCapacity(day, busy, taskDurationMs + overdueDurationMs).remainingMs, remainingTodayMs: remainingToday.remainingMs, availableTodayMs: remainingToday.availableMs };
 }

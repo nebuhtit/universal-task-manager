@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { diagnosticFailureCode, DIAGNOSTICS_KEY, MAX_DIAGNOSTIC_ENTRIES, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled } from './diagnostics';
+import { diagnosticFailureCode, DIAGNOSTICS_KEY, googleCalendarFailureDetails, MAX_DIAGNOSTIC_ENTRIES, readDiagnostics, recordDiagnostic, safeGoogleCalendarFailureDetails, setDiagnosticsEnabled } from './diagnostics';
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -46,5 +46,13 @@ describe('local diagnostics', () => {
     expect(diagnosticFailureCode(new Error('IndexedDB transaction failed'))).toBe('browser-storage');
     expect(diagnosticFailureCode(new Error('Attempting to change an outdated document'))).toBe('workspace-document');
     expect(diagnosticFailureCode(new Error('Title: private item text'))).toBe('unexpected');
+  });
+
+  it('keeps only safe Google Calendar failure metadata for export', () => {
+    const error = Object.assign(new Error('Calendar name and event title must never leave this device'), { status: 429 });
+    expect(googleCalendarFailureDetails('events', error)).toBe('{"stage":"events","failureCode":"unexpected","httpStatus":429}');
+    expect(safeGoogleCalendarFailureDetails(googleCalendarFailureDetails('events', error))).toBe('{"stage":"events","failureCode":"unexpected","httpStatus":429}');
+    expect(safeGoogleCalendarFailureDetails(JSON.stringify({ stage: 'events', failureCode: 'unexpected', eventTitle: 'Private event' }))).toBe('{"stage":"events","failureCode":"unexpected"}');
+    expect(safeGoogleCalendarFailureDetails(JSON.stringify({ stage: 'made-up', failureCode: 'unexpected' }))).toBeUndefined();
   });
 });

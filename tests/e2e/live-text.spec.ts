@@ -10,7 +10,7 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  const input = page.getByPlaceholder('Add new item');
+  const input = page.locator('.capture-dock input');
   const capture = page.locator('.capture-dock .quick-capture');
   const idleBackground = await capture.evaluate((element) => getComputedStyle(element).backgroundColor);
   await input.focus();
@@ -21,6 +21,7 @@ test('live text suggestions, correction reports and saved preference', async ({ 
     await expect(page.locator('.content')).toHaveCSS('padding-top', (page.viewportSize()?.width ?? 0) <= 620 ? '60px' : '64px');
   }
   await input.fill('Встреча завтра');
+  await expect(page.locator('.capture-dock .live-day-preview')).toBeVisible();
   const options = page.getByRole('listbox', { name: 'Подсказки Live text' });
   await expect(options).toBeVisible();
   await input.fill('завтра вечером');
@@ -29,6 +30,7 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   if ((page.viewportSize()?.width ?? 0) <= 620) await calendarShortcut.tap();
   else await calendarShortcut.click();
   await expect(page.locator('.calendar-page')).toBeVisible();
+  await expect(input).toHaveAttribute('placeholder', /^Add new item to /);
   await expect(input).toHaveValue('завтра вечером');
   await expect(options).toBeVisible();
   await input.fill('Встреча завтра');

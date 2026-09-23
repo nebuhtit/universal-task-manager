@@ -33,7 +33,17 @@ type Props = {
 
 export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, travelBackDuration, patchTravelBackDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchPlannedDate, patchScheduledEnd, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
   const [quickDueOpen, setQuickDueOpen] = useState(false);
+  const [dateOnlyMode, setDateOnlyMode] = useState(Boolean(item.schedule?.plannedDate));
+  const [pendingDateOnly, setPendingDateOnly] = useState(false);
   const language = workspace.calendarPreferences.language;
+  const dateOnly = Boolean(item.schedule?.plannedDate) || (!item.schedule?.startAt && dateOnlyMode);
+  const startDateKey = () => {
+    const at = item.schedule?.startAt;
+    if (!at) return '';
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: item.schedule?.timezone ?? workspace.calendarPreferences.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at));
+    const fields = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return `${fields.year}-${fields.month}-${fields.day}`;
+  };
   const opensAt = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
   const invalidEnd = Number.isFinite(opensAt) && Boolean(item.schedule?.endAt) && Date.parse(item.schedule!.endAt!) < opensAt;
   const invalidDue = Number.isFinite(opensAt) && Boolean(item.schedule?.dueAt) && Date.parse(item.schedule!.dueAt!) < opensAt;
@@ -47,8 +57,16 @@ export function DatesSection({ item, workspace, now = new Date(), sectionMark, s
         <div className="travel-duration-control"><Input type="number" min="0" step="1" aria-label="Travel back amount" value={travelBackDuration?.amount ?? ''} placeholder="—" onChange={event => patchTravelBackDuration(event.target.value === '' || Number(event.target.value) <= 0 ? undefined : Number(event.target.value), travelBackDuration?.unit ?? 'minutes')} /><Select aria-label="Travel back unit" value={travelBackDuration?.unit ?? 'minutes'} onChange={event => patchTravelBackDuration(travelBackDuration?.amount, event.target.value as FriendlyDurationUnit)}><option value="minutes">Minutes</option><option value="hours">Hours</option></Select></div>
         <small>{language === 'ru' ? 'Сразу после события. Учитывается как занятое время.' : 'Immediately after the event. Counts as busy time.'}</small>
       </Disclosure>}
-      {patchPlannedDate && !item.external && <Field label={language === 'ru' ? 'Плановая дата · без времени' : 'Planned date · no time'}><Input type="date" aria-label="Planned date" value={item.schedule?.plannedDate ?? ''} onChange={event => patchPlannedDate(event.target.value || undefined)} /></Field>}
-      <Field label={<FieldIconLabel path="schedule.startAt" label="Event opens" />}><DateTimeField label="Event opens" value={item.schedule?.startAt} language={language} onChange={patchScheduledStart} /></Field>
+      <Field label={<FieldIconLabel path="schedule.startAt" label="Event opens" />}>
+        {patchPlannedDate && !item.external && <Select aria-label="Event opens precision" value={dateOnly ? 'date' : 'datetime'} onChange={event => {
+          if (event.target.value === 'date') {
+            if (item.schedule?.startAt) setPendingDateOnly(true);
+            else setDateOnlyMode(true);
+          } else { setDateOnlyMode(false); setPendingDateOnly(false); if (item.schedule?.plannedDate) patchPlannedDate(undefined); }
+        }}><option value="datetime">{language === 'ru' ? 'Дата и время' : 'Date and time'}</option><option value="date">{language === 'ru' ? 'Только дата' : 'Date only'}</option></Select>}
+        {dateOnly && patchPlannedDate ? <Input type="date" aria-label="Event opens date" value={item.schedule?.plannedDate ?? ''} onChange={event => patchPlannedDate(event.target.value || undefined)} /> : <DateTimeField label="Event opens" value={item.schedule?.startAt} language={language} onChange={patchScheduledStart} />}
+        {pendingDateOnly && <div className="date-only-confirm" role="alert"><p>{language === 'ru' ? 'Время начала, окончания и дорога будут удалены. Оставить только дату?' : 'Start/end times and travel will be removed. Keep only the date?'}</p><Button size="compact" onClick={() => { patchPlannedDate?.(startDateKey()); setDateOnlyMode(true); setPendingDateOnly(false); }}>{language === 'ru' ? 'Оставить дату' : 'Keep date'}</Button><Button size="compact" variant="secondary" onClick={() => setPendingDateOnly(false)}>{language === 'ru' ? 'Отмена' : 'Cancel'}</Button></div>}
+      </Field>
       <Field label={<FieldIconLabel path="schedule.estimatedDuration" label="Estimated duration" />}><DurationField hasStart={Boolean(item.schedule?.startAt)} {...(scheduledDuration ? { duration: scheduledDuration } : {})} onDurationChange={patchScheduledDuration} onPreset={applyDurationPreset} /></Field>
       {item.schedule?.startAt && <Field label={<FieldIconLabel path="schedule.endAt" label="Event ends" />} error={invalidEnd ? 'Event ends cannot be earlier than Event opens.' : undefined}><DateTimeField label="Event ends" value={item.schedule?.endAt} language={language} onChange={patchScheduledEnd} minValue={item.schedule.startAt} /></Field>}
       {item.schedule?.startAt && !item.schedule.allDay && <Disclosure uiKey={`item-editor:${item.id}:travel-time`} persist={false} summary={travelSummary} className="travel-time-disclosure">

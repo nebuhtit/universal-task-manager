@@ -3,6 +3,7 @@ import { bareDurationInsertion, dateValueExpression, duration, parseDate, parseL
 import { extractOrganization } from '../../../quick-entry-lab/organization';
 
 export const QUICK_ENTRY_SOURCE = 'utm:quickEntrySource';
+const QUICK_REMINDER_FOLLOWUPS = 'utm:quickReminderFollowups';
 export type QuickEntrySource = { text: string; timezone: string; grammarVersion?: 2 };
 
 const days = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -140,6 +141,17 @@ export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate
   try {
     const created = applyQuickEntryText(createItem('', 'task', now), original, now);
     if (created.draft.isNote) return created.item;
+    if (!created.draft.start && !created.draft.due && created.item.reminders.length > 0) {
+      const moments = created.item.reminders.map(reminder => reminder.at).filter((at): at is string => Boolean(at && Number.isFinite(Date.parse(at)))).sort((left, right) => Date.parse(left) - Date.parse(right));
+      const first = moments[0];
+      if (first) {
+        const following = [1, 2].map(hours => new Date(Date.parse(first) + hours * 3_600_000).toISOString())
+          .filter(at => !moments.includes(at))
+          .map(at => ({ id: createId(), mode: 'absolute' as const, at, urgency: 'normal' as const, repeatUntilAcknowledged: false }));
+        const next = { ...created.item, schedule: { ...created.item.schedule!, dueAt: first }, reminders: [...created.item.reminders, ...following], extensions: { ...created.item.extensions, [QUICK_REMINDER_FOLLOWUPS]: following.map(reminder => reminder.id) } };
+        created.item = syncQuickEntrySource(created.item, next);
+      }
+    }
     if (!created.draft.start) {
       if (defaultPlannedDate && !created.draft.plannedDate && !created.draft.due && !created.draft.end) {
         created.item.schedule = { ...created.item.schedule!, plannedDate: defaultPlannedDate };
@@ -185,6 +197,12 @@ function replaceCapture(text: string, match: RegExpExecArray, group: number, rep
 export function syncQuickEntrySource(previous: UniversalItem, next: UniversalItem): UniversalItem {
   const source = quickEntrySource(previous);
   if (!source) return next;
+  const followupIds = previous.extensions?.[QUICK_REMINDER_FOLLOWUPS];
+  if (Array.isArray(followupIds) && (previous.schedule?.dueAt !== next.schedule?.dueAt || previous.schedule?.plannedDate !== next.schedule?.plannedDate || previous.schedule?.startAt !== next.schedule?.startAt)) {
+    const ids = new Set(followupIds.filter((value): value is string => typeof value === 'string'));
+    const extensions = { ...next.extensions }; delete extensions[QUICK_REMINDER_FOLLOWUPS];
+    next = { ...next, reminders: next.reminders.filter(reminder => !ids.has(reminder.id)), extensions };
+  }
   if (previous.schedule?.plannedDate !== next.schedule?.plannedDate) {
     // Invalidate obsolete source text rather than let a later reparse restore
     // the old date. The item remains the authoritative edited record.
@@ -262,7 +280,7 @@ export function syncQuickEntrySource(previous: UniversalItem, next: UniversalIte
       const anchor = reminder.relativeTo === 'due' ? 'срок' : 'начало';
       return amount > 0 ? `${anchor}${reminder.offset?.startsWith('-') ? '-' : '+'}${amount}м` : '';
     }).filter(Boolean).join(',');
-    const command = /(^|\s)(напомнить|нап|напомни|напоминание|напоминания|напомянание|remind|reminder|r)\s+.+?(?=\s+(?:срок|due|начало|start|конец|end|дорога|ехать|тт|tt|travel|drive|длительность|duration|event\s+opens|event\s+ends)\s+|$)/i.exec(text);
+    const command = /(^|\s)(напомнить|нап|напомни|напоминание|напоминания|напомянание|н|remind(?:\s+me)?|reminder|r)\s+.+?(?=\s+(?:срок|due|начало|start|конец|end|дорога|ехать|тт|tt|travel|drive|длительность|duration|event\s+opens|event\s+ends)\s+|$)/i.exec(text);
     if (command) text = text.slice(0, command.index) + (values ? `${command[1]}${command[2]} ${values}` : '') + text.slice(command.index + command[0].length);
     else if (values) text += ` напомнить ${values}`;
   }

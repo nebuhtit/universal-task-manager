@@ -68,8 +68,9 @@
 .organization-drag-handle:active { cursor: grabbing; }
 .organization-kind { display: inline-flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-2); border-radius: var(--radius-pill); background: var(--color-surface-muted); color: var(--color-text-secondary); font-size: var(--font-size-caption); text-transform: uppercase; }
 .organization-unassigned { color: var(--color-text-secondary); font-weight: var(--font-weight-medium); }
-.organization-order-actions { position: sticky; z-index: 2; bottom: var(--space-3); display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-elevated); box-shadow: var(--shadow-elevated); }
-.organization-order-actions > span { margin-right: auto; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.organization-order-actions { position: sticky; z-index: 2; bottom: calc(var(--space-3) + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: flex-end; flex-wrap: nowrap; gap: var(--space-1); min-width: 0; padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-pill); background: var(--color-surface-elevated); box-shadow: var(--shadow-elevated); }
+.organization-order-actions > span { margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.organization-order-actions .ui-button { flex: 0 0 auto; white-space: nowrap; }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .organization-order-actions { background: var(--color-capture-active); -webkit-backdrop-filter: blur(var(--blur-capture-idle)); backdrop-filter: blur(var(--blur-capture-idle)); }
 }
@@ -125,7 +126,7 @@
   .organization-inline-rename > .ui-button:last-child { grid-column: 1 / -1; }
   .organization-tag-rename { grid-template-columns: minmax(0, 1fr) auto; }
   .organization-tag-rename > .ui-button:last-child { grid-column: 1 / -1; }
-  .organization-order-actions .ui-button { flex: 0 1 auto; max-width: 100%; white-space: normal; }
+  .organization-order-actions .ui-button { flex: 0 0 auto; }
   .organization-detail-header { grid-template-columns: auto minmax(0, 1fr); }
   .organization-detail-header .organization-entity-controls { grid-column: 1 / -1; justify-self: stretch; }
   .organization-entity-controls { justify-content: space-between; }

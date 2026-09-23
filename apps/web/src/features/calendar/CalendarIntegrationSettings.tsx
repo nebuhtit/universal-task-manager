@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { applyGoogleCalendarSync, reconcileCalendarOrganization, detachGoogleCalendar, createId, type GoogleCalendarPreferences, type WorkspaceDocument } from '@utm/core';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { Button, Checkbox, Disclosure, Field, Input, Select } from '../../components/ui/primitives';
-import { recordDiagnostic } from '../../services/diagnostics';
+import { googleCalendarFailureDetails, recordDiagnostic, type GoogleCalendarSyncStage } from '../../services/diagnostics';
 import { forgetGoogleCalendarAuthorization, GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from '../../services/googleCalendar';
 
 type GoogleSyncLogEntry = { at: string; level: 'info' | 'error'; message: string };
@@ -21,7 +21,7 @@ export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
 
   const syncGoogle = async () => {
     const startedAt = performance.now();
-    let diagnosticStage = 'authorization';
+    let diagnosticStage: GoogleCalendarSyncStage = 'authorization';
     const appendLog = (message: string, level: GoogleSyncLogEntry['level'] = 'info') => setGoogleSyncLog((entries) => [...entries, { at: new Date().toISOString(), level, message }].slice(-30));
     setGoogleBusy(true); setGoogleError('');
     const current: GoogleCalendarPreferences = preferences.googleCalendar ?? { connectionId: createId(), calendars: [], syncTokens: {} };
@@ -32,7 +32,7 @@ export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
       const token = hasCurrentToken ? googleToken! : await requestGoogleCalendarToken();
       setGoogleToken(token);
       appendLog('Google authorization received.');
-      diagnosticStage = 'download';
+      diagnosticStage = 'calendar-list';
       const result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
         diagnosticStage = progress.stage; setGoogleSyncStatus(progress.message); appendLog(progress.message);
       });
@@ -48,6 +48,7 @@ export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
         reconcileCalendarOrganization(draft);
       });
       if (applied === false) throw new Error('Could not save Google synchronization locally.');
+      diagnosticStage = 'flush';
       await onFlush();
       window.dispatchEvent(new Event('utm-retry-google-queue'));
       const eventCount = result.batches.reduce((total, batch) => total + batch.events.length, 0);
@@ -59,7 +60,7 @@ export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
       const message = reason instanceof Error ? reason.message : String(reason);
       const durationMs = Math.round(performance.now() - startedAt);
       setGoogleError(`${message} Stage: ${diagnosticStage}.`); setGoogleSyncStatus('Sync failed.'); appendLog(`Sync failed during ${diagnosticStage}: ${message}`, 'error');
-      recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs, details: JSON.stringify({ stage: diagnosticStage, status: (reason as { status?: unknown })?.status ?? null, errorType: reason instanceof Error ? reason.name : typeof reason }) });
+      recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs, details: googleCalendarFailureDetails(diagnosticStage, reason) });
       if (preferences.googleCalendar) commit('Record Google Calendar sync error', (draft) => { if (draft.calendarPreferences.googleCalendar) draft.calendarPreferences.googleCalendar.lastError = message; });
     } finally { setGoogleBusy(false); }
   };

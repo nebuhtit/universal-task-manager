@@ -1,3 +1,4 @@
+import { weatherService } from './features/weather/weatherService';
 import { Component, lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
@@ -39,7 +40,7 @@ import './features/settings/settings-hierarchy.css';
 import './features/recovery/recovery.css';
 import { canQuickChangeDue, itemTimeZone } from './features/items/dueQuickActions';
 import { reminderSnoozedUntil, type ReminderSnoozeOption } from './services/reminderSnooze';
-import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry } from './services/diagnostics';
+import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, googleCalendarFailureDetails, readDiagnostics, recordDiagnostic, safeGoogleCalendarFailureDetails, setDiagnosticsEnabled, type DiagnosticEntry, type GoogleCalendarSyncStage } from './services/diagnostics';
 import { applyViewCreationDefaults } from './features/views/applyCreationDefaults';
 import { SettingsReleaseInfo } from './features/settings/SettingsReleaseInfo';
 import { googleActionItem, itemEditorSource } from './features/items/editor/itemEditorSource';
@@ -92,7 +93,10 @@ const downloadText = (content: string, filename: string, type = 'application/jso
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
 const exportSafeDiagnostics = () => [...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
-  if (/google|calendar/i.test(`${entry.operation} ${entry.message}`)) return { ...entry, message: 'External calendar operation details omitted from export' };
+  if (/google|calendar/i.test(`${entry.operation} ${entry.message}`)) {
+    const safeDetails = entry.outcome === 'failed' ? safeGoogleCalendarFailureDetails(details) : undefined;
+    return { ...entry, message: 'External calendar operation details omitted from export', ...(safeDetails ? { details: safeDetails } : {}) };
+  }
   // Failure categories are intentionally finite and contain no workspace
   // content. Preserve them so an exported log can identify the failing stage.
   return details && ['password-or-encrypted-data', 'browser-storage', 'workspace-document', 'recurrence-processing', 'unexpected'].includes(details)
@@ -655,6 +659,7 @@ export default function App() {
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string; backupPreview?: boolean | undefined; isolatedPreview?: boolean } | null>(null);
   const { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery } = useWorkspaceController({ onToast: setToast, setNotices });
+  useEffect(() => workspace ? weatherService.start() : undefined, [Boolean(workspace)]);
   const workspaceLatest = useRef(workspace);
   workspaceLatest.current = workspace;
   const googleWrites = useRef(new Set<string>());
@@ -738,18 +743,23 @@ export default function App() {
     if (!GOOGLE_CALENDAR_CLIENT_ID) { setToast('This build needs a Google OAuth client ID before sync is available.'); return; }
     googleSyncInFlight.current = true;
     const startedAt = performance.now();
+    let diagnosticStage: GoogleCalendarSyncStage = 'authorization';
     setGoogleCalendarSyncing(true);
     setGoogleCalendarSyncStatus('Authorizing Google Calendar…');
     try {
       setToast('Google Calendar: authorizing…');
       const token = await requestGoogleCalendarToken(undefined, 'create');
+      diagnosticStage = 'outgoing-changes';
       setGoogleCalendarSyncStatus('Sending saved changes…');
       const queuedGoogleWrites = await retryGoogleQueue(false, undefined, token.accessToken);
       const current: GoogleCalendarPreferences = workspaceLatest.current?.calendarPreferences.googleCalendar ?? google;
+      diagnosticStage = 'calendar-list';
       const result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
+        diagnosticStage = progress.stage;
         setGoogleCalendarSyncStatus(progress.message);
         setToast(`Google Calendar: ${progress.message}`);
       });
+      diagnosticStage = 'save';
       setGoogleCalendarSyncStatus('Saving locally…');
       const applied = commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
@@ -761,6 +771,7 @@ export default function App() {
         reconcileCalendarOrganization(draft);
       });
       if (!applied) throw new Error('Could not save Google synchronization locally.');
+      diagnosticStage = 'flush';
       await flushPersistence();
       const events = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);
@@ -769,7 +780,7 @@ export default function App() {
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
       setToast(`Google Calendar sync failed: ${message}`);
-      recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
+      recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: googleCalendarFailureDetails(diagnosticStage, reason) });
       commit('Record Google Calendar sync error', (draft) => { if (draft.calendarPreferences.googleCalendar) draft.calendarPreferences.googleCalendar.lastError = message; });
     } finally { googleSyncInFlight.current = false; setGoogleCalendarSyncing(false); setGoogleCalendarSyncStatus(''); }
   };
@@ -1270,7 +1281,7 @@ export default function App() {
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
-  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onSnoozeNotice={snoozeNotice} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onCompleteNotice={(notice) => { const item = notice.itemId ? workspace.items[notice.itemId] : undefined; if (item && item.state === 'open' && canManuallyComplete(item)) changeItemState(item, 'done'); }} onSnoozeNotice={snoozeNotice} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {(saveStatus === 'saving' || saveStatus === 'error') && <p className="hint" role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : 'Не сохранено. Последние изменения пока только в памяти.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>}
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
@@ -1288,7 +1299,7 @@ export default function App() {
       </Suspense>
     </AppShell>
     {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={quickDueItem.schedule?.plannedDate ? (workspace.calendarPreferences.language === 'ru' ? 'Перепланировать' : 'Reschedule') : (workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due')} ariaLabel="Quick Due" footer={<Button disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
-    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} error={quickError} timeZone={workspace.calendarPreferences.timezone} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form></div>}
+    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} placeholder={page === 'calendar' && calendarCaptureDate ? `Add new item to ${new Intl.DateTimeFormat(workspace.calendarPreferences.language === 'ru' ? 'ru-RU' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${calendarCaptureDate}T12:00:00Z`))}` : 'Add new item'} error={quickError} timeZone={workspace.calendarPreferences.timezone} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form></div>}
     {quickCompletion && <QuickCompletionInput
       open
       value={quickCompletion.completedAt}

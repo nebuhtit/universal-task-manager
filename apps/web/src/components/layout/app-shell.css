@@ -156,6 +156,8 @@
 .notice-content strong { font-weight: var(--font-weight-medium); }
 .notice-content span { margin-top: 2px; color: var(--color-text-secondary); font-size: var(--font-size-secondary); }
 .notice-dismiss.ui-icon-button { margin: var(--space-1) var(--space-1) 0 0; pointer-events: auto; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.notice-card:has(.notice-complete) { grid-template-columns: minmax(0, 1fr) auto auto; }
+.notice-complete { align-self: center; width: var(--control-height-compact); height: var(--control-height-compact); margin: 0 var(--space-2); flex: none; }
 .notice-dismiss .close-icon { width: 14px; height: 14px; }
 .notice-snooze { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--space-1); padding: 0 var(--space-2) var(--space-2); }
 .notice-snooze .ui-button { min-height: var(--control-height-compact); }
@@ -250,3 +252,31 @@
   .top-summary { text-align: left; }
   .top-actions { grid-column: 2; gap: var(--space-1); }
 }
+
+/* Keep both rows inside the existing 64px / 60px header reservation. */
+.topbar:has(.responsive-clock) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: var(--control-height-compact) minmax(0, 1fr);
+  column-gap: var(--space-1);
+  row-gap: var(--space-0);
+}
+.topbar:has(.responsive-clock) > div:first-child { grid-area: 1 / 1; }
+.topbar:has(.responsive-clock) .top-actions { grid-area: 1 / 2; }
+.header-agenda {
+  grid-area: 2 / 1 / 3 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.header-agenda-part { display: flex; align-items: center; gap: var(--space-1); flex: 1 1 auto; min-width: 0; }
+.header-agenda-part > span:not(.header-agenda-title) { flex: 0 0 auto; }
+.header-agenda-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.header-agenda-title > span { display: inline; }
+
+.header-agenda-part .header-agenda-title { flex: 1 1 0; width: 0; }

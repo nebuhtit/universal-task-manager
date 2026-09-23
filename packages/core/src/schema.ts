@@ -319,7 +319,7 @@ export const workspaceJsonSchema = {
       required: ['timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'sleepSchedule', 'weekends', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat', 'language', 'appearance', 'dayView', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews'],
       properties: {
         localTimeJournals: { type: 'object', propertyNames: { pattern: '^[a-f0-9]{64}$' }, additionalProperties: itemJsonSchema.properties.actualTimeEntries },
-        timeline: { type: 'object', additionalProperties: false, required: ['mode', 'hideSleep'], properties: { mode: { enum: ['list', 'timeline'] }, hideSleep: { type: 'boolean' }, sleepItemId: { type: 'string' }, showUndated: { type: 'boolean' } } },
+        timeline: { type: 'object', additionalProperties: false, required: ['mode', 'hideSleep'], properties: { mode: { enum: ['list', 'timeline'] }, hideSleep: { type: 'boolean' }, sleepItemId: { type: 'string' }, showUndated: { type: 'boolean' }, showOverdue: { type: 'boolean' } } },
         timezone: { type: 'string' }, lastMode: { enum: ['month', 'week', 'day', 'three_day', 'agenda'] }, weekStartsOn: { enum: [0, 1] },
         workingHours: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string' }, end: { type: 'string' } } },
         sleepSchedule: { type: 'object', additionalProperties: false, required: ['wake', 'sleep'], properties: { wake: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, sleep: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' } } },
@@ -915,7 +915,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   });
   if (calendarPreferences.timeline) {
     const timeline = calendarPreferences.timeline as Record<string, unknown>;
-    calendarPreferences.timeline = { mode: timeline.mode === 'timeline' ? 'timeline' : 'list', hideSleep: timeline.hideSleep === true, ...(typeof timeline.sleepItemId === 'string' ? { sleepItemId: timeline.sleepItemId } : {}), ...(typeof timeline.showUndated === 'boolean' ? { showUndated: timeline.showUndated } : {}) };
+    calendarPreferences.timeline = { mode: timeline.mode === 'timeline' ? 'timeline' : 'list', hideSleep: timeline.hideSleep === true, ...(typeof timeline.sleepItemId === 'string' ? { sleepItemId: timeline.sleepItemId } : {}), ...(typeof timeline.showUndated === 'boolean' ? { showUndated: timeline.showUndated } : {}), ...(typeof timeline.showOverdue === 'boolean' ? { showOverdue: timeline.showOverdue } : {}) };
   }
   if (!calendarPreferences.dayView || typeof calendarPreferences.dayView !== 'object' || Array.isArray(calendarPreferences.dayView)) {
     const selectedView = typeof calendarPreferences.selectedViewId === 'string' ? migratedViews[calendarPreferences.selectedViewId] : undefined;

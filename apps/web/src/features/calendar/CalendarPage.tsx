@@ -13,6 +13,7 @@ import { useViewNow, useWorkspaceBoundaryNow } from '../views/useViewEvaluation'
 import { CalendarDayViewEditor } from './CalendarDayViewEditor';
 import { CalendarTimeline } from './CalendarTimeline';
 import { calendarDayView, evaluateCalendarRange } from './calendarEvaluation';
+import { showOverdueToday } from './calendarVisibility';
 import './calendar.css';
 
 const DAY_MS = 86_400_000;
@@ -83,6 +84,8 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const calendar = useMemo(() => evaluateCalendarRange(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now), [completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
   const dayData = calendar.days;
   const selected = dayData[selectedDate]!;
+  const overdueIds = new Set(selected.evaluation.items.filter(item => showOverdueToday(item, selectedDate, now, preferences.timezone, item.occurrence ? workspace.items[item.occurrence.seriesId] : undefined)).map(item => item.id));
+  const allDayIds = new Set(selected.evaluation.items.filter(item => item.schedule?.allDay && !overdueIds.has(item.id)).map(item => item.id));
   const rowsById = new Map(selected.entries.map(({ row, item }) => [item.id, row]));
   const formatDate = (key: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(preferences.language, { ...options, timeZone: 'UTC' }).format(dateFromKey(key));
   const selectedLabel = formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -169,8 +172,9 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     {preferences.timeline?.mode === 'timeline'
       ? <CalendarTimeline workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} />
       : <Surface className="calendar-day-list">
-        {selected.evaluation.items.some(item => item.schedule?.allDay) && <PersistedDetails uiKey="calendar:all-day" defaultOpen className="calendar-all-day"><summary>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {selected.evaluation.items.filter(item => item.schedule?.allDay).length}</summary><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !item.schedule?.allDay).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></PersistedDetails>}
-        <ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => item.schedule?.allDay).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
+        {overdueIds.size > 0 && <PersistedDetails uiKey="calendar:overdue" defaultOpen className="calendar-overdue"><summary>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</summary><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></PersistedDetails>}
+        {allDayIds.size > 0 && <PersistedDetails uiKey="calendar:all-day" defaultOpen className="calendar-all-day"><summary>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</summary><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></PersistedDetails>}
+        <ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
       </Surface>}
     <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); })} />
   </section>;

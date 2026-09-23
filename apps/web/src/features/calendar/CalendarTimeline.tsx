@@ -1,3 +1,4 @@
+import { WeatherTimeline } from '../weather/WeatherTimeline';
 import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { calendarDateKey, effectiveWorkspaceNow, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
@@ -66,6 +67,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   return <section className="calendar-timeline" aria-label="Timeline">
     <div className="timeline-toolbar">
       <Button size="compact" aria-pressed={settings.hideSleep} onClick={() => onPreferences({ ...settings, hideSleep: !settings.hideSleep })}>{settings.hideSleep ? (ru ? 'Показать полные сутки' : 'Show full day') : (ru ? 'Скрывать сон' : 'Hide sleep')}</Button>
+      {data.overdue.length > 0 && <Button size="compact" aria-pressed={settings.showOverdue !== false} onClick={() => onPreferences({ ...settings, showOverdue: settings.showOverdue === false })}>{ru ? 'Просрочено' : 'Overdue'} · {data.overdue.length}</Button>}
       <details><summary>{ru ? 'Настройки Timeline' : 'Timeline settings'}</summary><div className="timeline-sleep-settings">
         <Checkbox label={ru ? 'Показывать items без даты, времени и Due' : 'Show items without a date, time or Due'} checked={settings.showUndated === true} onChange={event => onPreferences({ ...settings, showUndated: event.target.checked })} />
         <p className="hint">{ru ? 'При включении Duration этих задач учитывается в предварительном плане и остатке времени Timeline. Данные задач не меняются.' : 'When enabled, their Duration counts towards tentative planning and remaining Timeline capacity. Item data stays unchanged.'}</p>
@@ -77,10 +79,11 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     </div>
     {data.sleepMissing && <p className="hint">{ru ? 'Нет интервала сна на этот день. Показаны полные сутки.' : 'No sleep interval for this day. Showing the full day.'}</p>}
     {data.projectionLimited && <p role="status">{ru ? 'Для повторений с длительностью более года показана ограниченная проекция.' : 'Recurrences longer than one year use a limited projection.'}</p>}
-    {data.planning.taskDurationMs > 0 && <div className="timeline-planning-summary" data-testid="timeline-planning-summary">
+    {(data.planning.taskDurationMs > 0 || data.planning.overdueDurationMs > 0) && <div className="timeline-planning-summary" data-testid="timeline-planning-summary">
       <span>{ru ? 'Свободно по календарю' : 'Calendar free'}: {durationLabel(data.planning.calendarFreeMs)}</span>
       <strong>{data.planning.remainingMs < 0 ? (ru ? 'Не хватает' : 'Short by') : (ru ? 'Останется после задач' : 'After tasks')}: {durationLabel(data.planning.remainingMs)}</strong>
-      <small>{ru ? 'За выбранные сутки. Точечные блоки — предложение, даты задач не меняются.' : 'For the selected day. Dotted blocks are proposals; task dates stay unchanged.'}</small>
+      {data.planning.overdueDurationMs > 0 && <strong>{ru ? 'После просроченных' : 'After overdue'}: {data.planning.remainingAfterOverdueMs < 0 ? '−' : ''}{durationLabel(data.planning.remainingAfterOverdueMs)}</strong>}
+      {workspace.calendarPreferences.showExplanations && <small>{ru ? 'За выбранные сутки. Точечные блоки — предложение, даты задач не меняются.' : 'For the selected day. Dotted blocks are proposals; task dates stay unchanged.'}</small>}
       {dateKey === calendarDateKey(now, zone) && <span>{ru ? 'Сейчас до конца дня, после задач' : 'From now until day end, after tasks'}: {data.planning.remainingTodayMs < 0 ? '−' : ''}{durationLabel(data.planning.remainingTodayMs)}</span>}
       {data.planning.warnings.map(({ item, reason }) => <small key={item.id}>{item.title}: {reason === 'deadline' ? (ru ? 'Не помещается до Due' : 'Does not fit before Due') : reason === 'fragmented' ? (ru ? 'Времени суммарно хватает, но нет непрерывного окна' : 'Enough total time, but no continuous slot') : (ru ? 'Недостаточно свободного времени' : 'Not enough available time')}</small>)}
       {data.planning.unplaced.length > 0 && <small>{ru ? 'Не поместились целиком в свободные промежутки; показаны над шкалой' : 'No continuous slot; shown above the timeline'}: {data.planning.unplaced.length}</small>}
@@ -88,9 +91,10 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     {data.activeRange.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(data.activeRange)}</div>}
     {data.plannedTasks.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks)}</div>}
     {data.allDay.length > 0 && <PersistedDetails uiKey="calendar:all-day" defaultOpen className="timeline-top-items"><summary>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</summary>{cards(data.allDay)}</PersistedDetails>}
-    {data.overdue.length > 0 && <PersistedDetails uiKey="calendar:overdue" defaultOpen className="timeline-top-items"><summary>{ru ? 'Просрочено' : 'Overdue'} · {data.overdue.length}</summary>{cards(data.overdue)}</PersistedDetails>}
     {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}
+    <WeatherTimeline dateKey={dateKey} zone={zone} ru={ru} segments={segments} legend />
     <div className="timeline-axis" style={{ height: height + 12 }}>
+      <WeatherTimeline dateKey={dateKey} zone={zone} ru={ru} segments={segments} />
       {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
       {segments.filter(v => v.hidden).map(v => <div key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }}><span>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</span></div>)}
       <div className="timeline-events">
@@ -108,7 +112,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
           const tentativeLabel = event.tentative ? (ru ? 'Предварительно · ' : 'Tentative · ') : '';
           const overdue = event.item.state === 'open' && event.item.schedule?.plannedDate && event.item.schedule.plannedDate < calendarDateKey(now, zone);
           const label = `${tentativeLabel}${travelLabel ? `${travelLabel} · ` : ''}${event.item.title} · ${interval}`;
-          return <button type="button" data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travelBack ? 'travel-back' : event.travel ? 'travel' : 'event'}`} className={`timeline-event${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}`} style={{ ...columnStyle(event), ...(safeColor ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travelBack ? 'timeline-travel-back' : event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
+          return <button type="button" data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travelBack ? 'travel-back' : event.travel ? 'travel' : 'event'}`} className={`timeline-event${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}${event.tentativeOverdue ? ' timeline-tentative-overdue' : ''}`} style={{ ...columnStyle(event), ...(safeColor && !event.tentativeOverdue ? { borderColor: safeColor } : {}) }} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travelBack ? 'timeline-travel-back' : event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
             <strong>{(event.invalid || overdue) && '⚠ '}{event.continuedBefore && '← '}{travelLabel ? `${travelLabel} · ` : ''}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
             {overdue && event.height >= 72 && <small>{ru ? 'Не выполнено в плановый день' : 'Planned day missed'}: {event.item.schedule?.plannedDate}</small>}
             {event.height >= 54 && <small>{tentativeLabel}{interval}</small>}{extra.map(({ field, text }, i) => <small key={i} style={safeColor && (field === 'tags' || field === 'external.calendarId') ? { color: safeColor } : undefined}>{text}</small>)}

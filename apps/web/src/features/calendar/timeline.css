@@ -16,6 +16,7 @@
 .timeline-event:focus-visible { z-index: 3; }
 .timeline-travel { border-style: dashed; }
 .timeline-tentative { border: 2px dotted var(--color-border-strong); background: color-mix(in srgb, var(--color-surface-muted) var(--opacity-tentative-surface), transparent); }
+.timeline-tentative-overdue { border-color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); }
 .timeline-planning-summary { display: grid; gap: var(--space-1); margin-block: var(--space-3); font-size: var(--font-size-secondary); }
 .timeline-planning-summary small { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
 .timeline-more { background: var(--color-surface-elevated); font-weight: var(--font-weight-semibold); }

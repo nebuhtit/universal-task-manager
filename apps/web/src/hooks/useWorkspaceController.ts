@@ -11,7 +11,7 @@ import {
   type PasswordProtectionStatus, type UnlockedWorkspace,
 } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
-import { diagnosticFailureCode, recordDiagnostic } from '../services/diagnostics';
+import { diagnosticFailureCode, googleCalendarFailureDetails, recordDiagnostic } from '../services/diagnostics';
 import { beginStartup, failStartup, finishStartup, interruptedStartup, startupCheckpoint } from '../services/startupDiagnostics';
 import { acquireWorkspaceWriter, releaseWorkspaceWriter, markPendingSave, clearPendingSave } from '../services/workspaceWriter';
 import { clockService } from '../services/clockService';
@@ -90,7 +90,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     try { document = commitWorkspaceDocument(currentSession.document as Automerge.Doc<WorkspaceDocument>, message, mutation); }
     catch (reason) {
       const details = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
-      recordDiagnostic({ kind: 'error', message: 'Workspace operation failed before persistence', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details });
+      recordDiagnostic({ kind: 'error', message: 'Workspace operation failed before persistence', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: message === 'Sync Google Calendar' ? googleCalendarFailureDetails('save', reason) : details });
       onToast(`Save failed; nothing was changed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
     }
     const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);

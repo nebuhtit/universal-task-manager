@@ -167,6 +167,6 @@ describe('OrganizationManager', () => {
     expect(markup.match(/aria-label="Reorder No Tags"/g)?.length).toBeGreaterThanOrEqual(2);
     expect(markup).toContain('Apply / Save order');
     expect(markup).toContain('Reset order');
-    expect(markup).toContain('Order is saved');
+    expect(markup).toContain('Saved');
   });
 });

@@ -35,6 +35,14 @@
   --control-height-default: 40px;
   --control-height-touch: 44px;
 
+  --color-solar-night: #e9edf5;
+  --color-solar-astronomical: #eeeaf5;
+  --color-solar-nautical: #f2eaf2;
+  --color-solar-civil: #faeee8;
+  --color-solar-horizon: #fff0d9;
+  --color-solar-day: #fffdf3;
+  --color-weather-haze: rgba(97, 115, 137, 0.17);
+
   /* Semantic colors */
   --color-code-keyword: #7542a3;
   --color-code-string: #246b40;
@@ -112,6 +120,13 @@
 }
 
 :root[data-theme='dark'] {
+  --color-solar-night: #080e18;
+  --color-solar-astronomical: #151222;
+  --color-solar-nautical: #201824;
+  --color-solar-civil: #29201e;
+  --color-solar-horizon: #302619;
+  --color-solar-day: #23251f;
+  --color-weather-haze: rgba(171, 185, 204, 0.15);
   --color-code-keyword: #c6a5ed;
   --color-code-string: #96d2a7;
   --color-code-number: #edbd82;

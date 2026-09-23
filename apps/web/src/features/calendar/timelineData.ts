@@ -74,9 +74,10 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     const completelyUndated = isCompletelyUndated(item);
     if (completelyUndated && !showUndatedItem(item, now, preferences.timezone)) continue;
     if (completelyUndated && preferences.timeline?.showUndated !== true) continue;
-    if (showOverdueToday(item, key, now, preferences.timezone, item.occurrence ? mapped.items[item.occurrence.seriesId] : undefined) && (!interval || !intersects(interval, day)) && !item.schedule?.plannedDate) { overdue.push(item); continue; }
+    const overdueToday = showOverdueToday(item, key, now, preferences.timezone, item.occurrence ? mapped.items[item.occurrence.seriesId] : undefined);
+    if (overdueToday && ((!schedule?.startAt && !schedule?.endAt) || !interval || !intersects(interval, day))) { overdue.push(item); continue; }
     if (item.schedule?.plannedDate && plannedDateForDisplay(item, now, preferences.timezone) !== key) {
-      if (showOverdueToday(item, key, now, preferences.timezone, item.occurrence ? mapped.items[item.occurrence.seriesId] : undefined)) overdue.push(item);
+      if (overdueToday) overdue.push(item);
       continue;
     }
     if (item.schedule?.plannedDate && !item.schedule.startAt && !item.schedule.endAt) { undated.push(item); continue; }
@@ -103,10 +104,10 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   }
   const hiding = preferences.timeline?.hideSleep === true && sleep.length > 0;
   const visible = hiding ? events.filter(event => !isSleep(event.item)) : events;
-  const planning = planUndatedTasks(undated, events, sleep, day, now);
+  const planning = planUndatedTasks(undated, events, sleep, day, now, overdue);
   const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
-    day, events: [...visible, ...planning.proposals], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),
+    day, events: [...visible, ...planning.proposals.filter(event => !event.tentativeOverdue || preferences.timeline?.showOverdue !== false)], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),
     plannedTasks: undated.filter(item => !placedIds.has(item.id) && item.schedule?.plannedDate), activeRange, overdue, planning,
     hidden: hiding ? hiddenIntervals(sleep, visible, day) : [],
     sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)),

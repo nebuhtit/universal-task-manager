@@ -23,6 +23,8 @@
 .quick-due-toggle { margin-bottom: var(--space-2); }
 .quick-due-toggle[aria-expanded="true"] .line-icon { transform: rotate(180deg); }
 .quick-due-options { grid-column: 1 / -1; margin-top: var(--space-2); padding-left: var(--space-3); border-left: 2px solid var(--color-border); }
+.date-only-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); padding: var(--space-2); border: 1px solid var(--color-warning); border-radius: var(--radius-sm); }
+.date-only-confirm p { flex-basis: 100%; margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-secondary); }
 
 @media (max-width: 640px) {
   .calendar-duration-control { grid-template-columns: minmax(0, 1.25fr) 46px minmax(0, .95fr); gap: var(--space-1); }

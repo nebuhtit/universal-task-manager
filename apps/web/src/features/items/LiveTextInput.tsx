@@ -6,6 +6,7 @@ import { dateValueExpression, parseLiveEntry as parseEntry, suggest, type Draft 
 import { Button, Input, Textarea } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { saveLiveTextReport } from './liveTextReports';
+import { timelineData } from '../calendar/timelineData';
 import './live-text.css';
 
 export function LiveTextInput({ value, onChange, workspaceId, workspace, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, timeZone, onSubmit }: {
@@ -67,14 +68,18 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     return () => observer.disconnect();
   }, [value, highlighted, multiline, focused, open]);
   const calendarDate = useMemo(() => {
-    if (!onViewCalendarDate || !new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(value)) return null;
+    if (!workspace || !new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(value)) return null;
     const at = parsed.plannedDate ?? parsed.start ?? parsed.due;
     if (!at) return null;
     if (parsed.plannedDate) return parsed.plannedDate;
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at));
     const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
     return `${fields.year}-${fields.month}-${fields.day}`;
-  }, [onViewCalendarDate, parsed.plannedDate, parsed.start, parsed.due, timeZone, value]);
+  }, [workspace, parsed.plannedDate, parsed.start, parsed.due, timeZone, value]);
+  const previewMinute = Math.floor(referenceTime.getTime() / 60_000);
+  const dayPreview = useMemo(() => calendarDate && workspace ? timelineData(workspace, calendarDate, referenceTime) : null, [calendarDate, workspace, previewMinute]);
+  const dayPreviewEvents = useMemo(() => dayPreview?.events.filter(event => !event.tentative && !event.invalid && !event.travel)
+    .sort((left, right) => left.start - right.start || left.item.id.localeCompare(right.item.id)) ?? [], [dayPreview]);
   const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: [...new Set(Object.values(workspace.items).filter(item => !item.deletedAt).flatMap(item => item.tags))].sort() } : { area: [], project: [], tag: [] }, [workspace]);
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => organizationSuggestions(value, caret, catalog) ?? suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language, catalog]);
   const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
@@ -131,6 +136,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const message = error || parsed.errors.join(' ');
   const format = (at: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(at));
   const summary = [parsed.plannedDate && `${parsed.plannedDate} · без времени`, parsed.start && `▷ ${format(parsed.start)}`, parsed.end && `→ ${format(parsed.end)}`, parsed.due && `Due ${format(parsed.due)}`, parsed.travelMinutes !== null && `Дорога ${parsed.travelMinutes} мин`, parsed.reminders.length > 0 && `Напоминания: ${parsed.reminders.length}`].filter(Boolean).join(' · ');
+  const previewClock = (at: number) => new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-GB', { timeZone: timeZone ?? workspace?.calendarPreferences.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
   const common = {
     className: highlighted ? 'live-text-colored-control' : undefined,
     onCompositionStart: () => setComposing(true),
@@ -154,6 +160,12 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     },
   };
   const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div ref={panel} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-overlay' : ''}`} style={overlayStyle}>
+      {dayPreview && calendarDate && <div className="live-day-preview" aria-label={language === 'ru' ? `Занятость ${calendarDate}` : `Schedule for ${calendarDate}`}>
+        <div className="live-day-preview-heading"><strong>{new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${calendarDate}T12:00:00Z`))}</strong><span>{language === 'ru' ? `Событий: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · весь день: ${dayPreview.allDay.length}` : ''}` : `Events: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · all day: ${dayPreview.allDay.length}` : ''}`}</span></div>
+        <div className="live-day-preview-track" aria-hidden="true">{dayPreviewEvents.map((event, index) => <span key={`${event.item.id}-${index}`} className="live-day-preview-event" style={{ left: `${Math.max(0, (event.start - dayPreview.day.start) / (dayPreview.day.end - dayPreview.day.start) * 100)}%`, width: `${Math.max(0.8, Math.min(dayPreview.day.end, event.end) - Math.max(dayPreview.day.start, event.start)) / (dayPreview.day.end - dayPreview.day.start) * 100}%` }} />)}</div>
+        <div className="live-day-preview-hours" aria-hidden="true"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+        {dayPreviewEvents.length > 0 && <div className="live-day-preview-labels">{dayPreviewEvents.slice(0, 3).map((event, index) => <span key={`${event.item.id}-${index}`}>{previewClock(event.start)} {event.item.title}</span>)}{dayPreviewEvents.length > 3 && <span>+{dayPreviewEvents.length - 3}</span>}</div>}
+      </div>}
       {suggestionsEnabled && summary && <div className="live-text-preview">{summary}</div>}
       {message && <div role="alert" className="ui-field-error">{message}</div>}
       {expanded && overlaySuggestions && <Button size="compact" variant="ghost" aria-label="Close Live text suggestions" onPointerDown={(event) => event.preventDefault()} onClick={() => setOpen(false)}>×</Button>}
