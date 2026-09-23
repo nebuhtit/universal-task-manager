@@ -19,6 +19,7 @@ describe('item field display helpers', () => {
   it('shows every active reminder compactly, with resolved reminders first and no raw JSON', () => {
     const workspace = createWorkspace('Reminders');
     workspace.calendarPreferences.language = 'en';
+    workspace.calendarPreferences.timezone = 'Europe/Moscow';
     const item = createItem('Reminder item');
     item.schedule = { timezone: 'UTC', dueAt: '2026-09-03T12:00:00.000Z' };
     item.reminders = [
