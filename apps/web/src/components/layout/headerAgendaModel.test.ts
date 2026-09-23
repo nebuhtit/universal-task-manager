@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createItem, createWorkspace, createOccurrence, makeSeries } from '@utm/core';
+import { createItem, createWorkspace, createOccurrence, makeSeries, softDeleteItemTree } from '@utm/core';
 import { formatAgendaRemaining, selectHeaderAgenda } from './headerAgendaModel';
 const now = Date.parse('2026-09-23T12:00:00Z');
 const iso = (seconds: number) => new Date(now + seconds * 1000).toISOString();
@@ -48,6 +48,13 @@ describe('header agenda', () => {
     add('No end', -10).schedule!.dueAt = iso(-1);
     add('Date only', -10, 100).schedule!.plannedDate = '2026-09-23';
     expect(selectHeaderAgenda(workspace, now)).toEqual({ additional: 0, validUntil: Infinity });
+  });
+  it('removes an upcoming item immediately after soft deletion', () => {
+    const { workspace, add } = fixture();
+    const food = add('Приготовить поесть', 3600, 7200);
+    expect(selectHeaderAgenda(workspace, now).next?.id).toBe(food.id);
+    softDeleteItemTree(workspace, food.id, iso(1));
+    expect(selectHeaderAgenda(workspace, now).next).toBeUndefined();
   });
   it('finds remote recurring cycles, skips closed exceptions and never persists projections', () => {
     const { workspace, add } = fixture();

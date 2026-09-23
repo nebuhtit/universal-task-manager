@@ -10,6 +10,24 @@ function choose(text: string, label: string, caret = text.length) {
   return text.slice(0, result.start) + option!.insert + text.slice(result.end);
 }
 
+it('suggests relative and future clock reminders after н/r, with more durations after через', () => {
+  const clock = new Date(2026, 8, 23, 9, 51);
+  const russian = suggest('Приготовить поесть 2ч н', 'Приготовить поесть 2ч н'.length, clock, 'ru');
+  expect(russian.options.map(option => option.label)).toContain('через 45м');
+  expect(russian.options.map(option => option.label)).toContain('в 12:00');
+  expect(russian.options.map(option => option.label)).not.toContain('в 09:00');
+  const english = suggest('Cook 2h r', 'Cook 2h r'.length, clock, 'en');
+  expect(english.options.map(option => option.label)).toContain('in 1h');
+  expect(english.options.map(option => option.label)).toContain('at 15:00');
+  const through = suggest('Приготовить поесть 2ч н через', 'Приготовить поесть 2ч н через'.length, clock, 'ru');
+  expect(through.options).toHaveLength(11);
+  const choice = through.options.find(option => option.label === 'через 3ч')!;
+  const text = 'Приготовить поесть 2ч н через';
+  const completed = text.slice(0, through.start) + choice.insert + text.slice(through.end);
+  expect(completed).toBe('Приготовить поесть 2ч н через3ч ');
+  expect(parseEntry(completed, clock).errors).toEqual([]);
+});
+
 it.each(['Даша чт 17 00-', 'Даша чт 17:00 -', 'Даша с чт 17:00 по ', 'Даша завтра 17:00-', 'Даша 12.06.2027 17:00-'])('orders range-end hours from the start: %s', text => {
   const options = suggest(text, text.length, now).options;
   expect(options[0]?.label).toBe('18:');

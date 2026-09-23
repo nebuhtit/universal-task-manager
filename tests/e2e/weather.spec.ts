@@ -41,7 +41,14 @@ test('weather beta: settings, gradient, haze, keyboard, themes, errors and compl
   const toggle = page.getByRole('checkbox', { name: 'Timeline background: sun and precipitation (beta)', exact: true });
   await expect(toggle).not.toBeChecked(); await toggle.focus(); await page.keyboard.press('Space'); await expect(toggle).toBeChecked();
   await page.getByLabel('City', { exact: true }).fill('Berlin'); await page.getByRole('button', { name: 'Find city', exact: true }).click();
-  await page.getByRole('button', { name: /Berlin, Germany/ }).click(); await expect.poll(() => forecasts).toBe(1);
+  await expect(page.getByRole('status').filter({ hasText: 'Selected and saved on this device: Berlin, Germany' })).toBeVisible();
+  await expect(page.getByLabel('Latitude')).toHaveValue('52.52');
+  await expect(page.getByLabel('Longitude')).toHaveValue('13.405');
+  await expect.poll(() => forecasts).toBe(1);
+  await navigate(page, 'Calendar');
+  await navigate(page, 'Settings');
+  await page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^Weather$/ }) }).evaluate(el => { (el as HTMLDetailsElement).open = true; });
+  await expect(page.getByRole('status').filter({ hasText: 'Selected and saved on this device: Berlin, Germany' })).toBeVisible();
   await navigate(page, 'Calendar');
   await expect(page.getByTestId('weather-background')).toBeVisible(); await expect(page.locator('.weather-solar')).toHaveCount(1);
   await expect(page.locator('.weather-solar-marker')).toHaveCount(2); await expect(page.getByTestId('weather-haze').first()).toHaveCSS('opacity', '0.5');

@@ -17,7 +17,8 @@ test('two-row header keeps its height, truncates titles and updates countdown', 
   await expect(agenda).toContainText(title);
   await capture.fill('Current long meeting name for checking the compact header today 00:00 23h'); await capture.press('Enter');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
-  await expect(agenda).toContainText('Now:');
+  await expect(agenda).not.toContainText('Now:');
+  await expect(agenda).toContainText('Current long meeting name');
   // Simulate the optional Google sync control to exercise the widest action group.
   await page.locator('.top-actions').evaluate(el => { const button = el.querySelector('button')!.cloneNode(true) as HTMLElement; button.setAttribute('aria-label', 'Extra sync control'); el.append(button); });
   const first = await agenda.innerText();
@@ -34,7 +35,7 @@ test('two-row header keeps its height, truncates titles and updates countdown', 
         const clock = el.querySelector('.responsive-clock')!.getBoundingClientRect();
         return { height: bar.height, width: bar.width, agendaRight: agenda.right, barRight: bar.right, agendaTop: agenda.top, actionsBottom: actions.bottom, clockRight: clock.right, actionsLeft: actions.left, overflow: el.scrollWidth > el.clientWidth };
       });
-      expect(geometry.height).toBe(width <= 620 ? 60 : 64);
+      expect(geometry.height).toBe(width <= 620 ? 56 : 60);
       expect(geometry.overflow).toBe(false);
       expect(geometry.agendaRight).toBeLessThanOrEqual(geometry.barRight);
       expect(geometry.agendaTop).toBeGreaterThanOrEqual(geometry.actionsBottom);

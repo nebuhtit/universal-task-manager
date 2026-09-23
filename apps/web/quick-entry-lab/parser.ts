@@ -820,6 +820,24 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
   const activeWord = /[a-zа-яё]+$/i.exec(beforeCaret)?.[0] ?? '';
   const closestWord = activeWord || [...beforeCaret.matchAll(/[a-zа-яё]+/gi)].at(-1)?.[0] || '';
   const language: 'ru' | 'en' = /[а-яё]/i.test(closestWord) ? 'ru' : /[a-z]/i.test(closestWord) ? 'en' : interfaceLanguage;
+  const reminderPrompt = /(?:^|\s)(н|r|нап|напомнить|напомни|remind(?:\s+me)?|reminder)(?:\s+(через|in))?\s*$/i.exec(beforeCaret);
+  const priorReminderAnchor = reminderPrompt ? parseEntry(input.slice(0, reminderPrompt.index), now) : undefined;
+  const priorText = reminderPrompt ? input.slice(0, reminderPrompt.index) : '';
+  const hasExplicitDate = new RegExp(dateValueExpression, 'i').test(priorText) || /(?:^|\s)\d{1,2}(?::|\s)\d{2}(?=\s|$)/.test(priorText);
+  if (caret === input.length && reminderPrompt && (reminderPrompt[1]!.length === 1 || /\s$/.test(beforeCaret) || Boolean(reminderPrompt[2])) && (!hasExplicitDate || (!priorReminderAnchor?.start && !priorReminderAnchor?.due && !priorReminderAnchor?.end))) {
+    const key = reminderPrompt[1]!;
+    const relativeWord = language === 'ru' ? 'через' : 'in';
+    const atWord = language === 'ru' ? 'в' : 'at';
+    const amounts = language === 'ru' ? ['5м', '10м', '15м', '30м', '45м', '1ч', '2ч', '3ч', '1д', '2д', '1нед'] : ['5m', '10m', '15m', '30m', '45m', '1h', '2h', '3h', '1d', '2d', '1w'];
+    const afterRelative = Boolean(reminderPrompt[2]);
+    const start = reminderPrompt.index! + reminderPrompt[0].lastIndexOf(afterRelative ? reminderPrompt[2]! : key);
+    const options: Suggestion[] = amounts.map(amount => ({ label: `${relativeWord} ${amount}`, insert: `${afterRelative ? '' : `${key} `}${relativeWord}${amount} `, detail: language === 'ru' ? 'От текущего времени' : 'From now' }));
+    if (!afterRelative) for (const hour of [12, 15, 18]) {
+      const at = new Date(now); at.setHours(hour, 0, 0, 0);
+      if (at.getTime() > now.getTime()) options.push({ label: `${atWord} ${String(hour).padStart(2, '0')}:00`, insert: `${key} ${atWord} ${String(hour).padStart(2, '0')}:00 `, detail: language === 'ru' ? 'Сегодня' : 'Today' });
+    }
+    return { start, end: caret, ordered: true, options };
+  }
   const clock = stagedClockSuggestions(input, caret, now, language);
   if (clock) return clock;
   const nextCommand = /(?:^|\s)(до|due|срок|начало|start|opens|конец|end|ends|напомнить|нап|напомни|remind|reminder)(?::|\s)\s*$/i.exec(beforeCaret);
