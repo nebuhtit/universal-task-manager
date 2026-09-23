@@ -17,4 +17,13 @@ describe('DatesSection travel time', () => {
     expect(markup).not.toContain('<details class="ui-disclosure travel-time-disclosure" open="">');
   });
   it('keeps all-day travel metadata out of the editor', () => expect(render(true, 'PT30M')).not.toContain('Travel time'));
+  it('offers explicit date-only or timed Due without inventing a clock time', () => {
+    const item = createItem('Deadline', 'task');
+    item.schedule = { timezone: 'UTC', dueAt: '2026-09-23T23:59:59.999Z', dueDateOnly: true };
+    const markup = renderToStaticMarkup(<DatesSection item={item} workspace={createWorkspace()} sectionMark={() => null} patchScheduledDuration={vi.fn()} patchTravelDuration={vi.fn()} patchScheduledStart={vi.fn()} patchScheduledEnd={vi.fn()} patchScheduledDue={vi.fn()} patchQuickDue={vi.fn()} applyDurationPreset={vi.fn()} />);
+    expect(markup).toContain('aria-label="Due precision"');
+    expect(markup).toContain('Due date without time');
+    expect(markup).toContain('value="2026-09-23"');
+    expect(markup).not.toContain('value="2026-09-23T09:00"');
+  });
 });

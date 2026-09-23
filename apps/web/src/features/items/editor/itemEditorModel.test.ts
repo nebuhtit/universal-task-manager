@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { createItem, createWorkspace, reconcileRecurrences } from '@utm/core';
-import { normalizeItemForSave } from './itemEditorModel';
+import { duplicateItemDraft, normalizeItemForSave } from './itemEditorModel';
 
 const normalize = (overrides: Partial<Parameters<typeof normalizeItemForSave>[0]> = {}) => {
   const workspace = createWorkspace('Editor'); const item = createItem('  Test item  ', 'task', new Date('2026-08-26T10:00:00Z'));
   return normalizeItemForSave({ item, workspace, tags: 'work, test', contexts: 'desk', isTemplate: false, recurring: false, activeRange: false, repeatFrequency: 'WEEKLY', repeatIntervalDraft: '1', repeatDays: [], now: new Date('2026-08-26T12:00:00Z'), ...overrides });
 };
 describe('item editor normalization', () => {
+  it('duplicates with new identity and creation time but without history or Google link', () => {
+    const source = createItem('Meeting', 'task', new Date('2026-08-26T10:00:00Z'));
+    source.external = { provider: 'google_calendar', connectionId: 'conn', calendarId: 'cal', eventId: 'event', sourceUrl: 'https://calendar.google.com', syncedAt: '2026-08-26T10:00:00Z', readOnly: false };
+    source.state = 'done'; source.closure = { at: '2026-08-26T11:00:00Z', actor: 'user', reason: 'manual' };
+    source.actualTimeEntries = []; source.completionEntries = [];
+    source.extensions = { 'utm:googleSave': { kind: 'update' }, retained: true };
+    const copy = duplicateItemDraft(source, new Date('2026-09-23T13:00:00Z'));
+    expect(copy).toMatchObject({ title: 'Meeting 2', createdAt: '2026-09-23T13:00:00.000Z', updatedAt: '2026-09-23T13:00:00.000Z', state: 'open', role: 'standalone', revision: 1 });
+    expect(copy.id).not.toBe(source.id);
+    expect(copy.external).toBeUndefined(); expect(copy.closure).toBeUndefined(); expect(copy.actualTimeEntries).toBeUndefined(); expect(copy.completionEntries).toBeUndefined();
+    expect(copy.extensions).toEqual({ retained: true });
+  });
   it('generates the program script on save without Apply and rejects unconfirmed overflow', () => {
     const item = createItem('Program');
     item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z' };

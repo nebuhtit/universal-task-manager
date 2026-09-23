@@ -48,7 +48,7 @@ test('event dates stay independent of expected duration and allow clearing', asy
   await expect(page.getByLabel('Calendar duration unit')).toHaveValue('minutes');
   await page.getByRole('button', { name: 'Save item' }).click();
 
-  await page.getByText('Calendar block', { exact: true }).first().click();
+  await page.getByRole('article').getByRole('button', { name: 'Calendar block', exact: true }).first().click();
   await expect(page.getByLabel('Event ends', { exact: true })).toHaveValue(oneHourLater);
   await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue('');
 });
@@ -86,7 +86,7 @@ test('calendar details stay compact at the bottom and persist location and time 
     await expect(details.getByLabel('Location', { exact: true })).toBeVisible();
   }
   await page.getByRole('button', { name: 'Save item' }).click();
-  await page.getByText('Calendar block', { exact: true }).first().click();
+  await page.getByRole('article').getByRole('button', { name: 'Calendar block', exact: true }).first().click();
   await details.locator(':scope > summary').click();
   await expect(details.getByLabel('Location', { exact: true })).toHaveValue('Library');
   await expect(details.getByLabel('Time zone', { exact: true })).toHaveValue('Europe/Moscow');

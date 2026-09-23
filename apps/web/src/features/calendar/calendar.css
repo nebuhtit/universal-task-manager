@@ -18,6 +18,8 @@
   letter-spacing: -0.025em;
   text-transform: capitalize;
 }
+.calendar-heading-date { display: flex; align-items: center; gap: var(--space-2); }
+.calendar-moon-phase { width: var(--space-5); height: var(--space-5); flex: none; color: var(--color-text-secondary); }
 
 .calendar-navigator {
   display: grid;

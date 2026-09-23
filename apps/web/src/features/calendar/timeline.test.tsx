@@ -19,6 +19,15 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it('renders a filtered reserved interval beneath normal events without making it interactive', () => {
+    const reserved = item('Hidden Work', { startAt: iso(9), endAt: iso(11) });
+    const visible = item('Meeting', { startAt: iso(10), endAt: iso(12) });
+    const w = workspace(reserved, visible);
+    w.calendarPreferences.dayView.filter.source = 'title != "Hidden Work"';
+    const markup = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} reservedItems={[reserved]} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(markup).toContain('data-testid="timeline-hidden-reserve"');
+    expect(markup.indexOf('timeline-hidden-reserve"')).toBeLessThan(markup.indexOf('timeline-events'));
+  });
   it('renders travel separately, protects it from hidden sleep and leaves the source unchanged', () => {
     const event = item('Meeting', { startAt: iso(10), endAt: iso(11), travelDuration: 'PT30M' });
     const sleep = item('Sleep', { startAt: iso(0), endAt: iso(10) });

@@ -151,9 +151,9 @@ describe('safe expression language', () => {
   it('creates active, today and week starter views with compact fields', () => {
     const workspace = createWorkspace('Starter views', new Date(2026, 7, 26, 12));
     const views = Object.values(workspace.views);
-    expect(views.map((view) => view.name)).toEqual(['All items', 'Today', 'This week']);
+    expect(views.map((view) => view.name)).toEqual(['Inbox', 'All items', 'Today', 'No date', 'Tomorrow', 'This week']);
     expect(views.find((view) => view.name === 'Today')?.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION]).toBe('today');
-    expect(workspace.viewOrder.map((id) => workspace.views[id]?.name)).toEqual(['Today', 'This week', 'All items']);
+    expect(workspace.viewOrder.map((id) => workspace.views[id]?.name)).toEqual(['Inbox', 'Today', 'No date', 'Tomorrow', 'This week', 'All items']);
     expect(views.every((view) => view.renderer === 'list')).toBe(true);
     const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
     expect(views.every((view) => JSON.stringify(view.fields) === JSON.stringify(defaultFields))).toBe(true);
@@ -986,6 +986,7 @@ describe('interoperability', () => {
 
   it('adds a stable View order to workspaces created before View drag-and-drop', () => {
     const old = createWorkspace('Legacy View order');
+    for (const [id, view] of Object.entries(old.views)) if (!['Today', 'This week', 'All items'].includes(view.name)) delete old.views[id];
     delete (old as Partial<typeof old>).viewOrder;
     // Older workspaces used the same schema version, so they must remain
     // exportable while the app adds this convenience field on its next save.

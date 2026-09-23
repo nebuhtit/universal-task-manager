@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.8.4';
-export const APP_RELEASED_AT = '2026-09-23T09:33:52.661Z';
+export const APP_VERSION = '2.8.5';
+export const APP_RELEASED_AT = '2026-09-23T10:28:38.555Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -741,6 +741,9 @@ export function backfillItemCreationVersions(workspace: WorkspaceDocument, legac
 export function createWorkspace(name = 'My workspace', now = new Date()): WorkspaceDocument {
   const timestamp = now.toISOString();
   const todayId = createId();
+  const inboxId = createId();
+  const noDateId = createId();
+  const tomorrowId = createId();
   const weekId = createId();
   const dashboardId = createId();
   const activeQuery = ACTIVE_ITEM_VIEW_QUERY;
@@ -762,6 +765,11 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     },
     customFields: {},
     views: {
+      [inboxId]: {
+        id: inboxId, name: 'Inbox',
+        query: { source: `${activeQuery} && role == "standalone" && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT")) && isGoogleEvent != true` },
+        renderer: 'list', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...defaultFields],
+      },
       '__all_items__': {
         id: '__all_items__',
         name: 'All items',
@@ -781,6 +789,17 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         fields: [...defaultFields],
         extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'today' },
       },
+      [noDateId]: {
+        id: noDateId, name: 'No date',
+        query: { source: `${activeQuery} && schedule.plannedDate == null && schedule.startAt == null && schedule.endAt == null && schedule.dueAt == null && schedule.availableFrom == null && external.transparency == null && isGoogleEvent != true` },
+        renderer: 'list', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...defaultFields],
+      },
+      [tomorrowId]: {
+        id: tomorrowId, name: 'Tomorrow',
+        query: { source: `${activeQuery} && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "") && isGoogleEvent != true` },
+        renderer: 'list', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...defaultFields],
+        extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'tomorrow' },
+      },
       [weekId]: {
         id: weekId,
         name: 'This week',
@@ -791,7 +810,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
         fields: [...defaultFields],
       },
     },
-    viewOrder: [todayId, weekId, '__all_items__'],
+    viewOrder: [inboxId, todayId, noDateId, tomorrowId, weekId, '__all_items__'],
     dashboards: {
       [dashboardId]: {
         id: dashboardId,

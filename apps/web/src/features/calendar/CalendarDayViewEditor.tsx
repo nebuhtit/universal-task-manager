@@ -11,6 +11,7 @@ import { ScheduleSourcePicker } from '../views/SchedulePeriodEditor';
 import { ViewEditorSection } from '../views/ViewEditorSection';
 import { ViewStatisticsEditor } from '../views/ViewStatisticsEditor';
 import { ViewSortingEditor } from '../views/ViewSortingEditor';
+import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import {
   parseVisualRows, serializeVisualRows,
   type VisualConditionRow,
@@ -30,9 +31,10 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
   open: boolean;
   workspace: WorkspaceDocument;
   onOpenChange: (open: boolean) => void;
-  onSave: (settings: CalendarDayViewPreferences) => void;
+  onSave: (settings: CalendarDayViewPreferences, timeline: NonNullable<WorkspaceDocument['calendarPreferences']['timeline']>) => void;
 }) {
   const [draft, setDraft] = useState(() => clean(workspace.calendarPreferences.dayView));
+  const [timelineDraft, setTimelineDraft] = useState(() => clean(workspace.calendarPreferences.timeline ?? { mode: 'list' as const, hideSleep: false }));
   const [rows, setRows] = useState<VisualConditionRow[]>([]);
   const [visualDirty, setVisualDirty] = useState(false);
   const [sortRules, setSortRules] = useState<ViewSortRule[]>([]);
@@ -47,13 +49,14 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
     if (parsed) next.filter = { source: serializeVisualRows(parsed, workspace.customFields) };
     setFilterValid(true);
     setDraft(next);
+    setTimelineDraft(clean(workspace.calendarPreferences.timeline ?? { mode: 'list' as const, hideSleep: false }));
     setRows(parsed ?? []);
     setVisualDirty(parsed === null);
     const source = next.sortSource ?? serializeSortRules(next.sort);
     setSortSource(source);
     try { setSortRules(parseSortSource(source)); } catch { setSortRules([]); }
     setError('');
-  }, [open, workspace.calendarPreferences.dayView]);
+  }, [open, workspace.calendarPreferences.dayView, workspace.calendarPreferences.timeline]);
 
   const close = () => {
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches && document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -72,7 +75,7 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
       validateFilterProgram(parseExpression(draft.filter.source.trim() || 'true'));
       compileSort(sortSource);
       const parsedSort = parseSortSource(sortSource);
-      onSave({ ...clean(draft), filter: { source: draft.filter.source.trim() || 'true' }, sort: parsedSort, sortSource: serializeSortRules(parsedSort) });
+      onSave({ ...clean(draft), filter: { source: draft.filter.source.trim() || 'true' }, sort: parsedSort, sortSource: serializeSortRules(parsedSort) }, clean(timelineDraft));
       close();
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
@@ -87,6 +90,12 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
     <ViewEditorSection sectionKey="calendar-day-filter" title="Filter items"><FilterProgramEditor workspace={workspace} source={draft.filter.source} python={draft.filterPython} onValidityChange={setFilterValid} onChange={(source, python) => { const parsed = parseVisualRows(source, workspace.customFields); setRows(parsed ?? []); setVisualDirty(parsed === null); setDraft({ ...draft, filter: { source }, filterPython: python }); }} /></ViewEditorSection>
     <ViewEditorSection sectionKey="calendar-day-fields" title="Show in results"><DisplayedFieldsEditor workspace={workspace} view={view} onChange={(next) => setDraft({ ...draft, fields: next.fields })} /></ViewEditorSection>
     <ViewStatisticsEditor workspace={workspace} view={view} rows={rows} visualDirty={visualDirty} onViewChange={updateEditorView} onRowsChange={syncRows} fixedPeriodLabel="Selected calendar day" />
+    <ViewEditorSection sectionKey="calendar-day-timeline" title="Timeline settings">
+      <p>{workspace.calendarPreferences.language === 'ru' ? 'Сжимать незанятую часть выбранного item сна' : 'Collapse unoccupied time around a selected sleep item'}</p>
+      <p>{workspace.calendarPreferences.language === 'ru' ? 'Выбран: ' : 'Selected: '}{timelineDraft.sleepItemId ? workspace.items[timelineDraft.sleepItemId]?.title ?? timelineDraft.sleepItemId : workspace.calendarPreferences.language === 'ru' ? 'нет' : 'none'}</p>
+      <Button size="compact" onClick={() => setTimelineDraft(({ sleepItemId: _id, ...rest }) => ({ ...rest, hideSleep: false }))}>{workspace.calendarPreferences.language === 'ru' ? 'Без исключения' : 'None'}</Button>
+      <SearchableDisclosureList uiKey="timeline:sleep-picker" summary={workspace.calendarPreferences.language === 'ru' ? 'Выбрать item сна…' : 'Choose sleep item…'} items={Object.values(workspace.items).filter(item => !item.deletedAt && item.role !== 'occurrence' && item.schedule && !item.schedule.allDay)} getSearchText={item => item.title} searchLabel={workspace.calendarPreferences.language === 'ru' ? 'Найти item сна' : 'Find sleep item'} renderItem={item => <Button size="compact" key={item.id} aria-pressed={item.id === timelineDraft.sleepItemId} onClick={event => { setTimelineDraft({ ...timelineDraft, sleepItemId: item.id, hideSleep: true }); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{item.title}</Button>} />
+    </ViewEditorSection>
     <ViewSortingEditor workspace={workspace} rules={sortRules} source={sortSource} onRules={updateSortRules} onSource={(source, parsed) => { setSortSource(source); if (parsed) setSortRules(parsed); }} />
     {error && <p className="error" role="alert">{error}</p>}
   </ResponsiveDialog>;

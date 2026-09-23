@@ -106,7 +106,7 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   const withoutSleep = events.filter(event => !isSleep(event.item));
   const visible = hiding ? withoutSleep : events;
   const sleepGaps = hiddenIntervals(sleep, withoutSleep, day);
-  const planning = planUndatedTasks(undated, events, sleep, day, now, overdue);
+  const planning = planUndatedTasks(undated, events, sleep, day, now, preferences.timeline?.showOverdue === false ? [] : overdue);
   const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
     day, events: [...visible, ...planning.proposals.filter(event => !event.tentativeOverdue || preferences.timeline?.showOverdue !== false)], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),

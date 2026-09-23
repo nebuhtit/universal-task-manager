@@ -30,6 +30,7 @@ import { sortViewItems, viewItemForEvaluation, type ViewEvaluation } from '../vi
 export type CalendarProjectedEntry = { row: ProjectedOccurrence; item: UniversalItem };
 export type CalendarDayEvaluation = {
   entries: CalendarProjectedEntry[];
+  reservedItems: UniversalItem[];
   view: SavedView;
   metrics: ViewTimeMetrics;
   evaluation: ViewEvaluation;
@@ -131,6 +132,7 @@ export function evaluateCalendarRange(
     standaloneIds: Set<string>;
     visibleSourceIds: Set<string>;
     reservedSourceIds: Set<string>;
+    reserveCandidates: Map<string, UniversalItem>;
     reservedDurationMs: number;
     reservedIntervals: TimeInterval[];
   }>();
@@ -143,6 +145,7 @@ export function evaluateCalendarRange(
       standaloneIds: new Set(),
       visibleSourceIds: new Set(),
       reservedSourceIds: new Set(),
+      reserveCandidates: new Map(),
       reservedDurationMs: 0,
       reservedIntervals: [],
     });
@@ -206,7 +209,9 @@ export function evaluateCalendarRange(
     const keys = scheduleDateKeysInRange(viewItemForEvaluation(entry.item), ['event_open', 'event', 'active', 'due'], rangeStartKey, rangeEndKey, { timeZone });
     for (const key of keys) {
       const bucket = buckets.get(key);
-      if (!bucket || bucket.visibleSourceIds.has(sourceId) || bucket.reservedSourceIds.has(sourceId)) continue;
+      if (!bucket) continue;
+      if (!bucket.reserveCandidates.has(sourceId)) bucket.reserveCandidates.set(sourceId, entry.item);
+      if (bucket.visibleSourceIds.has(sourceId) || bucket.reservedSourceIds.has(sourceId)) continue;
       bucket.reservedSourceIds.add(sourceId);
       const period = viewPeriodBoundsForDates(key, key, timeZone);
       if (entry.item.schedule?.startAt || entry.item.external?.startAt) bucket.reservedIntervals.push(...occupiedIntervals(entry.item, period));
@@ -220,7 +225,7 @@ export function evaluateCalendarRange(
     const entries = items.map((item) => entriesById.get(item.id)).filter((entry): entry is CalendarProjectedEntry => Boolean(entry));
     const metrics = bucket.metrics.finish(bucket.reservedDurationMs + unionDuration(bucket.reservedIntervals), bucket.reservedIntervals);
     if (!bucket.view.statistics?.showActualTime) delete metrics.actualDurationMs;
-    return [key, { entries, view: bucket.view, metrics, evaluation: { items, metrics, now } }];
+    return [key, { entries, reservedItems: [...bucket.reserveCandidates.values()], view: bucket.view, metrics, evaluation: { items, metrics, now } }];
   }));
 
   return { workspace: projectedWorkspace, projectedCount: projected.length, filteredCount: filtered.length, days };

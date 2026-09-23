@@ -40,8 +40,12 @@
   --color-solar-nautical: #f2eaf2;
   --color-solar-civil: #faeee8;
   --color-solar-horizon: #fff0d9;
-  --color-solar-day: #fffdf3;
+  --color-solar-day: #eaf4fb;
+  --color-solar-zenith: #fffdf2;
   --color-weather-haze: rgba(97, 115, 137, 0.17);
+  --color-weather-cloud: #eff0f1;
+  --color-weather-cloud-zenith: #fafafa;
+  --color-weather-rain: #dae4ec;
   --opacity-solar-background: 0.45;
 
   /* Semantic colors */
@@ -127,8 +131,12 @@
   --color-solar-nautical: #201824;
   --color-solar-civil: #29201e;
   --color-solar-horizon: #302619;
-  --color-solar-day: #23251f;
+  --color-solar-day: #142b3c;
+  --color-solar-zenith: #292b27;
   --color-weather-haze: rgba(171, 185, 204, 0.15);
+  --color-weather-cloud: #252a30;
+  --color-weather-cloud-zenith: #303238;
+  --color-weather-rain: #1b3040;
   --opacity-solar-background: 0.45;
   --color-code-keyword: #c6a5ed;
   --color-code-string: #96d2a7;

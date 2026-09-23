@@ -290,6 +290,16 @@ describe('relaxed syntax', () => {
     const result = parseEntry('Стрижка начало завтра 15:00 дорога 45 мин напомнить за день и 2 ч до выезда', now);
     expect(result.errors).toEqual([]); expect(result.leave).toBe(iso(22, 14, 15)); expect(result.reminders[1]!.at).toBe(iso(22, 12, 15));
   });
+  it('anchors н за to departure only when travel exists and suggests ттб after a date', () => {
+    const withTravel = parseEntry('Даша сб 15:00 тт 30м н за 2ч', now);
+    const withoutTravel = parseEntry('Даша сб 15:00 н за 2ч', now);
+    expect(withTravel.errors).toEqual([]);
+    expect(withTravel.reminders[0]?.anchor).toBe('leave');
+    expect(withTravel.reminders[0]?.at).toBe(iso(26, 12, 30));
+    expect(withoutTravel.reminders[0]?.anchor).toBe('start');
+    expect(withoutTravel.reminders[0]?.at).toBe(iso(26, 13));
+    expect(suggest('Даша сб 15:00 ', 'Даша сб 15:00 '.length, now).options.map(option => option.label)).toContain('ттб');
+  });
   it('preserves quoted literal labels and dates', () => {
     const result = parseEntry('"начало завтра конец среда" срок пятница', now);
     expect(result.errors).toEqual([]); expect(result.title).toBe('начало завтра конец среда');

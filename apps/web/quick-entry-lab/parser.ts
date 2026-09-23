@@ -170,13 +170,14 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
   const seen = new Set<string>();
   let clockRange: RegExpExecArray | null = null;
   function once(key: string) { if (seen.has(key)) result.errors.push(`Параметр «${key}» указан несколько раз.`); seen.add(key); }
-  const pending: Array<{ anchor: Anchor | 'auto'; minutes: number }> = [];
+  const pending: Array<{ anchor: Anchor | 'auto'; minutes: number; preferDeparture?: boolean }> = [];
   const absoluteReminders: string[] = [];
   function reminders(value: string) {
     // Reminder commands are additive; unlike start/due they may repeat.
     const anchorPhrase = /\s+(?:до|before)\s+(выезда|начала|срока|departure|start|due)\s*$/i.exec(value);
     if (anchorPhrase) value = value.slice(0, anchorPhrase.index);
-    const separateOffsets = /^за\s+/i.test(value) || Boolean(anchorPhrase);
+    const preferDeparture = /^за\s+/i.test(value);
+    const separateOffsets = preferDeparture || Boolean(anchorPhrase);
     value = value.replace(/^за\s+/i, '').split(separateOffsets ? /\s+(?:и|and)\s+(?!a\s+half)|,|\s+(?=\d)/ : /\s+и\s+|\s+and\s+(?!a\s+half)|,/).map(part => {
       const amount = part.trim().replace(/^день$/i, '1д').replace(/^час$/i, '1ч');
       return anchorPhrase ? `${['выезда', 'departure'].includes(anchorPhrase[1]!.toLowerCase()) ? 'выезд' : ['начала', 'start'].includes(anchorPhrase[1]!.toLowerCase()) ? 'начало' : 'срок'}-${amount}` : amount;
@@ -190,7 +191,7 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
       const future = /^(?:через|in)\s*(.+)$/.exec(part);
       const amount = duration(m?.[3] ?? future?.[1] ?? part.replace(/^(?:за\s*|-)/, ''));
       if (amount === null) result.errors.push(`Не разобрано напоминание «${part}». Пример: начало-30м или через45м.`);
-      else pending.push({ anchor: future ? 'now' : !m ? 'auto' : ['leave', 'выезд'].includes(m[1]!) ? 'leave' : ['due', 'срок'].includes(m[1]!) ? 'due' : 'start', minutes: future || m?.[2] === '+' ? amount : -amount });
+      else pending.push({ anchor: future ? 'now' : !m ? 'auto' : ['leave', 'выезд'].includes(m[1]!) ? 'leave' : ['due', 'срок'].includes(m[1]!) ? 'due' : 'start', minutes: future || m?.[2] === '+' ? amount : -amount, ...(preferDeparture ? { preferDeparture: true } : {}) });
     }
   }
   // A command may precede the title: "начало завтра 15:00 стрижка".
@@ -459,13 +460,14 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
   if (result.start && result.end && result.end <= result.start) result.errors.push('Event ends должен быть позже event opens.');
   if (result.due && result.due.includes('T') && new Date(result.due) < now) result.warnings.push('Due уже в прошлом. Дата не перенесена автоматически.');
   for (const reminder of pending) {
-    const anchor = reminder.anchor === 'auto' ? result.start ? 'start' : result.due ? 'due' : 'now' : reminder.anchor;
+    const anchor = reminder.anchor === 'auto' ? result.start ? reminder.preferDeparture && result.leave ? 'leave' : 'start' : result.due ? 'due' : 'now' : reminder.anchor;
     const base = anchor === 'now' ? now.toISOString() : anchor === 'leave' ? result.leave : anchor === 'due' ? result.due?.includes('T') ? result.due : null : result.start;
     const minutes = reminder.anchor === 'auto' && anchor === 'now' ? Math.abs(reminder.minutes) : reminder.minutes;
     const at = base ? addMinutes(base, minutes) : null;
     if (!at) result.errors.push(anchor === 'leave' ? 'Для напоминания до выезда нужны event opens и дорога.' : anchor === 'due' ? 'Для напоминания от due укажите дату и время due.' : 'Для напоминания до начала нужно время event opens.');
     if (at && new Date(at) < now) result.warnings.push('Есть напоминание в прошлом. Оно не будет перенесено автоматически.');
-    result.reminders.push({ ...reminder, minutes, anchor, at, ...(reminder.anchor === 'auto' ? { automatic: true } : {}) });
+    const { preferDeparture: _preferDeparture, ...publicReminder } = reminder;
+    result.reminders.push({ ...publicReminder, minutes, anchor, at, ...(reminder.anchor === 'auto' ? { automatic: true } : {}) });
   }
   for (const at of absoluteReminders) {
     if (new Date(at) < now) result.warnings.push('Есть напоминание в прошлом. Оно не будет перенесено автоматически.');
@@ -916,11 +918,12 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
     const terminalDate = new RegExp(`(?:^|\\s)(${dateValueExpression})\\s*$`, 'i').exec(normalized);
     const phrase = terminalDate?.[1] ?? '';
     if (phrase && !/(?:^|\s)(?:след\S*|next)(?=\s|$)/i.test(phrase) && new RegExp(`\\s+(?:${dayPartPattern}|\\d{1,2}(?:(?::|\\s)\\d{2})?)$`, 'i').test(phrase) && parseDate(phrase, now)) {
-      const labels = language === 'ru' ? ['напомнить', 'длительность', 'дорога', 'конец', 'срок'] : ['remind', 'duration', 'travel', 'event ends', 'due'];
+      const labels = language === 'ru' ? ['напомнить', 'длительность', 'дорога', 'ттб', 'конец', 'срок'] : ['remind', 'duration', 'travel', 'ttb', 'event ends', 'due'];
       const used = [
         /(?:^|\s)(?:напомнить|нап|напомни|напоминание|remind|reminder|r)(?=\s|:)/i,
         /(?:^|\s)(?:длительность|duration)(?=\s|:)/i,
-        /(?:^|\s)(?:дорога|ехать|тт|travel|drive)(?=\s|:)/i,
+        /(?:^|\s)(?:дорога|ехать|тт|travel|drive|ттб|ttb)(?=\s|:)/i,
+        /(?:^|\s)(?:дорога|ехать|тт|travel|drive|ттб|ttb)(?=\s|:)/i,
         /(?:^|\s)(?:конец|end|ends|event ends)(?=\s|:)/i,
         /(?:^|\s)(?:срок|due|до|by)(?=\s|:)/i,
       ];

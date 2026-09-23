@@ -28,14 +28,14 @@ describe('weather service', () => {
     expect(service.getSnapshot().settings.location).toEqual(location);
     stop(); const next = createWeatherService(); stop = next.start(); expect(next.getSnapshot().settings.enabled).toBe(false); expect(next.getSnapshot().settings.location).toEqual(location);
   });
-  it('cancels pending requests and ignores late answers after location changes or disabling precipitation', async () => {
+  it('cancels pending requests and ignores late answers after location changes or disabling weather', async () => {
     const pending: { resolve: (v: unknown) => void; signal: AbortSignal }[] = [];
     vi.stubGlobal('fetch', vi.fn((_url, options) => new Promise(resolve => pending.push({ resolve, signal: options.signal }))));
     const service = createWeatherService(); stop = service.start(); service.configure({ enabled: true, location });
     void service.refresh(); expect(pending).toHaveLength(1);
     service.configure({ location: { ...location, latitude: 40 } }); expect(pending[0]!.signal.aborted).toBe(true);
     pending[0]!.resolve({ ok: true, json: async () => payload }); await settle(); expect(service.getSnapshot().forecast).toBeUndefined();
-    service.configure({ precipitation: false }); expect(pending[1]!.signal.aborted).toBe(true);
+    service.configure({ precipitation: false, solar: false }); expect(pending[1]!.signal.aborted).toBe(true);
     pending[1]!.resolve({ ok: true, json: async () => payload }); await settle(); expect(service.getSnapshot().forecast).toBeUndefined();
     await vi.advanceTimersByTimeAsync(hour * 2); expect(pending).toHaveLength(2);
   });
@@ -71,6 +71,8 @@ describe('weather service', () => {
     const hours = parseForecast({ hourly: { time: [3600, 7200, 10800, 14400], precipitation_probability: [0, 50, 100, null] } });
     expect(hours.map(v => v.probability)).toEqual([0, 50, 100, null]); expect(hours[0]).toEqual({ start: 0, end: hour, probability: 0 });
     expect(() => parseForecast({ hourly: { time: [3600], precipitation_probability: [101] } })).toThrow();
+    expect(parseForecast({ hourly: { time: [3600], precipitation_probability: [80], cloud_cover: [95], precipitation: [2.5] } })[0]).toMatchObject({ cloudCover: 95, precipitationMm: 2.5 });
+    expect(() => parseForecast({ hourly: { time: [3600], precipitation_probability: [80], cloud_cover: [101] } })).toThrow();
   });
 });
 describe('solar timeline', () => {
@@ -85,6 +87,13 @@ describe('solar timeline', () => {
     const result = solarDay(date, 'Europe/Berlin', location); expect(result.day.end - result.day.start).toBe(hours * hour);
     const segments = buildSegments(result.day, [{ start: result.day.start, end: result.day.start + 6 * hour }]);
     expect(segments[0]!.height).toBe(36); const gradient = solarGradient(segments[1]!, location, result.events); expect(gradient).not.toContain('NaN'); expect(gradient).toContain('100%');
+  });
+  it('blends cloud and rainfall into a continuous semantic gradient', () => {
+    const { day, events } = solarDay('2026-09-23', 'Europe/Berlin', location);
+    const segment = buildSegments(day, [])[0]!;
+    const gradient = solarGradient(segment, location, events, [{ start: day.start + 12 * hour, end: day.start + 13 * hour, probability: 90, cloudCover: 80, precipitationMm: 2 }]);
+    expect(gradient).toContain('var(--color-weather-cloud)');
+    expect(gradient).toContain('var(--color-weather-rain)');
   });
   it.each(['2025-09-23', '2028-09-23', '2026-06-21', '2026-12-21'])('supports past/future and polar conditions on %s', date => {
     const pole = { name: 'Pole', latitude: 89, longitude: 0 };

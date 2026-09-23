@@ -34,8 +34,8 @@ describe('duration utilities', () => {
     const moved = scheduleWithStart(started, '2026-08-29T11:00:00.000Z');
     expect(moved.endAt).toBe('2026-08-29T11:10:00.000Z');
     const resized = scheduleWithEnd(moved, '2026-08-29T11:45:00.000Z');
-    expect(resized.estimatedDuration).toBe('PT45M');
-    expect(scheduleWithStart(resized)).toEqual({ timezone: 'UTC', estimatedDuration: 'PT45M' });
+    expect(resized.estimatedDuration).toBe('PT10M');
+    expect(scheduleWithStart(resized)).toEqual({ timezone: 'UTC', estimatedDuration: 'PT10M' });
     const dueOnly = scheduleWithDue(empty, '2026-08-30T12:00:00.000Z');
     expect(dueOnly).toEqual({ timezone: 'UTC', dueAt: '2026-08-30T12:00:00.000Z', estimatedDuration: 'PT10M' });
     expect(scheduleWithDue(dueOnly)).toEqual({ timezone: 'UTC', estimatedDuration: 'PT10M' });

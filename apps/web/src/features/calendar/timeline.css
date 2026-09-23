@@ -4,12 +4,16 @@
 .calendar-display-switch .ui-button[aria-pressed="true"] { background: var(--color-surface-elevated); color: var(--color-text); border-color: var(--color-border); font-weight: var(--font-weight-semibold); box-shadow: var(--shadow-surface); }
 .timeline-toolbar { gap: var(--space-2); font-size: var(--font-size-secondary); }
 .timeline-toolbar > details > summary { border: 0; margin: 0; padding: var(--space-2); font-size: var(--font-size-secondary); }
+.timeline-toolbar > details { border-top: 0; }
 .timeline-toolbar > .ui-button[aria-pressed="true"] { background: var(--color-interactive-active); }
 .calendar-all-day > summary { padding-block: var(--space-2); font-weight: var(--font-weight-semibold); }
 .timeline-axis { position: relative; margin: var(--space-6) var(--space-1) var(--space-6) calc(var(--control-height-touch) + var(--space-3)); isolation: isolate; }
 .timeline-tick { position: absolute; inset-inline: 0; border-top: 1px solid var(--color-border); pointer-events: none; }
 .timeline-tick > span { position: absolute; right: calc(100% + var(--space-2)); transform: translateY(-50%); font-size: var(--font-size-caption); color: var(--color-text-secondary); }
 .timeline-events { position: absolute; inset: 0; }
+.timeline-hidden-reserves { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.timeline-hidden-reserve { position: absolute; inset-inline: 0; overflow: hidden; border: 1px dotted var(--color-border-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-surface-muted) 24%, transparent); color: var(--color-text-secondary); opacity: 0.35; font-size: var(--font-size-caption); }
+.timeline-hidden-reserve span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-inline: var(--space-2); }
 .timeline-event { position: absolute; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; text-align: start; overflow: hidden; min-width: 0; box-sizing: border-box; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-surface-muted) var(--opacity-timeline-event-surface), transparent); color: var(--color-text); padding: var(--space-1) var(--space-2); font-size: var(--font-size-secondary); cursor: pointer; }
 .timeline-event strong, .timeline-event small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
 .timeline-event strong { font-weight: var(--font-weight-semibold); }

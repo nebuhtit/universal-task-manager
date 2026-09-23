@@ -33,7 +33,7 @@ test('weather beta: settings, gradient, haze, keyboard, themes, errors and compl
     forecasts++;
     if (fail) return route.fulfill({ status: 503, body: '{}' });
     const times = Array.from({ length: 48 }, (_, i) => (Date.parse('2026-09-22T22:00:00Z') + (i + 1) * 3_600_000) / 1000);
-    return route.fulfill({ json: { hourly: { time: times, precipitation_probability: times.map((_, i) => [0, 50, 100, null][i % 4]) } } });
+    return route.fulfill({ json: { hourly: { time: times, precipitation_probability: times.map((_, i) => [0, 50, 100, null][i % 4]), cloud_cover: times.map((_, i) => [0, 50, 95, null][i % 4]), precipitation: times.map((_, i) => [0, 0, 2, 0][i % 4]) } } });
   });
   await page.route('https://geocoding-api.open-meteo.com/**', route => route.fulfill({ json: { results: [{ name: 'Berlin', country: 'Germany', latitude: 52.52, longitude: 13.405 }] } }));
   await setup(page); expect(forecasts).toBe(0);
@@ -51,13 +51,14 @@ test('weather beta: settings, gradient, haze, keyboard, themes, errors and compl
   await expect(page.getByRole('status').filter({ hasText: 'Selected and saved on this device: Berlin, Germany' })).toBeVisible();
   await navigate(page, 'Calendar');
   await expect(page.getByTestId('weather-background')).toBeVisible(); await expect(page.locator('.weather-solar')).toHaveCount(1);
-  await expect(page.locator('.weather-solar-marker')).toHaveCount(2); await expect(page.getByTestId('weather-haze').first()).toHaveCSS('opacity', '0.5');
+  await expect(page.locator('.weather-solar')).toHaveAttribute('style', /--color-weather-cloud/);
+  await expect(page.locator('.weather-solar-marker')).toHaveCount(2); await expect(page.getByTestId('weather-haze').first().locator('.weather-haze')).toHaveCSS('opacity', '0.5');
   await expect(page.getByTestId('weather-background')).toHaveCSS('pointer-events', 'none');
   await expect(page.locator('.weather-legend')).toHaveCount(0);
   const marker = page.locator('.weather-solar-marker').first(); await marker.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-weather-${testInfo.project.name}-light.png` });
   const event = page.locator('.timeline-event').filter({ hasText: 'Weather interaction sentinel' }); await event.focus(); await expect(event).toBeFocused();
-  await event.click(); await expect(page.getByRole('dialog')).toBeVisible(); await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.keyboard.press('Enter'); await expect(page.getByRole('dialog')).toBeVisible(); await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; }); await marker.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-weather-${testInfo.project.name}-dark.png` });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

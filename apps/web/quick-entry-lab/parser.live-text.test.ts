@@ -109,13 +109,13 @@ it('consumes the whole Russian calendar date including a two-digit year', () => 
 it('offers follow-up commands instead of another date after day and time are set', () => {
   for (const input of ['апваап завтра утром', 'апваап завтра утром ', 'апваап завтра 15:00']) {
     const suggestions = suggest(input, input.length, now, 'ru');
-    expect(suggestions.options.map(option => option.label)).toEqual(['напомнить', 'длительность', 'дорога', 'конец', 'срок']);
+    expect(suggestions.options.map(option => option.label)).toEqual(['напомнить', 'длительность', 'дорога', 'ттб', 'конец', 'срок']);
     expect(suggestions.start).toBe(input.length);
     const reminder = suggestions.options[0]!;
     expect(input.slice(0, suggestions.start) + reminder.insert + input.slice(suggestions.end)).toBe(`${input.trimEnd()} напомнить `);
   }
   const english = 'Meeting tomorrow morning';
-  expect(suggest(english, english.length, now, 'en').options.map(option => option.label)).toEqual(['remind', 'duration', 'travel', 'event ends', 'due']);
+  expect(suggest(english, english.length, now, 'en').options.map(option => option.label)).toEqual(['remind', 'duration', 'travel', 'ttb', 'event ends', 'due']);
 });
 
 it('shows next month and year only after typing the next-period command', () => {

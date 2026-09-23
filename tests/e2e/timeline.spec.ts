@@ -54,7 +54,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   const allDayButton = page.locator('.timeline-toolbar').getByRole('button', { name: /^All day/ });
   await allDayButton.click(); await expect(page.locator('.timeline-all-day-items')).toHaveCount(0);
   await page.getByRole('button', { name: 'List', exact: true }).click();
-  await expect(page.locator('.calendar-all-day')).not.toHaveAttribute('open');
+  await expect(page.locator('.calendar-all-day')).toHaveCount(0);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(allDayButton).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
@@ -84,7 +84,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(tentative).toHaveCount(1);
   await expect(tentative).toHaveCSS('border-top-style', 'dotted');
   await expect(tentative).toHaveAttribute('aria-label', 'Tentative · Tentative task · 13:00–15:00');
-  await expect(page.getByTestId('timeline-planning-summary')).toContainText('After tasks');
+  await expect(page.getByTestId('timeline-planning-summary')).toContainText('Free');
   await tentative.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-light.png` });
   await tentative.focus();
@@ -108,9 +108,11 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.screenshot({ path: `/tmp/utm-timeline-${testInfo.project.name}-light.png` });
   await page.clock.fastForward(60_000); await expect.poll(() => line.evaluate(el => (el as HTMLElement).style.top)).not.toBe(top);
   expect(await primary(page)).toBe(saved);
+  await page.getByRole('button', { name: 'Edit calendar day view' }).click();
   await page.getByText('Timeline settings', { exact: true }).click();
-  await page.getByText('Choose another item…', { exact: true }).click();
+  await page.getByText('Choose sleep item…', { exact: true }).click();
   await page.getByRole('button', { name: 'Sleep source', exact: true }).click();
+  await page.getByRole('button', { name: 'Save view' }).click();
   await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
   await page.locator('.timeline-break').first().click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
   await page.getByRole('button', { name: /^Collapse night/ }).click(); await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
@@ -132,8 +134,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await listUndated.click(); await expect(page.locator('.calendar-no-date')).toHaveCount(0);
   await listUndated.click(); await expect(page.locator('.calendar-no-date')).toContainText('Undated sentinel');
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('.calendar-all-day > summary').click();
-  await expect(page.locator('.calendar-all-day').getByText('All day sentinel', { exact: true })).toBeHidden();
+  const listAllDay = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^All day/ });
+  await expect(page.locator('.calendar-all-day')).toContainText('All day sentinel');
+  await listAllDay.click(); await expect(page.locator('.calendar-all-day')).toHaveCount(0);
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
   const lock = page.locator('.sidebar .sidebar-bottom button').filter({ hasText: 'Lock' }); await lock.evaluate((el: HTMLButtonElement) => el.click());
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible(); await page.reload();

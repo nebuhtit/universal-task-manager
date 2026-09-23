@@ -1,4 +1,4 @@
-import { canManuallyComplete, buildRecurrenceRule, makeSeries, removeDuplicateReminders, validateScriptDefinitions, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { canManuallyComplete, buildRecurrenceRule, createId, createItem, makeSeries, removeDuplicateReminders, validateScriptDefinitions, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { inferredPreset } from '../fieldDisplay';
 import { syncEventProgramScript, validateEventProgram, programOverflow } from '@utm/core';
 
@@ -12,6 +12,20 @@ export function withoutTemplateMarker(item: UniversalItem): UniversalItem {
     if (Object.keys(next.extensions).length === 0) delete next.extensions;
   }
   return next;
+}
+
+/** A detached, clean item copy. Never reuse source identity or lifecycle history. */
+export function duplicateItemDraft(source: UniversalItem, now = new Date()): UniversalItem {
+  const fresh = createItem(`${source.title} 2`, source.preset, now);
+  const copy: UniversalItem = { ...clean(source), id: fresh.id, schemaVersion: fresh.schemaVersion, createdWithAppId: fresh.createdWithAppId, createdWithAppName: fresh.createdWithAppName, createdWithVersion: fresh.createdWithVersion, title: fresh.title, createdAt: fresh.createdAt, updatedAt: fresh.updatedAt, revision: fresh.revision, role: 'standalone', state: 'open', relations: [], reminders: source.reminders.map(reminder => { const next = { ...reminder, id: createId() }; delete next.acknowledgedAt; delete next.snoozedUntil; return next; }) };
+  for (const field of ['closure', 'deletedAt', 'occurrence', 'recurrence', 'recurrenceOverride', 'cycleHistory', 'timerHistory', 'activeTimer', 'actualTimeEntries', 'completionEntries', 'external'] as const) delete copy[field];
+  if (copy.schedule) delete copy.schedule.actualDuration;
+  if (copy.habit) { copy.habit.completedDates = []; delete copy.habit.timerSessions; delete copy.habit.activeTimerStartedAt; }
+  if (copy.progress?.mode === 'counter') copy.progress.current = 0;
+  if (copy.extensions) {
+    for (const key of Object.keys(copy.extensions)) if (key.startsWith('utm:google') || key.startsWith('utm:quick') || key === 'utm:template' || key === 'utm:eventProgramOverride') delete copy.extensions[key];
+  }
+  return copy;
 }
 
 export type NormalizeItemEditorInput = {

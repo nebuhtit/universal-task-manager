@@ -1,0 +1,39 @@
+import { createItem, createWorkspace } from '@utm/core';
+import { describe, expect, it } from 'vitest';
+import { calendarVisibleCapacity } from './calendarCapacity';
+import { evaluateCalendarRange } from './calendarEvaluation';
+import { calendarUndatedItems } from './calendarVisibility';
+
+describe('calendar visible capacity', () => {
+  it('tracks Overdue and No date switches and counts a hidden reserve only once', () => {
+    const now = new Date('2026-09-23T12:00:00Z');
+    const workspace = createWorkspace('Capacity', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    workspace.calendarPreferences.dayView.filter.source = 'state == "open" && id != "work"';
+    workspace.calendarPreferences.dayView.statistics = { showTime: true, reservedItemIds: ['work'] };
+    workspace.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, showOverdue: true, showUndated: true };
+    const scheduled = createItem('Scheduled', 'event', now);
+    scheduled.id = 'scheduled';
+    scheduled.schedule = { timezone: 'UTC', startAt: '2026-09-23T09:00:00Z', endAt: '2026-09-23T11:00:00Z', estimatedDuration: 'PT2H' };
+    const work = createItem('Work', 'event', now);
+    work.id = 'work';
+    work.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', endAt: '2026-09-23T12:00:00Z', estimatedDuration: 'PT4H' };
+    const overdue = createItem('Late', 'task', now);
+    overdue.id = 'overdue';
+    overdue.schedule = { timezone: 'UTC', dueAt: '2026-09-22T18:00:00Z', estimatedDuration: 'PT1H' };
+    const undated = createItem('No date', 'task', now);
+    undated.id = 'undated';
+    undated.schedule = { timezone: 'UTC', estimatedDuration: 'PT30M' };
+    workspace.items = { scheduled, work, overdue, undated };
+    const compute = () => {
+      const day = evaluateCalendarRange(workspace, '2026-09-23', '2026-09-24', workspace.calendarPreferences.dayView, now).days['2026-09-23']!;
+      return calendarVisibleCapacity(workspace, day, '2026-09-23', now, calendarUndatedItems(workspace, now), true);
+    };
+    expect(compute()).toEqual({ freeMs: 18.5 * 3_600_000, hiddenReservedMs: 2 * 3_600_000 });
+    workspace.calendarPreferences.timeline.showOverdue = false;
+    workspace.calendarPreferences.timeline.showUndated = false;
+    expect(compute().freeMs).toBe(20 * 3_600_000);
+    workspace.calendarPreferences.dayView.statistics.reservedItemIds = [];
+    expect(compute()).toEqual({ freeMs: 22 * 3_600_000, hiddenReservedMs: 0 });
+  });
+});

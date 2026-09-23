@@ -88,7 +88,7 @@ export const scheduleWithEnd = (schedule: Schedule, endAt?: string): Schedule =>
   next.endAt = endAt;
   const start = next.startAt ? Date.parse(next.startAt) : Number.NaN;
   const end = Date.parse(endAt);
-  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+  if (!next.estimatedDuration && Number.isFinite(start) && Number.isFinite(end) && end > start) {
     const duration = calendarDuration(next.startAt, endAt);
     next.estimatedDuration = toIsoDuration(duration.amount, duration.unit);
   }

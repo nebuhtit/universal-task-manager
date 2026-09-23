@@ -5,6 +5,7 @@ export const VIEW_TEMPLATE_FIELDS = ['title', 'bodyMarkdown', 'schedule.startAt'
 
 const active = ACTIVE_ITEM_VIEW_QUERY;
 const inbox = 'state == "open" && role == "standalone" && isTemplate != true && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT"))';
+const noDate = `${active} && schedule.plannedDate == null && schedule.startAt == null && schedule.endAt == null && schedule.dueAt == null && schedule.availableFrom == null && external.transparency == null && isGoogleEvent != true`;
 const template = (id: string, name: string, source: string, accent: string, creationDuePeriod?: 'today' | 'tomorrow'): SavedView => ({
   id: `builtin:${id}`,
   name,
@@ -19,10 +20,11 @@ const template = (id: string, name: string, source: string, accent: string, crea
 
 export const BUILT_IN_VIEW_TEMPLATES: SavedView[] = [
   template('inbox', 'Inbox', inbox, '#d9485f'),
-  template('all', 'All', active, '#4254a6'),
   template('today-overdue', 'Today', `${active} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true`, '#c27a00', 'today'),
+  template('no-date', 'No date', noDate, '#6b7280'),
   template('tomorrow', 'Tomorrow', `${active} && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")`, '#6b7280', 'tomorrow'),
   template('week-overdue', 'This week', `${active} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true`, '#087f73'),
+  template('all', 'All items', active, '#4254a6'),
   template('some-area', 'Some Area', active, '#7048b8'),
   template('some-project', 'Some Project', active, '#b83280'),
 ];

@@ -19,6 +19,7 @@ import {
 } from './features/items';
 import { OrganizationManager, createParaStructurePackage } from './features/settings/OrganizationManager';
 import { applyQuickEntryText, createQuickEntryItem, syncQuickEntrySource } from './features/items/quickEntry';
+import { duplicateItemDraft } from './features/items/editor/itemEditorModel';
 import { LiveTextInput } from './features/items/LiveTextInput';
 import { AppShell, type AppNotice as Notice, type AppPage as Page } from './components/layout/AppShell';
 import { useLegacyModalDismiss } from './components/ui/useLegacyModalDismiss';
@@ -1324,7 +1325,7 @@ export default function App() {
         if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
       }}
     />}
-    <Suspense fallback={null}>{editor && <ItemEditor key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
+    <Suspense fallback={null}>{editor && <ItemEditor key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onDuplicate={(item) => { const duplicate = duplicateItemDraft(item, currentWorkspaceNow()); const saved = commit('Duplicate item', draft => { draft.items[duplicate.id] = clean(duplicate); }); if (saved) { setEditorIsNew(false); setEditor(duplicate); setToast('Item duplicated'); void flushPersistence(); } }} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
       onTimerStateSave={async (itemId, timer) => {
         const saved = commit('Update running timer', (draft) => {
           const target = draft.items[itemId]; if (!target || target.deletedAt) throw new Error('Item no longer exists.');
