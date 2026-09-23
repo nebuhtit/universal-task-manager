@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { canEditGoogleEvent, googleEventChanges, googleEventDraft, GoogleEditConflict, updateSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
+import { canEditGoogleEvent, googleEventChanges, googleEventDraft, GoogleEditConflict, moveSingleGoogleEvent, updateSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
 
 const event = { id: 'instance', etag: 'v1', summary: 'Meeting', recurringEventId: 'master', start: { dateTime: '2026-09-20T12:00:00Z', timeZone: 'UTC' }, end: { dateTime: '2026-09-20T13:00:00Z', timeZone: 'UTC' } };
 const operation = (): GoogleEditOperation => ({ eventId: event.id, calendarId: 'calendar', accountEmail: 'me@example.com', baseline: event, draft: { ...googleEventDraft(event, 'UTC'), title: 'Updated' } });
@@ -11,6 +11,33 @@ function mockRemote(remote = event, accessRole = 'owner', patchStatus = 200) {
   return requests;
 }
 describe('Google event editing', () => {
+  it('moves to a writable calendar with a bodyless POST and never creates a copy', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({ url, ...(init ? { init } : {}) });
+      if (url.includes('calendarList')) return new Response(JSON.stringify({ items: [{ id: 'me@example.com', primary: true }, { id: 'calendar', accessRole: 'owner' }, { id: 'destination', accessRole: 'writer' }] }));
+      return new Response(JSON.stringify(event));
+    }));
+    const moved = await moveSingleGoogleEvent('token', { ...operation(), destinationCalendarId: 'destination' }, event);
+    expect(moved.calendarId).toBe('destination');
+    const request = requests.find(entry => entry.url.includes('/move?'))!;
+    expect(request.url).toContain('destination=destination');
+    expect(request.init?.method).toBe('POST'); expect(request.init?.body).toBeUndefined();
+    expect(requests.filter(entry => entry.url.includes('/events') && entry.init?.method === 'POST')).toHaveLength(1);
+  });
+  it('reads back the destination after an uncertain move instead of creating another event', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({ url, ...(init ? { init } : {}) });
+      if (url.includes('calendarList')) return new Response(JSON.stringify({ items: [{ id: 'me@example.com', primary: true }, { id: 'calendar', accessRole: 'owner' }, { id: 'destination', accessRole: 'writer' }] }));
+      if (url.includes('/calendars/calendar/events/instance')) return new Response('{}', { status: 404 });
+      return new Response(JSON.stringify({ ...event, summary: 'Updated', etag: 'v2' }));
+    }));
+    const op = { ...operation(), destinationCalendarId: 'destination', attempted: true };
+    const moved = await moveSingleGoogleEvent('token', op, await updateSingleGoogleEvent('token', op, now));
+    expect(moved).toMatchObject({ calendarId: 'destination', event: { id: 'instance' } });
+    expect(requests.filter(entry => entry.init?.method === 'POST')).toHaveLength(1);
+  });
   it('allows old occurrences only with the explicit beta switch and retains access checks', async () => {
     const later = () => Date.parse('2030-01-01T12:00:00Z');
     mockRemote();

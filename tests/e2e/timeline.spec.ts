@@ -112,7 +112,8 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.getByText('Choose another item…', { exact: true }).click();
   await page.getByRole('button', { name: 'Sleep source', exact: true }).click();
   await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
-  await page.getByRole('button', { name: 'Show full day', exact: true }).click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
+  await page.locator('.timeline-break').first().click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
+  await page.getByRole('button', { name: /^Collapse night/ }).click(); await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await tentative.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-dark.png` });
@@ -125,6 +126,11 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await active.getByRole('button', { name: 'Complete item', exact: true }).click();
   await expect(active).toHaveCount(0);
   await page.getByRole('button', { name: 'List', exact: true }).click(); await expect(page.locator('.calendar-timeline')).toHaveCount(0);
+  const listUndated = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^No date/ });
+  await expect(listUndated).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.calendar-no-date')).toContainText('Undated sentinel');
+  await listUndated.click(); await expect(page.locator('.calendar-no-date')).toHaveCount(0);
+  await listUndated.click(); await expect(page.locator('.calendar-no-date')).toContainText('Undated sentinel');
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.locator('.calendar-all-day > summary').click();
   await expect(page.locator('.calendar-all-day').getByText('All day sentinel', { exact: true })).toBeHidden();

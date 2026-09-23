@@ -58,6 +58,20 @@ describe('CalendarPage daily-list contract', () => {
     const markup = renderToStaticMarkup(<CalendarPage workspace={workspace} now={now} commit={vi.fn()} onEditItem={vi.fn()} onState={vi.fn()} createUiItem={(title, preset, createdAt) => createItem(title ?? '', preset, createdAt)} />);
     expect(markup).toContain('Spanning active range');
   });
+  it('renders shared Overdue and No date controls without duplicating undated cards', () => {
+    const now = new Date('2026-08-26T10:00:00.000Z');
+    const workspace = createWorkspace('Calendar', now);
+    workspace.calendarPreferences.timezone = 'UTC'; workspace.calendarPreferences.dayView.filter.source = 'true';
+    workspace.calendarPreferences.timeline = { mode: 'list', hideSleep: false, showUndated: true, showOverdue: true };
+    const late = createItem('Late item', 'task', now); late.schedule = { timezone: 'UTC', dueAt: '2026-08-25T09:00:00Z' };
+    const undated = createItem('Undated item', 'task', now);
+    workspace.items[late.id] = late; workspace.items[undated.id] = undated;
+    const markup = renderToStaticMarkup(<CalendarPage workspace={workspace} now={now} commit={vi.fn()} onEditItem={vi.fn()} onState={vi.fn()} createUiItem={(title, preset, createdAt) => createItem(title ?? '', preset, createdAt)} />);
+    expect(markup).toContain('calendar-list-toolbar');
+    expect(markup).toContain('Overdue · 1'); expect(markup).toContain('No date · 1');
+    expect((markup.match(/Undated item/g) ?? [])).toHaveLength(2); // title and completion button label
+    expect(markup).toContain('Late item');
+  });
 
   it('uses semantic tokens and a seven-column mobile week navigator', () => {
     const css = readFileSync(fileURLToPath(new URL('./calendar.css', import.meta.url)), 'utf8');

@@ -51,6 +51,7 @@ import { dateInput, fromDateInput, formatRussianDateTime } from './utils/dates';
 import { clockService } from './services/clockService';
 import { isNativeICloudBackupAvailable, requestNativeICloudImport, writeNativeICloudBackup } from './services/nativeICloudBackup';
 import { isNativeReminderAvailable, requestNativeReminderPermission, syncNativeReminders } from './services/nativeReminders';
+import { visibleItemNotices } from './services/noticeVisibility';
 import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from './services/googleCalendar';
 import { GOOGLE_CREATE_EXTENSION } from './services/googleCalendarCreate';
 import {
@@ -630,7 +631,7 @@ export default function App() {
   const [editorIsNew, setEditorIsNew] = useState(false);
 
   const [transfer, setTransfer] = useState(false);
-  const [notices, setNotices] = useState<Notice[]>([]);
+  const [rawNotices, setNotices] = useState<Notice[]>([]);
   const [popupNoticeIds, setPopupNoticeIds] = useState<string[]>([]);
   const [noticeCenterOpen, setNoticeCenterOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -659,6 +660,7 @@ export default function App() {
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string; backupPreview?: boolean | undefined; isolatedPreview?: boolean } | null>(null);
   const { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery } = useWorkspaceController({ onToast: setToast, setNotices });
+  const notices = workspace ? visibleItemNotices(workspace, rawNotices) : rawNotices;
   useEffect(() => workspace ? weatherService.start() : undefined, [Boolean(workspace)]);
   const workspaceLatest = useRef(workspace);
   workspaceLatest.current = workspace;
@@ -1361,13 +1363,37 @@ export default function App() {
         if (!saved) throw new Error('Could not save the event draft.');
         await flushPersistence();
       }}
-      onGoogleUpdated={async (event) => {
+      onGoogleUpdated={async (event, calendarId) => {
+        const before = workspace.items[googleActionItem(workspace, editor).id]?.external;
+        const oldHistoryKey = before ? await googleHistoryKey(before.calendarId, before.eventId) : undefined;
+        const newHistoryKey = await googleHistoryKey(calendarId, event.id);
         const saved = commit('Update Google event', (draft) => {
-          const external = draft.items[googleActionItem(workspace, editor).id]?.external;
+          const targetId = googleActionItem(workspace, editor).id;
+          const target = draft.items[targetId];
+          const external = target?.external;
           if (!external || draft.calendarPreferences.googleCalendar?.connectionId !== external.connectionId) throw new Error('Google connection changed.');
-          applyGoogleCalendarSync(draft, { connectionId: external.connectionId, calendarId: external.calendarId, events: [event], syncedAt: new Date().toISOString(), fullSync: false });
+          if (calendarId !== external.calendarId) {
+            if (external.readOnly) {
+              const mirror = googleCalendarEventToItem(event, calendarId, external.connectionId, new Date().toISOString(), target.schedule?.timezone);
+              if (!mirror) throw new Error('Google returned an invalid moved event.');
+              draft.items[mirror.id] = { ...clean(target), id: mirror.id, external: clean(mirror.external!) };
+              delete draft.items[targetId]; delete draft.tombstones[targetId];
+              for (const candidate of Object.values(draft.items)) for (const relation of candidate.relations) if (relation.targetId === targetId) relation.targetId = mirror.id;
+              for (const view of Object.values(draft.views)) {
+                if (view.statistics) view.statistics.reservedItemIds = view.statistics.reservedItemIds.map(id => id === targetId ? mirror.id : id);
+                const order = view.extensions?.['utm:manualOrder'];
+                if (Array.isArray(order)) view.extensions!['utm:manualOrder'] = order.map(id => id === targetId ? mirror.id : id);
+              }
+            } else {
+              external.calendarId = calendarId; external.eventId = event.id;
+              const created = target.extensions?.[GOOGLE_CREATE_EXTENSION] as { calendarId?: string; eventId?: string } | undefined;
+              if (created) { created.calendarId = calendarId; created.eventId = event.id; }
+            }
+          }
+          if (oldHistoryKey && oldHistoryKey !== newHistoryKey && draft.calendarPreferences.localTimeJournals?.[oldHistoryKey] && !draft.calendarPreferences.localTimeJournals[newHistoryKey]) draft.calendarPreferences.localTimeJournals[newHistoryKey] = clean(draft.calendarPreferences.localTimeJournals[oldHistoryKey]);
+          applyGoogleCalendarSync(draft, { connectionId: external.connectionId, calendarId, events: [{ ...event, localHistoryKey: newHistoryKey }], syncedAt: new Date().toISOString(), fullSync: false });
           recordGoogleWrite(draft.calendarPreferences.googleCalendar!);
-          const target = draft.items[googleActionItem(workspace, editor).id]; if (target?.extensions) delete target.extensions[GOOGLE_EDIT_EXTENSION];
+          for (const candidate of Object.values(draft.items)) if (candidate.external?.connectionId === external.connectionId && candidate.external.calendarId === calendarId && candidate.external.eventId === event.id && candidate.extensions) delete candidate.extensions[GOOGLE_EDIT_EXTENSION];
         });
         if (!saved) throw new Error('Google saved the event; retry to restore its local copy.');
         await flushPersistence();
@@ -1440,9 +1466,10 @@ export default function App() {
         }
       }
       await flushPersistence(); setEditor(null); if (recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${recurrenceError}).`); } }} onDelete={(item) => {
+        const deletedIds = new Set(itemDeletionIds(workspace, item.id));
         const snapshots = itemDeletionIds(workspace, item.id).flatMap(id => workspace.items[id] ? [{ id, item: clean(workspace.items[id]!), tombstone: workspace.tombstones[id] }] : []);
         const deleted = commit('Delete item and recurrence children', draft => softDeleteItemTree(draft, item.id, currentWorkspaceNow().toISOString()));
-        if (deleted) { queueUndo('Item deleted', () => commit('Undo item deletion', draft => {
+        if (deleted) { setNotices((current) => current.filter((notice) => !notice.itemId || !deletedIds.has(notice.itemId))); queueUndo('Item deleted', () => commit('Undo item deletion', draft => {
           for (const snapshot of snapshots) { draft.items[snapshot.id] = clean(snapshot.item); if (snapshot.tombstone) draft.tombstones[snapshot.id] = snapshot.tombstone; else delete draft.tombstones[snapshot.id]; }
         })); setEditorIsNew(false); setEditor(null); }
       }} />}</Suspense>

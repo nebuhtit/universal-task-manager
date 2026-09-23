@@ -10,6 +10,7 @@ import { ItemCard } from '../items/ItemCard';
 import { clockService } from '../../services/clockService';
 import { displayViewValue, readItemField } from '../items/fieldDisplay';
 import { timelineData } from './timelineData';
+import { calendarUndatedItems } from './calendarVisibility';
 import { buildSegments, layoutEvents, positionAt, type Segment } from './timelineLayout';
 import './timeline.css';
 
@@ -54,6 +55,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   }, []);
   useEffect(() => { setMore([]); }, [dateKey]);
   const data = useMemo(() => timelineData(workspace, dateKey, now), [workspace, dateKey, now.getTime()]);
+  const undatedCount = useMemo(() => calendarUndatedItems(workspace, now).length, [workspace, now.getTime()]);
   const segments = useMemo(() => buildSegments(data.day, data.hidden), [data]);
   const layout = useMemo(() => layoutEvents(data.events, data.day, segments, columns), [data, segments, columns]);
   const height = Math.max((segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0), ...layout.events.map(v => v.top + v.height), ...layout.more.map(v => v.top + v.height));
@@ -67,9 +69,8 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   const cards = (items: UniversalItem[]) => <div className="item-list">{items.map(item => <ItemCard key={item.id} item={item} workspace={workspace} now={now} fields={workspace.calendarPreferences.dayView.fields} onEdit={() => open(item)} onState={state => onState?.(item, state)} />)}</div>;
   return <section className="calendar-timeline" aria-label="Timeline">
     <div className="timeline-toolbar">
-      <Button size="compact" aria-pressed={settings.hideSleep} onClick={() => onPreferences({ ...settings, hideSleep: !settings.hideSleep })}>{settings.hideSleep ? (ru ? 'Показать полные сутки' : 'Show full day') : (ru ? 'Скрывать сон' : 'Hide sleep')}</Button>
       {data.overdue.length > 0 && <Button size="compact" aria-pressed={settings.showOverdue !== false} onClick={() => onPreferences({ ...settings, showOverdue: settings.showOverdue === false })}>{ru ? 'Просрочено' : 'Overdue'} · {data.overdue.length}</Button>}
-      <Button size="compact" aria-pressed={settings.showUndated === true} onClick={() => onPreferences({ ...settings, showUndated: settings.showUndated !== true })}>{ru ? 'Без даты' : 'No date'}{data.undated.length ? ` · ${data.undated.length}` : ''}</Button>
+      <Button size="compact" aria-pressed={settings.showUndated === true} onClick={() => onPreferences({ ...settings, showUndated: settings.showUndated !== true })}>{ru ? 'Без даты' : 'No date'}{undatedCount ? ` · ${undatedCount}` : ''}</Button>
       {data.allDay.length > 0 && <Button size="compact" aria-pressed={allDayOpen} onClick={() => { persistUiBoolean('calendar:all-day', !allDayOpen); setAllDayOpen(!allDayOpen); }}>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</Button>}
       <details><summary>{ru ? 'Настройки Timeline' : 'Timeline settings'}</summary><div className="timeline-sleep-settings">
         {workspace.calendarPreferences.showExplanations && <><p className="hint">{ru ? 'Duration недатированных задач учитывается в предварительном плане. Даты задач не меняются.' : 'Undated task durations count towards tentative planning. Item dates stay unchanged.'}</p><p>{ru ? 'Сжимается только свободная часть времени выбранного item.' : 'Only unoccupied time of the selected item is collapsed.'}</p></>}
@@ -96,7 +97,8 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     <div className="timeline-axis" style={{ height: height + 12 }}>
       <WeatherTimeline dateKey={dateKey} zone={zone} ru={ru} segments={segments} />
       {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
-      {segments.filter(v => v.hidden).map(v => <div key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }}><span>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</span></div>)}
+      {segments.filter(v => v.hidden).map(v => <button type="button" key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }} aria-expanded={false} onClick={() => onPreferences({ ...settings, hideSleep: false })}>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</button>)}
+      {!settings.hideSleep && data.sleepGaps.length > 0 && <button type="button" className="timeline-night-collapse" style={{ top: positionAt(data.sleepGaps[0]!.start, segments) }} aria-expanded={true} onClick={() => onPreferences({ ...settings, hideSleep: true })}>{ru ? 'Свернуть ночь' : 'Collapse night'} {timeLabel(data.sleepGaps[0]!.start, zone)}–{timeLabel(data.sleepGaps.at(-1)!.end, zone)}</button>}
       <div className="timeline-events">
         {layout.events.map(event => {
           const organization = event.item.extensions?.['utm:calendarOrganization'] as { color?: string; tag?: string } | undefined;

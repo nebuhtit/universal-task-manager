@@ -1,4 +1,4 @@
-import { reminderTime, type WorkspaceDocument } from '@utm/core';
+import { itemDeletionTime, reminderTime, type WorkspaceDocument } from '@utm/core';
 
 export interface NativeReminderEntry {
   id: string;
@@ -52,7 +52,7 @@ export const isNativeReminderAvailable = () => Boolean(handler());
 export function nativeReminderSchedule(workspace: WorkspaceDocument, now = new Date()): NativeReminderEntry[] {
   const nowTime = now.getTime();
   return Object.values(workspace.items).flatMap((item) => {
-    if (item.deletedAt || item.state !== 'open' || item.role === 'series_template') return [];
+    if (itemDeletionTime(workspace, item) || item.state !== 'open' || item.role === 'series_template') return [];
     const availableAt = item.schedule?.availableFrom ? Date.parse(item.schedule.availableFrom) : Number.NEGATIVE_INFINITY;
     return (item.reminders ?? []).flatMap((reminder) => {
       const resolvedAt = reminderTime(item, reminder);

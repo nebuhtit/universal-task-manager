@@ -1,4 +1,7 @@
-import { calendarDateKey, zonedDateStart, type UniversalItem } from '@utm/core';
+import { calendarDateKey, compileQuery, googleCalendarProjection, itemDeletionTime, zonedDateStart, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { getWorkspaceIndex } from '../../services/workspaceIndex';
+import { isItemTemplate } from '../items/fieldDisplay';
+import { viewItemForEvaluation } from '../views/viewSelectors';
 
 export function isCompletelyUndated(item: UniversalItem) {
   const s = item.schedule;
@@ -10,6 +13,22 @@ export function showUndatedItem(item: UniversalItem, now: Date, zone: string) {
   if (item.state === 'open') return true;
   const at = item.closure?.at;
   return item.state === 'done' && Boolean(at && Number.isFinite(Date.parse(at)) && calendarDateKey(new Date(at), zone) === calendarDateKey(now, zone));
+}
+
+/** List and Timeline share the same undated membership and day-view filter. */
+export function calendarUndatedItems(workspace: WorkspaceDocument, now: Date): UniversalItem[] {
+  const index = getWorkspaceIndex(workspace);
+  const source = workspace.calendarPreferences.dayView.filter.source.trim() || 'true';
+  let predicate: ReturnType<typeof compileQuery>;
+  try { predicate = compileQuery(source, (item, at) => index.queryContextFor(item, at), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn }); }
+  catch { return []; }
+  const templatesRequested = /\bisTemplate\b/.test(source);
+  return Object.values(workspace.items).flatMap((raw) => {
+    if (itemDeletionTime(workspace, raw)) return [];
+    const item = googleCalendarProjection(raw);
+    if (item.role === 'series_template' || (!templatesRequested && isItemTemplate(item)) || !isCompletelyUndated(item) || !showUndatedItem(item, now, workspace.calendarPreferences.timezone)) return [];
+    return predicate(index.queryItemFor(viewItemForEvaluation(item)), now) ? [item] : [];
+  });
 }
 
 /** Additional inclusion only; never moves or edits the original schedule. */

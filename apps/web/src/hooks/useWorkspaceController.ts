@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import * as Automerge from '@automerge/automerge';
 import {
   backfillItemCreationVersions, collectScheduledEvents, consolidateHabitOccurrences, createId, effectiveWorkspaceNow,
-  migrateWorkspace, removeDuplicateReminders, reminderTime, runAutomationEvents, validateWorkspace, SCHEMA_VERSION,
+  itemDeletionTime, migrateWorkspace, removeDuplicateReminders, reminderTime, runAutomationEvents, validateWorkspace, SCHEMA_VERSION,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
@@ -185,7 +185,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       recordDiagnostic({ kind: 'result', message: `Workspace entry stage: ${stage}`, operation: 'Activate workspace stage', outcome: 'succeeded', durationMs });
     }
     const groups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>(); const rank = { normal: 0, urgent: 1, critical: 2 } as const;
-    for (const item of Object.values(updated.items)) { if (item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) { const at = reminderTime(item, reminder); if (at && new Date(at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } } }
+    for (const item of Object.values(updated.items)) { if (itemDeletionTime(updated, item) || item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) { const at = reminderTime(item, reminder); if (at && new Date(at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } } }
     groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
     activationStage = 'persistence';
     startupCheckpoint('preparation', 'completed');

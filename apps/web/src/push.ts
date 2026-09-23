@@ -1,4 +1,4 @@
-import { createId, createOccurrence, projectOccurrences, reminderTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { createId, createOccurrence, itemDeletionTime, projectOccurrences, reminderTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 export { reminderTime };
 
@@ -69,7 +69,7 @@ export async function syncBackgroundPush(workspace: WorkspaceDocument): Promise<
   const settings = identity(workspace);
   const now = Date.now(); const until = new Date(now + 45 * 86_400_000);
   const jobs = jobItems(workspace, until).flatMap((item) => {
-    if (item.deletedAt || item.state !== 'open' || item.role === 'series_template') return [];
+    if (itemDeletionTime(workspace, item) || item.state !== 'open' || item.role === 'series_template') return [];
     if (item.schedule?.availableFrom && new Date(item.schedule.availableFrom).getTime() > until.getTime()) return [];
     return item.reminders.flatMap((reminder) => {
       const at = reminderTime(item, reminder); const timestamp = at ? new Date(at).getTime() : Number.NaN;

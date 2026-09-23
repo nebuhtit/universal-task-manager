@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createItem, createWorkspace } from '@utm/core';
-import { showUndatedItem, showOverdueToday } from './calendarVisibility';
+import { calendarUndatedItems, showUndatedItem, showOverdueToday } from './calendarVisibility';
 import { timelineData } from './timelineData';
 import { evaluateCalendarRange } from './calendarEvaluation';
 
@@ -34,6 +34,16 @@ describe('calendar supplemental visibility', () => {
     expect(showUndatedItem(item, now, 'UTC')).toBe(false);
     expect(showUndatedItem(item, now, 'Europe/Moscow')).toBe(true);
     item.state = 'cancelled'; expect(showUndatedItem(item, now, 'Europe/Moscow')).toBe(false);
+  });
+  it('selects List No date items with the day-view filter and no deleted or old completions', () => {
+    const workspace = createWorkspace('List', now); workspace.calendarPreferences.timezone = 'UTC';
+    workspace.calendarPreferences.dayView.filter.source = 'true';
+    const open = createItem('Open', 'task', now);
+    const done = createItem('Done today', 'task', now); done.state = 'done'; done.closure = { at: now.toISOString(), actor: 'user', reason: 'manual' };
+    const old = createItem('Done yesterday', 'task', now); old.state = 'done'; old.closure = { at: '2026-09-21T12:00:00Z', actor: 'user', reason: 'manual' };
+    const deleted = createItem('Deleted', 'task', now); deleted.deletedAt = now.toISOString();
+    for (const item of [open, done, old, deleted]) workspace.items[item.id] = item;
+    expect(calendarUndatedItems(workspace, now).map(item => item.title).sort()).toEqual(['Done today', 'Open']);
   });
   it('filters No date completions and does not coalesce late cycles', () => {
     const w = createWorkspace('Cycles', now); w.calendarPreferences.timezone = 'UTC';

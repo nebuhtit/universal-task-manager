@@ -103,13 +103,15 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     else events.push(interval);
   }
   const hiding = preferences.timeline?.hideSleep === true && sleep.length > 0;
-  const visible = hiding ? events.filter(event => !isSleep(event.item)) : events;
+  const withoutSleep = events.filter(event => !isSleep(event.item));
+  const visible = hiding ? withoutSleep : events;
+  const sleepGaps = hiddenIntervals(sleep, withoutSleep, day);
   const planning = planUndatedTasks(undated, events, sleep, day, now, overdue);
   const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
     day, events: [...visible, ...planning.proposals.filter(event => !event.tentativeOverdue || preferences.timeline?.showOverdue !== false)], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),
     plannedTasks: undated.filter(item => !placedIds.has(item.id) && item.schedule?.plannedDate), activeRange, overdue, planning,
-    hidden: hiding ? hiddenIntervals(sleep, visible, day) : [],
+    hidden: hiding ? sleepGaps : [], sleepGaps,
     sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)),
     projectionLimited: desiredPadding > padding,
   };

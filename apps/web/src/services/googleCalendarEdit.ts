@@ -6,6 +6,7 @@ export const GOOGLE_EDIT_EXTENSION = 'utm:googleEdit';
 export const GOOGLE_EDIT_WINDOW_MS = 3 * 3600_000;
 export interface GoogleEditOperation {
   calendarId: string;
+  destinationCalendarId?: string;
   eventId: string;
   accountEmail: string;
   baseline: GoogleCalendarEvent;
@@ -23,14 +24,32 @@ export function canEditGoogleEvent(event: GoogleCalendarEvent, timeZone: string,
   const end = event.end?.dateTime ? Date.parse(event.end.dateTime) : event.end?.date ? zonedDateStart(event.end.date, event.end.timeZone ?? timeZone).getTime() : NaN;
   return Number.isFinite(end) && (allowPast || now <= end + GOOGLE_EDIT_WINDOW_MS);
 }
-export async function loadEditableGoogleEvent(token: string, calendarId: string, eventId: string, accountEmail: string): Promise<{ event: GoogleCalendarEvent; timeZone: string }> {
+export async function loadEditableGoogleEvent(token: string, calendarId: string, eventId: string, accountEmail: string) {
   const calendars = await writableGoogleCalendars(token, accountEmail);
   const calendar = calendars.find((entry) => entry.id === calendarId);
   if (!calendar) throw new Error('This calendar is not writable.');
   const event = await googleJson<GoogleCalendarEvent>(eventUrl(calendarId, eventId), token);
   if (event.id !== eventId) throw new Error('Google returned a different event.');
   const timeZone = (calendar as { timeZone?: string }).timeZone ?? event.start?.timeZone ?? event.end?.timeZone ?? 'UTC';
-  return { event, timeZone };
+  return { event, timeZone, calendars };
+}
+/** Google moves a single default event; it does not create a second copy. */
+export async function moveSingleGoogleEvent(token: string, operation: GoogleEditOperation, event: GoogleCalendarEvent): Promise<{ event: GoogleCalendarEvent; calendarId: string }> {
+  const destination = operation.destinationCalendarId ?? operation.calendarId;
+  if (destination === operation.calendarId) return { event, calendarId: operation.calendarId };
+  const calendars = await writableGoogleCalendars(token, operation.accountEmail);
+  if (!calendars.some((calendar) => calendar.id === destination)) throw new Error('The destination calendar is not writable.');
+  if (event.eventType && event.eventType !== 'default') throw new Error('Google does not allow this event type to move to another calendar.');
+  const url = `${eventUrl(operation.calendarId, operation.eventId)}/move?destination=${encodeURIComponent(destination)}&sendUpdates=all`;
+  try { return { event: await googleJson<GoogleCalendarEvent>(url, token, undefined, { method: 'POST' }), calendarId: destination }; }
+  catch (reason) {
+    // A lost move response must not send a second move or create a duplicate.
+    if (operation.attempted && (reason as { status?: number }).status === 404) {
+      const moved = await googleJson<GoogleCalendarEvent>(eventUrl(destination, operation.eventId), token);
+      if (moved.id === operation.eventId) return { event: moved, calendarId: destination };
+    }
+    throw reason;
+  }
 }
 export function googleEventChanges(operation: GoogleEditOperation): Record<string, unknown> {
   const body = googleEventBody({ ...operation, eventId: 'utm00000' });
@@ -61,7 +80,16 @@ export function rebaseGoogleEdit(operation: GoogleEditOperation, event: GoogleCa
 }
 export async function updateSingleGoogleEvent(token: string, operation: GoogleEditOperation, now: () => number = Date.now, allowPast = false): Promise<GoogleCalendarEvent> {
   const changes = googleEventChanges(operation);
-  const { event, timeZone } = await loadEditableGoogleEvent(token, operation.calendarId, operation.eventId, operation.accountEmail);
+  let loaded: Awaited<ReturnType<typeof loadEditableGoogleEvent>>;
+  try { loaded = await loadEditableGoogleEvent(token, operation.calendarId, operation.eventId, operation.accountEmail); }
+  catch (reason) {
+    if (operation.attempted && operation.destinationCalendarId && operation.destinationCalendarId !== operation.calendarId && (reason as { status?: number }).status === 404) {
+      const moved = await googleJson<GoogleCalendarEvent>(eventUrl(operation.destinationCalendarId, operation.eventId), token);
+      if (moved.id === operation.eventId) return moved;
+    }
+    throw reason;
+  }
+  const { event, timeZone } = loaded;
   // After an uncertain response, read back exactly the fields we attempted before sending again.
   const remaining = googleEventChanges({ ...operation, baseline: event });
   if (operation.attempted && Object.keys(changes).every((key) => !(key in remaining))) return event;

@@ -86,7 +86,7 @@ export async function googleJson<T>(url: string, accessToken: string, body?: unk
   const timeout = globalThis.setTimeout(() => controller.abort(), GOOGLE_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(options?.etag ? { 'If-Match': options.etag } : {}) }, signal: controller.signal, ...(body ? { method: options?.method ?? 'POST', body: JSON.stringify(body) } : {}) });
+    response = await fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(options?.etag ? { 'If-Match': options.etag } : {}) }, signal: controller.signal, ...(options?.method || body ? { method: options?.method ?? 'POST' } : {}), ...(body ? { body: JSON.stringify(body) } : {}) });
   } catch (reason) {
     if (controller.signal.aborted) throw new Error('Google Calendar request timed out. Check the connection and try again.');
     throw reason;
