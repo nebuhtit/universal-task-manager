@@ -19,7 +19,7 @@ import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/p
 import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
-import { calendarDurationMs, parseOptionalEstimateDuration, toIsoDuration, parseFriendlyDuration, scheduleWithDue, scheduleWithEnd, scheduleWithStart, type FriendlyDurationUnit } from '../../../utils/durations';
+import { calendarDurationMs, parseOptionalEstimateDuration, toIsoDuration, parseFriendlyDuration, scheduleWithDue, scheduleWithLinkedEnd, scheduleWithStart, scheduleWithDuration, type FriendlyDurationUnit } from '../../../utils/durations';
 import { useWorkspaceNow } from '../../../hooks/useClock';
 import { inferredPreset, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
@@ -217,7 +217,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     }
     setItem(syncQuickEntrySource(item, next));
   };
-  const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined) delete next.estimatedDuration; else next.estimatedDuration = toIsoDuration(Math.max(1, amount), unit); return next; });
+  const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => scheduleWithDuration(schedule, amount === undefined ? undefined : { amount: Math.max(1, amount), unit }));
   const patchTravelDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined || amount <= 0) delete next.travelDuration; else next.travelDuration = toIsoDuration(amount, unit); return next; });
   const patchTravelBackDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule(schedule => { const next = { ...schedule }; if (amount === undefined || amount <= 0) delete next.travelBackDuration; else next.travelBackDuration = toIsoDuration(amount, unit); return next; });
   const clearScheduleReason = googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION]
@@ -232,7 +232,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     }
     const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; else delete next.plannedDate; return next;
   }); };
-  const patchScheduledEnd = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => scheduleWithEnd(schedule, value)); };
+  const patchScheduledEnd = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => scheduleWithLinkedEnd(schedule, value)); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => ({ ...scheduleWithDue(schedule, value), dueDateOnly: false }));
   const patchPlannedDate = (value?: string) => {
     if (!value && clearScheduleReason) { setError(clearScheduleReason); return; }
@@ -253,11 +253,12 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   };
   const patchDateOnlyEnd = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => {
     const next = { ...schedule };
-    if (!value) { delete next.endAt; if (next.allDay && next.startAt) { next.plannedDate = calendarDateKey(new Date(next.startAt), next.timezone); delete next.startAt; delete next.allDay; } return next; }
+    if (!value) { delete next.endAt; delete next.estimatedDuration; if (next.allDay && next.startAt) { next.plannedDate = calendarDateKey(new Date(next.startAt), next.timezone); delete next.startAt; delete next.allDay; } return next; }
     const startDay = next.plannedDate ?? (next.allDay && next.startAt ? calendarDateKey(new Date(next.startAt), next.timezone) : undefined);
     if (!startDay || value < startDay) return next;
     next.startAt = zonedDateStart(startDay, next.timezone).toISOString();
     next.endAt = zonedDateStart(shiftCalendarDateKey(value, 1), next.timezone).toISOString();
+    next.estimatedDuration = toIsoDuration(Math.max(1, Math.round((Date.parse(next.endAt) - Date.parse(next.startAt)) / 60_000)), 'minutes');
     next.allDay = true;
     delete next.plannedDate;
     return next;
@@ -265,10 +266,11 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const patchDateOnlyTimedEnd = (value?: string) => transformSchedule((schedule) => {
     if (!value) return schedule;
     const startDay = schedule.plannedDate ?? (schedule.allDay && schedule.startAt ? calendarDateKey(new Date(schedule.startAt), schedule.timezone) : undefined);
-    if (!startDay) return scheduleWithEnd(schedule, value);
+    if (!startDay) return scheduleWithLinkedEnd(schedule, value);
     const startAt = zonedDateStart(startDay, schedule.timezone).toISOString();
     if (Date.parse(value) < Date.parse(startAt)) return schedule;
     const next = { ...schedule, startAt, endAt: value };
+    next.estimatedDuration = toIsoDuration(Math.max(1, Math.round((Date.parse(value) - Date.parse(startAt)) / 60_000)), 'minutes');
     delete next.plannedDate; delete next.allDay;
     return next;
   });
@@ -297,11 +299,11 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
         const end = new Date(start);
         end.setHours(hours || 22, minutes || 0, 0, 0);
         if (end.getTime() <= start.getTime()) end.setDate(end.getDate() + 1);
-        transformSchedule((schedule) => ({ ...schedule, allDay: false, endAt: end.toISOString() }));
+        transformSchedule((schedule) => ({ ...scheduleWithLinkedEnd(schedule, end.toISOString()), allDay: false }));
       }
     } else if (preset === 'all-day') {
       const start = item.schedule?.startAt ? new Date(item.schedule.startAt) : null;
-      if (start) { start.setHours(0, 0, 0, 0); const end = new Date(start); end.setDate(end.getDate() + 1); transformSchedule((schedule) => ({ ...schedule, allDay: true, startAt: start.toISOString(), endAt: end.toISOString() })); }
+      if (start) { start.setHours(0, 0, 0, 0); const end = new Date(start); end.setDate(end.getDate() + 1); transformSchedule((schedule) => ({ ...schedule, allDay: true, startAt: start.toISOString(), endAt: end.toISOString(), estimatedDuration: 'P1D' })); }
     }
     else if (preset) patchScheduledDuration(Number(preset), 'minutes');
   };

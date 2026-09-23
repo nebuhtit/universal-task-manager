@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarDuration, calendarDurationMs, effectiveScheduleDuration, parseEstimateDuration, parseReminderDuration, reminderIsoDuration, scheduleWithDue, scheduleWithDuration, scheduleWithEnd, scheduleWithStart, toIsoDuration } from './durations';
+import { calendarDuration, calendarDurationMs, effectiveScheduleDuration, parseEstimateDuration, parseReminderDuration, reminderIsoDuration, scheduleWithDue, scheduleWithDuration, scheduleWithEnd, scheduleWithLinkedEnd, scheduleWithStart, toIsoDuration } from './durations';
 
 describe('duration utilities', () => {
   it('keeps calendar and reminder ISO units distinct', () => {
@@ -45,5 +45,14 @@ describe('duration utilities', () => {
     expect(effectiveScheduleDuration({})).toBeUndefined();
     expect(effectiveScheduleDuration({ estimatedDuration: 'broken' })).toBeUndefined();
     expect(effectiveScheduleDuration({ startAt: '2026-08-29T10:00:00.000Z', endAt: '2026-08-29T11:30:00.000Z' })).toEqual({ amount: 90, unit: 'minutes' });
+  });
+  it('links explicit duration and end edits in both directions', () => {
+    const initial = { timezone: 'UTC', startAt: '2026-09-26T18:00:00.000Z', endAt: '2026-09-26T19:00:00.000Z', estimatedDuration: 'PT1H' };
+    const stretched = scheduleWithDuration(initial, { amount: 2, unit: 'hours' });
+    expect(stretched.endAt).toBe('2026-09-26T20:00:00.000Z');
+    const shortened = scheduleWithLinkedEnd(stretched, '2026-09-26T19:30:00.000Z');
+    expect(shortened.estimatedDuration).toBe('PT90M');
+    expect(scheduleWithDuration(shortened, { amount: 45, unit: 'minutes' }).endAt).toBe('2026-09-26T18:45:00.000Z');
+    expect(scheduleWithLinkedEnd(shortened).estimatedDuration).toBeUndefined();
   });
 });

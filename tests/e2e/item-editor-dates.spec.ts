@@ -23,13 +23,14 @@ async function reopenItem(page: Page) {
   await page.getByRole('dialog').waitFor({ state: 'visible' });
 }
 
-test('event dates stay independent of expected duration and allow clearing', async ({ page }) => {
+test('event end and duration stay linked in both directions and allow clearing', async ({ page }) => {
   await createWorkspaceAndItem(page);
   const opens = page.getByLabel('Event opens', { exact: true });
   const ends = page.getByLabel('Event ends', { exact: true });
   const due = page.locator('input[aria-label="Due / Active range ends"]');
 
   await expect(opens).toHaveValue('');
+  await expect(ends).toHaveCount(0);
   const start = await page.evaluate(() => {
     const date = new Date();
     date.setSeconds(0, 0);
@@ -45,7 +46,7 @@ test('event dates stay independent of expected duration and allow clearing', asy
   await page.getByLabel('Duration preset').selectOption('30');
   await expect(page.getByLabel('Calendar duration amount')).toHaveValue('30');
   const difference = await page.evaluate(({ start, end }) => new Date(end).getTime() - new Date(start).getTime(), { start: await opens.inputValue(), end: await ends.inputValue() });
-  expect(difference).toBe(10 * 60_000);
+  expect(difference).toBe(30 * 60_000);
   await expect(due).toHaveValue('');
 
   const oneHourLater = await page.evaluate((start) => {
@@ -54,8 +55,8 @@ test('event dates stay independent of expected duration and allow clearing', asy
     return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   }, await opens.inputValue());
   await ends.fill(oneHourLater);
-  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('30');
-  await expect(page.getByLabel('Calendar duration unit')).toHaveValue('minutes');
+  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('1');
+  await expect(page.getByLabel('Calendar duration unit')).toHaveValue('hours');
   await page.getByRole('button', { name: 'Save item' }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
 });

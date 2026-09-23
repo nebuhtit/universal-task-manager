@@ -17,6 +17,19 @@ describe('DatesSection travel time', () => {
     expect(markup).not.toContain('<details class="ui-disclosure travel-time-disclosure" open="">');
   });
   it('keeps all-day travel metadata out of the editor', () => expect(render(true, 'PT30M')).not.toContain('Travel time'));
+  it('places outward travel above the event and return travel below it with matching presets', () => {
+    const item = createItem('Trip', 'event');
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-26T18:00:00Z', endAt: '2026-09-26T19:00:00Z', travelDuration: 'PT45M', travelBackDuration: 'PT30M' };
+    const markup = renderToStaticMarkup(<DatesSection item={item} workspace={createWorkspace()} sectionMark={() => null} travelDuration={{ amount: 45, unit: 'minutes' }} travelBackDuration={{ amount: 30, unit: 'minutes' }} patchScheduledDuration={vi.fn()} patchTravelDuration={vi.fn()} patchTravelBackDuration={vi.fn()} patchScheduledStart={vi.fn()} patchScheduledEnd={vi.fn()} patchScheduledDue={vi.fn()} applyDurationPreset={vi.fn()} />);
+    expect(markup.indexOf('Travel time ·')).toBeLessThan(markup.indexOf('aria-label="Event opens"'));
+    expect(markup.indexOf('Travel back ·')).toBeGreaterThan(markup.indexOf('aria-label="Event ends"'));
+    expect(markup.match(/class="program-actions"/g)).toHaveLength(2);
+  });
+  it('does not show Event ends before Event opens is set', () => {
+    const item = createItem('Draft');
+    const markup = renderToStaticMarkup(<DatesSection item={item} workspace={createWorkspace()} sectionMark={() => null} patchScheduledDuration={vi.fn()} patchTravelDuration={vi.fn()} patchScheduledStart={vi.fn()} patchScheduledEnd={vi.fn()} patchScheduledDue={vi.fn()} applyDurationPreset={vi.fn()} />);
+    expect(markup).not.toContain('aria-label="Event ends"');
+  });
   it('offers explicit date-only or timed Due without inventing a clock time', () => {
     const item = createItem('Deadline', 'task');
     item.schedule = { timezone: 'UTC', dueAt: '2026-09-23T23:59:59.999Z', dueDateOnly: true };
