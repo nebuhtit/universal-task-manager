@@ -56,7 +56,7 @@ import { visibleItemNotices } from './services/noticeVisibility';
 import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from './services/googleCalendar';
 import { GOOGLE_CREATE_EXTENSION } from './services/googleCalendarCreate';
 import {
-  APP_VERSION, SCHEMA_VERSION, canManuallyComplete, googleCalendarEventToItem, applyGoogleCalendarSync, applyPortableImport, buildPortableImportPreview,
+  APP_VERSION, SCHEMA_VERSION, calendarDateKey, canManuallyComplete, googleCalendarEventToItem, applyGoogleCalendarSync, applyPortableImport, buildPortableImportPreview,
   collectItemDependencies, createId, createItem, createOccurrence, createPortablePackage,
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences, updateRecurrenceCompletionTime,
   runAutomationEvents, serializePortablePackage,
@@ -1276,6 +1276,9 @@ export default function App() {
     try { persistQuickItem(createQuickEntryItem(text.trim(), currentWorkspaceNow(), page === 'calendar' ? calendarCaptureDate : undefined)); setQuick(''); setQuickError(''); }
     catch (reason) { setQuickError(reason instanceof Error ? reason.message : String(reason)); }
   };
+  const captureDate = page === 'calendar' ? calendarCaptureDate : undefined;
+  const captureToday = captureDate && captureDate === calendarDateKey(currentWorkspaceNow(), workspace.calendarPreferences.timezone);
+  const capturePlaceholder = captureDate ? captureToday ? 'Add new item for Today' : `Add new item for ${new Intl.DateTimeFormat(workspace.calendarPreferences.language === 'ru' ? 'ru-RU' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${captureDate}T12:00:00Z`))}` : 'Add new item';
   const captureQuickViewItem = (view: SavedView, title: string) => {
     const value = title.trim();
     if (!value) return;
@@ -1305,7 +1308,7 @@ export default function App() {
       </Suspense>
     </AppShell>
     {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={quickDueItem.schedule?.plannedDate ? (workspace.calendarPreferences.language === 'ru' ? 'Перепланировать' : 'Reschedule') : (workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due')} ariaLabel="Quick Due" footer={<Button disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
-    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} placeholder={page === 'calendar' && calendarCaptureDate ? `Add new item to ${new Intl.DateTimeFormat(workspace.calendarPreferences.language === 'ru' ? 'ru-RU' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${calendarCaptureDate}T12:00:00Z`))}` : 'Add new item'} error={quickError} timeZone={workspace.calendarPreferences.timezone} viewedTimelineDate={page === 'calendar' && workspace.calendarPreferences.timeline?.mode === 'timeline' ? calendarCaptureDate : undefined} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); commit('Open calendar Timeline', draft => { draft.calendarPreferences.timeline = { ...draft.calendarPreferences.timeline, mode: 'timeline', hideSleep: draft.calendarPreferences.timeline?.hideSleep ?? false }; }); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form></div>}
+    {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} placeholder={capturePlaceholder} error={quickError} timeZone={workspace.calendarPreferences.timezone} viewedTimelineDate={page === 'calendar' && workspace.calendarPreferences.timeline?.mode === 'timeline' ? calendarCaptureDate : undefined} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); commit('Open calendar Timeline', draft => { draft.calendarPreferences.timeline = { ...draft.calendarPreferences.timeline, mode: 'timeline', hideSleep: draft.calendarPreferences.timeline?.hideSleep ?? false }; }); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form></div>}
     {quickCompletion && <QuickCompletionInput
       open
       value={quickCompletion.completedAt}

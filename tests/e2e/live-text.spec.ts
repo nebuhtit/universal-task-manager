@@ -30,7 +30,7 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   if ((page.viewportSize()?.width ?? 0) <= 620) await calendarShortcut.tap();
   else await calendarShortcut.click();
   await expect(page.locator('.calendar-page')).toBeVisible();
-  await expect(input).toHaveAttribute('placeholder', /^Add new item to /);
+  await expect(input).toHaveAttribute('placeholder', /^Add new item for /);
   await expect(input).toHaveValue('завтра вечером');
   await expect(options).toBeHidden();
   await input.focus();

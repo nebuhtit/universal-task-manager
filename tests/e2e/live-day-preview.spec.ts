@@ -25,7 +25,7 @@ test('date-aware capture shows a compact day preview and selected calendar day',
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click();
   } else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
-  await expect(input).toHaveAttribute('placeholder', /^Add new item to /);
+  await expect(input).toHaveAttribute('placeholder', /^Add new item for /);
   await input.fill('Дело');
   await input.press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor' });
