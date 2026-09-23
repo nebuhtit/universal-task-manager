@@ -333,6 +333,8 @@ export const workspaceJsonSchema = {
             filterPython: { type: 'string' },
             scheduleSources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: ['event_open', 'event', 'active', 'due'] } },
             fields: stringArray,
+            listFields: stringArray,
+            timelineFields: stringArray,
             statistics: {
               type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
               properties: { showTime: { type: 'boolean' }, showActualTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
@@ -955,6 +957,9 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   delete calendarPreferences.selectedViewId;
   delete calendarPreferences.includeStates;
   const dayView = calendarPreferences.dayView as Record<string, unknown>;
+  for (const key of ['listFields', 'timelineFields'] as const) {
+    if (dayView[key] !== undefined && (!Array.isArray(dayView[key]) || !(dayView[key] as unknown[]).every(value => typeof value === 'string'))) delete dayView[key];
+  }
   const previousDaySortSource = 'schedule.startAt asc nulls first\nschedule.dueAt asc nulls first';
   if (dayView.sortSource === previousDaySortSource) {
     const upgradedDaySort: ViewSortRule[] = [

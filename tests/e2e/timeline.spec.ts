@@ -8,13 +8,15 @@ const now = new Date('2026-09-22T12:00:00Z');
 async function setup(page: Page) {
   const w = createWorkspace('Timeline', now); w.calendarPreferences.timezone = 'UTC';
   w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = 'true';
+  w.calendarPreferences.dayView.listFields = ['title', 'schedule.startAt'];
+  w.calendarPreferences.dayView.timelineFields = ['title', 'reminders'];
   w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false };
   for (let i = 0; i < 6; i++) {
     const item = createItem(`Overlap ${i}`, 'task', now);
     item.schedule = { timezone: 'UTC', startAt: '2026-09-22T12:00:00Z', endAt: '2026-09-22T13:00:00Z' }; w.items[item.id] = item;
   }
   const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T17:00:00Z', endAt: '2026-09-22T17:01:00Z', travelDuration: 'PT30M' }; w.items[short.id] = short;
-  const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; w.items[sleep.id] = sleep;
+  const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; sleep.reminders = [{ id: 'sleep-reminder', mode: 'absolute', at: '2026-09-22T18:00:00Z', urgency: 'normal', repeatUntilAcknowledged: false }]; w.items[sleep.id] = sleep;
   const none = createItem('Undated sentinel', 'task', now); w.items[none.id] = none;
   const proposed = createItem('Tentative task', 'task', now); proposed.schedule = { timezone: 'UTC', estimatedDuration: 'PT2H' }; w.items[proposed.id] = proposed;
   const allDay = createItem('All day sentinel', 'event', now); allDay.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-23T00:00:00Z', allDay: true }; w.items[allDay.id] = allDay;
@@ -61,6 +63,21 @@ async function swipeTouch(page: Page, selector: string, fromX: number, toX: numb
     dispatch('touchend', toX);
   }, { fromX, toX });
 }
+
+test('List shows clock-only metadata while Timeline shows reminders with separate field settings', async ({ page }) => {
+  await setup(page);
+  const sleepBlock = page.getByTestId('timeline-event').filter({ hasText: 'Sleep source' });
+  await expect(sleepBlock).toContainText('normal');
+  await expect(sleepBlock).not.toContainText('00:00–07:00');
+  await page.getByRole('button', { name: 'Edit calendar day view' }).click();
+  await expect(page.getByText('List card fields', { exact: true })).toBeVisible();
+  await expect(page.getByText('Timeline card fields', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close calendar day view editor' }).click();
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const sleepCard = page.locator('.calendar-day-list .item-card').filter({ hasText: 'Sleep source' }).first();
+  await expect(sleepCard).toContainText('00:00');
+  await expect(sleepCard).not.toContainText('22 Sep');
+});
 
 test('calendar statistics stay pinned and blank Timeline swipes change day without stealing item swipes', async ({ page }) => {
   await setup(page);

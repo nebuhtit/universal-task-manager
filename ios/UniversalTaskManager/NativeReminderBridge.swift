@@ -19,6 +19,8 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
         switch kind {
         case "reminders.requestPermission": requestPermission(id: id)
         case "reminders.sync": sync(id: id, payload: payload)
+        case "timer.schedule": scheduleTimer(id: id, payload: payload)
+        case "timer.cancel": cancelTimer(id: id, payload: payload)
         default: break
         }
     }
@@ -34,7 +36,7 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
         let rawItems = payload["items"] as? [[String: Any]] ?? []
         center.getPendingNotificationRequests { [weak self] requests in
             guard let self else { return }
-            let oldIdentifiers = requests.map(\.identifier).filter { $0.hasPrefix(self.identifierPrefix) }
+            let oldIdentifiers = requests.map(\.identifier).filter { $0.hasPrefix(self.identifierPrefix) && !$0.hasPrefix("utm:timer:") }
             self.center.removePendingNotificationRequests(withIdentifiers: oldIdentifiers)
             let group = DispatchGroup()
             var firstError: Error?
@@ -67,6 +69,33 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
                 else { self.sendStatus(id: id, scheduled: scheduled) }
             }
         }
+    }
+
+    private func scheduleTimer(id: String, payload: [String: Any]) {
+        guard let timerId = payload["timerId"] as? String,
+              let title = payload["title"] as? String,
+              let at = payload["at"] as? String,
+              let date = ISO8601DateFormatter().date(from: at), date > Date() else {
+            sendStatus(id: id, error: "Invalid timer deadline")
+            return
+        }
+        let identifier = "utm:timer:\(timerId)"
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = "Timer finished"
+        content.sound = .default
+        let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false))) { [weak self] error in
+            self?.sendStatus(id: id, error: error?.localizedDescription)
+        }
+    }
+
+    private func cancelTimer(id: String, payload: [String: Any]) {
+        guard let timerId = payload["timerId"] as? String else { sendStatus(id: id, error: "Missing timer ID"); return }
+        let identifier = "utm:timer:\(timerId)"
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        sendStatus(id: id)
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {

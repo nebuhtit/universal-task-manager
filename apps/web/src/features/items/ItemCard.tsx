@@ -12,7 +12,7 @@ import { canQuickChangeDue } from './dueQuickActions';
 
 const touchStateCommits = new Map<string, number>();
 
-export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewScripts = [], celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; now?: Date; viewScripts?: readonly ItemScriptField[]; celebrating?: boolean }) {
+export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewScripts = [], calendarTimeOnly = false, celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; now?: Date; viewScripts?: readonly ItemScriptField[]; calendarTimeOnly?: boolean; celebrating?: boolean }) {
   const t = useTranslation(workspace?.calendarPreferences.language ?? 'en');
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
   const today = (now ?? new Date()).toISOString().slice(0, 10);
@@ -64,14 +64,23 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
   const plannedOverdue = planned && item.state === 'open' ? Math.max(0, Math.round((Date.parse(calendarDateKey(displayNow, workspace?.calendarPreferences.timezone ?? item.schedule?.timezone)) - Date.parse(planned)) / 86400000)) : 0;
   const overdueAgeIndicatorEnabled = workspace?.calendarPreferences.appearance.overdueAgeIndicator !== false;
   const showOverdueDueIndicator = overdueAgeIndicatorEnabled && overdueAgeWithoutActiveRange(item, displayNow) !== null;
+  const calendarValue = (field: string): string | undefined => {
+    if (!calendarTimeOnly) return undefined;
+    if (field === 'schedule.plannedDate') return '';
+    if (!['schedule.startAt', 'schedule.endAt', 'schedule.dueAt', 'schedule.availableFrom'].includes(field)) return undefined;
+    if (item.schedule?.allDay || (field === 'schedule.dueAt' && item.schedule?.dueDateOnly)) return '';
+    const value = readItemField(item, field, workspace, now, viewScripts);
+    if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return '';
+    return new Intl.DateTimeFormat(workspace?.calendarPreferences.language ?? 'en', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: item.schedule?.timezone ?? workspace?.calendarPreferences.timezone }).format(new Date(value));
+  };
   const metadataFields = (fields?.filter((field) => field !== 'title' && field !== 'external.provider') ?? [])
     .map((field) => ({
       field,
-      value: field === 'priority' && item.priority !== undefined
+      value: calendarValue(field) ?? (field === 'priority' && item.priority !== undefined
         ? priorityNames[item.priority]
         : field === 'schedule.dueAt' && item.schedule?.dueDateOnly && item.schedule.dueAt
           ? formatViewDate(item.schedule.dueAt, false, workspace?.calendarPreferences.language, item.schedule.timezone)
-          : displayViewValue(readItemField(item, field, workspace, now, viewScripts), field, workspace?.calendarPreferences.language),
+          : displayViewValue(readItemField(item, field, workspace, now, viewScripts), field, workspace?.calendarPreferences.language)),
     }));
   const organizationValue = (field: string) => {
     const names = field === 'area' || field === 'areas' ? item.areas : field === 'project' || field === 'projects' ? item.projects : field === 'tags' ? item.tags : null;
@@ -85,7 +94,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
     </button></ItemStateMarker>
     <button className="item-main" onClick={onEdit}>
       {(!customDisplay || fields?.includes('title')) && <UserDataText className="item-title">{item.title}</UserDataText>}
-      {planned && <span className="item-meta">{planned}{plannedOverdue > 0 ? ` · ${workspace?.calendarPreferences.language === 'ru' ? 'Не выполнено в плановый день; дней' : 'Planned day missed; days'}: ${plannedOverdue}` : ''}</span>}
+      {planned && !calendarTimeOnly && <span className="item-meta">{planned}{plannedOverdue > 0 ? ` · ${workspace?.calendarPreferences.language === 'ru' ? 'Не выполнено в плановый день; дней' : 'Planned day missed; days'}: ${plannedOverdue}` : ''}</span>}
       {!customDisplay && <span className="item-meta"><OverdueDueIndicator item={item} now={displayNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} /><span className={`preset ${inferredPreset(item)}`}>{t(inferredPreset(item))}</span>{due && <span>{formatViewDate(due, !item.schedule?.allDay && !item.schedule?.dueDateOnly, workspace?.calendarPreferences.language, item.schedule?.dueDateOnly ? item.schedule.timezone : undefined)}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': workspace ? organizationAccentFor(workspace, 'tag', tag) : undefined } as CSSProperties} key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">{t('auto-closed')}</span>}</span>}
       {customDisplay && (showOverdueDueIndicator || metadataFields.length > 0) && <span className="view-item-fields"><OverdueDueIndicator item={item} now={displayNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} />{metadataFields.map(({ field, value }) => {
         if (field === 'scripts' && workspace) return readItemScripts(item, workspace, displayNow).map(({ script, text }) => {

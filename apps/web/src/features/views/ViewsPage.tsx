@@ -28,7 +28,7 @@ import { ViewPortabilityEditor } from './ViewPortabilityEditor';
 import { ViewEditorSection } from './ViewEditorSection';
 import { useWorkspaceBoundaryNow } from './useViewEvaluation';
 import { modernizeLegacyViewScope } from './legacyViewScope';
-import { BUILT_IN_VIEW_TEMPLATES, isViewTemplate, VIEW_TEMPLATE_EXTENSION, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
+import { BUILT_IN_VIEW_TEMPLATES, completableTemplateQuery, isViewTemplate, VIEW_TEMPLATE_EXTENSION, VIEW_TEMPLATE_FIELDS, viewFromTemplate } from './viewTemplates';
 import { ViewStatisticsEditor } from './ViewStatisticsEditor';
 import './views-editor.css';
 
@@ -339,7 +339,7 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       const id = createId();
       const extensions: Record<string, unknown> = { ...editing.extensions, [VIEW_TEMPLATE_EXTENSION]: true };
       delete extensions[MANUAL_ORDER_EXTENSION];
-      const saved: SavedView = { ...clean(editing), id, name: templateName.trim(), sortSource: serializeSortRules(parsedSort), sort: parsedSort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })), extensions };
+      const saved: SavedView = { ...clean(editing), id, name: templateName.trim(), query: { ...editing.query, source: completableTemplateQuery(editing.query.source) }, sortSource: serializeSortRules(parsedSort), sort: parsedSort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })), extensions };
       commit('Save view template', (draft) => { draft.views[id] = clean(saved); });
       setSelectedTemplateId(id);
       setTemplateName(`${editing.name} template`);
@@ -362,13 +362,14 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   };
 
   const views = orderedSavedViews(workspace);
+  const homeViews = views.map((view) => ({ ...view, query: { ...view.query, source: completableTemplateQuery(view.query.source) } }));
   const isExpanded = (view: SavedView) => viewExpansion[view.id] ?? readUiBoolean(`view:${view.id}`, true);
   const expandedViewIds = new Set(views.filter(isExpanded).map((view) => view.id));
   const hiddenItemsByView = workspace.calendarPreferences.hideDuplicateItemsAcrossHomeViews
-    ? hiddenItemIdsByExpandedView(workspace, views, expandedViewIds, workspaceNow)
+    ? hiddenItemIdsByExpandedView(workspace, homeViews, expandedViewIds, workspaceNow)
     : new Map<string, ReadonlySet<string>>();
   const viewReorder = useReorderList(views, (next) => commit('Reorder Home Views', (draft) => { draft.viewOrder = next.map((view) => view.id); }));
-  const renderView = (view: SavedView, index: number) => <div className={`saved-view-slot${isExpanded(view) ? '' : ' is-collapsed'}`} key={view.id} {...viewReorder.rowProps(index)}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={view} workspace={workspace} hiddenItemIds={hiddenItemsByView.get(view.id)} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set([...Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id), ...Object.keys(draft.projectDefinitions).map((name) => `project:${encodeURIComponent(name)}`)])); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebrationColors={celebrationColors} showTechnicalSummary={false} reorderHandle={viewReorder.handle(index, `view ${view.name}`)} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
+  const renderView = (view: SavedView, index: number) => <div className={`saved-view-slot${isExpanded(view) ? '' : ' is-collapsed'}`} key={view.id} {...viewReorder.rowProps(index)}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={homeViews[index]!} workspace={workspace} hiddenItemIds={hiddenItemsByView.get(view.id)} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set([...Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id), ...Object.keys(draft.projectDefinitions).map((name) => `project:${encodeURIComponent(name)}`)])); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebrationColors={celebrationColors} showTechnicalSummary={false} reorderHandle={viewReorder.handle(index, `view ${view.name}`)} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
 
   return <section className="page-section views-page">
     <div className="views-stack" ref={viewReorder.container}>{views.map(renderView)}</div>

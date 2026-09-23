@@ -12,6 +12,7 @@ import { ViewEditorSection } from '../views/ViewEditorSection';
 import { ViewStatisticsEditor } from '../views/ViewStatisticsEditor';
 import { ViewSortingEditor } from '../views/ViewSortingEditor';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
+import { calendarListFields, calendarTimelineFields } from './calendarCardFields';
 import {
   parseVisualRows, serializeVisualRows,
   type VisualConditionRow,
@@ -19,9 +20,9 @@ import {
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-const editorView = (settings: CalendarDayViewPreferences): SavedView => ({
+const editorView = (settings: CalendarDayViewPreferences, fields: string[]): SavedView => ({
   id: '__calendar_day__', name: 'Calendar day', renderer: 'list',
-  query: clean(settings.filter), fields: [...settings.fields],
+  query: clean(settings.filter), fields: [...fields],
   sort: settings.sort.map((rule) => ({ field: rule.expression, direction: rule.direction, nulls: rule.nulls })),
   sortSource: settings.sortSource ?? serializeSortRules(settings.sort),
   statistics: settings.statistics ?? { showTime: true, reservedItemIds: [] },
@@ -67,8 +68,9 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
     setDraft((current) => ({ ...current, filter: { source: serializeVisualRows(next, workspace.customFields) } }));
   };
   const updateSortRules = (next: ViewSortRule[]) => { setSortRules(next); setSortSource(serializeSortRules(next)); };
-  const view = editorView(draft);
-  const updateEditorView = (next: SavedView) => setDraft((current) => ({ ...current, filter: clean(next.query), fields: [...next.fields], statistics: next.statistics ?? { showTime: true, reservedItemIds: [] } }));
+  const view = editorView(draft, calendarListFields(draft));
+  const timelineView = editorView(draft, calendarTimelineFields(draft));
+  const updateEditorView = (next: SavedView) => setDraft((current) => ({ ...current, filter: clean(next.query), statistics: next.statistics ?? { showTime: true, reservedItemIds: [] } }));
   const save = () => {
     if (!filterValid) return;
     try {
@@ -88,7 +90,8 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
       </fieldset>
     </ViewEditorSection>
     <ViewEditorSection sectionKey="calendar-day-filter" title="Filter items"><FilterProgramEditor workspace={workspace} source={draft.filter.source} python={draft.filterPython} onValidityChange={setFilterValid} onChange={(source, python) => { const parsed = parseVisualRows(source, workspace.customFields); setRows(parsed ?? []); setVisualDirty(parsed === null); setDraft({ ...draft, filter: { source }, filterPython: python }); }} /></ViewEditorSection>
-    <ViewEditorSection sectionKey="calendar-day-fields" title="Show in results"><DisplayedFieldsEditor workspace={workspace} view={view} onChange={(next) => setDraft({ ...draft, fields: next.fields })} /></ViewEditorSection>
+    <ViewEditorSection sectionKey="calendar-day-list-fields" title="List card fields"><DisplayedFieldsEditor uiKeyPrefix="calendar-list-fields" workspace={workspace} view={view} onChange={(next) => setDraft(current => ({ ...current, listFields: next.fields }))} /></ViewEditorSection>
+    <ViewEditorSection sectionKey="calendar-day-timeline-fields" title="Timeline card fields"><DisplayedFieldsEditor uiKeyPrefix="calendar-timeline-fields" workspace={workspace} view={timelineView} onChange={(next) => setDraft(current => ({ ...current, timelineFields: next.fields }))} /></ViewEditorSection>
     <ViewStatisticsEditor workspace={workspace} view={view} rows={rows} visualDirty={visualDirty} onViewChange={updateEditorView} onRowsChange={syncRows} fixedPeriodLabel="Selected calendar day" />
     <ViewEditorSection sectionKey="calendar-day-timeline" title="Timeline settings">
       <p>{workspace.calendarPreferences.language === 'ru' ? 'Сжимать незанятую часть выбранного item сна' : 'Collapse unoccupied time around a selected sleep item'}</p>

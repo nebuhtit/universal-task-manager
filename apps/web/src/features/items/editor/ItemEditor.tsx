@@ -67,7 +67,7 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onDuplicate, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onGoogleEditDraft, onGoogleUpdated, onOpenOccurrence }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
+export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onDuplicate, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onGoogleEditDraft, onGoogleUpdated, onGoogleSeriesUpdated, onOpenOccurrence }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
   onOpenOccurrence?: (item: UniversalItem) => void;
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
   onDuplicate?: (item: UniversalItem) => void;
@@ -220,16 +220,22 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined) delete next.estimatedDuration; else next.estimatedDuration = toIsoDuration(Math.max(1, amount), unit); return next; });
   const patchTravelDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined || amount <= 0) delete next.travelDuration; else next.travelDuration = toIsoDuration(amount, unit); return next; });
   const patchTravelBackDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule(schedule => { const next = { ...schedule }; if (amount === undefined || amount <= 0) delete next.travelBackDuration; else next.travelBackDuration = toIsoDuration(amount, unit); return next; });
-  const patchScheduledStart = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => {
+  const clearScheduleReason = googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION]
+    ? 'Linked Google events require both Event opens and Event ends. Disconnect the calendar link before clearing either field.'
+    : item.eventProgram?.blocks.length
+      ? 'Remove the event program before clearing Event opens or Event ends.'
+      : undefined;
+  const patchScheduledStart = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => {
     if (item.eventProgram?.blocks.length && value && schedule.startAt) {
       const delta = Date.parse(value) - Date.parse(schedule.startAt);
       return { ...schedule, startAt: value, ...(schedule.endAt ? { endAt: new Date(Date.parse(schedule.endAt) + delta).toISOString() } : {}) };
     }
     const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; else delete next.plannedDate; return next;
   }); };
-  const patchScheduledEnd = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => scheduleWithEnd(schedule, value)); };
+  const patchScheduledEnd = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => scheduleWithEnd(schedule, value)); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => ({ ...scheduleWithDue(schedule, value), dueDateOnly: false }));
   const patchPlannedDate = (value?: string) => {
+    if (!value && clearScheduleReason) { setError(clearScheduleReason); return; }
     if (value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; }
     transformSchedule((schedule) => {
     const next = { ...schedule };
@@ -245,7 +251,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     return next;
     });
   };
-  const patchDateOnlyEnd = (value?: string) => transformSchedule((schedule) => {
+  const patchDateOnlyEnd = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => {
     const next = { ...schedule };
     if (!value) { delete next.endAt; if (next.allDay && next.startAt) { next.plannedDate = calendarDateKey(new Date(next.startAt), next.timezone); delete next.startAt; delete next.allDay; } return next; }
     const startDay = next.plannedDate ?? (next.allDay && next.startAt ? calendarDateKey(new Date(next.startAt), next.timezone) : undefined);
@@ -255,7 +261,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     next.allDay = true;
     delete next.plannedDate;
     return next;
-  });
+  }); };
   const patchDateOnlyTimedEnd = (value?: string) => transformSchedule((schedule) => {
     if (!value) return schedule;
     const startDay = schedule.plannedDate ?? (schedule.allDay && schedule.startAt ? calendarDateKey(new Date(schedule.startAt), schedule.timezone) : undefined);
@@ -445,7 +451,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const sectionMark = (filled: boolean) => !isNew && filled ? <span className="section-dot" aria-label="Contains data">•</span> : null;
   const dateField = (label: string, value: string | undefined, onChange: (value: string | undefined) => void, help?: string, onFocus?: () => void, minValue?: string) => <DateTimeField label={label} value={value} language={workspace.calendarPreferences.language} onChange={onChange} help={help} onFocus={onFocus} minValue={minValue} />;
   const timerOwner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
-  if (googleLink && editingGoogle && onGoogleEditDraft && onGoogleUpdated) return <EditGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleUpdated={async (event, calendarId) => { await onGoogleUpdated(event, calendarId); if (googleEvent) onClose(); else setEditingGoogle(false); }} />;
+  if (googleLink && editingGoogle && onGoogleEditDraft && onGoogleUpdated) return <EditGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleUpdated={async (event, calendarId) => { await onGoogleUpdated(event, calendarId); if (googleEvent) onClose(); else setEditingGoogle(false); }} {...(onGoogleSeriesUpdated ? { onGoogleSeriesUpdated } : {})} />;
   if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<><Button onClick={onClose}>Close</Button>{onGoogleEditDraft && onGoogleUpdated && <Button disabled={!workspace.calendarPreferences.googleCalendar?.allowPastEventEditing && !workspace.items[item.id]?.extensions?.[GOOGLE_EDIT_EXTENSION] && (!item.schedule?.endAt || Date.now() > Date.parse(item.schedule.endAt) + 3 * 3600_000)} onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Редактировать' : 'Edit event'}</Button>}</>}>
     <h2>{item.title}</h2><p style={{ whiteSpace: 'pre-wrap' }}>{item.bodyMarkdown}</p>
     <dl className="google-create-preview">
@@ -488,7 +494,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           {!googleEvent && item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
         {!sourceEditing && <>
-        <QuickItemTimer soundEnabled activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
+        <QuickItemTimer soundEnabled timerTitle={item.title || 'Universal'} activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
           if (onTimerStateSave && workspace.items[(timerOwner ?? item).id]) await onTimerStateSave((timerOwner ?? item).id, runningTimer);
           if (!timerOwner) setItem((current) => {
             const next = { ...current };
@@ -512,7 +518,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           } else setItem(target);
         }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
-        <DatesSection item={item} workspace={workspace} now={now} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} {...(travelBackDuration ? { travelBackDuration } : {})} patchTravelBackDuration={patchTravelBackDuration} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchPlannedDate={patchPlannedDate} patchScheduledEnd={patchScheduledEnd} patchDateOnlyEnd={patchDateOnlyEnd} patchDateOnlyTimedEnd={patchDateOnlyTimedEnd} patchDateOnlyStartTimed={patchDateOnlyStartTimed} patchScheduledDue={patchScheduledDue} patchQuickDue={patchQuickDue} applyDurationPreset={applyDurationPreset}>
+        <DatesSection item={item} workspace={workspace} now={now} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} {...(travelBackDuration ? { travelBackDuration } : {})} clearScheduleReason={clearScheduleReason} patchTravelBackDuration={patchTravelBackDuration} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchPlannedDate={patchPlannedDate} patchScheduledEnd={patchScheduledEnd} patchDateOnlyEnd={patchDateOnlyEnd} patchDateOnlyTimedEnd={patchDateOnlyTimedEnd} patchDateOnlyStartTimed={patchDateOnlyStartTimed} patchScheduledDue={patchScheduledDue} patchQuickDue={patchQuickDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           {canManuallyComplete(item) ? <details><summary><FieldIconLabel path="habit.completedDates" label={workspace.calendarPreferences.language === 'ru' ? 'Прогресс и выполнения' : 'Progress & completions'} /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">

@@ -16,7 +16,21 @@ describe('view templates', () => {
     expect(BUILT_IN_VIEW_TEMPLATES.every(isViewTemplate)).toBe(true);
     expect(BUILT_IN_VIEW_TEMPLATES.every((view) => JSON.stringify(view.fields) === JSON.stringify(VIEW_TEMPLATE_FIELDS))).toBe(true);
     expect(BUILT_IN_VIEW_TEMPLATES.every((view) => view.sortSource === STANDARD_ATTENTION_VIEW_SORT_SOURCE)).toBe(true);
+    expect(BUILT_IN_VIEW_TEMPLATES.every(view => view.query.source.includes('canComplete == true'))).toBe(true);
     BUILT_IN_VIEW_TEMPLATES.forEach((view) => expect(() => compileQuery(view.query.source)).not.toThrow());
+  });
+
+  it('matches only items that can actually be completed, including default tasks', () => {
+    const matches = compileQuery(BUILT_IN_VIEW_TEMPLATES.find(view => view.name === 'All items')!.query.source);
+    const task = createItem('Task', 'task');
+    expect(matches(task)).toBe(true);
+    task.canBeCompleted = false;
+    expect(matches(task)).toBe(false);
+    const event = createItem('Event', 'event');
+    event.schedule = { timezone: 'UTC', startAt: '2026-09-23T10:00:00Z', endAt: '2026-09-23T11:00:00Z' };
+    expect(matches(event)).toBe(false);
+    event.canBeCompleted = true;
+    expect(matches(event)).toBe(true);
   });
 
   it('keeps Inbox limited to standalone unorganized items or IMPORTANT items', () => {
@@ -41,5 +55,12 @@ describe('view templates', () => {
     expect(view.id).toBe('new-id');
     expect(isViewTemplate(view)).toBe(false);
     expect(view.extensions).toEqual({ custom: true });
+  });
+
+  it('adds completion eligibility when an existing user template is applied', () => {
+    const source = { ...BUILT_IN_VIEW_TEMPLATES[5]!, query: { source: 'state == "open"' } };
+    const applied = viewFromTemplate(source, 'new-view');
+    expect(applied.query.source).toBe('(state == "open") && canComplete == true');
+    expect(source.query.source).toBe('state == "open"');
   });
 });

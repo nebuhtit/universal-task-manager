@@ -440,6 +440,12 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
     return consumed.slice(match.index!, match.index! + word.length).every(Boolean)
       && (word in weekdays || word in relativeDays || word in dayPartHours || /^(event|opens|ends|travel|time|back|me|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|drive|длительность|due|до|start|end|duration|tt|r|дл|dr|тб|tb|ттб|ttb|обратно|туда|по|за|через|in|before)$/.test(word));
   }).map(match => ({ start: match.index!, end: match.index! + match[0].length }));
+  // Older generated quick-entry strings may contain bare departure offsets.
+  // Interpret them as reminders instead of silently merging them into Title.
+  for (const match of [...text.matchAll(/(?:^|\s)((?:выезд|leave)-\d+(?:[a-zа-яё]+)(?:,(?:выезд|leave)-\d+(?:[a-zа-яё]+))*)(?=\s|$)/gi)]) {
+    reminders(match[1]!);
+    consume(match.index! + match[0].length - match[1]!.length, match[1]!.length);
+  }
   result.title = input.split('').map((char, i) => consumed[i] ? ' ' : char).join('').replace(/"([^"\n]*)"|«([^»\n]*)»/g, (_, a, b) => a ?? b).replace(/\s+/g, ' ').trim();
   if (!result.title && /^(?:сейчас|now)\s*$/i.test(input.trim())) result.title = 'Сейчас';
   if (!result.title) result.errors.push('Добавьте название.');

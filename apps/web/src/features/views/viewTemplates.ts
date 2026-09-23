@@ -6,11 +6,12 @@ export const VIEW_TEMPLATE_FIELDS = ['title', 'bodyMarkdown', 'schedule.startAt'
 const active = ACTIVE_ITEM_VIEW_QUERY;
 const inbox = 'state == "open" && role == "standalone" && isTemplate != true && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT"))';
 const noDate = `${active} && schedule.plannedDate == null && schedule.startAt == null && schedule.endAt == null && schedule.dueAt == null && schedule.availableFrom == null && external.transparency == null && isGoogleEvent != true`;
+export const completableTemplateQuery = (source: string): string => /&&\s*canComplete\s*==\s*true\s*$/.test(source) ? source : `(${source.trim() || 'true'}) && canComplete == true`;
 const template = (id: string, name: string, source: string, accent: string, creationDuePeriod?: 'today' | 'tomorrow'): SavedView => ({
   id: `builtin:${id}`,
   name,
   accent,
-  query: { source: ['inbox', 'today-overdue', 'tomorrow', 'week-overdue'].includes(id) ? `(${source}) && isGoogleEvent != true` : source },
+  query: { source: completableTemplateQuery(['inbox', 'today-overdue', 'tomorrow', 'week-overdue'].includes(id) ? `(${source}) && isGoogleEvent != true` : source) },
   renderer: 'table',
   sort: standardAttentionViewSort(),
   sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
@@ -34,6 +35,7 @@ export const isViewTemplate = (view: SavedView): boolean => view.extensions?.[VI
 export function viewFromTemplate(source: SavedView, id: string): SavedView {
   const next: SavedView = JSON.parse(JSON.stringify(source)) as SavedView;
   next.id = id;
+  next.query = { ...next.query, source: completableTemplateQuery(next.query.source) };
   const extensions = { ...next.extensions };
   delete extensions[VIEW_TEMPLATE_EXTENSION];
   delete extensions['utm:manualOrder'];

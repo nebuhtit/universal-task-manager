@@ -1,16 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { canEditGoogleEvent, googleEventChanges, googleEventDraft, GoogleEditConflict, moveSingleGoogleEvent, updateSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
+import type { GoogleCalendarEvent } from '@utm/core';
+import { canEditGoogleEvent, googleEventChanges, googleEventDraft, GoogleEditConflict, moveSingleGoogleEvent, updateGoogleSeriesEvent, updateSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
 
 const event = { id: 'instance', etag: 'v1', summary: 'Meeting', recurringEventId: 'master', start: { dateTime: '2026-09-20T12:00:00Z', timeZone: 'UTC' }, end: { dateTime: '2026-09-20T13:00:00Z', timeZone: 'UTC' } };
 const operation = (): GoogleEditOperation => ({ eventId: event.id, calendarId: 'calendar', accountEmail: 'me@example.com', baseline: event, draft: { ...googleEventDraft(event, 'UTC'), title: 'Updated' } });
 const now = () => Date.parse('2026-09-20T15:00:00Z');
 afterEach(() => vi.unstubAllGlobals());
-function mockRemote(remote = event, accessRole = 'owner', patchStatus = 200) {
+function mockRemote(remote: GoogleCalendarEvent = event, accessRole = 'owner', patchStatus = 200) {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => { requests.push({ url, ...(init ? { init } : {}) }); if (url.includes('calendarList')) return new Response(JSON.stringify({ items: [{ id: 'me@example.com', primary: true }, { id: 'calendar', accessRole, timeZone: 'UTC' }] })); if (init?.method === 'PATCH') return new Response(JSON.stringify({ ...remote, summary: 'Updated', etag: 'v2' }), { status: patchStatus }); return new Response(JSON.stringify(remote)); }));
   return requests;
 }
 describe('Google event editing', () => {
+  it('patches the recurring source time without rewriting recurrence or exceptions', async () => {
+    const master = { id: 'master', etag: 'v1', summary: 'Meeting', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=SA', 'EXDATE:20260926T120000Z'], start: event.start, end: event.end };
+    const requests = mockRemote(master);
+    const op: GoogleEditOperation = { ...operation(), eventId: 'master', baseline: master, scope: 'series', draft: { ...googleEventDraft(master, 'UTC'), start: '2026-09-20T14:00:00Z', end: '2026-09-20T15:00:00Z' } };
+    await updateGoogleSeriesEvent('token', op);
+    const patch = requests.find((request) => request.init?.method === 'PATCH');
+    expect(patch?.url).toContain('/events/master?sendUpdates=all');
+    expect(JSON.parse(String(patch?.init?.body))).toMatchObject({ start: { dateTime: '2026-09-20T14:00:00.000Z' }, end: { dateTime: '2026-09-20T15:00:00.000Z' } });
+    expect(JSON.parse(String(patch?.init?.body))).not.toHaveProperty('recurrence');
+  });
   it('moves to a writable calendar with a bodyless POST and never creates a copy', async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

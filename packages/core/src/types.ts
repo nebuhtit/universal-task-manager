@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.8.7';
-export const APP_RELEASED_AT = '2026-09-23T11:53:30.234Z';
+export const APP_VERSION = '2.8.8';
+export const APP_RELEASED_AT = '2026-09-23T12:13:44.868Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -628,6 +628,10 @@ export interface CalendarDayViewPreferences {
   /** Schedule relationships matched with OR inside the fixed selected day. */
   scheduleSources: CalendarScheduleSource[];
   fields: string[];
+  /** Calendar List metadata; falls back to legacy fields for existing workspaces. */
+  listFields?: string[];
+  /** Timeline card metadata, independent of List. */
+  timelineFields?: string[];
   /** Presentation and capacity settings shared by every selected calendar day. */
   statistics?: ViewStatisticsSettings;
   sort: ViewSortRule[];

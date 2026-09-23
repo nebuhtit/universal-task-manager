@@ -3,11 +3,13 @@ import { Button, Input } from '../../../../components/ui/primitives';
 import { dateInput, formatViewDate, fromDateInput } from '../../../../utils/dates';
 import { dueWallInput, dueWallInputToIso } from '../../dueQuickActions';
 
-export function DateTimeField({ label, value, language, onChange, help, onFocus, minValue, timeZone }: {
+export function DateTimeField({ label, value, language, onChange, onClear, canClear, help, onFocus, minValue, timeZone }: {
   label: string;
   value?: string | undefined;
   language?: WorkspaceLanguage | undefined;
   onChange: (value: string | undefined) => void;
+  onClear?: (() => void) | undefined;
+  canClear?: boolean | undefined;
   help?: string | undefined;
   onFocus?: (() => void) | undefined;
   minValue?: string | undefined;
@@ -30,9 +32,9 @@ export function DateTimeField({ label, value, language, onChange, help, onFocus,
         variant="ghost"
         className="date-clear"
         aria-label={`Clear ${label}`}
-        disabled={!value}
+        disabled={canClear === undefined ? !value : !canClear}
         onPointerDown={(event) => event.preventDefault()}
-        onClick={(event) => { event.preventDefault(); event.stopPropagation(); onChange(undefined); }}
+        onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (onClear) onClear(); else onChange(undefined); }}
       >Clear</Button>
     </div>
     {value && <small className="formatted-date">{formatViewDate(value, true, language)}</small>}

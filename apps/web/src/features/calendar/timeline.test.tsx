@@ -4,6 +4,7 @@ import { applyGoogleCalendarSync, createItem, createOccurrence, createWorkspace,
 import { dayBounds, itemInterval, hiddenIntervals, buildSegments, layoutEvents, positionAt } from './timelineLayout';
 import { timelineData } from './timelineData';
 import { CalendarTimeline, TimelineNow } from './CalendarTimeline';
+import { displayViewValue, readItemField } from '../items/fieldDisplay';
 
 const now = new Date('2026-09-22T12:00:00Z');
 const at = (hour: number, minute = 0) => Date.UTC(2026, 8, 22, hour, minute);
@@ -19,6 +20,16 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it('shows selected reminder metadata inside a timed block without repeating its interval', () => {
+    const reminderItem = item('Reminder metadata', { startAt: iso(14), endAt: iso(16) });
+    reminderItem.reminders = [{ id: 'r', mode: 'absolute', at: iso(15), urgency: 'normal', repeatUntilAcknowledged: false }];
+    const w = workspace(reminderItem);
+    w.calendarPreferences.dayView.timelineFields = ['title', 'reminders'];
+    expect(displayViewValue(readItemField(reminderItem, 'reminders', w, now), 'reminders')).toContain('normal');
+    const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(html).toContain('normal');
+    expect(html).not.toContain('<small>14:00–16:00</small>');
+  });
   it('renders a filtered reserved interval beneath normal events without making it interactive', () => {
     const reserved = item('Hidden Work', { startAt: iso(9), endAt: iso(11) });
     const visible = item('Meeting', { startAt: iso(10), endAt: iso(12) });

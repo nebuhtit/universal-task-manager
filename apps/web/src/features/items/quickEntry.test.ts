@@ -32,6 +32,18 @@ describe('quick entry item integration', () => {
       expect(createQuickEntryItem(original, now).title).toBe(original);
     }
   });
+  it('keeps generated departure reminders out of the title for a named weekday', () => {
+    const item = createQuickEntryItem('Даша сб 15:00', new Date(2026, 8, 23, 15));
+    expect(item.title).toBe('Даша');
+    expect(item.reminders).toHaveLength(2);
+    const withTravel = createQuickEntryItem('Даша сб 15:00 дорога 30м', new Date(2026, 8, 23, 15));
+    expect(withTravel.title).toBe('Даша');
+    expect(withTravel.reminders).toHaveLength(2);
+    const bare = parseEntry('Даша начало сб 14:00 дорога 45м выезд-120м,выезд-1440м', new Date(2026, 8, 23, 15));
+    expect(bare.errors).toEqual([]);
+    expect(bare.title).toBe('Даша');
+    expect(bare.reminders).toHaveLength(2);
+  });
   it('freezes English dates in a dashed range and updates its end in place', () => {
     const item = createQuickEntryItem('Meeting tomorrow 10:00 - tomorrow 11:00 travel 30m remind 15m', now);
     expect(item.title).toBe('Meeting');

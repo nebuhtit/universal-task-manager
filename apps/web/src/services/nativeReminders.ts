@@ -11,7 +11,9 @@ export interface NativeReminderEntry {
 
 type NativeReminderMessage =
   | { id: string; kind: 'reminders.requestPermission' }
-  | { id: string; kind: 'reminders.sync'; workspaceId: string; items: NativeReminderEntry[] };
+  | { id: string; kind: 'reminders.sync'; workspaceId: string; items: NativeReminderEntry[] }
+  | { id: string; kind: 'timer.schedule'; timerId: string; title: string; at: string }
+  | { id: string; kind: 'timer.cancel'; timerId: string };
 
 type NativeReminderStatus = { id: string; ok: boolean; authorization?: string; scheduled?: number; error?: string };
 const handlerName = 'utmNativeReminders';
@@ -78,4 +80,12 @@ export function requestNativeReminderPermission(): Promise<NativeReminderStatus>
 
 export function syncNativeReminders(workspace: WorkspaceDocument, now = new Date()): Promise<NativeReminderStatus> {
   return send({ id: requestId(), kind: 'reminders.sync', workspaceId: workspace.workspaceId, items: nativeReminderSchedule(workspace, now) });
+}
+
+export function scheduleNativeTimer(timerId: string, title: string, at: string): Promise<NativeReminderStatus> {
+  return send({ id: requestId(), kind: 'timer.schedule', timerId, title, at });
+}
+
+export function cancelNativeTimer(timerId: string): Promise<NativeReminderStatus> {
+  return send({ id: requestId(), kind: 'timer.cancel', timerId });
 }

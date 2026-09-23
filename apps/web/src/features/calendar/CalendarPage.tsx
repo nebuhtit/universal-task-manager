@@ -12,6 +12,7 @@ import { clockService } from '../../services/clockService';
 import { completionHoldsSnapshot, sortViewItems, subscribeCompletionHolds } from '../views/viewSelectors';
 import { useViewNow, useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
 import { CalendarDayViewEditor } from './CalendarDayViewEditor';
+import { calendarListFields } from './calendarCardFields';
 import { CalendarTimeline } from './CalendarTimeline';
 import { calendarDayView, evaluateCalendarRange } from './calendarEvaluation';
 import { calendarVisibleCapacity } from './calendarCapacity';
@@ -89,6 +90,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const calendar = useMemo(() => evaluateCalendarRange(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now), [completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
   const dayData = calendar.days;
   const selected = dayData[selectedDate]!;
+  const listView = { ...selected.view, fields: calendarListFields(preferences.dayView) };
   const overdueIds = new Set(selected.evaluation.items.filter(item => showOverdueToday(item, selectedDate, now, preferences.timezone, item.occurrence ? workspace.items[item.occurrence.seriesId] : undefined)).map(item => item.id));
   const allDayIds = new Set(selected.evaluation.items.filter(item => item.schedule?.allDay && !overdueIds.has(item.id)).map(item => item.id));
   const selectedIds = new Set(selected.evaluation.items.map(item => item.id));
@@ -193,10 +195,10 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
         <Button size="compact" aria-pressed={timelineSettings.showUndated === true} onClick={() => setTimelineSetting({ showUndated: timelineSettings.showUndated !== true })}>{preferences.language === 'ru' ? 'Без даты' : 'No date'}{undatedItems.length ? ` · ${undatedItems.length}` : ''}</Button>
         {allDayIds.size > 0 && <Button size="compact" aria-pressed={allDayOpen} onClick={() => { const next = !allDayOpen; persistUiBoolean('calendar:all-day', next); setAllDayOpen(next); }}>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</Button>}
       </div><Surface className="calendar-day-list">
-        {overdueIds.size > 0 && timelineSettings.showOverdue !== false && <div className="calendar-overdue"><h2>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</h2><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
-        {allDayIds.size > 0 && allDayOpen && <div className="calendar-all-day"><h2>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</h2><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
-        <ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
-        {timelineSettings.showUndated === true && undatedItems.length > 0 && <div className="calendar-no-date"><h2>{preferences.language === 'ru' ? 'Без даты' : 'No date'} · {undatedItems.length}</h2><ViewResults view={selected.view} workspace={workspace} evaluation={{ items: undatedItems, metrics: null, now }} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
+        {overdueIds.size > 0 && timelineSettings.showOverdue !== false && <div className="calendar-overdue"><h2>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</h2><ViewResults view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
+        {allDayIds.size > 0 && allDayOpen && <div className="calendar-all-day"><h2>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</h2><ViewResults view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
+        <ViewResults view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
+        {timelineSettings.showUndated === true && undatedItems.length > 0 && <div className="calendar-no-date"><h2>{preferences.language === 'ru' ? 'Без даты' : 'No date'} · {undatedItems.length}</h2><ViewResults view={listView} calendarTimeOnly workspace={workspace} evaluation={{ items: undatedItems, metrics: null, now }} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
       </Surface></>}
     <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView, timeline) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); draft.calendarPreferences.timeline = structuredClone(timeline); })} />
   </section>;

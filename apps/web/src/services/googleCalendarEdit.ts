@@ -12,6 +12,20 @@ export interface GoogleEditOperation {
   baseline: GoogleCalendarEvent;
   draft: GoogleEventDraft;
   attempted?: boolean;
+  scope?: 'occurrence' | 'series';
+}
+
+/** Patch the recurring source, leaving its RRULE, EXDATEs and exceptions to Google. */
+export async function updateGoogleSeriesEvent(token: string, operation: GoogleEditOperation): Promise<GoogleCalendarEvent> {
+  const { event } = await loadEditableGoogleEvent(token, operation.calendarId, operation.eventId, operation.accountEmail);
+  if (event.status === 'cancelled' || !event.recurrence?.length) throw new Error('The selected Google event is no longer an active recurring series.');
+  const changes = googleEventChanges(operation);
+  const remaining = googleEventChanges({ ...operation, baseline: event });
+  if (operation.attempted && Object.keys(changes).every((key) => !(key in remaining))) return event;
+  if (!operation.baseline.etag || event.etag !== operation.baseline.etag) throw new GoogleEditConflict();
+  if (!Object.keys(changes).length) return event;
+  try { return await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}?sendUpdates=all`, token, changes, { method: 'PATCH', etag: event.etag }); }
+  catch (reason) { if ((reason as { status?: number }).status === 412) throw new GoogleEditConflict(); throw reason; }
 }
 export class GoogleEditConflict extends Error { constructor() { super('The event changed in Google. Load the current event and review your changes again.'); } }
 const eventUrl = (calendarId: string, eventId: string) => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;

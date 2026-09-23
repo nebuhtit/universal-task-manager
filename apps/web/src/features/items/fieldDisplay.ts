@@ -252,6 +252,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
 
 export const displayViewValue = (value: unknown, field: string, language?: WorkspaceLanguage): string => {
   if (value === undefined || value === null || value === '') return '';
+  if (field === 'reminders' && Array.isArray(value)) return value.map(entry => typeof entry === 'string' ? entry : entry && typeof entry === 'object' && 'label' in entry ? String(entry.label) : '').filter(Boolean).join(' · ');
   if (field === 'external.provider' && value === 'google_calendar') return 'Google Calendar';
   if (field === 'external.transparency' && value === 'opaque') return 'Busy';
   if (field === 'external.transparency' && value === 'transparent') return 'Free';

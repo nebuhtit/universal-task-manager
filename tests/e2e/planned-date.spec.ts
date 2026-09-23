@@ -10,7 +10,7 @@ test('Live text date-only item survives save, swipe rescheduling and reopen with
   const capture = page.getByPlaceholder('Add new item');
   await capture.fill('Отчёт завтра 2ч'); await capture.press('Enter');
   const summary = page.locator('.editor-scroll > details > summary').filter({ hasText: 'Dates & time' }).first();
-  if (!await summary.locator('..').evaluate(el => (el as HTMLDetailsElement).open)) await summary.click();
+  await summary.locator('..').evaluate(el => { (el as HTMLDetailsElement).open = true; });
   await expect(page.getByLabel('Event opens date', { exact: true })).toHaveValue('2026-09-23');
   await expect(page.getByLabel('Event opens precision')).toHaveValue('date');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
@@ -33,7 +33,7 @@ test('Live text date-only item survives save, swipe rescheduling and reopen with
   await page.reload(); await page.getByLabel('Password', { exact: true }).fill('date-only-test-password');
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await card.locator('.item-main').click();
-  if (!await summary.locator('..').evaluate(el => (el as HTMLDetailsElement).open)) await summary.click();
+  await summary.locator('..').evaluate(el => { (el as HTMLDetailsElement).open = true; });
   await expect(page.getByLabel('Event opens date', { exact: true })).toHaveValue('2026-09-22');
   await expect(page.getByLabel('Event opens precision')).toHaveValue('date');
 });
@@ -55,11 +55,16 @@ test('date-only Event ends makes an inclusive day range, or a timed end starts a
   await page.getByLabel('Event ends date').fill('2026-09-25');
   await expect(page.getByLabel('Event opens date')).toHaveValue('2026-09-23');
   await expect(page.getByLabel('Event ends date')).toHaveValue('2026-09-25');
+  await page.getByRole('button', { name: 'Clear Event ends' }).click();
+  await expect(page.getByLabel('Event ends date')).toHaveValue('');
+  await page.getByLabel('Event ends date').fill('2026-09-25');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
   await page.getByText('Поездка', { exact: true }).first().click();
-  if (!await summary.locator('..').evaluate(el => (el as HTMLDetailsElement).open)) await summary.click();
+  await summary.locator('..').evaluate(el => { (el as HTMLDetailsElement).open = true; });
   await expect(page.getByLabel('Event ends date')).toHaveValue('2026-09-25');
   await page.getByLabel('Event ends precision').selectOption('datetime');
+  await page.getByRole('button', { name: 'Clear Event ends' }).click();
+  await expect(page.getByLabel('Event ends date')).toHaveCount(0);
   await page.getByLabel('Event ends', { exact: true }).fill('2026-09-25T18:00');
   await expect(page.getByLabel('Event opens precision')).toHaveValue('datetime');
   await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('2026-09-23T00:00');

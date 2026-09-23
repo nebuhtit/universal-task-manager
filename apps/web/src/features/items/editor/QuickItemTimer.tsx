@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useClockMilliseconds } from '../../../hooks/useClock';
 import { playTimerIntervalSound, prepareTimerAlarm, startTimerAlarm } from '../../../hooks/useUiSounds';
+import { cancelNativeTimer, isNativeReminderAvailable, requestNativeReminderPermission, scheduleNativeTimer } from '../../../services/nativeReminders';
 import { Button, Checkbox, Input, Select } from '../../../components/ui/primitives';
 import type { ItemTimerSession, UniversalItem } from '@utm/core';
 import './quick-item-timer.css';
@@ -27,7 +28,7 @@ const formatClock = (milliseconds: number, includeMilliseconds = false) => {
     : [minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
 };
 
-export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwatchStartedAt, onLegacyStop, onActiveTimerChange, onSaveCompletion }: { soundEnabled?: boolean; activeTimer?: RunningTimer | undefined; initialStopwatchStartedAt?: string | undefined; onLegacyStop?: () => void | Promise<void>; onActiveTimerChange?: (timer: RunningTimer | undefined) => void | Promise<void>; onSaveCompletion?: (session: ItemTimerSession) => void | Promise<void> }) {
+export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwatchStartedAt, timerTitle = 'Universal', onLegacyStop, onActiveTimerChange, onSaveCompletion }: { soundEnabled?: boolean; activeTimer?: RunningTimer | undefined; initialStopwatchStartedAt?: string | undefined; timerTitle?: string; onLegacyStop?: () => void | Promise<void>; onActiveTimerChange?: (timer: RunningTimer | undefined) => void | Promise<void>; onSaveCompletion?: (session: ItemTimerSession) => void | Promise<void> }) {
   const savedStartedAt = activeTimer ? Date.parse(activeTimer.startedAt) : Number.NaN;
   const pendingSession = activeTimer?.stoppedAt && activeTimer.durationSeconds ? {
     id: activeTimer.id, mode: activeTimer.mode, startedAt: activeTimer.startedAt, endedAt: activeTimer.stoppedAt,
@@ -40,6 +41,7 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
   const [counted, setCounted] = useState(false);
   const [counting, setCounting] = useState(false);
   const [countError, setCountError] = useState('');
+  const [notificationError, setNotificationError] = useState('');
   const [mode, setMode] = useState<TimerMode>(activeTimer?.mode ?? (resumeLegacy ? 'stopwatch' : 'timer'));
   const [minutesInput, setMinutesInput] = useState(activeTimer?.targetSeconds ? String(Math.max(1, Math.ceil(activeTimer.targetSeconds / 60))) : '10');
   const minutes = Math.max(1, Math.floor(Number(minutesInput) || 1));
@@ -55,6 +57,14 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
   const sessionIdRef = useRef<string | undefined>(activeTimer?.id ?? (resumeLegacy ? `legacy-stopwatch:${initialStopwatchStartedAt}` : undefined));
   const persistenceRef = useRef<Promise<void>>(Promise.resolve());
   const stopAlarmRef = useRef<() => void>(() => undefined);
+  const nativeTimerIdRef = useRef<string | undefined>(activeTimer?.id);
+  const cancelSystemTimer = () => { if (nativeTimerIdRef.current && isNativeReminderAvailable()) void cancelNativeTimer(nativeTimerIdRef.current).catch(() => undefined); nativeTimerIdRef.current = undefined; };
+  const notifyFinished = () => {
+    if (isNativeReminderAvailable() || !('Notification' in window) || Notification.permission !== 'granted') return;
+    const title = `${timerTitle} · Timer finished`;
+    if ('serviceWorker' in navigator) void navigator.serviceWorker.ready.then((registration) => registration.showNotification(title, { tag: `timer:${sessionIdRef.current}` })).catch(() => new Notification(title));
+    else new Notification(title);
+  };
   const now = useClockMilliseconds(mode === 'stopwatch' ? 100 : 250, running);
   const elapsed = elapsedBeforeStart + (running ? Math.max(0, now - startedAt) : 0);
   const duration = Math.max(1, minutes) * 60_000;
@@ -78,6 +88,7 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
     persistActive(session ? { id: session.id, mode: session.mode, startedAt: session.startedAt, stoppedAt: session.endedAt, durationSeconds: session.durationSeconds, ...(session.targetSeconds ? { targetSeconds: session.targetSeconds } : {}) } : undefined);
     stopAlarmRef.current();
     stopAlarmRef.current = startTimerAlarm(soundEnabled);
+    notifyFinished();
     setAlarming(soundEnabled);
   }, [duration, finished, running]);
 
@@ -97,12 +108,21 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
     return session;
   };
   const endLegacy = () => { if (!resumeLegacy || !running) return; void Promise.resolve().then(onLegacyStop).catch((reason) => setCountError(String(reason))); };
-  const reset = () => { endLegacy(); persistActive(undefined); stopAlarm(); setRunning(false); setStartedAt(0); setElapsedBeforeStart(0); intervalCueCountRef.current = 0; sessionIdRef.current = undefined; setRecorded(undefined); setCounted(false); };
+  const reset = () => { endLegacy(); cancelSystemTimer(); persistActive(undefined); stopAlarm(); setRunning(false); setStartedAt(0); setElapsedBeforeStart(0); intervalCueCountRef.current = 0; sessionIdRef.current = undefined; setRecorded(undefined); setCounted(false); };
   const changeMode = (next: TimerMode) => { setMode(next); reset(); };
   const startFresh = () => {
     const timestamp = Date.now();
     const id = crypto.randomUUID();
     sessionIdRef.current = id;
+    nativeTimerIdRef.current = id;
+    setNotificationError('');
+    if (mode === 'timer' && isNativeReminderAvailable()) void requestNativeReminderPermission().then((status) => {
+      if (status.authorization !== 'granted') { setNotificationError('Allow notifications in iOS Settings for a lock-screen timer alert.'); return; }
+      if (sessionIdRef.current !== id) return;
+      return scheduleNativeTimer(id, `${timerTitle} · Timer finished`, new Date(timestamp + Math.max(1, minutes) * 60_000).toISOString());
+    }).catch(() => setNotificationError('Could not schedule the system timer alert.'));
+    else if (mode === 'timer' && 'Notification' in window && Notification.permission === 'default') void Notification.requestPermission().then((permission) => { if (permission !== 'granted') setNotificationError('Allow notifications for a visible timer alert.'); });
+    else if (mode === 'timer' && !('Notification' in window)) setNotificationError('System timer alerts are unavailable in this browser.');
     setRecorded(undefined); setCounted(false); setElapsedBeforeStart(0); setStartedAt(timestamp); setRunning(true);
     persistActive({ id, mode, startedAt: new Date(timestamp).toISOString(), ...(mode === 'timer' ? { targetSeconds: Math.max(1, minutes) * 60 } : {}) });
   };
@@ -111,6 +131,7 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
     stopAlarm();
     if (finished) { startFresh(); return; }
     if (running) {
+      cancelSystemTimer();
       const pausedElapsed = elapsedBeforeStart + Math.max(0, Date.now() - startedAt);
       const session = record(pausedElapsed);
       endLegacy();
@@ -140,6 +161,7 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
     <div className="quick-item-timer-actions">
       {!running && recorded && onSaveCompletion && <Button size="compact" variant="secondary" disabled={counted || counting} onClick={() => { setCounting(true); setCountError(''); void persistenceRef.current.then(() => onSaveCompletion(recorded)).then(() => setCounted(true)).catch((reason) => setCountError(String(reason))).finally(() => setCounting(false)); }}>{counted ? 'Completion saved' : counting ? 'Saving…' : 'Save completion'}</Button>}
       {countError && <small role="alert">{countError}</small>}
+      {notificationError && <small role="alert">{notificationError}</small>}
       {alarming ? <Button size="compact" onClick={stopAlarm}>Stop sound</Button> : <Button size="compact" onClick={toggle}>{running ? 'Stop' : finished || recorded ? 'Restart' : 'Start'}</Button>}
       <Button size="compact" variant="ghost" disabled={!running && elapsedBeforeStart === 0} onClick={reset}>Reset</Button>
     </div>

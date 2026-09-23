@@ -2,6 +2,7 @@ import { ACTIVE_ITEM_VIEW_QUERY, LEGACY_ACTIVE_ITEM_VIEW_QUERY, activeReminders,
 
 import { filterRegexMatches } from './filter-regex.js';
 import { eventProgramStatus } from './event-program.js';
+import { canManuallyComplete } from './item-event.js';
 import { validateFilterProgram } from './filter-validation.js';
 export { durationToMs } from './types.js';
 
@@ -629,7 +630,7 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
         : item.role === 'series_template' ? 'repeating_series'
           : item.role === 'occurrence' ? 'repeat_occurrence'
             : 'regular_item';
-      return Boolean(evaluateExpression(ast, { item, variables: { isGoogleEvent: item.external?.provider === 'google_calendar' && Boolean(item.external.eventId), isNote: item.isNote === true, isHabit: Boolean(item.habit), isTemplate: isSavedTemplate, isSavedTemplate, itemKind, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
+      return Boolean(evaluateExpression(ast, { item, variables: { canComplete: canManuallyComplete(item), isGoogleEvent: item.external?.provider === 'google_calendar' && Boolean(item.external.eventId), isNote: item.isNote === true, isHabit: Boolean(item.habit), isTemplate: isSavedTemplate, isSavedTemplate, itemKind, activeRange, activeRangeWhenSet, activeRangeWhenSetOrOverdue, activeDuration, googleCalendarAllDay: item.external?.provider === 'google_calendar' && item.schedule?.allDay === true, hasActiveReminders: hasActiveReminderValue, nextReminderAt: nextReminderAtValue, remindersIndexed: relations.remindersIndexed ?? false, ...dueBuckets, isSubtask: relations.isSubtask ?? false, isParent: relations.isParent ?? false, parentDepth: relations.parentDepth ?? 0, childDepth: relations.childDepth ?? 0 }, now: current, temporalOptions }));
     }
     catch (reason) {
       if (reason instanceof TypeError && /^Expected (scalar|number)/.test(reason.message)) return false;

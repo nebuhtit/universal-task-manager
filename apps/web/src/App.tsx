@@ -1269,6 +1269,9 @@ export default function App() {
   const persistQuickItem = (item: UniversalItem) => {
     const saved = commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
     if (!saved) throw new Error('Не удалось сохранить item. Текст остаётся в строке ввода.');
+    if (workspace.calendarPreferences.googleCalendar && item.schedule?.startAt && item.schedule.endAt) setToast(workspace.calendarPreferences.language === 'ru'
+      ? 'Сохранено только в UTM. Выберите календарь Google и нажмите Save item для отправки события.'
+      : 'Saved in UTM only. Select a Google Calendar and tap Save item to send this event to Google.');
     setEditorIsNew(true); setEditor(item);
   };
   const captureQuickItem = (text = quick) => {
@@ -1369,6 +1372,17 @@ export default function App() {
         });
         if (!saved) throw new Error('Could not save the event draft.');
         await flushPersistence();
+      }}
+      onGoogleSeriesUpdated={async () => {
+        const edited = googleActionItem(workspace, editor);
+        const saved = commit('Update Google recurring series', (draft) => {
+          const target = draft.items[edited.id];
+          if (target?.extensions) delete target.extensions[GOOGLE_EDIT_EXTENSION];
+          if (draft.calendarPreferences.googleCalendar) recordGoogleWrite(draft.calendarPreferences.googleCalendar);
+        });
+        if (!saved) throw new Error('Google saved the series; retry to refresh its local copy.');
+        await flushPersistence();
+        await syncGoogleCalendarFromHome();
       }}
       onGoogleUpdated={async (event, calendarId) => {
         const before = workspace.items[googleActionItem(workspace, editor).id]?.external;

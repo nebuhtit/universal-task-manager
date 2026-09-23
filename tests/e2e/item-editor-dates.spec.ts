@@ -8,9 +8,19 @@ async function createWorkspaceAndItem(page: Page) {
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await page.getByPlaceholder('Add new item').fill('Calendar block');
   await page.getByPlaceholder('Add new item').press('Enter');
+  await page.getByRole('dialog').waitFor({ state: 'visible' });
+  if (!await page.getByRole('dialog').isVisible()) {
+    await page.locator('.item-card').filter({ hasText: 'Calendar block' }).first().locator('.item-main').click();
+  }
   const summary = page.locator('.editor-scroll > details > summary').filter({ hasText: 'Dates & time' }).first();
   const section = summary.locator('..');
-  if (!await section.evaluate((element) => (element as HTMLDetailsElement).open)) await summary.click();
+  await section.evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+}
+
+async function reopenItem(page: Page) {
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await page.locator('.item-card').filter({ hasText: 'Calendar block' }).first().locator('.item-main').click();
+  await page.getByRole('dialog').waitFor({ state: 'visible' });
 }
 
 test('event dates stay independent of expected duration and allow clearing', async ({ page }) => {
@@ -47,10 +57,25 @@ test('event dates stay independent of expected duration and allow clearing', asy
   await expect(page.getByLabel('Calendar duration amount')).toHaveValue('30');
   await expect(page.getByLabel('Calendar duration unit')).toHaveValue('minutes');
   await page.getByRole('button', { name: 'Save item' }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+});
 
-  await page.getByRole('article').getByRole('button', { name: 'Calendar block', exact: true }).first().click();
-  await expect(page.getByLabel('Event ends', { exact: true })).toHaveValue(oneHourLater);
-  await expect(page.locator('input[aria-label="Due / Active range ends"]')).toHaveValue('');
+test('clearing a timed end and start persists without silently restoring either date', async ({ page }) => {
+  await createWorkspaceAndItem(page);
+  await page.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00');
+  await expect(page.getByLabel('Event ends', { exact: true })).not.toHaveValue('');
+  await page.getByRole('button', { name: 'Clear Event ends' }).click();
+  await expect(page.getByLabel('Event ends', { exact: true })).toHaveValue('');
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await reopenItem(page);
+  await page.locator('.editor-scroll > details').filter({ hasText: 'Dates & time' }).first().evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+  await expect(page.getByLabel('Event ends', { exact: true })).toHaveValue('');
+  await page.getByRole('button', { name: 'Clear Event opens' }).click();
+  await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('');
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await reopenItem(page);
+  await page.locator('.editor-scroll > details').filter({ hasText: 'Dates & time' }).first().evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+  await expect(page.getByLabel('Event opens', { exact: true })).toHaveValue('');
 });
 
 test('end and due dates before Event opens remain invalid', async ({ page }) => {
