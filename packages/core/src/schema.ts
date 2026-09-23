@@ -62,7 +62,7 @@ export const itemJsonSchema = {
         plannedDate: { type: 'string', format: 'date' },
         availableFrom: { type: 'string', format: 'date-time' }, startAt: { type: 'string', format: 'date-time' },
         endAt: { type: 'string', format: 'date-time' }, dueAt: { type: 'string', format: 'date-time' },
-        estimatedDuration: { type: 'string' }, travelDuration: { type: 'string' }, actualDuration: { type: 'string' },
+        estimatedDuration: { type: 'string' }, travelDuration: { type: 'string' }, travelBackDuration: { type: 'string' }, actualDuration: { type: 'string' },
       },
     },
     recurrence: {
@@ -400,7 +400,7 @@ export const validateView = (value: unknown): ValidationResult => validationResu
 /** Paths that can safely be copied into a brand-new item from a saved view. */
 export const creationDefaultPaths = new Set([
   'title', 'bodyMarkdown', 'location', 'state', 'priority', 'tags', 'contexts', 'list', 'area', 'project',
-  'schedule.availableFrom', 'schedule.startAt', 'schedule.endAt', 'schedule.dueAt', 'schedule.estimatedDuration', 'schedule.travelDuration', 'schedule.timezone', 'schedule.allDay',
+  'schedule.availableFrom', 'schedule.startAt', 'schedule.endAt', 'schedule.dueAt', 'schedule.estimatedDuration', 'schedule.travelDuration', 'schedule.travelBackDuration', 'schedule.timezone', 'schedule.allDay',
   'recurrence.rrule', 'recurrence.rdates', 'recurrence.exdates', 'recurrence.timezone', 'recurrence.activationOffset', 'recurrence.dueOffset', 'recurrence.closeAt', 'recurrence.anchor', 'recurrence.autoRenew',
   'progress.mode', 'progress.current', 'progress.target', 'progress.unit',
   'habit.target', 'habit.unit', 'habit.streakMode', 'reminders', 'attachments',
@@ -423,7 +423,7 @@ export function validateViewCreationDefaults(value: unknown): ValidationResult {
     if (['tags', 'contexts', 'recurrence.rdates', 'recurrence.exdates', 'reminders', 'attachments'].includes(path) && !Array.isArray(entry)) errors.push(`/creationDefaults/${path} must be an array`);
     if (['schedule.allDay', 'recurrence.autoRenew'].includes(path) && typeof entry !== 'boolean') errors.push(`/creationDefaults/${path} must be true or false`);
     if (['schedule.availableFrom', 'schedule.startAt', 'schedule.endAt', 'schedule.dueAt'].includes(path) && !isIsoLike(entry)) errors.push(`/creationDefaults/${path} must be a date-time`);
-    if (['schedule.estimatedDuration', 'schedule.travelDuration', 'recurrence.activationOffset', 'recurrence.dueOffset'].includes(path) && !isDuration(entry)) errors.push(`/creationDefaults/${path} must be an ISO duration`);
+    if (['schedule.estimatedDuration', 'schedule.travelDuration', 'schedule.travelBackDuration', 'recurrence.activationOffset', 'recurrence.dueOffset'].includes(path) && !isDuration(entry)) errors.push(`/creationDefaults/${path} must be an ISO duration`);
   }
   return { valid: errors.length === 0, errors };
 }

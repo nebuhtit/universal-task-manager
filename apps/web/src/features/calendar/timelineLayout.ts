@@ -1,7 +1,7 @@
 import { durationToMs, effectiveItemDurationMs, zonedDateStart, type UniversalItem } from '@utm/core';
 
 export type Interval = { start: number; end: number };
-export type TimelineEvent = Interval & { item: UniversalItem; point: boolean; invalid: boolean; travel?: boolean; tentative?: boolean };
+export type TimelineEvent = Interval & { item: UniversalItem; point: boolean; invalid: boolean; travel?: boolean; travelBack?: boolean; tentative?: boolean };
 export type Segment = Interval & { top: number; height: number; hidden: boolean };
 export type PlacedEvent = TimelineEvent & { top: number; height: number; column: number; columns: number; continuedBefore: boolean; continuedAfter: boolean };
 export type MoreBlock = { top: number; height: number; column: number; columns: number; items: UniversalItem[] };
@@ -39,6 +39,18 @@ export function travelInterval(item: UniversalItem): TimelineEvent | null {
     const duration = durationToMs(item.schedule?.travelDuration ?? 'PT0S');
     return Number.isFinite(end) && Number.isFinite(duration) && duration > 0
       ? { item, start: end - duration, end, point: false, invalid: false, travel: true } : null;
+  } catch { return null; }
+}
+
+export function returnTravelInterval(item: UniversalItem): TimelineEvent | null {
+  const schedule = item.schedule;
+  if (!schedule?.endAt && !schedule?.startAt) return null;
+  const interval = itemInterval(item);
+  if (!interval || interval.invalid || (interval.point && !schedule.endAt)) return null;
+  try {
+    const duration = durationToMs(schedule.travelBackDuration ?? 'PT0S');
+    return Number.isFinite(duration) && duration > 0
+      ? { item, start: interval.end, end: interval.end + duration, point: false, invalid: false, travel: true, travelBack: true } : null;
   } catch { return null; }
 }
 

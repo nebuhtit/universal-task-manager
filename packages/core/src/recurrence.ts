@@ -153,7 +153,7 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
     const zone = detached.recurrence?.timezone || detached.schedule.timezone;
     const floating = toFloating(anchor, zone);
     schedule.plannedDate = floating.toISOString().slice(0, 10);
-    delete schedule.startAt; delete schedule.endAt; delete schedule.allDay; delete schedule.travelDuration;
+    delete schedule.startAt; delete schedule.endAt; delete schedule.allDay; delete schedule.travelDuration; delete schedule.travelBackDuration;
     if (detached.schedule.dueAt && dueOffset === undefined) {
       const days = Date.parse(`${schedule.plannedDate}T00:00:00Z`) - Date.parse(`${detached.schedule.plannedDate}T00:00:00Z`);
       schedule.dueAt = fromFloating(new Date(toFloating(new Date(detached.schedule.dueAt), zone).getTime() + days), zone).toISOString();

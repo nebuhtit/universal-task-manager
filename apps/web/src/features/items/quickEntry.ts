@@ -1,5 +1,5 @@
 import { createId, createItem, durationToMs, type UniversalItem } from '@utm/core';
-import { dateValueExpression, parseDate, parseLiveEntry as parseEntry, type Draft } from '../../../quick-entry-lab/parser';
+import { bareDurationInsertion, dateValueExpression, duration, parseDate, parseLiveEntry as parseEntry, type Draft } from '../../../quick-entry-lab/parser';
 import { extractOrganization } from '../../../quick-entry-lab/organization';
 
 export const QUICK_ENTRY_SOURCE = 'utm:quickEntrySource';
@@ -36,7 +36,13 @@ export function quickEntrySource(item: UniversalItem): QuickEntrySource | null {
 
 /** Freeze relative dates at creation while preserving the rest of the wording. */
 export function materializeQuickEntryText(text: string, now: Date): string {
-  if (text.trimStart().startsWith('.')) return text;
+  if (/^\.(?:\s|$)/.test(text.trimStart())) return text;
+  const bareAt = bareDurationInsertion(text);
+  if (bareAt >= 0) text = text.slice(0, bareAt).replace(/на\s+$/, '') + 'длительность ' + text.slice(bareAt);
+  text = text.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(?:ттб|ttb|туда\s+и\s+обратно(?:\s+по)?)(?::|\s)\s*((?:\d+(?:[.,]\d+)?\s*(?:minutes?|hours?|минуты?|мин|часов|часа?|[mhмч])\s*)+)/gi, (match, leading: string | undefined, value: string | undefined) => {
+    const amount = value ? duration(value) : null;
+    return amount === null ? match : `${leading ?? ''}дорога ${amount}м обратно ${amount}м `;
+  });
   // Freeze a complete named date, never replace its month alone with a
   // standalone month suggestion (which would introduce a guessed clock).
   text = text.replace(/"[^"\n]*"|«[^»\n]*»|\b(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+\d{2,4}(?![\d:]))?/gi, (match, day: string | undefined) => {
@@ -50,7 +56,7 @@ const relative = /(?:след|следу(?:ю)?щ(?:ий|ую|ая|ем)|next)\s
 const replacements: Array<{ start: number; end: number; value: string }> = [];
   for (const match of masked.matchAll(relative)) {
     const start = match.index!, end = start + match[0].length;
-    if (start > 0 && /[\p{L}\p{N}]/u.test(masked[start - 1]!)) continue;
+    if (start > 0 && /[.\p{L}\p{N}]/u.test(masked[start - 1]!)) continue;
     if (end < masked.length && /[\p{L}\p{N}]/u.test(masked[end]!)) continue;
     if (/^\s+\d{1,2}\.\d{1,2}(?:\.\d{4})?\b/.test(masked.slice(end))) continue;
     const resolved = parseDate(match[0], now);
@@ -69,13 +75,13 @@ const replacements: Array<{ start: number; end: number; value: string }> = [];
     if (!parseEntry(text, now).title) text = `Сейчас ${text}`;
   }
   let nextReminder = 0;
-  text = text.replace(/(^|\s)(напомнить|нап|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2}(?::|\s)\d{2})(?=\s|$)/gi, (match, leading: string, key: string, clock: string) => {
+  text = text.replace(/(^|\s)(напомнить|нап|напомни|напоминание|напоминания|remind(?:\s+me)?|reminder|н|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2}(?::|\s)\d{2})(?=\s|$)/gi, (match, leading: string, key: string, clock: string) => {
     const at = parseEntry(`Reminder напомнить ${clock}`, now).reminders[0]?.at;
     return at ? `${leading}${key} в ${localDateTime(at)}` : match;
   });
-  text = text.replace(/(?:через|in)\s*\d+(?:[.,]\d+)?\s*[a-zа-я]+/gi, value => {
+  text = text.replace(/(?:через|\bin)\s*(?:полтора\s+часа|полчаса|неделю|half\s+an?\s+hour|an?\s+hour\s+and\s+a\s+half|a\s+week|(?:\d+(?:[.,]\d+)?\s*[a-zа-я]+\s*)+)/gi, value => {
     const reminder = relativeNow[nextReminder++];
-    return reminder?.at ? `в ${localDateTime(reminder.at)}` : value;
+    return reminder?.at ? `в ${localDateTime(reminder.at)}${/\s$/.test(value) ? ' ' : ''}` : value;
   });
   return text;
 }
@@ -103,6 +109,7 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   if (draft.end) schedule.endAt = draft.end; else delete schedule.endAt;
   if (draft.durationMinutes !== null) schedule.estimatedDuration = minutesDuration(draft.durationMinutes); else delete schedule.estimatedDuration;
   if (draft.travelMinutes !== null) schedule.travelDuration = minutesDuration(draft.travelMinutes); else delete schedule.travelDuration;
+  if (draft.travelBackMinutes !== undefined) schedule.travelBackDuration = minutesDuration(draft.travelBackMinutes); else delete schedule.travelBackDuration;
   return {
     item: {
       ...item, title: draft.title, schedule, reminders: reminderItems(draft),
@@ -121,7 +128,7 @@ export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate
   const initial = parseEntry(original, now);
   if (initial.noDateDefaults) defaultPlannedDate = undefined;
   if (!initial.isNote && !initial.noDateDefaults && !initial.start && !initial.end && !initial.due && !initial.plannedDate && initial.durationMinutes === null && !initial.errors.length) original += ' длительность 10м';
-  if (defaultPlannedDate && !original.startsWith('.')) {
+  if (defaultPlannedDate && !initial.isNote) {
     const masked = original.replace(/"[^"\n]*"|«[^»\n]*»/g, value => ' '.repeat(value.length));
     const explicitDay = new RegExp(`(?:^|\\s)${dateValueExpression}(?=\\s|$)`, 'i').test(masked);
     const clock = /(?:^|\s)(\d{1,2}:\d{2})(?=\s|$)/.exec(masked);
@@ -228,15 +235,24 @@ export function syncQuickEntrySource(previous: UniversalItem, next: UniversalIte
     }
   }
   const durationChanges = [
-    { before: previous.schedule?.estimatedDuration, after: next.schedule?.estimatedDuration, key: 'длительность' },
-    { before: previous.schedule?.travelDuration, after: next.schedule?.travelDuration, key: 'дорога', aliases: '(?:дорога|ехать|тт|tt|travel(?:\\s+time)?|drive)' },
+    { before: previous.schedule?.estimatedDuration, after: next.schedule?.estimatedDuration, key: 'длительность', aliases: '(?:длительность|duration|дл|dr)' },
+    { before: previous.schedule?.travelDuration, after: next.schedule?.travelDuration, key: 'дорога', aliases: '(?:дорога|ехать|тт|tt|travel(?!\\s+back)(?:\\s+time)?|drive)' },
+    { before: previous.schedule?.travelBackDuration, after: next.schedule?.travelBackDuration, key: 'обратно', aliases: '(?:обратно|тб|tb|travel\\s+back)' },
   ];
   for (const change of durationChanges) {
     if (change.before === change.after) continue;
-    const command = new RegExp(`(^|\\s)(${('aliases' in change && change.aliases) || change.key})\\s+\\S+`, 'i');
-    const amount = change.after ? Number(/PT(\d+)M/i.exec(change.after)?.[1] ?? 0) : 0;
+    const command = new RegExp(`(^|\\s)(${change.aliases})(?::|\\s)\\s*`, 'i');
+    const amount = change.after ? durationToMs(change.after) / 60000 : 0;
     const found = command.exec(text);
-    if (found) text = text.slice(0, found.index) + (amount ? `${found[1]}${found[2]} ${amount}м` : '') + text.slice(found.index + found[0].length);
+    if (found) {
+      const start = found.index + found[0].length;
+      let valueLength = 0;
+      for (let end = start + 1; end <= text.length; end++) {
+        if (end < text.length && !/\s/.test(text[end]!)) continue;
+        if (duration(text.slice(start, end)) !== null) valueLength = text.slice(start, end).trimEnd().length;
+      }
+      text = text.slice(0, found.index) + (amount ? `${found[1]}${found[2]} ${amount}м` : '') + text.slice(start + valueLength);
+    }
     else if (amount) text += ` ${change.key} ${amount}м`;
   }
   if (JSON.stringify(previous.reminders) !== JSON.stringify(next.reminders)) {

@@ -18,6 +18,8 @@ type Props = {
   sectionMark: (filled: boolean) => ReactNode;
   scheduledDuration?: { amount: number; unit: FriendlyDurationUnit };
   travelDuration?: { amount: number; unit: FriendlyDurationUnit };
+  travelBackDuration?: { amount: number; unit: FriendlyDurationUnit };
+  patchTravelBackDuration?: (amount: number | undefined, unit: FriendlyDurationUnit) => void;
   patchScheduledDuration: (amount: number | undefined, unit: FriendlyDurationUnit) => void;
   patchTravelDuration: (amount: number | undefined, unit: FriendlyDurationUnit) => void;
   patchScheduledStart: (value?: string) => void;
@@ -29,7 +31,7 @@ type Props = {
   children?: ReactNode;
 };
 
-export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchPlannedDate, patchScheduledEnd, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
+export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, travelBackDuration, patchTravelBackDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchPlannedDate, patchScheduledEnd, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
   const [quickDueOpen, setQuickDueOpen] = useState(false);
   const language = workspace.calendarPreferences.language;
   const opensAt = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
@@ -41,6 +43,10 @@ export function DatesSection({ item, workspace, now = new Date(), sectionMark, s
   return <ItemSection sectionKey="dates" title="Dates & time" iconPath="schedule" filledMark={sectionMark(Boolean(item.schedule?.plannedDate || item.schedule?.availableFrom || item.schedule?.startAt || item.schedule?.endAt || item.schedule?.dueAt || item.schedule?.estimatedDuration || item.schedule?.travelDuration || item.schedule?.allDay))}>
     <Disclosure uiKey="item-editor:date-guide" persist={false} summary="Date guide" className="date-guide"><p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p><ul><li><strong>Event opens</strong> is when the item becomes active and starts its calendar block.</li><li><strong>Event ends</strong> is only the end of the calendar block.</li><li><strong>Due / Active range ends</strong> is the latest completion time and can close the active range.</li><li><strong>Available to work from</strong> is optional; it keeps reminders quiet before that time.</li></ul></Disclosure>
     <div className="form-grid two schedule-grid">
+      {patchTravelBackDuration && (item.schedule?.startAt || item.schedule?.endAt) && !item.schedule?.allDay && <Disclosure uiKey={`item-editor:${item.id}:travel-back`} persist={false} summary={language === 'ru' ? 'Дорога обратно' : 'Travel back'} className="travel-time-disclosure">
+        <div className="travel-duration-control"><Input type="number" min="0" step="1" aria-label="Travel back amount" value={travelBackDuration?.amount ?? ''} placeholder="—" onChange={event => patchTravelBackDuration(event.target.value === '' || Number(event.target.value) <= 0 ? undefined : Number(event.target.value), travelBackDuration?.unit ?? 'minutes')} /><Select aria-label="Travel back unit" value={travelBackDuration?.unit ?? 'minutes'} onChange={event => patchTravelBackDuration(travelBackDuration?.amount, event.target.value as FriendlyDurationUnit)}><option value="minutes">Minutes</option><option value="hours">Hours</option></Select></div>
+        <small>{language === 'ru' ? 'Сразу после события. Учитывается как занятое время.' : 'Immediately after the event. Counts as busy time.'}</small>
+      </Disclosure>}
       {patchPlannedDate && !item.external && <Field label={language === 'ru' ? 'Плановая дата · без времени' : 'Planned date · no time'}><Input type="date" aria-label="Planned date" value={item.schedule?.plannedDate ?? ''} onChange={event => patchPlannedDate(event.target.value || undefined)} /></Field>}
       <Field label={<FieldIconLabel path="schedule.startAt" label="Event opens" />}><DateTimeField label="Event opens" value={item.schedule?.startAt} language={language} onChange={patchScheduledStart} /></Field>
       <Field label={<FieldIconLabel path="schedule.estimatedDuration" label="Estimated duration" />}><DurationField hasStart={Boolean(item.schedule?.startAt)} {...(scheduledDuration ? { duration: scheduledDuration } : {})} onDurationChange={patchScheduledDuration} onPreset={applyDurationPreset} /></Field>

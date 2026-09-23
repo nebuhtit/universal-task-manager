@@ -48,11 +48,12 @@ function clippedInterval(start: number, end: number, period: ViewPeriodBounds): 
 export function occupiedIntervals(item: UniversalItem, period: ViewPeriodBounds): TimeInterval[] {
   const linked = item.external?.readOnly === false && item.external.startAt ? item.external : undefined;
   const start = Date.parse(linked?.startAt ?? item.schedule?.startAt ?? '');
-  if (!Number.isFinite(start)) return [];
   const explicitEnd = Date.parse(linked?.endAt ?? item.schedule?.endAt ?? '');
+  if (!Number.isFinite(start)) return Number.isFinite(explicitEnd) ? clippedInterval(explicitEnd, explicitEnd + travelDurationMs(item, true), period) : [];
   const end = Number.isFinite(explicitEnd) ? explicitEnd : start + effectiveItemDurationMs(item);
+  if (end < start) return [];
   const event = (linked?.allDay ?? item.schedule?.allDay) || item.external?.transparency === 'transparent' ? [] : clippedInterval(start, end, period);
-  return [...event, ...clippedInterval(start - travelDurationMs(item), start, period)];
+  return [...event, ...clippedInterval(start - travelDurationMs(item), start, period), ...clippedInterval(end, end + travelDurationMs(item, true), period)];
 }
 
 function shiftDateKey(key: string, days: number): string {
@@ -129,9 +130,9 @@ export function inferViewPeriod(view: Pick<SavedView, 'query'>, now: Date, optio
   };
 }
 
-function travelDurationMs(item: UniversalItem): number {
+function travelDurationMs(item: UniversalItem, back = false): number {
   try {
-    const duration = durationToMs(item.schedule?.travelDuration ?? 'PT0S');
+    const duration = durationToMs((back ? item.schedule?.travelBackDuration : item.schedule?.travelDuration) ?? 'PT0S');
     return Number.isFinite(duration) && duration > 0 ? duration : 0;
   } catch { return 0; }
 }
@@ -140,7 +141,7 @@ const eligible = (item: UniversalItem) => !item.deletedAt
   && item.role !== 'series_template'
   && item.state !== 'cancelled'
   && item.state !== 'archived'
-  && (participatesInTimeStatistics(item) || Boolean(item.schedule?.startAt && travelDurationMs(item) > 0));
+  && (participatesInTimeStatistics(item) || Boolean(item.schedule?.startAt && (travelDurationMs(item) > 0 || travelDurationMs(item, true) > 0)));
 
 function overlap(start: number, end: number, period: ViewPeriodBounds): number {
   return Math.max(0, Math.min(end, period.endExclusive.getTime()) - Math.max(start, period.start.getTime()));
@@ -152,7 +153,7 @@ export function itemDurationInsidePeriod(item: UniversalItem, period: ViewPeriod
     const start = Date.parse(item.external.startAt ?? ''); const end = Date.parse(item.external.endAt ?? '');
     if (!Number.isFinite(start)) return 0;
     const event = item.external.allDay || item.external.transparency === 'transparent' || !Number.isFinite(end) ? 0 : overlap(start, end, period);
-    return event + overlap(start - travel, start, period);
+    return event + overlap(start - travel, start, period) + (Number.isFinite(end) ? overlap(end, end + travelDurationMs(item, true), period) : 0);
   }
   const duration = effectiveItemDurationMs(item);
   const start = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
@@ -161,7 +162,7 @@ export function itemDurationInsidePeriod(item: UniversalItem, period: ViewPeriod
   const end = Number.isFinite(explicitEnd) && explicitEnd > start ? explicitEnd : start + duration;
   const eventOverlap = overlap(start, end, period);
   const event = item.schedule?.allDay || item.external?.transparency === 'transparent' ? 0 : eventOverlap;
-  return event + overlap(start - travel, start, period);
+  return event + overlap(start - travel, start, period) + overlap(end, end + travelDurationMs(item, true), period);
 }
 
 /** Incrementally derives exactly the same metrics as a finite-period View. */
@@ -187,7 +188,7 @@ export function createViewTimeMetricsAccumulator(period?: ViewPeriodBounds): Vie
       } else if (item.state === 'open') remainingDurationMs += direction * duration;
     }
     if (period && eligible(item)) {
-      const anchored = Boolean(item.external?.startAt ?? item.schedule?.startAt);
+      const anchored = Boolean(item.external?.startAt ?? item.schedule?.startAt) || Boolean(item.schedule?.endAt && travelDurationMs(item, true) > 0);
       if (anchored) { if (direction === 1) occupied.set(item.id, occupiedIntervals(item, period)); else occupied.delete(item.id); }
       else plannedDurationMs += direction * itemDurationInsidePeriod(item, period);
     }

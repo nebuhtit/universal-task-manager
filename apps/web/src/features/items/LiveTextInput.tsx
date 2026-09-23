@@ -78,7 +78,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: [...new Set(Object.values(workspace.items).filter(item => !item.deletedAt).flatMap(item => item.tags))].sort() } : { area: [], project: [], tag: [] }, [workspace]);
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => organizationSuggestions(value, caret, catalog) ?? suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language, catalog]);
   const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
-  useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = suggestions.ordered ? 0 : panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
+  useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
   useEffect(() => { if (expanded && selected >= 0) document.getElementById(`${id}-option-${selected}`)?.scrollIntoView({ block: 'nearest' }); }, [expanded, selected, id]);
   useLayoutEffect(() => {
     if (pendingCaret.current === null) return;
@@ -146,13 +146,11 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;
       if (event.key === 'Escape') { if (open) { event.preventDefault(); event.stopPropagation(); } setOpen(false); return; }
-      // On iPhone the keyboard action is a form submission, even when a
-      // suggestion was highlighted earlier. Space still applies that option.
-      if (event.key === 'Enter' && !multiline && !overlaySuggestions && window.matchMedia('(pointer: coarse)').matches) { event.preventDefault(); submitControl(event.currentTarget); return; }
-      if (expanded && ['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); setSelected((current) => current < 0 ? event.key === 'ArrowDown' ? 0 : suggestions.options.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.options.length) % suggestions.options.length); }
+      // Enter submits capture (or bubbles to the editor), never a suggestion.
+      if (event.key === 'Enter') { if (!multiline && !overlaySuggestions) { event.preventDefault(); submitControl(event.currentTarget); } return; }
+      if (expanded && ['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); setSelected((current) => current < 0 ? 0 : (current + (event.key === 'ArrowUp' ? 1 : -1) + suggestions.options.length) % suggestions.options.length); }
       else if (expanded && event.key === 'Tab') { event.preventDefault(); setSelected((current) => current < 0 ? event.shiftKey ? suggestions.options.length - 1 : 0 : (current + (event.shiftKey ? -1 : 1) + suggestions.options.length) % suggestions.options.length); }
-      else if (expanded && selected >= 0 && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(selected); }
-      else if (event.key === 'Enter' && !multiline && !overlaySuggestions) { event.preventDefault(); submitControl(event.currentTarget); }
+      else if (expanded && selected >= 0 && event.key === ' ') { event.preventDefault(); choose(selected); }
     },
   };
   const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div ref={panel} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-overlay' : ''}`} style={overlayStyle}>
@@ -163,7 +161,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
       <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onClick={() => { setReport({ input: value, parsed, referenceTime: referenceTime.toISOString() }); setExpected(''); setReportError(''); }}>Сообщить о неточности</Button>
       {notice && <small role="status">{notice}</small>}
       {expanded && <div id={`${id}-options`} role="listbox" aria-label="Подсказки Live text" className="live-text-options">
-        {(suggestions.ordered ? suggestions.options.map((option, index) => ({ option, index })) : suggestions.options.map((option, index) => ({ option, index })).reverse()).map(({ option, index }) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && endY !== undefined && Math.abs(endY - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); choose(index); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) choose(index); }}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
+        {suggestions.options.map((option, index) => ({ option, index })).reverse().map(({ option, index }) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && endY !== undefined && Math.abs(endY - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); choose(index); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) choose(index); }}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
       </div>}
     </div>;
   return <div className="live-text-input" ref={root}>

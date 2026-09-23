@@ -1,0 +1,33 @@
+import { expect, test } from '@playwright/test';
+
+test('Enter submits instead of choosing a suggestion; return travel is collapsed', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await page.getByLabel('Workspace name').fill('Natural grammar');
+  await page.getByLabel('Password', { exact: true }).fill('isolated-natural-test');
+  await page.getByLabel('Confirm password').fill('isolated-natural-test');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  const capture = page.getByPlaceholder('Add new item');
+  await capture.fill('Task tomorrow');
+  const options = page.getByRole('option');
+  await expect(options.last()).toHaveAttribute('id', /option-0$/);
+  await capture.press('ArrowUp');
+  await capture.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Title', exact: true })).toHaveValue('Task');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await capture.fill('Встреча завтра 19:00 ттб 30м бн н за 2ч 1д');
+  await capture.press('Enter');
+  const back = page.locator('summary').filter({ hasText: /^(Travel back|Дорога обратно)$/ }).locator('..');
+  await expect(back).toHaveCount(1);
+  await expect(back).not.toHaveAttribute('open');
+  const dates = page.locator('details[data-editor-section="dates"]');
+  if (await dates.getAttribute('open') === null) await dates.locator(':scope > summary').click();
+  await back.locator('summary').click();
+  await expect(page.getByLabel('Travel back amount')).toHaveValue('30');
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
+  await capture.fill('Second enter task'); await capture.press('Enter');
+  await page.getByRole('combobox', { name: 'Title', exact: true }).press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
+});

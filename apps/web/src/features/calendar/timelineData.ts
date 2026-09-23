@@ -3,7 +3,7 @@ import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { itemDeletionTime } from '@utm/core';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { viewItemForEvaluation } from '../views/viewSelectors';
-import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, type TimelineEvent } from './timelineLayout';
+import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, returnTravelInterval, type TimelineEvent } from './timelineLayout';
 import { planUndatedTasks } from './timelinePlanning';
 import { isCompletelyUndated, showUndatedItem, showOverdueToday } from './calendarVisibility';
 
@@ -95,6 +95,8 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
     if (!sources.some(value => scheduledBy.includes(value))) continue;
     const travel = travelInterval(item);
     if (travel && intersects(travel, day)) events.push(travel);
+    const travelBack = returnTravelInterval(item);
+    if (travelBack && intersects(travelBack, day)) events.push(travelBack);
     if (!intersects(interval, day)) continue;
     if (item.schedule?.allDay) allDay.push(item);
     else events.push(interval);
