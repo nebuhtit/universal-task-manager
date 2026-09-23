@@ -1,5 +1,7 @@
 import {
   compileQuery,
+  expressionDependsOnCurrentTime,
+  parseSortSource,
   recurrenceDisplayItems,
   activeRangeBounds,
   calendarDateKey,
@@ -28,7 +30,26 @@ import {
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { showOverdueToday } from './calendarVisibility';
 import { isItemTemplate } from '../items/fieldDisplay';
-import { sortViewItems, viewItemForEvaluation, type ViewEvaluation } from '../views/viewSelectors';
+import { attentionSortValues, sortViewItems, viewItemForEvaluation, type ViewEvaluation } from '../views/viewSelectors';
+import { createCalendarProjectionCache, type CalendarProjectionCache } from './calendarProjectionCache';
+
+type EvaluationCache = {
+  projections: CalendarProjectionCache;
+  rows: WeakMap<ProjectedOccurrence, { source: UniversalItem; item: UniversalItem }>;
+  source?: WorkspaceDocument;
+  workspace?: WorkspaceDocument;
+  context: string;
+  days: Map<string, { signature: string; value: CalendarDayEvaluation }>;
+  counters: { dayCalculations: number; indexBuilds: number };
+};
+
+/** Independent instance per Calendar; never writes into persisted workspace data. */
+export function createCalendarEvaluator() {
+  const cache: EvaluationCache = { projections: createCalendarProjectionCache(), rows: new WeakMap(), context: '', days: new Map(), counters: { dayCalculations: 0, indexBuilds: 0 } };
+  return { projections: cache.projections, counters: cache.counters,
+    evaluate: (workspace: WorkspaceDocument, start: string, end: string, settings: CalendarDayViewPreferences, now: Date) => evaluateCalendarRange(workspace, start, end, settings, now, cache),
+  };
+}
 
 export type CalendarProjectedEntry = { row: ProjectedOccurrence; item: UniversalItem };
 export type CalendarDayEvaluation = {
@@ -90,14 +111,21 @@ export function evaluateCalendarRange(
   rangeEndKey: string,
   settings: CalendarDayViewPreferences,
   now: Date,
+  cache?: EvaluationCache,
 ): CalendarRangeEvaluation {
   const timeZone = workspace.calendarPreferences.timezone;
   const today = calendarDateKey(now, timeZone);
   const rangeStart = zonedDateStart(rangeStartKey, timeZone);
   const rangeEnd = zonedDateStart(rangeEndKey, timeZone);
-  const calendarWorkspace = { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map((item) => [item.id, googleCalendarProjection(item)])) };
-  const projected = projectOccurrences(calendarWorkspace, rangeStart, rangeEnd)
-    .map((row) => ({ row, item: itemForRow(calendarWorkspace, row) }))
+  const calendarWorkspace = cache?.projections.workspaceFor(workspace) ?? { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map((item) => [item.id, googleCalendarProjection(item)])) };
+  const projected = (cache ? cache.projections.project(workspace, rangeStart, rangeEnd) : projectOccurrences(calendarWorkspace, rangeStart, rangeEnd))
+    .map((row) => {
+      const source = calendarWorkspace.items[row.materializedItemId ?? row.sourceItemId];
+      const prior = cache?.rows.get(row);
+      const item = prior && prior.source === source ? prior.item : itemForRow(calendarWorkspace, row);
+      if (cache && source && item) cache.rows.set(row, { source, item });
+      return { row, item };
+    })
     .filter((entry): entry is CalendarProjectedEntry => Boolean(entry.item));
   const projectedIds = new Set(projected.map(entry => entry.item.id));
   for (const item of Object.values(calendarWorkspace.items)) {
@@ -110,10 +138,20 @@ export function evaluateCalendarRange(
       projectedIds.add(item.id);
     }
   }
-  const projectedWorkspace = {
+  let projectedWorkspace = {
     ...workspace,
     items: Object.fromEntries(projected.map(({ item }) => [item.id, item])),
   } as WorkspaceDocument;
+  if (cache) {
+    const prior = cache.workspace;
+    if (cache.source === workspace && prior && Object.keys(prior.items).length === projected.length && projected.every(({ item }) => prior.items[item.id] === item)) projectedWorkspace = prior;
+    else { cache.workspace = projectedWorkspace; cache.counters.indexBuilds++; }
+    if (cache.source !== workspace) {
+      const { items: _items, updatedAt: _updatedAt, ...context } = workspace;
+      cache.context = JSON.stringify(context);
+      cache.source = workspace;
+    }
+  }
   const index = getWorkspaceIndex(projectedWorkspace, true);
   const filterSource = settings.filter.source.trim() || 'true';
   const templateFilterRequested = /\bisTemplate\b/.test(filterSource);
@@ -134,7 +172,7 @@ export function evaluateCalendarRange(
   const buckets = new Map<string, {
     entries: CalendarProjectedEntry[];
     view: SavedView;
-    metrics: ReturnType<typeof createViewTimeMetricsAccumulator>;
+    metricItems: UniversalItem[];
     occurrenceIndexBySeries: Map<string, number>;
     standaloneIds: Set<string>;
     visibleSourceIds: Set<string>;
@@ -147,7 +185,7 @@ export function evaluateCalendarRange(
     buckets.set(key, {
       entries: [],
       view: calendarDayView(key, settings),
-      metrics: createViewTimeMetricsAccumulator(viewPeriodBoundsForDates(key, key, timeZone)),
+      metricItems: [],
       occurrenceIndexBySeries: new Map(),
       standaloneIds: new Set(),
       visibleSourceIds: new Set(),
@@ -180,21 +218,21 @@ export function evaluateCalendarRange(
         if (bucket.standaloneIds.has(entry.item.id)) continue;
         bucket.standaloneIds.add(entry.item.id);
         bucket.entries.push(entry);
-        bucket.metrics.add(entry.item);
+        bucket.metricItems.push(entry.item);
         continue;
       }
       const existingIndex = bucket.occurrenceIndexBySeries.get(seriesId);
       if (existingIndex === undefined) {
         bucket.occurrenceIndexBySeries.set(seriesId, bucket.entries.length);
         bucket.entries.push(entry);
-        bucket.metrics.add(entry.item);
+        bucket.metricItems.push(entry.item);
         continue;
       }
       const existing = bucket.entries[existingIndex]!;
       if (occurrencePreference(entry, existing) >= 0) continue;
       bucket.entries[existingIndex] = entry;
-      bucket.metrics.remove(existing.item);
-      bucket.metrics.add(entry.item);
+      bucket.metricItems.splice(bucket.metricItems.indexOf(existing.item), 1);
+      bucket.metricItems.push(entry.item);
     }
   }
 
@@ -205,7 +243,7 @@ export function evaluateCalendarRange(
       for (const key of scheduleDateKeysInRange(item, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone })) {
         const bucket = buckets.get(key);
         if (!bucket || bucket.entries.some((entry) => entry.item.id === item.id)) continue;
-        bucket.metrics.add(item);
+        bucket.metricItems.push(item);
         bucket.visibleSourceIds.add(item.occurrence?.seriesId ?? item.id);
       }
     }
@@ -228,14 +266,30 @@ export function evaluateCalendarRange(
     }
   }
 
+  const sortSource = settings.sortSource ?? settings.sort.map(rule => `${rule.expression} ${rule.direction} nulls ${rule.nulls}`).join('\n');
+  let timeSort = true;
+  let attentionSort = false;
+  try {
+    const rules = parseSortSource(sortSource);
+    attentionSort = rules.some(rule => rule.expression === 'attentionOrder');
+    timeSort = rules.some(rule => expressionDependsOnCurrentTime(rule.expression));
+  } catch { /* Keep invalid sort behavior unchanged. */ }
   const days = Object.fromEntries([...buckets].map(([key, bucket]) => {
+    const signature = cache ? JSON.stringify([cache.context, bucket.view, bucket.entries, bucket.metricItems, [...bucket.reserveCandidates], bucket.reservedDurationMs, bucket.reservedIntervals, timeSort ? now.getTime() : null, attentionSort ? bucket.entries.map(({ item }) => attentionSortValues(viewItemForEvaluation(item), now)) : null]) : '';
+    const prior = cache?.days.get(key);
+    if (prior?.signature === signature) return [key, { ...prior.value, evaluation: { ...prior.value.evaluation, now } }];
     const items = sortViewItems(projectedWorkspace, bucket.view, bucket.entries.map(({ item }) => item), now);
     const entriesById = new Map(bucket.entries.map((entry) => [entry.item.id, entry]));
     const entries = items.map((item) => entriesById.get(item.id)).filter((entry): entry is CalendarProjectedEntry => Boolean(entry));
-    const metrics = bucket.metrics.finish(bucket.reservedDurationMs + unionDuration(bucket.reservedIntervals), bucket.reservedIntervals);
+    const accumulator = createViewTimeMetricsAccumulator(viewPeriodBoundsForDates(key, key, timeZone));
+    bucket.metricItems.forEach(item => accumulator.add(item));
+    const metrics = accumulator.finish(bucket.reservedDurationMs + unionDuration(bucket.reservedIntervals), bucket.reservedIntervals);
     if (!bucket.view.statistics?.showActualTime) delete metrics.actualDurationMs;
-    return [key, { entries, reservedItems: [...bucket.reserveCandidates.values()], view: bucket.view, metrics, evaluation: { items, metrics, now } }];
+    const value = { entries, reservedItems: [...bucket.reserveCandidates.values()], view: bucket.view, metrics, evaluation: { items, metrics, now } };
+    if (cache) { cache.days.set(key, { signature, value }); cache.counters.dayCalculations++; }
+    return [key, value];
   }));
+  if (cache) for (const key of cache.days.keys()) if (!buckets.has(key)) cache.days.delete(key);
 
   return { workspace: projectedWorkspace, projectedCount: projected.length, filteredCount: filtered.length, days };
 }

@@ -1,10 +1,32 @@
 import {
-  activeRangeDailyDuration, createViewTimeMetricsAccumulator, itemDurationInsidePeriod, occupiedIntervals,
+  activeRangeDailyDuration, calendarDateKey, createViewTimeMetricsAccumulator, itemDurationInsidePeriod, occupiedIntervals,
   participatesInTimeStatistics, unionDuration, viewPeriodBoundsForDates,
   type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import type { CalendarDayEvaluation } from './calendarEvaluation';
 import { showOverdueToday } from './calendarVisibility';
+
+/** Reuse untouched full-day capacity; only today's remaining portion follows the clock. */
+export function createCalendarCapacityCache() {
+  const days = new Map<string, { workspace: WorkspaceDocument; items: UniversalItem[]; reserved: UniversalItem[]; undated: UniversalItem[]; allDayOpen: boolean; input: string; signature: string; value: ReturnType<typeof calendarVisibleCapacity> }>();
+  const counters = { calculations: 0 };
+  return { counters, calculate(workspace: WorkspaceDocument, day: CalendarDayEvaluation, key: string, now: Date, undated: UniversalItem[], allDayOpen: boolean) {
+    // JSON signatures are only built when inputs change, not on each clock tick.
+    const zone = workspace.calendarPreferences.timezone;
+    const prior = days.get(key);
+    const input = prior && prior.workspace === workspace && prior.items === day.evaluation.items && prior.reserved === day.reservedItems && prior.undated === undated && prior.allDayOpen === allDayOpen ? prior.input
+      : JSON.stringify([zone, workspace.calendarPreferences.timeline?.showOverdue, workspace.calendarPreferences.timeline?.showUndated, allDayOpen, day.evaluation.items, day.reservedItems, undated, day.evaluation.items.map(item => item.occurrence ? workspace.items[item.occurrence.seriesId]?.recurrence : null)]);
+    const signature = `${input}:${calendarDateKey(now, zone) === key ? now.getTime() : 'full'}`;
+    if (prior?.signature === signature) {
+      days.set(key, { ...prior, workspace, items: day.evaluation.items, reserved: day.reservedItems, undated, allDayOpen });
+      return prior.value;
+    }
+    const value = calendarVisibleCapacity(workspace, day, key, now, undated, allDayOpen);
+    if (days.size >= 62 && !days.has(key)) days.delete(days.keys().next().value!);
+    days.set(key, { workspace, items: day.evaluation.items, reserved: day.reservedItems, undated, allDayOpen, input, signature, value }); counters.calculations++;
+    return value;
+  } };
+}
 
 /** One read-only capacity result shared by the navigator, header and Timeline. */
 export function calendarVisibleCapacity(

@@ -385,5 +385,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); void refreshPasswordProtection();
   };
   const resetReminderDelivery = (ids: string[]) => ids.forEach((id) => deliveredReminderIds.current.delete(id));
-  return { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery };
+  const getCurrentWorkspace = () => (sessionRef.current?.document as WorkspaceDocument | undefined) ?? null;
+  const getCurrentSessionKey = () => sessionRef.current?.dataKey ?? null;
+  return { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey };
 }

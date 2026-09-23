@@ -73,6 +73,22 @@ describe('Google Calendar workspace mirror', () => {
     expect(workspace.items['google:primary:weekly_20260923']?.schedule.estimatedDuration).toBe('PT1H45M');
   });
 
+  it('scopes acknowledged deletions to the account and exact event identity', () => {
+    const workspace = createWorkspace('Acknowledged deletion');
+    workspace.calendarPreferences.googleCalendar = { connectionId: 'connection-1', accountEmail: 'owner@example.invalid', calendars: [], syncTokens: {} };
+    const item = createItem('Local task');
+    item.extensions = { 'utm:googleDeletionReceipts': [{ calendarId: 'primary', eventId: 'removed', accountEmail: 'owner@example.invalid', deletedAt: syncedAt }] };
+    workspace.items[item.id] = item;
+    const event = { id: 'removed', start: { dateTime: '2026-08-31T10:00:00Z' }, end: { dateTime: '2026-08-31T11:00:00Z' } };
+    const batch = { connectionId: 'connection-1', calendarId: 'primary', events: [event, { ...event, id: 'unrelated' }], syncedAt, fullSync: false };
+    applyGoogleCalendarSync(workspace, batch);
+    expect(workspace.items['google:primary:removed']).toBeUndefined();
+    expect(workspace.items['google:primary:unrelated']).toBeDefined();
+    workspace.calendarPreferences.googleCalendar.accountEmail = 'another@example.invalid';
+    applyGoogleCalendarSync(workspace, batch);
+    expect(workspace.items['google:primary:removed']).toBeDefined();
+  });
+
   it('migrates optional Google metadata without keeping malformed credentials or provenance', () => {
     const workspace = createWorkspace('Migration');
     const item = createItem('Foreign');

@@ -147,6 +147,11 @@ function normalizeSeparators(input: string): string {
     if (!/[;,—]/.test(separator)) continue;
     const before = masked.slice(0, index).trimEnd();
     const after = masked.slice(index + 1).trimStart();
+    // Spaces/newlines after a reminder-list comma are presentation, not a
+    // command separator. Otherwise an absolute reminder list loses entries.
+    const lastLabel = [...before.matchAll(/(?:^|\s)(н|r|напомнить|нап|напомни|напоминание|напоминания|напомянание|remind(?:\s+me)?|reminder|начало|конец|срок|start|end|due|дорога|travel|длительность|duration)(?=\s|:)/gi)].at(-1)?.[1];
+    const reminderList = lastLabel && /^(?:н|r|напомнить|нап|напомни|напоминание|напоминания|напомянание|remind(?:\s+me)?|reminder)$/i.test(lastLabel);
+    if (separator === ',' && reminderList && (/^(?:(?:в|at|через|in)\s|(?:начало|срок|выезд|start|due|leave)[-+]|\d)/i.test(after) || new RegExp('^' + dateValueExpression + '(?=\\s|$)', 'i').test(after))) continue;
     const afterCommand = nextCommand.test(after);
     const afterValue = /(?:\d{1,2}:\d{2}|\d{1,2}\s\d{2}|\d+(?:[.,]\d+)?\s*(?:м|мин|ч|час|h|m|d|д)|сегодня|завтра|послезавтра)$/i.test(before);
     if (separator === ',' && !afterCommand && !/\s/.test(masked[index + 1] ?? '')) continue;

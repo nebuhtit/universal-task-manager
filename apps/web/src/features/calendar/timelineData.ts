@@ -1,4 +1,4 @@
-import { activeRangeBounds, compileQuery, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { activeRangeBounds, compileQuery, createOccurrence, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { itemDeletionTime, recurrenceDisplayItems } from '@utm/core';
 import { isItemTemplate } from '../items/fieldDisplay';
@@ -6,17 +6,17 @@ import { viewItemForEvaluation } from '../views/viewSelectors';
 import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, returnTravelInterval, type TimelineEvent } from './timelineLayout';
 import { planUndatedTasks } from './timelinePlanning';
 import { isCompletelyUndated, showUndatedItem, showOverdueToday } from './calendarVisibility';
+import { calendarProjectionPadding, type CalendarProjectionCache } from './calendarProjectionCache';
 
-export function timelineData(workspace: WorkspaceDocument, key: string, now: Date) {
+export function prepareTimelineData(workspace: WorkspaceDocument, key: string, now: Date, cache?: CalendarProjectionCache) {
   const preferences = workspace.calendarPreferences;
   const day = dayBounds(key, preferences.timezone);
-  const mapped = { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map(item => [item.id, googleCalendarProjection(item)])) };
+  const mapped = cache?.workspaceFor(workspace) ?? { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map(item => [item.id, googleCalendarProjection(item)])) };
   const items = Object.values(mapped.items).filter(item => !itemDeletionTime(mapped, item));
   // A finite padded projection catches overnight and long Duration occurrences.
   // Extremely long recurring spans are explicitly reported, never expanded unboundedly.
-  const desiredPadding = Math.max(86_400_000, ...items.filter(item => item.role === 'series_template').map(item => Math.max(effectiveItemDurationMs(item), Math.max(0, Date.parse(item.schedule?.dueAt ?? '') - Date.parse(item.schedule?.startAt ?? '')) || 0)));
-  const padding = Math.min(desiredPadding, 366 * 86_400_000);
-  const projected = projectOccurrences(mapped, new Date(day.start - padding), new Date(day.end + padding));
+  const { desired: desiredPadding, padding } = calendarProjectionPadding(items);
+  const projected = cache ? cache.project(workspace, new Date(day.start - padding), new Date(day.end + padding)) : projectOccurrences(mapped, new Date(day.start - padding), new Date(day.end + padding));
   const candidates = new Map<string, UniversalItem>();
   for (const row of projected) {
     const source = mapped.items[row.materializedItemId ?? row.sourceItemId];
@@ -106,13 +106,24 @@ export function timelineData(workspace: WorkspaceDocument, key: string, now: Dat
   const withoutSleep = events.filter(event => !isSleep(event.item));
   const visible = hiding ? withoutSleep : events;
   const sleepGaps = hiddenIntervals(sleep, withoutSleep, day);
-  const planning = planUndatedTasks(undated, events, sleep, day, now, preferences.timeline?.showOverdue === false ? [] : overdue);
+  return { day, events, visible, allDay, undated, activeRange, overdue, sleep, sleepGaps, hiding,
+    showOverdue: preferences.timeline?.showOverdue !== false,
+    sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)), projectionLimited: desiredPadding > padding };
+}
+
+/** Minute changes move tentative proposals without rebuilding projections or filters. */
+export function applyTimelinePlanning(prepared: ReturnType<typeof prepareTimelineData>, now: Date) {
+  const { day, events, visible, allDay, undated, activeRange, overdue, sleep, sleepGaps, hiding, showOverdue, sleepMissing, projectionLimited } = prepared;
+  const planning = planUndatedTasks(undated, events, sleep, day, now, showOverdue ? overdue : []);
   const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
-    day, events: [...visible, ...planning.proposals.filter(event => !event.tentativeOverdue || preferences.timeline?.showOverdue !== false)], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),
+    day, events: [...visible, ...planning.proposals.filter(event => !event.tentativeOverdue || showOverdue)], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),
     plannedTasks: undated.filter(item => !placedIds.has(item.id) && item.schedule?.plannedDate), activeRange, overdue, planning,
     hidden: hiding ? sleepGaps : [], sleepGaps,
-    sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)),
-    projectionLimited: desiredPadding > padding,
+    sleepMissing, projectionLimited,
   };
+}
+
+export function timelineData(workspace: WorkspaceDocument, key: string, now: Date, cache?: CalendarProjectionCache) {
+  return applyTimelinePlanning(prepareTimelineData(workspace, key, now, cache), now);
 }

@@ -24,7 +24,7 @@ import { useWorkspaceNow } from '../../../hooks/useClock';
 import { inferredPreset, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
-import { applyQuickEntryText, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
+import { formatQuickEntryForEditor, applyQuickEntryText, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
 import { LiveTextInput } from '../LiveTextInput';
 import { parseLiveEntry as parseEntry } from '../../../../quick-entry-lab/parser';
 import { ItemSection } from './ItemSection';
@@ -67,8 +67,8 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onDuplicate, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onGoogleEditDraft, onGoogleUpdated, onGoogleSeriesUpdated, onOpenOccurrence }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
-  onOpenOccurrence?: (item: UniversalItem) => void;
+export function ItemEditor({ focusTitle = false, initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onDuplicate, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onGoogleEditDraft, onGoogleSave, onOpenOccurrence }: Partial<GoogleCreationCallbacks & GoogleEditingCallbacks> & {
+  focusTitle?: boolean; onOpenOccurrence?: (item: UniversalItem) => void;
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
   onDuplicate?: (item: UniversalItem) => void;
   onTimerStateSave?: (itemId: string, timer: UniversalItem['activeTimer']) => void | Promise<void>;
@@ -104,8 +104,16 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const [repeatIntervalDraft, setRepeatIntervalDraft] = useState('1');
   const [error, setError] = useState('');
   const [sourceEditing, setSourceEditing] = useState(false);
-  const [sourceDraft, setSourceDraft] = useState(() => quickEntrySource(initial)?.text ?? '');
-  const [titleText, setTitleText] = useState(initial.title);
+  const [sourceDraft, setSourceDraft] = useState(() => formatQuickEntryForEditor(quickEntrySource(initial)?.text ?? ''));
+  const [titleText, setTitleText] = useState(() => formatQuickEntryForEditor(quickEntrySource(initial)?.text ?? initial.title));
+  const titleEdited = useRef(false);
+  useEffect(() => {
+    // Field controls keep the visible command line current; typing keeps its
+    // exact text/caret until the user leaves the field.
+    if (!sourceEditing && typeof document !== 'undefined' && document.activeElement?.id !== titleFieldId) {
+      setTitleText(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? item.title));
+    }
+  }, [item, sourceEditing, titleFieldId]);
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(initial, null, 2));
   const [jsonDirty, setJsonDirty] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
@@ -123,7 +131,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const quickTitleWasFocused = useRef(false);
   const retainedQuickCaptureFocus = useRef(typeof document !== 'undefined' && Boolean(document.activeElement?.closest('[data-quick-capture]'))).current;
   const templates = Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.extensions?.['utm:template'] === true && candidate.id !== item.id);
-  const focusTitleOnOpen = typeof window !== 'undefined' && window.matchMedia('(min-width: 621px)').matches;
+  const focusTitleOnOpen = focusTitle || typeof window !== 'undefined' && window.matchMedia('(min-width: 621px)').matches;
   // Parent links are stored on the parent item (parent -> child). Derive the
   // reverse side so a child always shows its parent in the editor.
   const parentItems = Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.id !== item.id && candidate.relations.some((relation) => relation.type === 'parent' && relation.targetId === item.id));
@@ -150,11 +158,20 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     return syncQuickEntrySource(current, next as unknown as UniversalItem);
   });
   const updateTitleText = (text: string) => {
+    titleEdited.current = true;
     setTitleText(text);
     const parsed = parseEntry(text, now);
     if (parsed.errors.length) return;
+    if (quickEntrySource(initial)) {
+      const interpreted = applyQuickEntryText({ ...item, tags: commaList(tags) }, text, now).item;
+      setItem(interpreted);
+      setTags(interpreted.tags.join(', '));
+      return;
+    }
     setItem((current) => {
       const interpreted = applyQuickEntryText(current, text, now).item;
+      // The initial field contains the whole stored command line, so removing a
+      // command must remove its value too. Plain-title drafts retain other fields.
       const schedule = { ...interpreted.schedule!, ...current.schedule };
       if (parsed.start) {
         const previousSpan = current.schedule?.startAt && current.schedule?.endAt
@@ -393,7 +410,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const [programValid, setProgramValid] = useState(true);
   const save = async ({ dismissKeyboard = false, complete = false }: { dismissKeyboard?: boolean; complete?: boolean } = {}) => {
     if (sourceEditing) { setError('Примените или отмените правку строки быстрого ввода перед сохранением.'); return; }
-    if (!googleEvent && titleText !== initial.title) {
+    if (!googleEvent && titleEdited.current) {
       const titleErrors = parseEntry(titleText, now).errors;
       if (titleErrors.length) { setError(titleErrors.join(' ')); return; }
     }
@@ -460,8 +477,8 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
   const sectionMark = (filled: boolean) => !isNew && filled ? <span className="section-dot" aria-label="Contains data">•</span> : null;
   const dateField = (label: string, value: string | undefined, onChange: (value: string | undefined) => void, help?: string, onFocus?: () => void, minValue?: string) => <DateTimeField label={label} value={value} language={workspace.calendarPreferences.language} onChange={onChange} help={help} onFocus={onFocus} minValue={minValue} />;
   const timerOwner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
-  if (googleLink && editingGoogle && onGoogleEditDraft && onGoogleUpdated) return <EditGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleUpdated={async (event, calendarId) => { await onGoogleUpdated(event, calendarId); if (googleEvent) onClose(); else setEditingGoogle(false); }} {...(onGoogleSeriesUpdated ? { onGoogleSeriesUpdated } : {})} />;
-  if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<><Button onClick={onClose}>Close</Button>{onGoogleEditDraft && onGoogleUpdated && <Button disabled={!workspace.calendarPreferences.googleCalendar?.allowPastEventEditing && !workspace.items[item.id]?.extensions?.[GOOGLE_EDIT_EXTENSION] && (!item.schedule?.endAt || Date.now() > Date.parse(item.schedule.endAt) + 3 * 3600_000)} onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Редактировать' : 'Edit event'}</Button>}</>}>
+  if (googleLink && editingGoogle && onGoogleEditDraft && onGoogleSave) return <EditGoogleEventDialog item={googleItem} workspace={workspace} onClose={() => setEditingGoogle(false)} onGoogleEditDraft={onGoogleEditDraft} onGoogleSave={async operation => { await onGoogleSave(operation); if (googleEvent) onClose(); else setEditingGoogle(false); }} />;
+  if (googleEvent) return <ResponsiveDialog open title="Google Calendar event" ariaLabel="Google Calendar properties" onOpenChange={(open) => { if (!open) onClose(); }} footer={<><Button onClick={onClose}>Close</Button>{onGoogleEditDraft && onGoogleSave && <Button disabled={!workspace.calendarPreferences.googleCalendar?.allowPastEventEditing && !workspace.items[item.id]?.extensions?.[GOOGLE_EDIT_EXTENSION] && (!item.schedule?.endAt || Date.now() > Date.parse(item.schedule.endAt) + 3 * 3600_000)} onClick={() => setEditingGoogle(true)}>{workspace.calendarPreferences.language === 'ru' ? 'Редактировать' : 'Edit event'}</Button>}</>}>
     <h2>{item.title}</h2><p style={{ whiteSpace: 'pre-wrap' }}>{item.bodyMarkdown}</p>
     <dl className="google-create-preview">
       <dt>Location</dt><dd>{item.location || '—'}</dd>
@@ -482,7 +499,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     <ItemHistoryJournals item={item} workspace={workspace} onChange={async (next) => { await onHistorySave?.(next); setItem(next); }} />
   </ResponsiveDialog>;
 
-  return <ResponsiveDialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" disabled={saving || sourceEditing} onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || sourceEditing} onClick={() => void save()}>{saving ? 'Saving…' : 'Save item'}</button></div>}>
+  return <ResponsiveDialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus || focusTitle ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" disabled={saving || sourceEditing} onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || sourceEditing} onClick={() => void save()}>{saving ? 'Saving…' : 'Save item'}</button></div>}>
     <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
       if (event.target === titleInputRef.current) quickTitleWasFocused.current = true;
       else if (quickTitleWasFocused.current) quickTitleSaveAllowed.current = false;
@@ -495,11 +512,11 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     }}>
         <div className="item-title-field">
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && !googleEvent && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
-            if (!sourceEditing) { setSourceDraft(quickEntrySource(item)?.text ?? titleText); setSourceEditing(true); setError(''); return; }
+            if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? titleText)); setSourceEditing(true); setError(''); return; }
             try { const updated = applyQuickEntryText(item, sourceDraft, now).item; setItem(updated); setTitleText(updated.title); setSourceDraft(quickEntrySource(updated)?.text ?? ''); setSourceEditing(false); setError(''); }
             catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
           }}>{sourceEditing ? (workspace.calendarPreferences.language === 'ru' ? 'Применить строку' : 'Apply line') : (workspace.calendarPreferences.language === 'ru' ? 'Быстрый ввод' : 'Quick entry')}</Button>}{!sourceEditing && canManuallyComplete(item) && item.state === 'open' && workspace.items[item.id] && <button type="button" className="state-toggle editor-complete" aria-label={workspace.calendarPreferences.language === 'ru' ? 'Выполнить item' : 'Complete item'} title={workspace.calendarPreferences.language === 'ru' ? 'Выполнить и сохранить' : 'Complete and save'} disabled={saving} onClick={() => void save({ complete: true })} />}{!sourceEditing && !googleEvent && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
-          {sourceEditing ? <><LiveTextInput multiline id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseEntry(sourceDraft, now).errors.length ? <p className="editor-error error">{parseEntry(sourceDraft, now).errors.join(' ')}</p> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseEntry(sourceDraft, now).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : googleEvent ? <input id={titleFieldId} ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly value={item.title} placeholder="What needs to happen?" /> : <LiveTextInput id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} ariaLabel="Title" value={titleText} onChange={updateTitleText} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} overlaySuggestions now={now} placeholder="What needs to happen?" />}
+          {sourceEditing ? <><LiveTextInput multiline id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseEntry(sourceDraft, now).errors.length ? <p className="editor-error error">{parseEntry(sourceDraft, now).errors.join(' ')}</p> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseEntry(sourceDraft, now).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : googleEvent ? <input id={titleFieldId} ref={titleInputRef} autoFocus={focusTitleOnOpen} readOnly value={item.title} placeholder="What needs to happen?" /> : <LiveTextInput multiline={!isNew && Boolean(quickEntrySource(item))} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} ariaLabel="Title" value={titleText} onChange={updateTitleText} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} overlaySuggestions now={now} placeholder="What needs to happen?" />}
           {!googleEvent && item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
         {!sourceEditing && <>
@@ -560,7 +577,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
 
 
         <ItemSection sectionKey="more" title="More" iconPath="custom">
-        {onDuplicate && <Button className="item-duplicate-action" variant="ghost" disabled={saving || sourceEditing} onClick={() => onDuplicate({ ...item, title: titleText, tags: commaList(tags), contexts: commaList(contexts) })}><FieldIconLabel path="duplicate" label={workspace.calendarPreferences.language === 'ru' ? 'Дублировать' : 'Duplicate'} /></Button>}
+        {onDuplicate && <Button className="item-duplicate-action" variant="ghost" disabled={saving || sourceEditing} onClick={() => onDuplicate({ ...item, title: item.title, tags: commaList(tags), contexts: commaList(contexts) })}><FieldIconLabel path="duplicate" label={workspace.calendarPreferences.language === 'ru' ? 'Дублировать' : 'Duplicate'} /></Button>}
         <ItemSection sectionKey="template" title="Template" iconPath="isTemplate" filledMark={sectionMark(isTemplate)}><Checkbox checked={isTemplate} onChange={(event) => setIsTemplate(event.target.checked)} label="Save this item as a template" /><p className="schedule-explainer">Templates are kept in the same workspace but do not appear in ordinary lists. They can be selected only while creating a new item.</p></ItemSection>
 
         <details><summary><FieldIconLabel path="subtasks" label="Subtasks" /> {sectionMark(item.relations.some((relation) => relation.type === 'parent'))}</summary><div className="details-body">

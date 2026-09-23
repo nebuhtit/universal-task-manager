@@ -19,9 +19,10 @@ test('Enter and mobile beforeinput capture imperfect prose and repeated reminder
     else await input.press('Enter');
     const editor = page.getByRole('dialog', { name: 'Item editor' });
     await expect(editor).toBeVisible();
-    await expect(editor.getByLabel('Title', { exact: true })).toHaveValue(expected);
+    await expect(editor.getByLabel('Title', { exact: true })).toHaveValue(expected === 'даша' ? /даша напомнить 1ч напомнить 1д/ : text);
     await editor.getByRole('button', { name: 'Save item', exact: true }).click();
     await expect(editor).toHaveCount(0); await expect(input).toHaveValue('');
+    await expect(page.getByRole('article').getByRole('button', { name: expected, exact: true }).first()).toBeVisible();
   }
 });
 
@@ -44,7 +45,7 @@ test('Live text chooses hours then minutes before opening the editor', async ({ 
   await input.press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor' });
   await expect(editor).toBeVisible();
-  await expect(editor.getByLabel('Title', { exact: true })).toHaveValue('Встреча');
+  await expect(editor.getByLabel('Title', { exact: true })).toHaveValue(/Встреча .*15:30/);
   await editor.getByRole('button', { name: 'Save item', exact: true }).click();
   await expect(editor).toHaveCount(0);
 });

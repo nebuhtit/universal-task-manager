@@ -132,7 +132,7 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
   const detached = JSON.parse(JSON.stringify(series)) as UniversalItem;
   // Calendar links and pending writes belong to a single cycle.
   delete detached.external;
-  for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey', 'utm:googleSave']) delete detached.extensions?.[key];
+  for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey', 'utm:googleSave', 'utm:googleDeletionReceipts']) delete detached.extensions?.[key];
   const originalAnchorValue = recurrenceAnchor(detached);
   if (!originalAnchorValue) throw new Error(`Series ${series.id} has no recurrence start or deadline`);
   const originalAnchor = new Date(originalAnchorValue).getTime();
@@ -491,7 +491,7 @@ function reconcileRollingSeries(
     extensions: {
       ...fresh.extensions,
       ...JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(rolling.extensions ?? {}).filter(([key]) =>
-        ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey', 'utm:googleSave', 'utm:eventProgramOverride'].includes(key))))),
+        ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey', 'utm:googleSave', 'utm:googleDeletionReceipts', 'utm:eventProgramOverride'].includes(key))))),
     },
   } : {};
   const visibleUntil = new Date(rolling.schedule?.endAt ?? rolling.schedule?.dueAt ?? rolling.schedule?.startAt ?? 0);

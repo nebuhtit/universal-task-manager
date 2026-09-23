@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  createOccurrence, effectiveWorkspaceNow,
+  createOccurrence, effectiveWorkspaceNow, zonedDateStart,
   type ItemPreset, type ProjectedOccurrence, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
@@ -10,12 +10,13 @@ import { formatCompactRemainingDuration } from '../views/ViewMetricsSummary';
 import { ViewResults } from '../views/ViewResults';
 import { clockService } from '../../services/clockService';
 import { completionHoldsSnapshot, sortViewItems, subscribeCompletionHolds } from '../views/viewSelectors';
-import { useViewNow, useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
+import { useCalendarNow, useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
 import { CalendarDayViewEditor } from './CalendarDayViewEditor';
-import { calendarListFields } from './calendarCardFields';
+import { calendarListFields, calendarTimelineFields } from './calendarCardFields';
 import { CalendarTimeline } from './CalendarTimeline';
-import { calendarDayView, evaluateCalendarRange } from './calendarEvaluation';
-import { calendarVisibleCapacity } from './calendarCapacity';
+import { calendarDayView, createCalendarEvaluator } from './calendarEvaluation';
+import { createCalendarCapacityCache } from './calendarCapacity';
+import { calendarProjectionPadding } from './calendarProjectionCache';
 import { MoonPhase } from './MoonPhase';
 import { calendarUndatedItems, showOverdueToday } from './calendarVisibility';
 import './calendar.css';
@@ -51,11 +52,12 @@ function weekStart(key: string, startsOn: 0 | 1): string {
   return shiftDateKey(key, -((weekday - startsOn + 7) % 7));
 }
 
-export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem: _createUiItem, celebrationColors = new Map(), requestedDate, onSelectedDateChange }: {
+export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem, onCreateItem, celebrationColors = new Map(), requestedDate, onSelectedDateChange }: {
   workspace: WorkspaceDocument;
   now?: Date;
   commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
   onEditItem: (item: UniversalItem) => void;
+  onCreateItem?: (item: UniversalItem) => void;
   onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void;
   createUiItem: (title?: string, preset?: ItemPreset, now?: Date) => UniversalItem;
   celebrationColors?: ReadonlyMap<string, string>;
@@ -74,20 +76,35 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const dayPanelRef = useRef<HTMLDivElement>(null);
   const todayChoiceRef = useRef<HTMLButtonElement>(null);
   const completionVersion = useSyncExternalStore(subscribeCompletionHolds, completionHoldsSnapshot, completionHoldsSnapshot);
-  const selectedDayView = calendarDayView(selectedDate, preferences.dayView);
-  const now = useViewNow(workspace, selectedDayView, suppliedNow);
+  const selectedDayView = useMemo(() => ({ ...calendarDayView(selectedDate, preferences.dayView), fields: [...new Set([...calendarListFields(preferences.dayView), ...calendarTimelineFields(preferences.dayView)])] }), [selectedDate, preferences.dayView]);
+  const evaluator = useMemo(() => createCalendarEvaluator(), []);
+  const capacityCache = useMemo(() => createCalendarCapacityCache(), []);
+  const createAt = (at: number) => {
+    const draft = createUiItem('', 'task', suppliedNow ?? new Date());
+    draft.schedule = { timezone: preferences.timezone, startAt: new Date(at).toISOString(), endAt: new Date(at + 3_600_000).toISOString(), estimatedDuration: 'PT1H' };
+    onCreateItem?.(draft);
+  };
   const capacityClock = useSyncExternalStore(subscribeCapacityClock, clockService.getSnapshot, clockService.getSnapshot);
   const capacityNow = suppliedNow ?? effectiveWorkspaceNow(workspace, new Date(capacityClock));
   const todayKey = localDateKey(suppliedNow ?? navigationNow, preferences.timezone);
   const rangeStartKey = navigatorMode === 'week' ? weekStart(selectedDate, preferences.weekStartsOn) : monthStart(selectedDate);
   const rangeEndKey = navigatorMode === 'week' ? shiftDateKey(rangeStartKey, 7) : nextMonthStart(selectedDate);
+  const projectedBoundaries = useMemo(() => {
+    const { padding } = calendarProjectionPadding(Object.values(evaluator.projections.workspaceFor(workspace).items));
+    const rows = [
+      ...evaluator.projections.project(workspace, zonedDateStart(rangeStartKey, preferences.timezone), zonedDateStart(rangeEndKey, preferences.timezone)),
+      ...evaluator.projections.project(workspace, new Date(+zonedDateStart(selectedDate, preferences.timezone) - padding), new Date(+zonedDateStart(shiftDateKey(selectedDate, 1), preferences.timezone) + padding)),
+    ];
+    return rows.flatMap(row => [row.schedule.availableFrom, row.schedule.startAt, row.schedule.endAt, row.schedule.dueAt]).map(value => Date.parse(value ?? '')).filter(Number.isFinite);
+  }, [evaluator, workspace, rangeStartKey, rangeEndKey, selectedDate, preferences.timezone]);
+  const now = useCalendarNow(workspace, selectedDayView, projectedBoundaries, suppliedNow);
 
   const dayKeys = useMemo(() => {
     const keys: string[] = [];
     for (let key = rangeStartKey; key < rangeEndKey; key = shiftDateKey(key, 1)) keys.push(key);
     return keys;
   }, [rangeStartKey, rangeEndKey]);
-  const calendar = useMemo(() => evaluateCalendarRange(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now), [completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
+  const calendar = useMemo(() => evaluator.evaluate(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now), [evaluator, completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
   const dayData = calendar.days;
   const selected = dayData[selectedDate]!;
   const listView = { ...selected.view, fields: calendarListFields(preferences.dayView) };
@@ -96,7 +113,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const selectedIds = new Set(selected.evaluation.items.map(item => item.id));
   const allUndatedItems = useMemo(() => calendarUndatedItems(workspace, now), [workspace, now.getTime()]);
   const undatedItems = sortViewItems(workspace, selected.view, allUndatedItems.filter(item => !selectedIds.has(item.id)), now);
-  const capacities = useMemo(() => Object.fromEntries(dayKeys.map(key => [key, calendarVisibleCapacity(workspace, dayData[key]!, key, capacityNow, allUndatedItems, allDayOpen)])), [workspace, dayData, dayKeys, capacityNow.getTime(), allUndatedItems, allDayOpen]);
+  const capacities = useMemo(() => Object.fromEntries(dayKeys.map(key => [key, capacityCache.calculate(workspace, dayData[key]!, key, capacityNow, allUndatedItems, allDayOpen)])), [capacityCache, workspace, dayData, dayKeys, capacityNow.getTime(), allUndatedItems, allDayOpen]);
   const capacityLabel = (key: string, compact = false) => {
     const result = capacities[key]!;
     const amount = formatCompactRemainingDuration(Math.abs(result.freeMs), preferences.language) || '0min';
@@ -189,7 +206,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       <Button size="compact" aria-pressed={preferences.timeline?.mode === 'timeline'} onClick={() => commit('Calendar timeline mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'timeline', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>Timeline</Button>
     </div>
     {preferences.timeline?.mode === 'timeline'
-      ? <CalendarTimeline workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
+      ? <CalendarTimeline onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
       : <><div className="timeline-toolbar calendar-list-toolbar">
         {overdueIds.size > 0 && <Button size="compact" aria-pressed={timelineSettings.showOverdue !== false} onClick={() => setTimelineSetting({ showOverdue: timelineSettings.showOverdue === false })}>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</Button>}
         <Button size="compact" aria-pressed={timelineSettings.showUndated === true} onClick={() => setTimelineSetting({ showUndated: timelineSettings.showUndated !== true })}>{preferences.language === 'ru' ? 'Без даты' : 'No date'}{undatedItems.length ? ` · ${undatedItems.length}` : ''}</Button>

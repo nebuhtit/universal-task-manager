@@ -2,6 +2,7 @@ export * from './types.js';
 export * from './item-history.js';
 export * from './completion-goals.js';
 export * from './schema.js';
+export * from './workspace-integrity.js';
 export * from './dsl.js';
 export * from './filter-program.js';
 export * from './filter-regex.js';

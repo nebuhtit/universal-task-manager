@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { googleWriteLimitReached, zonedDateTime, type GoogleCalendarEvent, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { zonedDateTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { Button, Checkbox, Field, Input, Select, Textarea } from '../../components/ui/primitives';
 import { requestGoogleCalendarToken, hasGoogleWriteAuthorization } from '../../services/googleCalendar';
-import { canEditGoogleEvent, GOOGLE_EDIT_EXTENSION, GoogleEditConflict, googleEventChanges, googleEventDraft, rebaseGoogleEdit, loadEditableGoogleEvent, moveSingleGoogleEvent, updateSingleGoogleEvent, updateGoogleSeriesEvent, type GoogleEditOperation } from '../../services/googleCalendarEdit';
+import { canEditGoogleEvent, GOOGLE_EDIT_EXTENSION, GoogleEditConflict, googleEventChanges, googleEventDraft, rebaseGoogleEdit, loadEditableGoogleEvent, type GoogleEditOperation } from '../../services/googleCalendarEdit';
 import type { GoogleEventDraft } from '../../services/googleCalendarCreate';
 import './google-create.css';
 
 export interface GoogleEditingCallbacks {
   onGoogleEditDraft: (operation: GoogleEditOperation | null) => Promise<void>;
-  onGoogleUpdated: (event: GoogleCalendarEvent, calendarId: string) => Promise<void>;
-  onGoogleSeriesUpdated?: () => Promise<void>;
+  onGoogleSave: (operation: GoogleEditOperation) => Promise<void>;
 }
 function wallTime(iso: string, timeZone: string): string {
   if (!iso || !Number.isFinite(Date.parse(iso))) return '';
@@ -19,7 +18,7 @@ function wallTime(iso: string, timeZone: string): string {
     return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
   } catch { return ''; }
 }
-export function EditGoogleEventDialog({ item, workspace, onClose, onGoogleEditDraft, onGoogleUpdated, onGoogleSeriesUpdated }: GoogleEditingCallbacks & { item: UniversalItem; workspace: WorkspaceDocument; onClose: () => void }) {
+export function EditGoogleEventDialog({ item, workspace, onClose, onGoogleEditDraft, onGoogleSave }: GoogleEditingCallbacks & { item: UniversalItem; workspace: WorkspaceDocument; onClose: () => void }) {
   const ru = workspace.calendarPreferences.language === 'ru';
   const t = (en: string, russian: string) => ru ? russian : en;
   const [operation, setOperation] = useState<GoogleEditOperation | undefined>(() => item.extensions?.[GOOGLE_EDIT_EXTENSION] as unknown as GoogleEditOperation | undefined);
@@ -51,19 +50,10 @@ export function EditGoogleEventDialog({ item, workspace, onClose, onGoogleEditDr
   const patch = (value: Partial<GoogleEventDraft>) => { if (operation) setOperation({ ...operation, draft: { ...operation.draft, ...value }, attempted: false }); };
   const save = () => execute(async () => {
     if (!operation) return;
-    const google = workspace.calendarPreferences.googleCalendar;
-    if (google && googleWriteLimitReached(google)) throw new Error(t(`Google write safety limit reached (${google.writeDailyLimit ?? 25} changes in 24 hours).`, `Достигнут защитный лимит Google (${google.writeDailyLimit ?? 25} изменений за 24 часа).`));
     googleEventChanges(operation);
-    const token = await requestGoogleCalendarToken(undefined, 'create');
-    const attempted = { ...operation, attempted: true };
-    await onGoogleEditDraft(attempted); setOperation(attempted);
-    if (operation.scope === 'series') {
-      await updateGoogleSeriesEvent(token.accessToken, attempted);
-      await onGoogleSeriesUpdated?.(); onClose(); return;
-    }
-    const event = await updateSingleGoogleEvent(token.accessToken, operation, Date.now, workspace.calendarPreferences.googleCalendar?.allowPastEventEditing);
-    const moved = await moveSingleGoogleEvent(token.accessToken, attempted, event);
-    await onGoogleUpdated(moved.event, moved.calendarId); onClose();
+    setOperation({ ...operation, attempted: true });
+    await onGoogleSave(operation);
+    onClose();
   });
   const close = () => execute(async () => { if (operation) await onGoogleEditDraft(operation); onClose(); });
   const toggleDay = (allDay: boolean) => {
@@ -74,7 +64,8 @@ export function EditGoogleEventDialog({ item, workspace, onClose, onGoogleEditDr
     patch({ allDay, start: allDay ? startDay : zonedDateTime(startDay, 12, 0, draft.timeZone).toISOString(), end: allDay ? endDay > startDay ? endDay : nextDay : zonedDateTime(endDay, 13, 0, draft.timeZone).toISOString() });
   };
   const initialLoad = useRef(false);
-  useEffect(() => { if (!initialLoad.current && hasGoogleWriteAuthorization()) { initialLoad.current = true; void load(); } }, []);
+  // A sent draft must retain its original baseline for read-back recovery.
+  useEffect(() => { if (!initialLoad.current && !operation?.attempted && hasGoogleWriteAuthorization()) { initialLoad.current = true; void load(); } }, []);
   return <ResponsiveDialog open className="google-create-dialog" title={t('Edit Google event', 'Изменить событие Google')} onOpenChange={(open) => { if (!open && !busy) void close(); }} footer={<><Button disabled={busy} onClick={() => void close()}>{t('Close', 'Закрыть')}</Button>{operation && !conflict && <Button variant="primary" disabled={busy} onClick={() => void save()}>{operation.attempted ? t('Check / retry save', 'Проверить / повторить сохранение') : t('Save in Google', 'Сохранить в Google')}</Button>}</>}>
     {recurringEventId && <Field label={t('Apply changes to', 'Применить изменения')}><Select value={scope} disabled={busy || Boolean(operation?.attempted)} onChange={(event) => void load(event.target.value as 'occurrence' | 'series')}><option value="occurrence">{t('This occurrence', 'Только это повторение')}</option><option value="series">{t('Entire series', 'Всю серию')}</option></Select></Field>}
     <p>{scope === 'series' ? t('Editing the recurring source changes the schedule for the whole series. Google keeps its recurrence rules and exceptions.', 'Изменение исходного события сдвигает расписание всей серии. Правила и исключения повторений остаются в Google.') : t('Changes apply only to this occurrence. Google notifies attendees when appropriate.', 'Изменения применяются только к этому повторению. Google при необходимости уведомит участников.')}</p>

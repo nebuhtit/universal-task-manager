@@ -2,6 +2,9 @@ import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, durationToMs, type Unive
 import { retainedItemHistory, syncActualDuration } from './item-history.js';
 import { reconcileCalendarOrganization } from './calendar-organization.js';
 
+export const GOOGLE_DELETION_RECEIPTS_EXTENSION = 'utm:googleDeletionReceipts';
+export interface GoogleDeletionReceipt { calendarId: string; eventId: string; accountEmail: string; deletedAt: string }
+
 export interface GoogleCalendarEventDate {
   date?: string;
   dateTime?: string;
@@ -209,7 +212,9 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
   const seen = new Set<string>();
   const pendingDeletions = new Set(Object.values(workspace.items).flatMap((item) => {
     const pending = item.extensions?.['utm:googleSave'] as { kind?: string; calendarId?: string; eventId?: string } | undefined;
-    return pending?.kind === 'delete' && pending.calendarId && pending.eventId ? [externalId(pending.calendarId, pending.eventId)] : [];
+    const receipts = item.extensions?.[GOOGLE_DELETION_RECEIPTS_EXTENSION];
+    const acknowledged = Array.isArray(receipts) ? Array.from(receipts).flatMap((receipt: GoogleDeletionReceipt) => receipt && receipt.accountEmail === workspace.calendarPreferences.googleCalendar?.accountEmail && typeof receipt.calendarId === 'string' && typeof receipt.eventId === 'string' ? [externalId(receipt.calendarId, receipt.eventId)] : []) : [];
+    return [...acknowledged, ...(pending?.kind === 'delete' && pending.calendarId && pending.eventId ? [externalId(pending.calendarId, pending.eventId)] : [])];
   }));
   const linkedByEvent = new Map<string, UniversalItem>();
   const restoredByKey = new Map<string, UniversalItem>();

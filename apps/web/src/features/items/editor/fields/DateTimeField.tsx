@@ -37,7 +37,7 @@ export function DateTimeField({ label, value, language, onChange, onClear, canCl
         onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (onClear) onClear(); else onChange(undefined); }}
       >Clear</Button>
     </div>
-    {value && <small className="formatted-date">{formatViewDate(value, true, language)}</small>}
+    {value && <small className="formatted-date">{formatViewDate(value, true, language, timeZone)}</small>}
     {help && <small className="ui-field-hint">{help}</small>}
   </div>;
 }

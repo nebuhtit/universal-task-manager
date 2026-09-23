@@ -23,20 +23,25 @@ function localDateKey(now: Date, timeZone: string): string {
   } catch { return now.toISOString().slice(0, 10); }
 }
 
+export function temporalEvaluationKey(boundaries: number[], now: Date, timeZone: string, continuous: boolean): string {
+  const date = localDateKey(now, timeZone);
+  const utcDate = now.toISOString().slice(0, 10);
+  const boundary = `${crossedBoundaryCount(boundaries, now.getTime())}:${crossedBoundaryCount(boundaries, now.getTime() - 1)}`;
+  return continuous ? `${date}:${utcDate}:${boundary}:${Math.floor(now.getTime() / 1_000)}` : `${date}:${utcDate}:${boundary}`;
+}
+
 /**
  * A central clock still checks time once per second, but React only receives a
  * changed snapshot when this View can produce a different result.
  */
-function useTemporalNow(workspace: WorkspaceDocument, dependsOnTime: boolean, continuous: boolean, identity: unknown, suppliedNow?: Date): Date {
-  const boundaries = useMemo(() => [...getWorkspaceIndex(workspace).workspaceBoundaries], [workspace]);
+function useTemporalNow(workspace: WorkspaceDocument, dependsOnTime: boolean, continuous: boolean, identity: unknown, suppliedNow?: Date, extraBoundaries?: readonly number[]): Date {
+  const boundaries = useMemo(() => [...getWorkspaceIndex(workspace).workspaceBoundaries, ...(extraBoundaries ?? [])].sort((a, b) => a - b), [workspace, extraBoundaries]);
   const frozenNow = useMemo(() => suppliedNow ?? effectiveWorkspaceNow(workspace, clockService.now()), [identity, suppliedNow, workspace]);
   const snapshot = useCallback(() => {
     if (!dependsOnTime) return 'static';
     const now = effectiveWorkspaceNow(workspace, new Date(clockService.getSnapshot()));
-    const date = localDateKey(now, workspace.calendarPreferences.timezone);
-    const utcDate = now.toISOString().slice(0, 10);
-    const boundary = crossedBoundaryCount(boundaries, now.getTime());
-    return continuous ? `${date}:${utcDate}:${boundary}:${Math.floor(now.getTime() / 1_000)}` : `${date}:${utcDate}:${boundary}`;
+    // Both sides matter: Due uses < now, while Event opens uses <= now.
+    return temporalEvaluationKey(boundaries, now, workspace.calendarPreferences.timezone, continuous);
   }, [boundaries, continuous, dependsOnTime, workspace]);
   const subscribe = useCallback((listener: () => void) => dependsOnTime ? clockService.subscribe(listener, 1_000) : () => undefined, [dependsOnTime]);
   const key = useSyncExternalStore(subscribe, snapshot, snapshot);
@@ -47,6 +52,12 @@ export function useViewNow(workspace: WorkspaceDocument, view: SavedView, suppli
   const dependsOnTime = useMemo(() => suppliedNow === undefined && viewDependsOnCurrentTime(workspace, view), [suppliedNow, view, workspace]);
   const continuous = useMemo(() => dependsOnTime && viewContinuouslyDependsOnCurrentTime(workspace, view), [dependsOnTime, view, workspace]);
   return useTemporalNow(workspace, dependsOnTime, continuous, view, suppliedNow);
+}
+
+/** Calendar membership always depends on midnight/overdue, even with a static filter. */
+export function useCalendarNow(workspace: WorkspaceDocument, view: SavedView, projectedBoundaries: readonly number[], suppliedNow?: Date): Date {
+  const continuous = useMemo(() => viewContinuouslyDependsOnCurrentTime(workspace, view), [workspace, view]);
+  return useTemporalNow(workspace, true, continuous, view, suppliedNow, projectedBoundaries);
 }
 
 /** Updates generic workspace screens only at a local/UTC day or item time boundary. */

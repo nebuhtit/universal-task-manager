@@ -5,9 +5,9 @@ import { createAutomergeDocument, encryptWithKey, randomKey, wrapKey } from '../
 
 const password = 'timeline-fixture-test-only';
 const now = new Date('2026-09-22T12:00:00Z');
-async function setup(page: Page) {
+async function setup(page: Page, filter = 'true', quickSource = false) {
   const w = createWorkspace('Timeline', now); w.calendarPreferences.timezone = 'UTC';
-  w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = 'true';
+  w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = filter;
   w.calendarPreferences.dayView.listFields = ['title', 'schedule.startAt'];
   w.calendarPreferences.dayView.timelineFields = ['title', 'reminders'];
   w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false };
@@ -16,6 +16,7 @@ async function setup(page: Page) {
     item.schedule = { timezone: 'UTC', startAt: '2026-09-22T12:00:00Z', endAt: '2026-09-22T13:00:00Z' }; w.items[item.id] = item;
   }
   const short = createItem('One minute title', 'task', now); short.schedule = { timezone: 'UTC', startAt: '2026-09-22T17:00:00Z', endAt: '2026-09-22T17:01:00Z', travelDuration: 'PT30M' }; w.items[short.id] = short;
+  if (quickSource) short.extensions = { 'utm:quickEntrySource': { text: 'One minute title начало 22.09.2026 17:00 длительность 1м н начало-30м,начало-60м', timezone: 'UTC', grammarVersion: 2 } };
   const sleep = createItem('Sleep source', 'task', now); sleep.schedule = { timezone: 'UTC', startAt: '2026-09-22T00:00:00Z', endAt: '2026-09-22T07:00:00Z' }; sleep.reminders = [{ id: 'sleep-reminder', mode: 'absolute', at: '2026-09-22T18:00:00Z', urgency: 'normal', repeatUntilAcknowledged: false }]; w.items[sleep.id] = sleep;
   const none = createItem('Undated sentinel', 'task', now); w.items[none.id] = none;
   const proposed = createItem('Tentative task', 'task', now); proposed.schedule = { timezone: 'UTC', estimatedDuration: 'PT2H' }; w.items[proposed.id] = proposed;
@@ -49,6 +50,66 @@ async function primary(page: Page) {
     try { return await new Promise<string>(resolve => { const r = db.transaction('encrypted-records').objectStore('encrypted-records').get('workspace'); r.onsuccess = () => resolve(JSON.stringify(r.result)); }); } finally { db.close(); }
   });
 }
+
+test('editor opens the full quick line with bounded scrolling and a non-overlapping preview', async ({ page }) => {
+  await setup(page, 'true', true);
+  await page.getByTestId('timeline-event').filter({ hasText: 'One minute title' }).click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const input = editor.getByRole('combobox', { name: 'Title', exact: true });
+  await expect(input).toHaveValue(/начало-30м, начало-60м/);
+  await input.fill('Заметка '.repeat(80) + ' завтра');
+  await expect(input).toHaveCSS('overflow-y', 'auto');
+  expect(await input.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+  await expect(editor.locator('.live-day-preview')).toHaveCSS('position', 'relative');
+  await expect(editor.getByRole('listbox')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('quick-entry-scroll.png') });
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+
+test('holding an empty hour opens an unsaved one-hour draft with focused title', async ({ page }) => {
+  await setup(page);
+  const tick = page.locator('.timeline-tick').filter({ hasText: '18:00' });
+  await tick.scrollIntoViewIfNeeded();
+  const box = await tick.boundingBox();
+  const axis = page.locator('.timeline-axis');
+  const saved = await primary(page);
+  await tick.locator('span').dispatchEvent('pointerdown', { pointerId: 1, isPrimary: true, pointerType: 'touch', button: 0, clientX: box!.x + 20, clientY: box!.y + 3 });
+  await page.clock.fastForward(600);
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await expect(editor).toBeVisible();
+  await expect(editor.getByRole('combobox', { name: 'Title', exact: true })).toBeFocused();
+  await editor.locator('[data-editor-section="dates"] > summary').click();
+  await expect(editor.getByLabel('Event opens', { exact: true })).toHaveValue('2026-09-22T18:00');
+  await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('2026-09-22T19:00');
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await primary(page)).toBe(saved);
+  await axis.dispatchEvent('pointerdown', { pointerId: 1, isPrimary: true, pointerType: 'touch', button: 0, clientX: box!.x + 20, clientY: box!.y + 3 });
+  await axis.dispatchEvent('pointermove', { pointerId: 1, isPrimary: true, clientX: box!.x + 20, clientY: box!.y + 40 });
+  await page.clock.fastForward(600);
+  await expect(editor).toHaveCount(0);
+});
+
+test('calendar time filters cross a threshold without a workspace write', async ({ page }) => {
+  await setup(page, 'title == "One minute title" && minutesUntil(schedule.startAt) < 60');
+  const card = page.getByTestId('timeline-event').filter({ hasText: 'One minute title' });
+  await expect(card).toHaveCount(0);
+  const saved = await primary(page);
+  // minutesUntil rounds up: 16:00:01 still means 60 minutes until 17:00.
+  await page.clock.fastForward(4 * 3_600_000 + 61_000);
+  await expect(card).toHaveCount(1);
+  expect(await primary(page)).toBe(saved);
+});
+
+test('remaining calendar capacity updates each minute without changing stored items', async ({ page }) => {
+  // No ongoing occupied interval: elapsed time must reduce remaining free time.
+  await setup(page, 'title == "One minute title"');
+  const capacity = page.getByTestId('calendar-header-capacity');
+  const before = await capacity.textContent();
+  const saved = await primary(page);
+  await page.clock.fastForward(60_000);
+  await expect(capacity).not.toHaveText(before!);
+  expect(await primary(page)).toBe(saved);
+});
 
 async function swipeTouch(page: Page, selector: string, fromX: number, toX: number) {
   await page.locator(selector).evaluate((target, { fromX, toX }) => {

@@ -10,7 +10,8 @@ import { ItemCard } from '../items/ItemCard';
 import { clockService } from '../../services/clockService';
 import { displayViewValue, readItemField, viewFieldLabel } from '../items/fieldDisplay';
 import { FieldIcon } from '../items/FieldIcon';
-import { timelineData } from './timelineData';
+import { prepareTimelineData, applyTimelinePlanning } from './timelineData';
+import type { CalendarProjectionCache } from './calendarProjectionCache';
 import { calendarUndatedItems } from './calendarVisibility';
 import { buildSegments, layoutEvents, placeActiveRangeCues, positionAt, type Segment } from './timelineLayout';
 import './timeline.css';
@@ -37,14 +38,17 @@ export function TimelineNow({ workspace, segments, suppliedNow }: { workspace: W
   return <div className={`timeline-now${segment.hidden ? ' is-hidden-time' : ''}`} style={{ top }} data-testid="timeline-now" aria-label={`Current time ${timeLabel(at, workspace.calendarPreferences.timezone)}`}><span>{timeLabel(at, workspace.calendarPreferences.timezone)}</span></div>;
 }
 
-export const CalendarTimeline = memo(function CalendarTimeline({ workspace, dateKey, now, suppliedNow, capacityLabel, reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay }: {
+export const CalendarTimeline = memo(function CalendarTimeline({ workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
   workspace: WorkspaceDocument; dateKey: string; now: Date; suppliedNow?: Date | undefined;
   capacityLabel?: string; allDayOpen?: boolean; onAllDayChange?: (open: boolean) => void;
   reservedItems?: UniversalItem[];
+  projectionCache?: CalendarProjectionCache;
+  planningNow?: Date;
   onEdit: (item: UniversalItem) => void;
   onState?: ((item: UniversalItem, state: UniversalItem['state']) => void) | undefined;
   onPreferences: (settings: NonNullable<WorkspaceDocument['calendarPreferences']['timeline']>) => void;
   onSwipeDay?: (direction: -1 | 1) => void;
+  onCreateAt?: (at: number) => void;
 }) {
   const ru = workspace.calendarPreferences.language === 'ru';
   const zone = workspace.calendarPreferences.timezone;
@@ -53,6 +57,9 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   allDayOpen ??= readUiBoolean('calendar:all-day', true);
   const [more, setMore] = useState<UniversalItem[]>([]);
   const swipeStart = useRef<{ x: number; y: number; at: number } | null>(null);
+  const hold = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
+  const cancelHold = () => { if (hold.current) clearTimeout(hold.current.timer); hold.current = null; };
+  useEffect(() => cancelHold, [dateKey]);
   const beginBackgroundSwipe = (event: TouchEvent<HTMLDivElement>) => {
     swipeStart.current = null;
     if (!onSwipeDay || event.touches.length !== 1 || !(event.target instanceof Element)) return;
@@ -74,7 +81,8 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     change(); media.addEventListener('change', change); return () => media.removeEventListener('change', change);
   }, []);
   useEffect(() => { setMore([]); }, [dateKey]);
-  const data = useMemo(() => timelineData(workspace, dateKey, now), [workspace, dateKey, now.getTime()]);
+  const prepared = useMemo(() => prepareTimelineData(workspace, dateKey, now, projectionCache), [workspace, dateKey, now.getTime(), projectionCache]);
+  const data = useMemo(() => applyTimelinePlanning(prepared, planningNow), [prepared, planningNow.getTime()]);
   const undatedCount = useMemo(() => calendarUndatedItems(workspace, now).length, [workspace, now.getTime()]);
   const segments = useMemo(() => buildSegments(data.day, data.hidden), [data]);
   const layout = useMemo(() => layoutEvents(data.events, data.day, segments, columns), [data, segments, columns]);
@@ -87,9 +95,9 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
   }, [reservedItems, dateKey, zone, segments]);
   const rangeCues = useMemo(() => {
     const morning = zonedDateTime(dateKey, 9, 0, zone).getTime();
-    const preferred = dateKey === calendarDateKey(now, zone) ? Math.max(morning, Math.floor(now.getTime() / 3_600_000) * 3_600_000) : morning;
+    const preferred = dateKey === calendarDateKey(planningNow, zone) ? Math.max(morning, Math.floor(planningNow.getTime() / 3_600_000) * 3_600_000) : morning;
     return placeActiveRangeCues(data.activeRange, segments, [...layout.events, ...layout.more, ...hiddenReserve], positionAt(preferred, segments));
-  }, [data.activeRange, segments, layout, hiddenReserve, dateKey, zone, now]);
+  }, [data.activeRange, segments, layout, hiddenReserve, dateKey, zone, planningNow]);
   const rangeFallback = data.activeRange.filter(item => !rangeCues.some(cue => cue.item.id === item.id));
   const height = Math.max((segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0), ...layout.events.map(v => v.top + v.height), ...layout.more.map(v => v.top + v.height));
   const ticks: number[] = [];
@@ -115,7 +123,25 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     {data.plannedTasks.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks)}</div>}
     {data.allDay.length > 0 && allDayOpen && <div className="timeline-top-items timeline-all-day-items">{cards(data.allDay)}</div>}
     {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}
-    <div className="timeline-axis" style={{ height: height + 12 }} onTouchStart={beginBackgroundSwipe} onTouchEnd={endBackgroundSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
+    <div className="timeline-axis" style={{ height: height + 12 }} onTouchStart={beginBackgroundSwipe} onTouchEnd={endBackgroundSwipe} onTouchCancel={() => { swipeStart.current = null; cancelHold(); }}
+      onPointerDown={event => {
+        cancelHold();
+        if (!onCreateAt || !event.isPrimary || event.button !== 0 || !(event.target instanceof Element) || event.target.closest('button, input, textarea, a, [role="button"]')) return;
+        const y = event.clientY - event.currentTarget.getBoundingClientRect().top;
+        const tick = event.target.closest<HTMLElement>('[data-timeline-hour]');
+        const segment = segments.find(part => y >= part.top && y < part.top + part.height);
+        if (!tick && (!segment || segment.hidden)) return;
+        const at = segment ? segment.start + (y - segment.top) / segment.height * (segment.end - segment.start) : 0;
+        const hour = tick ? Number(tick.dataset.timelineHour) : [...ticks].reverse().find(value => value <= at);
+        if (hour === undefined) return;
+        hold.current = { x: event.clientX, y: event.clientY, timer: setTimeout(() => {
+          hold.current = null; swipeStart.current = null;
+          try { navigator.vibrate?.(20); } catch { /* Haptics are optional. */ }
+          onCreateAt(hour);
+        }, 550) };
+      }}
+      onPointerMove={event => { if (hold.current && Math.hypot(event.clientX - hold.current.x, event.clientY - hold.current.y) > 10) cancelHold(); }}
+      onPointerUp={cancelHold} onPointerCancel={cancelHold} onPointerLeave={cancelHold}>
       <WeatherTimeline dateKey={dateKey} zone={zone} ru={ru} segments={segments} />
       <div className="timeline-hidden-reserves" aria-label={ru ? 'Скрытые закреплённые items' : 'Hidden reserved items'}>{hiddenReserve.map(reserve => <div className="timeline-hidden-reserve" data-testid="timeline-hidden-reserve" key={reserve.id} style={{ top: reserve.top, height: reserve.height }} title={reserve.title}><span>{reserve.title}</span></div>)}</div>
       <div className="timeline-active-ranges">{rangeCues.map(({ item, top, height }) => {
@@ -123,7 +149,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
         const label = `${ru ? 'Активный диапазон' : 'Active range'} · ${item.title}${share ? ` · ${durationLabel(share)}${ru ? ' на день' : ' per day'}` : ''}`;
         return <button type="button" className="timeline-active-range" key={item.id} data-testid="timeline-active-range" style={{ top, height }} title={label} aria-label={label} onClick={() => open(item)}><span>{item.title}</span>{share > 0 && <small>{durationLabel(share)}{ru ? ' / день' : ' / day'}</small>}</button>;
       })}</div>
-      {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
+      {ticks.map(at => <div key={at} data-timeline-hour={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
       {segments.filter(v => v.hidden).map(v => <button type="button" key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }} aria-expanded={false} onClick={() => onPreferences({ ...settings, hideSleep: false })}>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</button>)}
       {!settings.hideSleep && data.sleepGaps.length > 0 && <button type="button" className="timeline-night-collapse" style={{ top: positionAt(data.sleepGaps[0]!.start, segments) }} aria-expanded={true} onClick={() => onPreferences({ ...settings, hideSleep: true })}>{ru ? 'Свернуть ночь' : 'Collapse night'} {timeLabel(data.sleepGaps[0]!.start, zone)}–{timeLabel(data.sleepGaps.at(-1)!.end, zone)}</button>}
       <div className="timeline-events">

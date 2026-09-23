@@ -95,6 +95,19 @@ function reminderItems(draft: Draft): UniversalItem['reminders'] {
   });
 }
 
+/** Presentation only: keep quoted titles and decimal commas untouched. */
+export function formatQuickEntryForEditor(text: string): string {
+  let quote = '', result = '';
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!;
+    if (!quote && (char === '"' || char === '«')) quote = char === '«' ? '»' : '"';
+    else if (char === quote && text[index - 1] !== '\\') quote = '';
+    result += char;
+    if (!quote && char === ',' && text[index + 1] && !/\s/.test(text[index + 1]!) && !(/\d/.test(text[index - 1] ?? '') && /\d/.test(text[index + 1]!))) result += ' ';
+  }
+  return result;
+}
+
 export function applyQuickEntryText(item: UniversalItem, text: string, now: Date): { item: UniversalItem; draft: Draft } {
   const draft = parseEntry(text, now);
   if (draft.errors.length) throw new Error(draft.errors.join(' '));
@@ -279,7 +292,7 @@ export function syncQuickEntrySource(previous: UniversalItem, next: UniversalIte
       const amount = reminder.offset ? Math.round(Math.abs(durationToMs(reminder.offset)) / 60_000) : 0;
       const anchor = reminder.relativeTo === 'due' ? 'срок' : 'начало';
       return amount > 0 ? `${anchor}${reminder.offset?.startsWith('-') ? '-' : '+'}${amount}м` : '';
-    }).filter(Boolean).join(',');
+    }).filter(Boolean).join(', ');
     const command = /(^|\s)(напомнить|нап|напомни|напоминание|напоминания|напомянание|н|remind(?:\s+me)?|reminder|r)\s+.+?(?=\s+(?:срок|due|начало|start|конец|end|дорога|ехать|тт|tt|travel|drive|длительность|duration|event\s+opens|event\s+ends)\s+|$)/i.exec(text);
     if (command) text = text.slice(0, command.index) + (values ? `${command[1]}${command[2]} ${values}` : '') + text.slice(command.index + command[0].length);
     else if (values) text += ` напомнить ${values}`;

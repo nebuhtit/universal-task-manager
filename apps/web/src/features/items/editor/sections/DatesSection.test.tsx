@@ -10,6 +10,12 @@ const render = (allDay = false, travelDuration?: string) => {
 };
 
 describe('DatesSection travel time', () => {
+  it('renders start, end and deadline in the same item time zone', () => {
+    const item = createItem('Different zone', 'event');
+    item.schedule = { timezone: 'Pacific/Honolulu', startAt: '2026-09-22T18:00:00Z', endAt: '2026-09-22T19:00:00Z', dueAt: '2026-09-22T20:00:00Z' };
+    const markup = renderToStaticMarkup(<DatesSection item={item} workspace={createWorkspace()} sectionMark={() => null} patchScheduledDuration={vi.fn()} patchTravelDuration={vi.fn()} patchScheduledStart={vi.fn()} patchScheduledEnd={vi.fn()} patchScheduledDue={vi.fn()} applyDurationPreset={vi.fn()} />);
+    for (const hour of ['08', '09', '10']) expect(markup).toContain(`value="2026-09-22T${hour}:00"`);
+  });
   it('shows a collapsed compact control only for a timed event', () => {
     const markup = render(false, 'PT30M');
     expect(markup).toContain('<details class="ui-disclosure travel-time-disclosure">');
