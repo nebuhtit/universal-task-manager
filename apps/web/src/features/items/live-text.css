@@ -13,6 +13,9 @@
 .live-text-input:has(textarea) .live-text-panel { position: relative; bottom: auto; margin-top: var(--space-2); }
 .live-text-panel { position: absolute; bottom: calc(100% + var(--space-2)); left: 0; right: 0; max-height: min(40dvh, 20rem); overflow: auto; overscroll-behavior: contain; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-elevated); z-index: 1; }
 .live-text-panel.live-text-panel-inline { position: relative; bottom: auto; max-height: min(30dvh, 20rem); margin-top: var(--space-2); box-shadow: none; }
+.live-text-panel { display: flex; flex-direction: column; overflow: hidden; }
+.live-text-panel-body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.live-text-panel > .live-day-preview { flex-shrink: 0; }
 .live-text-options { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .live-text-options [role="option"] { padding: var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-secondary); }
 .live-text-options [role="option"]:hover, .live-text-options [aria-selected="true"] { background: var(--color-surface-muted); outline: 1px solid var(--color-border-strong); }

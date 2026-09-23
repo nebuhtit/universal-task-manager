@@ -10,6 +10,14 @@ test('date-aware capture shows a compact day preview and selected calendar day',
   await input.fill('Встреча завтра');
   const preview = page.locator('.capture-dock .live-day-preview');
   await expect(preview).toBeVisible();
+  const panel = page.locator('.capture-dock .live-text-panel');
+  const body = page.locator('.capture-dock .live-text-panel-body');
+  await body.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  const bounds = await panel.boundingBox(), previewBounds = await preview.boundingBox();
+  expect(previewBounds!.y).toBeGreaterThanOrEqual(bounds!.y);
+  expect(previewBounds!.y + previewBounds!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height);
+  const labels = await preview.locator('.live-day-preview-hours span').evaluateAll(elements => elements.map(element => { const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right }; }));
+  for (let i = 1; i < labels.length; i++) expect(labels[i]!.left).toBeGreaterThanOrEqual(labels[i - 1]!.right);
   expect((await preview.boundingBox())!.height).toBeLessThan(100);
   await preview.click();
   await expect(page.locator('.calendar-page')).toBeVisible();
@@ -30,5 +38,6 @@ test('date-aware capture shows a compact day preview and selected calendar day',
   await input.press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor' });
   await expect(editor).toBeVisible();
+  await editor.locator('[data-editor-section="dates"]').evaluate(element => { (element as HTMLDetailsElement).open = true; });
   await expect(editor.getByLabel('Event opens date')).not.toHaveValue('');
 });
