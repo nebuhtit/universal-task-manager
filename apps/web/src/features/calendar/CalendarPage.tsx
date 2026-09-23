@@ -4,7 +4,7 @@ import {
   type ItemPreset, type ProjectedOccurrence, type UniversalItem, type ViewTimeMetrics, type WorkspaceDocument,
 } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
-import { PersistedDetails } from '../../components/ui/PersistedDetails';
+import { persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { Button, IconButton, Surface } from '../../components/ui/primitives';
 import { ViewMetricsSummary } from '../views/ViewMetricsSummary';
 import { ViewResults } from '../views/ViewResults';
@@ -67,6 +67,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   useEffect(() => { if (requestedDate) setSelectedDate(requestedDate.key); }, [requestedDate]);
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
   const [editorOpen, setEditorOpen] = useState(false);
+  const [allDayOpen, setAllDayOpen] = useState(() => readUiBoolean('calendar:all-day', true));
   const dayPanelRef = useRef<HTMLDivElement>(null);
   const todayChoiceRef = useRef<HTMLButtonElement>(null);
   const completionVersion = useSyncExternalStore(subscribeCompletionHolds, completionHoldsSnapshot, completionHoldsSnapshot);
@@ -178,9 +179,10 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       : <><div className="timeline-toolbar calendar-list-toolbar">
         {overdueIds.size > 0 && <Button size="compact" aria-pressed={timelineSettings.showOverdue !== false} onClick={() => setTimelineSetting({ showOverdue: timelineSettings.showOverdue === false })}>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</Button>}
         <Button size="compact" aria-pressed={timelineSettings.showUndated === true} onClick={() => setTimelineSetting({ showUndated: timelineSettings.showUndated !== true })}>{preferences.language === 'ru' ? 'Без даты' : 'No date'}{undatedItems.length ? ` · ${undatedItems.length}` : ''}</Button>
+        {allDayIds.size > 0 && <Button size="compact" aria-pressed={allDayOpen} onClick={() => { const next = !allDayOpen; persistUiBoolean('calendar:all-day', next); setAllDayOpen(next); }}>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</Button>}
       </div><Surface className="calendar-day-list">
         {overdueIds.size > 0 && timelineSettings.showOverdue !== false && <div className="calendar-overdue"><h2>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</h2><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
-        {allDayIds.size > 0 && <PersistedDetails uiKey="calendar:all-day" defaultOpen className="calendar-all-day"><summary>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</summary><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></PersistedDetails>}
+        {allDayIds.size > 0 && allDayOpen && <div className="calendar-all-day"><h2>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</h2><ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
         <ViewResults view={selected.view} workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
         {timelineSettings.showUndated === true && undatedItems.length > 0 && <div className="calendar-no-date"><h2>{preferences.language === 'ru' ? 'Без даты' : 'No date'} · {undatedItems.length}</h2><ViewResults view={selected.view} workspace={workspace} evaluation={{ items: undatedItems, metrics: null, now }} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
       </Surface></>}

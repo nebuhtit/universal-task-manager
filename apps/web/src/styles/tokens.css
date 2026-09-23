@@ -42,6 +42,7 @@
   --color-solar-horizon: #fff0d9;
   --color-solar-day: #fffdf3;
   --color-weather-haze: rgba(97, 115, 137, 0.17);
+  --opacity-solar-background: 0.45;
 
   /* Semantic colors */
   --color-code-keyword: #7542a3;
@@ -128,6 +129,7 @@
   --color-solar-horizon: #302619;
   --color-solar-day: #23251f;
   --color-weather-haze: rgba(171, 185, 204, 0.15);
+  --opacity-solar-background: 0.45;
   --color-code-keyword: #c6a5ed;
   --color-code-string: #96d2a7;
   --color-code-number: #edbd82;

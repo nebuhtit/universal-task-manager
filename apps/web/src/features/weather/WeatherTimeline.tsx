@@ -16,7 +16,7 @@ export function WeatherTimeline({ dateKey, zone, ru, segments }: { dateKey: stri
     {backgrounds.map(({segment: s, gradient}) => <div className="weather-solar" key={s.start} style={{ top: s.top, height: s.height, background: gradient }} />)}
     {usableForecast(state).flatMap(hour => hour.probability === null || hour.probability === 0 ? [] : segments.filter(s => !s.hidden && s.start < hour.end && s.end > hour.start).map(s => {
       const start = Math.max(hour.start, s.start), end = Math.min(hour.end, s.end);
-      return <div key={`${hour.start}-${s.start}`} className="weather-haze" data-testid="weather-haze" style={{ top: positionAt(start, segments), height: (end - start) / 60_000, opacity: hour.probability! / 100 }} />;
+      return <div key={`${hour.start}-${s.start}`} className="weather-haze-slot" data-testid="weather-haze" style={{ top: positionAt(start, segments), height: (end - start) / 60_000 }}><span className="weather-haze" style={{ opacity: Math.max(0.35, hour.probability! / 100) }} />{hour.probability! >= 20 && end - start >= 30 * 60_000 && <span className="weather-haze-label">☂ {hour.probability}%</span>}</div>;
     }))}
     {solar?.events.filter(e => (e.kind === 'sunrise' || e.kind === 'sunset') && !segments.some(s => s.hidden && e.at >= s.start && e.at < s.end)).map(e => <div key={`${e.kind}-${e.at}`} className="weather-solar-marker" style={{ top: positionAt(e.at, segments) }}><span>{solarNames[e.kind][ru ? 0 : 1]} {time(e.at)}</span></div>)}
   </div>;

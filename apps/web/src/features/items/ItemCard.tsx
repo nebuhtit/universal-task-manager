@@ -69,7 +69,9 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
       field,
       value: field === 'priority' && item.priority !== undefined
         ? priorityNames[item.priority]
-        : displayViewValue(readItemField(item, field, workspace, now, viewScripts), field, workspace?.calendarPreferences.language),
+        : field === 'schedule.dueAt' && item.schedule?.dueDateOnly && item.schedule.dueAt
+          ? formatViewDate(item.schedule.dueAt, false, workspace?.calendarPreferences.language, item.schedule.timezone)
+          : displayViewValue(readItemField(item, field, workspace, now, viewScripts), field, workspace?.calendarPreferences.language),
     }));
   const organizationValue = (field: string) => {
     const names = field === 'area' || field === 'areas' ? item.areas : field === 'project' || field === 'projects' ? item.projects : field === 'tags' ? item.tags : null;
@@ -84,7 +86,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
     <button className="item-main" onClick={onEdit}>
       {(!customDisplay || fields?.includes('title')) && <UserDataText className="item-title">{item.title}</UserDataText>}
       {planned && <span className="item-meta">{planned}{plannedOverdue > 0 ? ` · ${workspace?.calendarPreferences.language === 'ru' ? 'Не выполнено в плановый день; дней' : 'Planned day missed; days'}: ${plannedOverdue}` : ''}</span>}
-      {!customDisplay && <span className="item-meta"><OverdueDueIndicator item={item} now={displayNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} /><span className={`preset ${inferredPreset(item)}`}>{t(inferredPreset(item))}</span>{due && <span>{formatViewDate(due, !item.schedule?.allDay, workspace?.calendarPreferences.language)}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': workspace ? organizationAccentFor(workspace, 'tag', tag) : undefined } as CSSProperties} key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">{t('auto-closed')}</span>}</span>}
+      {!customDisplay && <span className="item-meta"><OverdueDueIndicator item={item} now={displayNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} /><span className={`preset ${inferredPreset(item)}`}>{t(inferredPreset(item))}</span>{due && <span>{formatViewDate(due, !item.schedule?.allDay && !item.schedule?.dueDateOnly, workspace?.calendarPreferences.language, item.schedule?.dueDateOnly ? item.schedule.timezone : undefined)}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': workspace ? organizationAccentFor(workspace, 'tag', tag) : undefined } as CSSProperties} key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">{t('auto-closed')}</span>}</span>}
       {customDisplay && (showOverdueDueIndicator || metadataFields.length > 0) && <span className="view-item-fields"><OverdueDueIndicator item={item} now={displayNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} />{metadataFields.map(({ field, value }) => {
         if (field === 'scripts' && workspace) return readItemScripts(item, workspace, displayNow).map(({ script, text }) => {
           const label = script.label;

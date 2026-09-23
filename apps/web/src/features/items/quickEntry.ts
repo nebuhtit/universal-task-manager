@@ -203,7 +203,7 @@ export function syncQuickEntrySource(previous: UniversalItem, next: UniversalIte
     const extensions = { ...next.extensions }; delete extensions[QUICK_REMINDER_FOLLOWUPS];
     next = { ...next, reminders: next.reminders.filter(reminder => !ids.has(reminder.id)), extensions };
   }
-  if (previous.schedule?.plannedDate !== next.schedule?.plannedDate) {
+  if (previous.schedule?.plannedDate !== next.schedule?.plannedDate || previous.schedule?.dueDateOnly !== next.schedule?.dueDateOnly) {
     // Invalidate obsolete source text rather than let a later reparse restore
     // the old date. The item remains the authoritative edited record.
     const extensions = { ...next.extensions }; delete extensions[QUICK_ENTRY_SOURCE];

@@ -61,7 +61,7 @@ export const itemJsonSchema = {
         timezone: { type: 'string', minLength: 1 }, allDay: { type: 'boolean' },
         plannedDate: { type: 'string', format: 'date' },
         availableFrom: { type: 'string', format: 'date-time' }, startAt: { type: 'string', format: 'date-time' },
-        endAt: { type: 'string', format: 'date-time' }, dueAt: { type: 'string', format: 'date-time' },
+        endAt: { type: 'string', format: 'date-time' }, dueAt: { type: 'string', format: 'date-time' }, dueDateOnly: { type: 'boolean' },
         estimatedDuration: { type: 'string' }, travelDuration: { type: 'string' }, travelBackDuration: { type: 'string' }, actualDuration: { type: 'string' },
       },
     },
@@ -88,7 +88,7 @@ export const itemJsonSchema = {
         properties: {
           recurrenceId: { type: 'string', format: 'date-time' },
           availableFrom: { type: 'string', format: 'date-time' }, startAt: { type: 'string', format: 'date-time' },
-          endAt: { type: 'string', format: 'date-time' }, dueAt: { type: 'string', format: 'date-time' },
+          endAt: { type: 'string', format: 'date-time' }, dueAt: { type: 'string', format: 'date-time' }, dueDateOnly: { type: 'boolean' },
           closedAt: { type: 'string', format: 'date-time' }, state: { enum: ['done', 'cancelled', 'auto_closed'] },
           actor: { enum: ['user', 'system', 'automation', 'import'] }, reason: { enum: ['manual', 'auto_renew', 'rule', 'cancelled', 'import'] },
         },
@@ -325,7 +325,7 @@ export const workspaceJsonSchema = {
         sleepSchedule: { type: 'object', additionalProperties: false, required: ['wake', 'sleep'], properties: { wake: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, sleep: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' } } },
         weekends: { type: 'boolean' }, snapMinutes: { type: 'integer', minimum: 1 }, defaultDurationMinutes: { type: 'integer', minimum: 1 },
         timeFormat: { const: '24h' }, language: { enum: ['en', 'ru', 'es', 'de', 'fr', 'ko'] },
-        appearance: { type: 'object', additionalProperties: false, required: ['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound', 'overdueAgeIndicator'], properties: { mode: { enum: ['system', 'light', 'dark', 'scheduled'] }, lightAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, darkAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, tickSound: { type: 'boolean' }, uiSound: { type: 'boolean' }, overdueAgeIndicator: { type: 'boolean' }, soundDefaultsVersion: { const: 1 } } },
+        appearance: { type: 'object', additionalProperties: false, required: ['mode', 'lightAt', 'darkAt', 'tickSound', 'uiSound', 'overdueAgeIndicator'], properties: { mode: { enum: ['system', 'light', 'dark', 'scheduled'] }, lightAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, darkAt: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }, tickSound: { type: 'boolean' }, uiSound: { type: 'boolean' }, overdueAgeIndicator: { type: 'boolean' }, headerDueMode: { enum: ['off', 'timed', 'all'] }, soundDefaultsVersion: { const: 1 } } },
         dayView: {
           type: 'object', additionalProperties: false, required: ['filter', 'scheduleSources', 'fields', 'sort'],
           properties: {

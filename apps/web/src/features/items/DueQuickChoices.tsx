@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { calendarDateKey, shiftCalendarDateKey, type UniversalItem, type WorkspaceLanguage } from '@utm/core';
 import { Button, Input } from '../../components/ui/primitives';
-import { dueQuickOptions, dueWallInput, dueWallInputToIso, itemTimeZone } from './dueQuickActions';
+import { dueDateOnlyToIso, dueQuickOptions, dueWallInput, dueWallInputToIso, itemTimeZone } from './dueQuickActions';
 import './due-quick.css';
 
 export function DueQuickChoices({ item, now, language, onChoose, error }: {
@@ -9,9 +9,11 @@ export function DueQuickChoices({ item, now, language, onChoose, error }: {
 }) {
   const ru = language === 'ru';
   const zone = itemTimeZone(item);
-  const dateOnly = Boolean(item.schedule?.plannedDate && !item.schedule.startAt);
+  const dateOnly = Boolean(item.schedule?.plannedDate && !item.schedule.startAt && !item.schedule.dueAt);
   const [custom, setCustom] = useState(false);
+  const [withoutTime, setWithoutTime] = useState(Boolean(item.schedule?.dueDateOnly));
   const [draft, setDraft] = useState(() => dateOnly ? item.schedule!.plannedDate! : dueWallInput(item.schedule?.dueAt ?? new Date(now.getTime() + 3_600_000).toISOString(), zone));
+  const [draftDay, setDraftDay] = useState(() => calendarDateKey(item.schedule?.dueAt ? new Date(item.schedule.dueAt) : now, zone));
   const [localError, setLocalError] = useState('');
   const labels = {
     'today-13': ru ? 'Сегодня днём' : 'Today afternoon',
@@ -24,6 +26,11 @@ export function DueQuickChoices({ item, now, language, onChoose, error }: {
   const formatter = new Intl.DateTimeFormat(ru ? 'ru-RU' : 'en-US', { timeZone: zone, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const chooseCustom = () => {
     if (dateOnly) { if (/^\d{4}-\d{2}-\d{2}$/.test(draft)) onChoose(draft); return; }
+    if (withoutTime) {
+      const end = dueDateOnlyToIso(draftDay, zone);
+      if (!end || Date.parse(end) <= now.getTime() || (item.schedule?.startAt && Date.parse(end) < Date.parse(item.schedule.startAt))) { setLocalError(ru ? 'Выберите подходящий будущий день.' : 'Choose a valid future day.'); return; }
+      setLocalError(''); onChoose(draftDay); return;
+    }
     const at = dueWallInputToIso(draft, zone);
     if (!at) { setLocalError(ru ? 'Такого времени нет в часовом поясе item.' : 'This time does not exist in the item time zone.'); return; }
     if (Date.parse(at) <= now.getTime()) { setLocalError(ru ? 'Выберите будущее время.' : 'Choose a future time.'); return; }
@@ -39,7 +46,7 @@ export function DueQuickChoices({ item, now, language, onChoose, error }: {
   return <div className="due-quick-choices">
     {dueQuickOptions(item, now).map(({ id, at, disabled }) => <Button key={id} size="compact" variant="ghost" disabled={disabled} title={disabled ? (ru ? 'Раньше Event opens' : 'Before Event opens') : undefined} onClick={() => onChoose(at)}><span>{labels[id]}</span><time dateTime={at}>{formatter.format(new Date(at))}</time></Button>)}
     <Button size="compact" variant="ghost" aria-expanded={custom} onClick={() => setCustom((open) => !open)}>{ru ? 'Выбрать дату и время…' : 'Custom date and time…'}</Button>
-    {custom && <div className="due-custom"><Input type="datetime-local" aria-label={ru ? 'Новый Due' : 'New Due'} value={draft} onChange={(event) => { setDraft(event.target.value); setLocalError(''); }} /><Button size="compact" onClick={chooseCustom}>{ru ? 'Применить' : 'Apply'}</Button></div>}
+    {custom && <div className="due-custom"><label><input type="checkbox" checked={withoutTime} onChange={event => { setWithoutTime(event.target.checked); setLocalError(''); }} />{ru ? 'Без времени' : 'Without time'}</label>{withoutTime ? <Input type="date" aria-label={ru ? 'Дата Due без времени' : 'Due date without time'} value={draftDay} onChange={event => { setDraftDay(event.target.value); setLocalError(''); }} /> : <Input type="datetime-local" aria-label={ru ? 'Новый Due' : 'New Due'} value={draft} onChange={(event) => { setDraft(event.target.value); setLocalError(''); }} />}<Button size="compact" onClick={chooseCustom}>{ru ? 'Применить' : 'Apply'}</Button></div>}
     {(localError || error) && <small role="alert" className="ui-field-error">{localError || error}</small>}
   </div>;
 }

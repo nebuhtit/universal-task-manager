@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createItem } from '@utm/core';
-import { dueQuickOptions, dueWallInputToIso, dueWallTimeToIso } from './dueQuickActions';
+import { dueDateOnlyToIso, dueQuickOptions, dueWallInputToIso, dueWallTimeToIso } from './dueQuickActions';
 
 describe('quick Due choices', () => {
   it('hides elapsed same-day times at the exact boundary', () => {
@@ -32,5 +32,9 @@ describe('quick Due choices', () => {
     expect(dueWallTimeToIso('2026-03-08', 2, 30, 'America/New_York')).toBeUndefined();
     expect(dueWallTimeToIso('2026-03-09', 9, 0, 'America/New_York')).toBe('2026-03-09T13:00:00.000Z');
     expect(dueWallInputToIso('2026-11-01T01:30', 'America/New_York')).toBe('2026-11-01T05:30:00.000Z');
+  });
+  it('anchors a date-only Due to the end of its local day, including DST changes', () => {
+    expect(dueDateOnlyToIso('2026-03-08', 'America/New_York')).toBe('2026-03-09T03:59:59.999Z');
+    expect(dueDateOnlyToIso('2026-02-30', 'UTC')).toBeUndefined();
   });
 });

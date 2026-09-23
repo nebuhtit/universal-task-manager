@@ -1,7 +1,7 @@
 import { buildRecurrenceRule, createOccurrence, itemDeletionTime, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 export type AgendaEntry = { id: string; title: string; at: number; kind: 'event' | 'program' | 'due' };
-export type HeaderAgenda = { current?: AgendaEntry; additional: number; next?: AgendaEntry; validUntil: number };
+export type HeaderAgenda = { current?: AgendaEntry; concurrent: AgendaEntry[]; additional: number; next?: AgendaEntry; validUntil: number };
 const timestamp = (value?: string) => Date.parse(value ?? '');
 const stable = (a: AgendaEntry, b: AgendaEntry) => a.id.localeCompare(b.id);
 
@@ -35,8 +35,9 @@ function agendaItems(workspace: WorkspaceDocument, now: number): UniversalItem[]
 }
 
 export function selectHeaderAgenda(workspace: WorkspaceDocument, now: number): HeaderAgenda {
-  const active: { entry: AgendaEntry; extra: number }[] = [];
+  const active: { entry: AgendaEntry; duration: number; started: number }[] = [];
   const future: AgendaEntry[] = [];
+  const dueMode = workspace.calendarPreferences.appearance.headerDueMode ?? 'timed';
   let validUntil = Infinity;
   const boundary = (at: number) => { if (at > now) validUntil = Math.min(validUntil, at); };
   for (const item of agendaItems(workspace, now)) {
@@ -44,7 +45,7 @@ export function selectHeaderAgenda(workspace: WorkspaceDocument, now: number): H
     const timed = !item.schedule?.plannedDate && !item.schedule?.allDay;
     const event: AgendaEntry = { id: item.id, title: item.title, at: start, kind: 'event' };
     const due = timestamp(item.schedule?.dueAt);
-    if (due > now) future.push({ ...event, at: due, kind: 'due' });
+    if (due > now && dueMode !== 'off' && (dueMode === 'all' || (!item.schedule?.dueDateOnly && !/^\d{4}-\d{2}-\d{2}$/.test(item.schedule?.dueAt ?? '')))) future.push({ ...event, at: due, kind: 'due' });
     boundary(due);
     if (!timed) continue;
     boundary(start); boundary(end);
@@ -56,13 +57,14 @@ export function selectHeaderAgenda(workspace: WorkspaceDocument, now: number): H
     }
     if (start <= now && now < end) {
       const currentBlocks = blocks.filter(block => block.at <= now && now < block.end).sort((a, b) => b.at - a.at || stable(a, b));
-      active.push({ entry: { ...(currentBlocks[0] ?? event), at: start }, extra: Math.max(0, currentBlocks.length - 1) });
+      active.push({ entry: currentBlocks[0] ?? event, duration: end - start, started: start });
+      for (const block of currentBlocks.slice(1)) active.push({ entry: block, duration: block.end - block.at, started: block.at });
     }
   }
-  active.sort((a, b) => b.entry.at - a.entry.at || stable(a.entry, b.entry));
+  active.sort((a, b) => b.duration - a.duration || a.started - b.started || stable(a.entry, b.entry));
   const rank = { due: 0, program: 1, event: 2 };
   future.sort((a, b) => a.at - b.at || rank[a.kind] - rank[b.kind] || stable(a, b));
-  return { ...(active[0] ? { current: active[0].entry } : {}), additional: Math.max(0, active.length - 1) + (active[0]?.extra ?? 0), ...(future[0] ? { next: future[0] } : {}), validUntil };
+  return { ...(active[0] ? { current: active[0].entry } : {}), concurrent: active.slice(1).map(value => value.entry), additional: Math.max(0, active.length - 1), ...(future[0] ? { next: future[0] } : {}), validUntil };
 }
 
 export function formatAgendaRemaining(milliseconds: number, language: string): string {

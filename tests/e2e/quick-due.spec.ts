@@ -35,7 +35,7 @@ test('quick Due uses one set of choices in the editor and swipe menu', async ({ 
   const due = page.getByLabel('Due / Active range ends', { exact: true });
   await dates.getByRole('button', { name: /Tomorrow/ }).click();
   await expect(due).not.toHaveValue('');
-  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('');
+  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('10');
   await page.getByRole('button', { name: 'Save item' }).click();
   const card = page.locator('.item-card[data-utm-due-item-id]').filter({ hasText: 'Sample task' }).first();
   await expect(card).toBeVisible();
@@ -57,9 +57,23 @@ test('quick Due uses one set of choices in the editor and swipe menu', async ({ 
   await expect(due).toHaveValue(savedDue);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.reload();
+  const safeEntry = page.getByRole('checkbox', { name: /Безопасное открытие/ });
+  if (await safeEntry.isChecked()) await safeEntry.uncheck();
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Unlock' }).click();
+  if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: /^All items/ }).click();
+  else { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: /^All items/ }).click(); }
   await page.locator('.item-card[data-utm-due-item-id]').filter({ hasText: 'Sample task' }).first().locator('.item-main').click();
   if (!await dates.evaluate((element) => (element as HTMLDetailsElement).open)) await datesSummary.click();
   await expect(due).toHaveValue(savedDue);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await swipeLeft(page, '.item-card[data-utm-due-item-id] .item-main');
+  await expect(menu).toBeVisible();
+  await menu.getByRole('button', { name: 'Custom date and time…' }).click();
+  await menu.getByRole('checkbox', { name: 'Without time' }).check();
+  const futureDay = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  await menu.getByLabel('Due date without time').fill(futureDay);
+  await menu.getByRole('button', { name: 'Apply' }).click();
+  await expect(menu).toBeHidden();
+  await expect(card.locator('.item-main')).not.toContainText('23:59');
 });

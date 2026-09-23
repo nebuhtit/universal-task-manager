@@ -1,6 +1,8 @@
 .weather-background { position: absolute; inset: 0; pointer-events: none; z-index: -1; overflow: hidden; }
-.weather-solar, .weather-haze { position: absolute; inset-inline: 0; }
-.weather-haze { background: radial-gradient(ellipse at 30% 50%, var(--color-weather-haze), transparent 75%), radial-gradient(ellipse at 80% 50%, var(--color-weather-haze), transparent 70%); }
+.weather-solar, .weather-haze-slot { position: absolute; inset-inline: 0; }
+.weather-solar { opacity: var(--opacity-solar-background); }
+.weather-haze { position: absolute; inset: 0; background: radial-gradient(ellipse at 30% 50%, var(--color-weather-haze), transparent 75%), radial-gradient(ellipse at 80% 50%, var(--color-weather-haze), transparent 70%); }
+.weather-haze-label { position: absolute; right: var(--space-1); top: 0; font-size: var(--font-size-caption); color: var(--color-text-secondary); }
 .weather-solar-marker { position: absolute; inset-inline: 0; border-top: 1px dashed var(--color-border-strong); }
 .weather-solar-marker span { position: absolute; right: var(--space-1); bottom: var(--space-0); font-size: var(--font-size-caption); color: var(--color-text-secondary); background: var(--color-surface-translucent); padding-inline: var(--space-1); border-radius: var(--radius-sm); }
 .weather-settings { display: grid; gap: var(--space-3); }

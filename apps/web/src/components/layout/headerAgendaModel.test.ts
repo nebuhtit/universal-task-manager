@@ -47,7 +47,7 @@ describe('header agenda', () => {
     add('Deleted', 1).deletedAt = iso(-1);
     add('No end', -10).schedule!.dueAt = iso(-1);
     add('Date only', -10, 100).schedule!.plannedDate = '2026-09-23';
-    expect(selectHeaderAgenda(workspace, now)).toEqual({ additional: 0, validUntil: Infinity });
+    expect(selectHeaderAgenda(workspace, now)).toEqual({ concurrent: [], additional: 0, validUntil: Infinity });
   });
   it('removes an upcoming item immediately after soft deletion', () => {
     const { workspace, add } = fixture();
@@ -55,6 +55,22 @@ describe('header agenda', () => {
     expect(selectHeaderAgenda(workspace, now).next?.id).toBe(food.id);
     softDeleteItemTree(workspace, food.id, iso(1));
     expect(selectHeaderAgenda(workspace, now).next).toBeUndefined();
+  });
+  it('defaults to timed Due, with explicit all and off preferences', () => {
+    const { workspace, add } = fixture();
+    const dateOnly = add('Day deadline', 1000); dateOnly.schedule!.dueAt = iso(200); dateOnly.schedule!.dueDateOnly = true;
+    const timed = add('Timed deadline', 1000); timed.schedule!.dueAt = iso(300);
+    expect(selectHeaderAgenda(workspace, now).next?.title).toBe('Timed deadline');
+    workspace.calendarPreferences.appearance.headerDueMode = 'all';
+    expect(selectHeaderAgenda(workspace, now).next?.title).toBe('Day deadline');
+    workspace.calendarPreferences.appearance.headerDueMode = 'off';
+    expect(selectHeaderAgenda(workspace, now).next?.kind).toBe('event');
+  });
+  it('shows the longer overlapping event first and promotes the other when it ends', () => {
+    const { workspace, add } = fixture();
+    add('Long', -120, 300); add('Short', -30, 100);
+    expect(selectHeaderAgenda(workspace, now)).toMatchObject({ current: { title: 'Long' }, concurrent: [{ title: 'Short' }] });
+    expect(selectHeaderAgenda(workspace, now + 150000)).toMatchObject({ current: { title: 'Long' }, concurrent: [] });
   });
   it('finds remote recurring cycles, skips closed exceptions and never persists projections', () => {
     const { workspace, add } = fixture();

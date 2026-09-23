@@ -31,6 +31,7 @@ import { ItemSection } from './ItemSection';
 import { QuickItemTimer } from './QuickItemTimer';
 import { DateTimeField } from './fields/DateTimeField';
 import { DatesSection } from './sections/DatesSection';
+import { dueDateOnlyToIso } from '../dueQuickActions';
 import { RemindersSection } from './sections/RemindersSection';
 import { RecurrenceSection } from './sections/RecurrenceSection';
 import { ScriptsSection } from './sections/ScriptsSection';
@@ -226,7 +227,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; else delete next.plannedDate; return next;
   }); };
   const patchScheduledEnd = (value?: string) => { if (!value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; } transformSchedule((schedule) => scheduleWithEnd(schedule, value)); };
-  const patchScheduledDue = (value?: string) => transformSchedule((schedule) => scheduleWithDue(schedule, value));
+  const patchScheduledDue = (value?: string) => transformSchedule((schedule) => ({ ...scheduleWithDue(schedule, value), dueDateOnly: false }));
   const patchPlannedDate = (value?: string) => {
     if (value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; }
     transformSchedule((schedule) => {
@@ -236,7 +237,13 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     return next;
     });
   };
-  const patchQuickDue = (value: string) => transformSchedule((schedule) => ({ ...schedule, dueAt: value }));
+  const patchQuickDue = (value: string) => transformSchedule((schedule) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const dueAt = dueDateOnlyToIso(value, schedule.timezone);
+      return dueAt ? { ...schedule, dueAt, dueDateOnly: true } : schedule;
+    }
+    return { ...schedule, dueAt: value, dueDateOnly: false };
+  });
   const applyDurationPreset = (preset: string) => {
     if (preset === '1h') patchScheduledDuration(1, 'hours');
     else if (preset === '2h' || preset === '3h' || preset === '5h') patchScheduledDuration(Number(preset.slice(0, -1)), 'hours');

@@ -7,7 +7,7 @@ import { formatAgendaRemaining, selectHeaderAgenda, type HeaderAgenda as Agenda 
 export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
   const now = useWorkspaceNow(workspace).getTime();
   const cache = useRef<{ workspace: WorkspaceDocument; at: number; agenda: Agenda } | undefined>(undefined);
-  const deletedFromCache = workspace && [cache.current?.agenda.current, cache.current?.agenda.next].some(entry => {
+  const deletedFromCache = workspace && [cache.current?.agenda.current, ...(cache.current?.agenda.concurrent ?? []), cache.current?.agenda.next].some(entry => {
     if (!entry) return false;
     const id = entry.id.split('/')[0]!;
     const item = workspace.items[id];
@@ -20,7 +20,7 @@ export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
   const ru = workspace?.calendarPreferences.language === 'ru';
   const current = agenda?.current, next = agenda?.next;
   return <section className="header-agenda" aria-label={ru ? 'Сейчас и далее' : 'Now and next'}>
-    {current && <span className="header-agenda-part"><span className="header-agenda-title" title={current.title}><UserDataText>{current.title}</UserDataText></span>{Boolean(agenda?.additional) && <span>+{agenda!.additional}</span>}</span>}
+    {current && <span className="header-agenda-part"><span className="header-agenda-title" title={[current.title, ...(agenda?.concurrent ?? []).map(entry => entry.title)].join(' · ')}><UserDataText>{current.title}</UserDataText>{agenda?.concurrent[0] && <> (<UserDataText>{agenda.concurrent[0].title}</UserDataText>{agenda.additional > 1 ? ` +${agenda.additional - 1}` : ''})</>}</span></span>}
     {current && next && <span aria-hidden="true">→</span>}
     {next && <span className="header-agenda-part"><span>{next.kind === 'due' ? (ru ? 'до due' : 'due in') : (ru ? 'через' : 'in')} {formatAgendaRemaining(next.at - now, ru ? 'ru' : 'en')} ·</span><span className="header-agenda-title" title={next.title}><UserDataText>{next.title}</UserDataText></span></span>}
     {!current && !next && <span className="header-agenda-title">{ru ? 'Нет ближайших событий и сроков' : 'No upcoming events or deadlines'}</span>}

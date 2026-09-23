@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.8.3';
-export const APP_RELEASED_AT = '2026-09-23T07:52:24.031Z';
+export const APP_VERSION = '2.8.4';
+export const APP_RELEASED_AT = '2026-09-23T09:33:52.661Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -43,6 +43,8 @@ export interface Schedule {
   startAt?: ISODateTime;
   endAt?: ISODateTime;
   dueAt?: ISODateTime;
+  /** A date-only Due is anchored internally at the end of that calendar day. */
+  dueDateOnly?: boolean;
   estimatedDuration?: ISODuration;
   /** Time reserved immediately before startAt. It is not part of the task estimate. */
   travelDuration?: ISODuration;
@@ -644,7 +646,7 @@ export interface CalendarPreferences {
   defaultDurationMinutes: number;
   timeFormat: '24h';
   language: WorkspaceLanguage;
-  appearance: { mode: 'system' | 'light' | 'dark' | 'scheduled'; lightAt: string; darkAt: string; tickSound: boolean; uiSound: boolean; overdueAgeIndicator: boolean; /** Records the one-time upgrade that enabled calm sounds by default. */ soundDefaultsVersion?: 1 };
+  appearance: { mode: 'system' | 'light' | 'dark' | 'scheduled'; lightAt: string; darkAt: string; tickSound: boolean; uiSound: boolean; overdueAgeIndicator: boolean; headerDueMode?: 'off' | 'timed' | 'all'; /** Records the one-time upgrade that enabled calm sounds by default. */ soundDefaultsVersion?: 1 };
   dayView: CalendarDayViewPreferences;
   timeline?: { mode: 'list' | 'timeline'; hideSleep: boolean; sleepItemId?: string; showUndated?: boolean; showOverdue?: boolean };
   /** Opt-in local operation logs used for troubleshooting; never uploaded automatically. */

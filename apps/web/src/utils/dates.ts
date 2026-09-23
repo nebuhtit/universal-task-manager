@@ -17,8 +17,9 @@ export const formatSystemDateTime = (value: string | number | Date, language?: W
 
 export const formatRussianDateTime = formatSystemDateTime;
 
-export const formatViewDate = (value: string | number | Date, includeTime = true, language?: WorkspaceLanguage): string => {
+export const formatViewDate = (value: string | number | Date, includeTime = true, language?: WorkspaceLanguage, timeZone?: string): string => {
   const formatter = new Intl.DateTimeFormat(localeForLanguage(language), {
+    ...(timeZone ? { timeZone } : {}),
     weekday: 'short', day: 'numeric', month: 'short', year: '2-digit',
     ...(includeTime ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' as const } : {}),
   });

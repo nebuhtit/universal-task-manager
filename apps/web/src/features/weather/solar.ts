@@ -24,7 +24,16 @@ export function solarDay(dateKey: string, zone: string, location: WeatherLocatio
 }
 export function solarColor(at: number, location: WeatherLocation) {
   const altitude = SunCalc.getPosition(new Date(at), location.latitude, location.longitude).altitude * 180 / Math.PI;
-  return `var(--color-solar-${altitude < -18 ? 'night' : altitude < -12 ? 'astronomical' : altitude < -6 ? 'nautical' : altitude < -0.833 ? 'civil' : altitude < 6 ? 'horizon' : 'day'})`;
+  const stops = [
+    { altitude: -20, color: 'night' }, { altitude: -15, color: 'astronomical' },
+    { altitude: -9, color: 'nautical' }, { altitude: -3, color: 'civil' },
+    { altitude: 3, color: 'horizon' }, { altitude: 12, color: 'day' },
+  ];
+  const upper = stops.findIndex(stop => altitude < stop.altitude);
+  if (upper <= 0) return `var(--color-solar-${upper === 0 ? 'night' : 'day'})`;
+  const before = stops[upper - 1]!, after = stops[upper]!;
+  const blend = Math.round((altitude - before.altitude) / (after.altitude - before.altitude) * 100);
+  return `color-mix(in srgb, var(--color-solar-${before.color}) ${100 - blend}%, var(--color-solar-${after.color}))`;
 }
 export function solarGradient(segment: Segment, location: WeatherLocation, events: SolarEvent[]) {
   const points = [segment.start, segment.end, ...events.filter(e => e.at > segment.start && e.at < segment.end).map(e => e.at)];

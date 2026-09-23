@@ -1,4 +1,4 @@
-import { calendarDateKey, shiftCalendarDateKey, type UniversalItem } from '@utm/core';
+import { calendarDateKey, shiftCalendarDateKey, zonedDateStart, type UniversalItem } from '@utm/core';
 
 export type DueQuickOptionId = 'today-13' | 'today-19' | 'today-23' | 'tomorrow' | 'next-week' | 'next-monday';
 export type DueQuickOption = { id: DueQuickOptionId; at: string; disabled: boolean };
@@ -40,6 +40,14 @@ export function dueWallInput(value: string, timeZone: string): string {
 export function dueWallInputToIso(input: string, timeZone: string): string | undefined {
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/.exec(input);
   return match ? dueWallTimeToIso(match[1]!, Number(match[2]), Number(match[3]), timeZone) : undefined;
+}
+
+/** A date-only Due expires when the chosen local day ends, without inventing a visible clock time. */
+export function dueDateOnlyToIso(dateKey: string, timeZone: string): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return undefined;
+  const calendarDate = new Date(`${dateKey}T12:00:00Z`);
+  if (!Number.isFinite(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== dateKey) return undefined;
+  return new Date(zonedDateStart(shiftCalendarDateKey(dateKey, 1), timeZone).getTime() - 1).toISOString();
 }
 
 export function dueQuickOptions(item: UniversalItem, now: Date): DueQuickOption[] {
