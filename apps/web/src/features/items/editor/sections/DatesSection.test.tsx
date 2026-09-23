@@ -26,4 +26,18 @@ describe('DatesSection travel time', () => {
     expect(markup).toContain('value="2026-09-23"');
     expect(markup).not.toContain('value="2026-09-23T09:00"');
   });
+  it('offers a date-only Event ends for a date-only start and shows the inclusive last day', () => {
+    const item = createItem('Trip', 'event');
+    item.schedule = { timezone: 'Europe/Moscow', plannedDate: '2026-09-21' };
+    const props = { item, workspace: createWorkspace(), sectionMark: () => null, patchScheduledDuration: vi.fn(), patchTravelDuration: vi.fn(), patchScheduledStart: vi.fn(), patchPlannedDate: vi.fn(), patchScheduledEnd: vi.fn(), patchDateOnlyEnd: vi.fn(), patchDateOnlyTimedEnd: vi.fn(), applyDurationPreset: vi.fn(), patchScheduledDue: vi.fn() };
+    const initial = renderToStaticMarkup(<DatesSection {...props} />);
+    expect(initial).toContain('aria-label="Event ends precision"');
+    expect(initial).toContain('aria-label="Event ends date"');
+    expect(initial).toContain('min="2026-09-21"');
+    item.schedule = { timezone: 'Europe/Moscow', allDay: true, startAt: '2026-09-20T21:00:00.000Z', endAt: '2026-09-24T21:00:00.000Z' };
+    const range = renderToStaticMarkup(<DatesSection {...props} />);
+    expect(range).toContain('aria-label="Event opens date"');
+    expect(range).toContain('aria-label="Event ends date"');
+    expect(range).toContain('value="2026-09-24"');
+  });
 });

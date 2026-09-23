@@ -4,3 +4,5 @@
 .item-title-heading > .ui-checkbox { width: auto; flex: none; font-size: var(--font-size-secondary); }
 .item-title-heading > .editor-complete { width: var(--control-height-compact); height: var(--control-height-compact); flex: none; }
 .item-title-field > .schedule-explainer { margin: 0; }
+.item-duplicate-action.ui-button { width: 100%; min-height: var(--control-height-touch); justify-content: flex-start; padding-inline: 0; border: 0; border-radius: 0; background: transparent; font-size: var(--font-size-secondary); font-weight: var(--font-weight-medium); text-align: start; }
+.item-duplicate-action.ui-button:hover { background: var(--color-interactive-hover); }

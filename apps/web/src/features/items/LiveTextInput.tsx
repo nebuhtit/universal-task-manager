@@ -1,5 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { orderedOrganizationNames, type WorkspaceDocument } from '@utm/core';
 import { organizationSuggestions } from '../../../quick-entry-lab/organization';
 import { dateValueExpression, parseLiveEntry as parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
@@ -50,7 +49,6 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const [expected, setExpected] = useState(''), [reportError, setReportError] = useState(''), [notice, setNotice] = useState('');
   const [calendar, setCalendar] = useState<{ start: number; end: number; insert: string; source: string } | null>(null);
   const [date, setDate] = useState('');
-  const [overlayStyle, setOverlayStyle] = useState<CSSProperties>();
   const parsed = useMemo(() => parseEntry(value, referenceTime), [value, referenceTime]);
   const highlight = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState(false);
@@ -97,39 +95,6 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     const position = pendingCaret.current; pendingCaret.current = null;
     control()?.focus(); control()?.setSelectionRange(position, position);
   }, [value]);
-  const updateOverlayPosition = () => {
-    const element = control() ?? root.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea');
-    const rect = element?.getBoundingClientRect();
-    if (!element || !rect) return;
-    const viewportTop = window.visualViewport?.offsetTop ?? 0;
-    const dialogTop = element.closest('.ui-dialog-popup')?.getBoundingClientRect().top ?? viewportTop;
-    const availableAbove = Math.max(0, rect.top - Math.max(viewportTop, dialogTop));
-    const footerTop = element.closest('.ui-dialog-popup')?.querySelector('.ui-dialog-footer')?.getBoundingClientRect().top;
-    const viewportBottom = Math.min(viewportTop + (window.visualViewport?.height ?? window.innerHeight), footerTop ?? Infinity);
-    const availableBelow = Math.max(0, viewportBottom - rect.bottom);
-    if (window.innerWidth <= 620 && availableBelow >= 96) {
-      setOverlayStyle({ left: rect.left, width: rect.width, top: `calc(${rect.bottom}px + var(--space-2))`, bottom: 'auto', maxHeight: `max(0px, calc(${availableBelow}px - 2 * var(--space-2)))` });
-      return;
-    }
-    setOverlayStyle({
-      left: rect.left,
-      width: rect.width,
-      bottom: `calc(${Math.max(0, window.innerHeight - rect.top)}px + var(--space-2))`,
-      maxHeight: `max(0px, calc(${availableAbove}px - 2 * var(--space-2)))`,
-    });
-  };
-  useLayoutEffect(() => {
-    if (!focused || !open || !overlaySuggestions) { setOverlayStyle(undefined); return; }
-    const updatePosition = () => {
-      updateOverlayPosition();
-    };
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    window.visualViewport?.addEventListener('resize', updatePosition);
-    window.visualViewport?.addEventListener('scroll', updatePosition);
-    return () => { window.removeEventListener('resize', updatePosition); window.removeEventListener('scroll', updatePosition, true); window.visualViewport?.removeEventListener('resize', updatePosition); window.visualViewport?.removeEventListener('scroll', updatePosition); };
-  }, [focused, open, overlaySuggestions, value]);
   const replace = (start: number, end: number, insert: string) => {
     pendingCaret.current = start + insert.length;
     onChange(value.slice(0, start) + insert + value.slice(end));
@@ -179,9 +144,9 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     value, placeholder, id: inputId, autoFocus, 'aria-label': ariaLabel ?? placeholder, autoComplete: 'off', spellCheck: false, maxLength: 2000,
     role: 'combobox', 'aria-autocomplete': 'list' as const, 'aria-expanded': expanded, 'aria-controls': `${id}-options`,
     'aria-activedescendant': expanded && selected >= 0 ? `${id}-option-${selected}` : undefined,
-    onFocus: () => { setFocused(true); setOpen(true); setReferenceTime(now); if (overlaySuggestions) requestAnimationFrame(updateOverlayPosition); },
+    onFocus: () => { setFocused(true); setOpen(true); setReferenceTime(now); },
     onBlur: () => { setFocused(false); setOpen(false); },
-    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { onChange(event.target.value); setCaret(event.target.selectionStart ?? 0); setSelected(-1); setOpen(true); setNotice(''); setReferenceTime(now); if (overlaySuggestions) requestAnimationFrame(updateOverlayPosition); },
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { onChange(event.target.value); setCaret(event.target.selectionStart ?? 0); setSelected(-1); setOpen(true); setNotice(''); setReferenceTime(now); },
     onSelect: (event: React.SyntheticEvent<HTMLInputElement | HTMLTextAreaElement>) => { setCaret(event.currentTarget.selectionStart ?? 0); requestAnimationFrame(syncHighlight); },
     onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;
@@ -193,7 +158,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
       else if (expanded && selected >= 0 && event.key === ' ') { event.preventDefault(); choose(selected); }
     },
   };
-  const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div ref={panel} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-overlay' : ''}`} style={overlayStyle}>
+  const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div ref={panel} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-inline' : ''}`}>
       {dayPreview && calendarDate && visiblePreview && <button ref={previewButton} type="button" className="live-day-preview" aria-label={language === 'ru' ? `Открыть ${calendarDate} в Timeline` : `Open ${calendarDate} in Timeline`} onPointerDown={(event) => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => { if (Date.now() - lastCalendarTouch.current > 500) viewCalendarDate(); }}>
         <div className="live-day-preview-heading"><strong>{new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${calendarDate}T12:00:00Z`))}</strong><span>{language === 'ru' ? `Событий: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · весь день: ${dayPreview.allDay.length}` : ''}` : `Events: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · all day: ${dayPreview.allDay.length}` : ''}`}</span></div>
         <div className="live-day-preview-track" aria-hidden="true">{previewSegments.filter(segment => segment.hidden).map(segment => <span key={segment.start} className="live-day-preview-hidden" style={{ left: `${previewPercent(segment.start)}%`, width: `${segment.height / previewHeight * 100}%` }} />)}{dayPreviewEvents.filter(event => !previewSegments.some(segment => segment.hidden && event.start >= segment.start && event.end <= segment.end)).map((event, index) => <span key={`${event.item.id}-${index}`} className="live-day-preview-event" style={{ left: `${previewPercent(event.start)}%`, width: `${Math.max(0.8, previewPercent(Math.min(event.end, dayPreview.day.end)) - previewPercent(Math.max(event.start, dayPreview.day.start)))}%` }} />)}</div>
@@ -211,8 +176,9 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
       </div>}
     </div>;
   return <div className="live-text-input" ref={root}>
-    {suggestionPanel && (overlaySuggestions && typeof document !== 'undefined' ? createPortal(suggestionPanel, document.body) : suggestionPanel)}
+    {!overlaySuggestions && !multiline && suggestionPanel}
     {multiline ? <Textarea {...common} ref={textarea} rows={4} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint={overlaySuggestions ? 'done' : 'go'} />}
+    {(overlaySuggestions || multiline) && suggestionPanel}
     {highlighted && <div ref={highlight} aria-hidden="true" className={`live-text-highlight${multiline ? ' is-multiline' : ''}`}><span>{(() => {
       let cursor = 0;
       const parts: React.ReactNode[] = [];

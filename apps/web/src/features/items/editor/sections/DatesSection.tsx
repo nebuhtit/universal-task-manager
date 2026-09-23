@@ -25,20 +25,24 @@ type Props = {
   patchScheduledStart: (value?: string) => void;
   patchPlannedDate?: (value?: string) => void;
   patchScheduledEnd: (value?: string) => void;
+  patchDateOnlyEnd?: (value?: string) => void;
+  patchDateOnlyTimedEnd?: (value?: string) => void;
+  patchDateOnlyStartTimed?: () => void;
   patchScheduledDue: (value?: string) => void;
   patchQuickDue?: (value: string) => void;
   applyDurationPreset: (preset: string) => void;
   children?: ReactNode;
 };
 
-export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, travelBackDuration, patchTravelBackDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchPlannedDate, patchScheduledEnd, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
+export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, travelBackDuration, patchTravelBackDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, patchPlannedDate, patchScheduledEnd, patchDateOnlyEnd, patchDateOnlyTimedEnd, patchDateOnlyStartTimed, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
   const [quickDueOpen, setQuickDueOpen] = useState(false);
   const [dateOnlyMode, setDateOnlyMode] = useState(Boolean(item.schedule?.plannedDate));
   const [pendingDateOnly, setPendingDateOnly] = useState(false);
   const [dueDateOnlyMode, setDueDateOnlyMode] = useState(Boolean(item.schedule?.dueDateOnly));
+  const [endDateOnlyMode, setEndDateOnlyMode] = useState(Boolean(item.schedule?.plannedDate || (!item.external && item.schedule?.allDay)));
   useEffect(() => { setDueDateOnlyMode(Boolean(item.schedule?.dueDateOnly)); }, [item.schedule?.dueDateOnly]);
   const language = workspace.calendarPreferences.language;
-  const dateOnly = Boolean(item.schedule?.plannedDate) || (!item.schedule?.startAt && dateOnlyMode);
+  const dateOnly = Boolean(item.schedule?.plannedDate || (!item.external && item.schedule?.allDay)) || (!item.schedule?.startAt && dateOnlyMode);
   const startDateKey = () => {
     const at = item.schedule?.startAt;
     if (!at) return '';
@@ -64,13 +68,16 @@ export function DatesSection({ item, workspace, now = new Date(), sectionMark, s
           if (event.target.value === 'date') {
             if (item.schedule?.startAt) setPendingDateOnly(true);
             else setDateOnlyMode(true);
-          } else { setDateOnlyMode(false); setPendingDateOnly(false); if (item.schedule?.plannedDate) patchPlannedDate(undefined); }
+          } else { setDateOnlyMode(false); setPendingDateOnly(false); if (item.schedule?.plannedDate || item.schedule?.allDay) patchDateOnlyStartTimed?.(); }
         }}><option value="datetime">{language === 'ru' ? 'Дата и время' : 'Date and time'}</option><option value="date">{language === 'ru' ? 'Только дата' : 'Date only'}</option></Select>}
-        {dateOnly && patchPlannedDate ? <Input type="date" aria-label="Event opens date" value={item.schedule?.plannedDate ?? ''} onChange={event => patchPlannedDate(event.target.value || undefined)} /> : <DateTimeField label="Event opens" value={item.schedule?.startAt} language={language} onChange={patchScheduledStart} />}
+        {dateOnly && patchPlannedDate ? <Input type="date" aria-label="Event opens date" value={item.schedule?.plannedDate ?? (item.schedule?.allDay && item.schedule.startAt ? calendarDateKey(new Date(item.schedule.startAt), item.schedule.timezone) : '')} onChange={event => patchPlannedDate(event.target.value || undefined)} /> : <DateTimeField label="Event opens" value={item.schedule?.startAt} language={language} onChange={patchScheduledStart} />}
         {pendingDateOnly && <div className="date-only-confirm" role="alert"><p>{language === 'ru' ? 'Время начала, окончания и дорога будут удалены. Оставить только дату?' : 'Start/end times and travel will be removed. Keep only the date?'}</p><Button size="compact" onClick={() => { patchPlannedDate?.(startDateKey()); setDateOnlyMode(true); setPendingDateOnly(false); }}>{language === 'ru' ? 'Оставить дату' : 'Keep date'}</Button><Button size="compact" variant="secondary" onClick={() => setPendingDateOnly(false)}>{language === 'ru' ? 'Отмена' : 'Cancel'}</Button></div>}
       </Field>
       <Field label={<FieldIconLabel path="schedule.estimatedDuration" label="Estimated duration" />}><DurationField hasStart={Boolean(item.schedule?.startAt)} {...(scheduledDuration ? { duration: scheduledDuration } : {})} onDurationChange={patchScheduledDuration} onPreset={applyDurationPreset} /></Field>
-      {item.schedule?.startAt && <Field label={<FieldIconLabel path="schedule.endAt" label="Event ends" />} error={invalidEnd ? 'Event ends cannot be earlier than Event opens.' : undefined}><DateTimeField label="Event ends" value={item.schedule?.endAt} language={language} onChange={patchScheduledEnd} minValue={item.schedule.startAt} /></Field>}
+      {(item.schedule?.startAt || item.schedule?.plannedDate) && <Field label={<FieldIconLabel path="schedule.endAt" label="Event ends" />} error={invalidEnd ? 'Event ends cannot be earlier than Event opens.' : undefined}>
+        {dateOnly && patchDateOnlyEnd && <Select aria-label="Event ends precision" value={endDateOnlyMode ? 'date' : 'datetime'} onChange={event => setEndDateOnlyMode(event.target.value === 'date')}><option value="date">{language === 'ru' ? 'Только дата' : 'Date only'}</option><option value="datetime">{language === 'ru' ? 'Дата и время' : 'Date and time'}</option></Select>}
+        {dateOnly && endDateOnlyMode && patchDateOnlyEnd ? <Input type="date" aria-label="Event ends date" min={item.schedule?.plannedDate ?? (item.schedule?.startAt ? calendarDateKey(new Date(item.schedule.startAt), item.schedule.timezone) : undefined)} value={item.schedule?.allDay && item.schedule.endAt ? calendarDateKey(new Date(Date.parse(item.schedule.endAt) - 1), item.schedule.timezone) : ''} onChange={event => patchDateOnlyEnd(event.target.value || undefined)} /> : <DateTimeField label="Event ends" value={dateOnly ? undefined : item.schedule?.endAt} language={language} onChange={dateOnly ? patchDateOnlyTimedEnd ?? patchScheduledEnd : patchScheduledEnd} minValue={item.schedule?.startAt} help={dateOnly ? (language === 'ru' ? 'При выборе времени начало станет 00:00 первого дня.' : 'Choosing a time sets the start to 00:00 on the first day.') : undefined} />}
+      </Field>}
       {item.schedule?.startAt && !item.schedule.allDay && <Disclosure uiKey={`item-editor:${item.id}:travel-time`} persist={false} summary={travelSummary} className="travel-time-disclosure">
         <div className="program-actions">{[45, 30, 60, 90, 120].map((minutes) => <Button key={minutes} size="compact" onClick={() => patchTravelDuration(minutes, 'minutes')}>{minutes < 60 ? `${minutes} ${language === 'ru' ? 'мин' : 'min'}` : `${String(minutes / 60).replace('.', language === 'ru' ? ',' : '.')} ${language === 'ru' ? 'ч' : 'h'}`}</Button>)}</div>
         <div className="travel-duration-control"><Input type="number" min="0" step="1" aria-label="Travel time amount" value={travelDuration?.amount ?? ''} placeholder="—" onChange={(event) => patchTravelDuration(event.target.value === '' || Number(event.target.value) <= 0 ? undefined : Number(event.target.value), travelUnit)} /><Select aria-label="Travel time unit" value={travelUnit} onChange={(event) => patchTravelDuration(travelDuration?.amount, event.target.value as FriendlyDurationUnit)}><option value="minutes">Minutes</option><option value="hours">Hours</option></Select></div><small>Reserved immediately before Event opens. It does not change the estimate.</small></Disclosure>}

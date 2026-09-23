@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { addTimerActualTime, canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition, syncCompletionCounter } from '@utm/core';
+import { addTimerActualTime, calendarDateKey, shiftCalendarDateKey, zonedDateStart, canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition, syncCompletionCounter } from '@utm/core';
 import { googleActionItem } from './itemEditorSource';
 import type { GoogleCalendarEvent } from '@utm/core';
 import { ItemHistoryJournals } from './sections/ItemHistoryJournals';
@@ -233,11 +233,46 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
     if (value && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])) { setError('Linked events require both Event opens and Event ends.'); return; }
     transformSchedule((schedule) => {
     const next = { ...schedule };
-    if (value) { next.plannedDate = value; delete next.startAt; delete next.endAt; delete next.travelDuration; delete next.travelBackDuration; delete next.allDay; }
+    if (value && next.allDay && next.startAt && next.endAt) {
+      const oldStart = calendarDateKey(new Date(next.startAt), next.timezone);
+      const oldEnd = calendarDateKey(new Date(next.endAt), next.timezone);
+      const days = Math.max(1, Math.round((Date.parse(`${oldEnd}T12:00:00Z`) - Date.parse(`${oldStart}T12:00:00Z`)) / 86_400_000));
+      next.startAt = zonedDateStart(value, next.timezone).toISOString();
+      next.endAt = zonedDateStart(shiftCalendarDateKey(value, days), next.timezone).toISOString();
+    } else if (value) { next.plannedDate = value; delete next.startAt; delete next.endAt; delete next.travelDuration; delete next.travelBackDuration; delete next.allDay; }
+    else if (next.allDay && next.startAt) { delete next.startAt; delete next.endAt; delete next.allDay; }
     else delete next.plannedDate;
     return next;
     });
   };
+  const patchDateOnlyEnd = (value?: string) => transformSchedule((schedule) => {
+    const next = { ...schedule };
+    if (!value) { delete next.endAt; if (next.allDay && next.startAt) { next.plannedDate = calendarDateKey(new Date(next.startAt), next.timezone); delete next.startAt; delete next.allDay; } return next; }
+    const startDay = next.plannedDate ?? (next.allDay && next.startAt ? calendarDateKey(new Date(next.startAt), next.timezone) : undefined);
+    if (!startDay || value < startDay) return next;
+    next.startAt = zonedDateStart(startDay, next.timezone).toISOString();
+    next.endAt = zonedDateStart(shiftCalendarDateKey(value, 1), next.timezone).toISOString();
+    next.allDay = true;
+    delete next.plannedDate;
+    return next;
+  });
+  const patchDateOnlyTimedEnd = (value?: string) => transformSchedule((schedule) => {
+    if (!value) return schedule;
+    const startDay = schedule.plannedDate ?? (schedule.allDay && schedule.startAt ? calendarDateKey(new Date(schedule.startAt), schedule.timezone) : undefined);
+    if (!startDay) return scheduleWithEnd(schedule, value);
+    const startAt = zonedDateStart(startDay, schedule.timezone).toISOString();
+    if (Date.parse(value) < Date.parse(startAt)) return schedule;
+    const next = { ...schedule, startAt, endAt: value };
+    delete next.plannedDate; delete next.allDay;
+    return next;
+  });
+  const patchDateOnlyStartTimed = () => transformSchedule((schedule) => {
+    const startDay = schedule.plannedDate ?? (schedule.allDay && schedule.startAt ? calendarDateKey(new Date(schedule.startAt), schedule.timezone) : undefined);
+    if (!startDay) return schedule;
+    const next = { ...schedule, startAt: zonedDateStart(startDay, schedule.timezone).toISOString() };
+    delete next.plannedDate; delete next.allDay;
+    return next;
+  });
   const patchQuickDue = (value: string) => transformSchedule((schedule) => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       const dueAt = dueDateOnlyToIso(value, schedule.timezone);
@@ -477,7 +512,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
           } else setItem(target);
         }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
-        <DatesSection item={item} workspace={workspace} now={now} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} {...(travelBackDuration ? { travelBackDuration } : {})} patchTravelBackDuration={patchTravelBackDuration} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchPlannedDate={patchPlannedDate} patchScheduledEnd={patchScheduledEnd} patchScheduledDue={patchScheduledDue} patchQuickDue={patchQuickDue} applyDurationPreset={applyDurationPreset}>
+        <DatesSection item={item} workspace={workspace} now={now} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} {...(travelBackDuration ? { travelBackDuration } : {})} patchTravelBackDuration={patchTravelBackDuration} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchPlannedDate={patchPlannedDate} patchScheduledEnd={patchScheduledEnd} patchDateOnlyEnd={patchDateOnlyEnd} patchDateOnlyTimedEnd={patchDateOnlyTimedEnd} patchDateOnlyStartTimed={patchDateOnlyStartTimed} patchScheduledDue={patchScheduledDue} patchQuickDue={patchQuickDue} applyDurationPreset={applyDurationPreset}>
           <RemindersSection item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           {canManuallyComplete(item) ? <details><summary><FieldIconLabel path="habit.completedDates" label={workspace.calendarPreferences.language === 'ru' ? 'Прогресс и выполнения' : 'Progress & completions'} /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">
@@ -510,7 +545,7 @@ export function ItemEditor({ initial, workspace, now: suppliedNow, isNew = false
 
 
         <ItemSection sectionKey="more" title="More" iconPath="custom">
-        {onDuplicate && <Button size="compact" variant="secondary" disabled={saving || sourceEditing} onClick={() => onDuplicate({ ...item, title: titleText, tags: commaList(tags), contexts: commaList(contexts) })}>{workspace.calendarPreferences.language === 'ru' ? 'Дублировать' : 'Duplicate'}</Button>}
+        {onDuplicate && <Button className="item-duplicate-action" variant="ghost" disabled={saving || sourceEditing} onClick={() => onDuplicate({ ...item, title: titleText, tags: commaList(tags), contexts: commaList(contexts) })}><FieldIconLabel path="duplicate" label={workspace.calendarPreferences.language === 'ru' ? 'Дублировать' : 'Duplicate'} /></Button>}
         <ItemSection sectionKey="template" title="Template" iconPath="isTemplate" filledMark={sectionMark(isTemplate)}><Checkbox checked={isTemplate} onChange={(event) => setIsTemplate(event.target.checked)} label="Save this item as a template" /><p className="schedule-explainer">Templates are kept in the same workspace but do not appear in ordinary lists. They can be selected only while creating a new item.</p></ItemSection>
 
         <details><summary><FieldIconLabel path="subtasks" label="Subtasks" /> {sectionMark(item.relations.some((relation) => relation.type === 'parent'))}</summary><div className="details-body">

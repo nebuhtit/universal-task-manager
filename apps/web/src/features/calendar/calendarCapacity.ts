@@ -17,7 +17,13 @@ export function calendarVisibleCapacity(
 ) {
   const zone = workspace.calendarPreferences.timezone;
   const settings = workspace.calendarPreferences.timeline;
-  const period = viewPeriodBoundsForDates(key, key, zone);
+  const fullDay = viewPeriodBoundsForDates(key, key, zone);
+  // Today's capacity is actionable time remaining, not free hours already past.
+  // Other days still use their complete local-day bounds.
+  const current = now.getTime();
+  const period = current >= fullDay.start.getTime() && current < fullDay.endExclusive.getTime()
+    ? { ...fullDay, start: now, durationMs: fullDay.endExclusive.getTime() - current }
+    : fullDay;
   const accumulator = createViewTimeMetricsAccumulator(period);
   const visible = new Map<string, UniversalItem>();
   for (const item of day.evaluation.items) {

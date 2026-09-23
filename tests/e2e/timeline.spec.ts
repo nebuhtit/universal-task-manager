@@ -48,6 +48,35 @@ async function primary(page: Page) {
   });
 }
 
+async function swipeTouch(page: Page, selector: string, fromX: number, toX: number) {
+  await page.locator(selector).evaluate((target, { fromX, toX }) => {
+    const dispatch = (kind: 'touchstart' | 'touchend', x: number) => {
+      const event = new Event(kind, { bubbles: true, cancelable: true });
+      const point = { clientX: x, clientY: 400 };
+      Object.defineProperty(event, 'touches', { value: kind === 'touchstart' ? [point] : [] });
+      Object.defineProperty(event, 'changedTouches', { value: [point] });
+      target.dispatchEvent(event);
+    };
+    dispatch('touchstart', fromX);
+    dispatch('touchend', toX);
+  }, { fromX, toX });
+}
+
+test('calendar statistics stay pinned and blank Timeline swipes change day without stealing item swipes', async ({ page }) => {
+  await setup(page);
+  const title = page.locator('.calendar-heading-date h1');
+  const header = page.locator('.calendar-title');
+  await expect(header).toHaveCSS('position', 'sticky');
+  await expect(header.getByTestId('calendar-header-capacity')).toHaveCSS('margin-left', '0px');
+  await swipeTouch(page, '.timeline-axis', 290, 120);
+  await expect(title).toContainText('September 23, 2026');
+  await swipeTouch(page, '.timeline-axis', 120, 290);
+  await expect(title).toContainText('September 22, 2026');
+  await swipeTouch(page, '.timeline-events [data-testid="timeline-event"]:has-text("One minute title")', 290, 120);
+  await expect(title).toContainText('September 22, 2026');
+  await expect(page.getByRole('dialog', { name: 'Quick Due' })).toContainText('Move Due');
+});
+
 test('timeline titles, More, clock, sleep, dark mode and persisted display choice', async ({ page }, testInfo) => {
   test.setTimeout(180_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await setup(page);

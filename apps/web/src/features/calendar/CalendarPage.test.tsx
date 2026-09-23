@@ -44,7 +44,7 @@ describe('CalendarPage daily-list contract', () => {
     expect(markup).toContain('Month');
     expect(markup).not.toContain('All scheduled items');
     expect(markup).toContain('30min');
-    expect(markup).toContain('Free 23h 30min');
+    expect(markup).toContain('Free 13h 30min');
     expect(markup).toContain('Edit calendar day view');
   });
 

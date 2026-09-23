@@ -1,5 +1,5 @@
 import { WeatherTimeline } from '../weather/WeatherTimeline';
-import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type TouchEvent } from 'react';
 import { calendarDateKey, effectiveWorkspaceNow, occupiedIntervals, viewPeriodBoundsForDates, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
@@ -35,19 +35,35 @@ export function TimelineNow({ workspace, segments, suppliedNow }: { workspace: W
   return <div className={`timeline-now${segment.hidden ? ' is-hidden-time' : ''}`} style={{ top }} data-testid="timeline-now" aria-label={`Current time ${timeLabel(at, workspace.calendarPreferences.timezone)}`}><span>{timeLabel(at, workspace.calendarPreferences.timezone)}</span></div>;
 }
 
-export const CalendarTimeline = memo(function CalendarTimeline({ workspace, dateKey, now, suppliedNow, capacityLabel, reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences }: {
+export const CalendarTimeline = memo(function CalendarTimeline({ workspace, dateKey, now, suppliedNow, capacityLabel, reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay }: {
   workspace: WorkspaceDocument; dateKey: string; now: Date; suppliedNow?: Date | undefined;
   capacityLabel?: string; allDayOpen?: boolean; onAllDayChange?: (open: boolean) => void;
   reservedItems?: UniversalItem[];
   onEdit: (item: UniversalItem) => void;
   onState?: ((item: UniversalItem, state: UniversalItem['state']) => void) | undefined;
   onPreferences: (settings: NonNullable<WorkspaceDocument['calendarPreferences']['timeline']>) => void;
+  onSwipeDay?: (direction: -1 | 1) => void;
 }) {
   const ru = workspace.calendarPreferences.language === 'ru';
   const zone = workspace.calendarPreferences.timezone;
   const settings = workspace.calendarPreferences.timeline ?? { mode: 'timeline' as const, hideSleep: false };
   allDayOpen ??= readUiBoolean('calendar:all-day', true);
   const [more, setMore] = useState<UniversalItem[]>([]);
+  const swipeStart = useRef<{ x: number; y: number; at: number } | null>(null);
+  const beginBackgroundSwipe = (event: TouchEvent<HTMLDivElement>) => {
+    swipeStart.current = null;
+    if (!onSwipeDay || event.touches.length !== 1 || !(event.target instanceof Element)) return;
+    if (event.target.closest('button, a, input, select, textarea, [data-utm-due-item-id], [role="button"]')) return;
+    swipeStart.current = { x: event.touches[0]!.clientX, y: event.touches[0]!.clientY, at: Date.now() };
+  };
+  const endBackgroundSwipe = (event: TouchEvent<HTMLDivElement>) => {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start || !onSwipeDay || event.changedTouches.length !== 1) return;
+    const dx = event.changedTouches[0]!.clientX - start.x;
+    const dy = event.changedTouches[0]!.clientY - start.y;
+    if (Math.abs(dx) >= 65 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - start.at < 900) onSwipeDay(dx < 0 ? 1 : -1);
+  };
   const [columns, setColumns] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches ? 2 : 4);
   useEffect(() => {
     const media = window.matchMedia('(max-width: 620px)');
@@ -90,7 +106,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ workspace, date
     {data.plannedTasks.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks)}</div>}
     {data.allDay.length > 0 && allDayOpen && <div className="timeline-top-items timeline-all-day-items">{cards(data.allDay)}</div>}
     {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}
-    <div className="timeline-axis" style={{ height: height + 12 }}>
+    <div className="timeline-axis" style={{ height: height + 12 }} onTouchStart={beginBackgroundSwipe} onTouchEnd={endBackgroundSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
       <WeatherTimeline dateKey={dateKey} zone={zone} ru={ru} segments={segments} />
       <div className="timeline-hidden-reserves" aria-label={ru ? 'Скрытые закреплённые items' : 'Hidden reserved items'}>{hiddenReserve.map(reserve => <div className="timeline-hidden-reserve" data-testid="timeline-hidden-reserve" key={reserve.id} style={{ top: reserve.top, height: reserve.height }} title={reserve.title}><span>{reserve.title}</span></div>)}</div>
       {ticks.map(at => <div key={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
