@@ -126,6 +126,12 @@ export const defaultVisualConditionForField = (field: string, customFields: Reco
   return { operator: visualOperators(field, customFields)[0]!, value: '' };
 };
 
+export const changeVisualOperator = (row: VisualConditionRow, operator: string, customFields: Record<string, CustomFieldDefinition> = {}): VisualConditionRow => {
+  const options = visualOptionsForField(row.field, customFields);
+  const leavingPresence = ['is set', 'is not set'].includes(row.operator) && !['is set', 'is not set'].includes(operator);
+  return { ...row, operator, value: leavingPresence && options?.length && !options.includes(row.value) ? options[0]! : row.value };
+};
+
 export const visualFilterFieldLabel = (field: string, fallback: string): string => {
   if (field === 'reminders') return 'Any reminders';
   if (field === 'nextReminderAt') return 'Next resolved active reminder';

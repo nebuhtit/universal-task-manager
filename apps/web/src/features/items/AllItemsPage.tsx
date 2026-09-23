@@ -13,6 +13,7 @@ import { FieldIcon } from './FieldIcon';
 import { isHabitOccurrence, isItemTemplate, stateNames, viewFieldOptions } from './fieldDisplay';
 import { UserDataText } from '../../i18n-react';
 import { longListClass } from '../../performance/longList';
+import { WindowedItemList } from '../../performance/WindowedItemList';
 import './all-items-settings.css';
 
 export const ALL_ITEMS_VIEW_ID = '__all_items__';
@@ -77,7 +78,7 @@ function AllItemsCollections({ items, fields, workspace, now, onEdit, onState }:
     {collections.map((collection) => <PersistedDetails key={collection.name} uiKey={`all:collection:${collection.name}`} defaultOpen={collection.name === 'Overdue' && collection.items.length > 0}>
       <summary><span>{collection.name}</span><b>{collection.items.length}</b></summary>
       <p className="section-help">{collection.help}</p>
-      <div className={longListClass('item-list', collection.items.length)}>{collection.items.length ? collection.items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />) : <p className="empty">None.</p>}</div>
+      <WindowedItemList className={longListClass('item-list', collection.items.length)}>{collection.items.length ? collection.items.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(state) => onState(item, state)} />) : <p className="empty">None.</p>}</WindowedItemList>
     </PersistedDetails>)}
   </PersistedDetails>;
 }
@@ -96,7 +97,7 @@ function ItemSourceSection({ name, uiKey, items, count = items.length, fields, w
         const stateUiKey = `${uiKey}:${state}`;
         return <PersistedDetails key={state} uiKey={stateUiKey} defaultOpen={state === 'open' || state === 'auto_closed'}>
           <summary><span>{stateNames[state]}</span><b>{stateItems.length}</b></summary>
-          <div className={longListClass('item-list', stateItems.length)}>{stateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</div>
+          <WindowedItemList className={longListClass('item-list', stateItems.length)}>{stateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />)}</WindowedItemList>
         </PersistedDetails>;
       })}
       {children}
@@ -140,19 +141,19 @@ export function AllItemsPage({ workspace, view, onEdit, onState, onSaveView, onR
     </div>
     {query.trim() ? <section aria-busy={query !== deferredQuery}>
       <p role="status">{ru ? `Найдено: ${results.length}. Сначала совпадения в названии.` : `${results.length} results. Title matches first.`}</p>
-      <div className={longListClass('item-list', results.length)}>{results.map(item => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={state => onState(item, state)} />)}</div>
+      <WindowedItemList className={longListClass('item-list', results.length)}>{results.map(item => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={state => onState(item, state)} />)}</WindowedItemList>
       {!results.length && <p className="empty">{ru ? 'Ничего не найдено. Попробуй часть названия или тег.' : 'Nothing found. Try part of a title or a tag.'}</p>}
     </section> : <>
     <div className="all-sections">
       <ItemSourceSection name="Google Calendar items" uiKey="all:source:google-calendar" items={googleCalendarItems} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState} />
       <ItemSourceSection name="UTM items" uiKey="all:source:utm" items={utmItems} count={utmItemCount} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState}>
-        <PersistedDetails uiKey="all:templates" defaultOpen={templateItems.length > 0} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><div className={longListClass('item-list', templateItems.length)}>{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</div></PersistedDetails>
-        <PersistedDetails uiKey="all:recurring" defaultOpen={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.</p><div className={longListClass('item-list', recurringItems.length)}>{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</div></PersistedDetails>
+        <PersistedDetails uiKey="all:templates" defaultOpen={templateItems.length > 0} className="recurring-items"><summary><span>Templates</span><b>{templateItems.length}</b></summary><WindowedItemList className={longListClass('item-list', templateItems.length)}>{templateItems.length ? templateItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No templates yet.</p>}</WindowedItemList></PersistedDetails>
+        <PersistedDetails uiKey="all:recurring" defaultOpen={recurringItems.length > 0} className="recurring-items"><summary><span>Recurring items</span><b>{recurringItems.length}</b></summary><p className="section-help">These are the recurrence source settings. Auto-renew keeps one live item and records finished cycles inside its Cycle history.</p><WindowedItemList className={longListClass('item-list', recurringItems.length)}>{recurringItems.length ? recurringItems.map((item) => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={(nextState) => onState(item, nextState)} />) : <p className="empty">No recurring items yet.</p>}</WindowedItemList></PersistedDetails>
       </ItemSourceSection>
     </div>
     <PersistedDetails uiKey="all:reminders" defaultOpen={false} className="all-items-source-section">
       <summary><span>With reminders</span><b>{statusItems.filter(item => item.reminders.length > 0).length}</b></summary>
-      <div className={longListClass('item-list', statusItems.length)}>{statusItems.filter(item => item.reminders.length > 0).map(item => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={state => onState(item, state)} />)}</div>
+      <WindowedItemList className={longListClass('item-list', statusItems.length)}>{statusItems.filter(item => item.reminders.length > 0).map(item => <ItemCard key={item.id} item={item} fields={fields} workspace={workspace} now={now} onEdit={() => onEdit(item)} onState={state => onState(item, state)} />)}</WindowedItemList>
     </PersistedDetails>
     <AllItemsCollections items={visibleItems} fields={fields} workspace={workspace} now={now} onEdit={onEdit} onState={onState} />
     <DeletedItemsList items={deletedItems} onRestore={onRestore} onClear={onClearTrash} onDelete={onDelete} />

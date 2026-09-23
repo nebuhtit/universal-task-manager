@@ -124,6 +124,7 @@ export function ItemEditor({ focusTitle = false, initial, workspace, now: suppli
   const titleInputRef = useRef<HTMLInputElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   const suppressFocusRestore = useRef(false);
+  const opener = useRef(typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null);
   // Quick-capture fields deliberately offer one fast second Enter.
   // As soon as the person explores another editor control, saving becomes an
   // explicit action so Enter can safely be used for tags and other fields.
@@ -499,7 +500,7 @@ export function ItemEditor({ focusTitle = false, initial, workspace, now: suppli
     <ItemHistoryJournals item={item} workspace={workspace} onChange={async (next) => { await onHistorySave?.(next); setItem(next); }} />
   </ResponsiveDialog>;
 
-  return <ResponsiveDialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus || focusTitle ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : undefined} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" disabled={saving || sourceEditing} onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || sourceEditing} onClick={() => void save()}>{saving ? 'Saving…' : 'Save item'}</button></div>}>
+  return <ResponsiveDialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog" initialFocus={retainedQuickCaptureFocus || focusTitle ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : opener.current?.isConnected ? opener.current : false} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" disabled={saving || sourceEditing} onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || sourceEditing} onClick={() => void save()}>{saving ? 'Saving…' : 'Save item'}</button></div>}>
     <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
       if (event.target === titleInputRef.current) quickTitleWasFocused.current = true;
       else if (quickTitleWasFocused.current) quickTitleSaveAllowed.current = false;

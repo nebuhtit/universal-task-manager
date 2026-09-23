@@ -23,4 +23,19 @@ test('visual setup provides a plain-language item kind filter', async ({ page })
   if (!await reopened.evaluate((element) => (element as HTMLDetailsElement).open)) await reopened.locator(':scope > summary').click();
   await expect(reopened.locator('.filter-condition').first().getByLabel('Property')).toHaveValue('itemKind');
   await expect(reopened.locator('.filter-condition').first().getByLabel('Value')).toHaveValue('repeat_occurrence');
+
+  // Presence -> equality must publish the same boolean to both code editors.
+  const boolean = reopened.locator('.filter-condition').first();
+  await boolean.getByLabel('Property').selectOption('canComplete');
+  await boolean.getByLabel('Operator').selectOption('is set');
+  await boolean.getByLabel('Operator').selectOption('==');
+  await expect(boolean.getByLabel('Value')).toHaveValue('true');
+  await reopened.getByRole('button', { name: 'Code (Python-like)', exact: true }).click();
+  await expect(reopened.getByRole('textbox', { name: 'Filter code', exact: true })).toHaveValue(/canComplete == True/);
+  await reopened.getByRole('button', { name: 'Legacy DSL', exact: true }).click();
+  await expect(reopened.getByRole('textbox', { name: 'Legacy DSL', exact: true })).toHaveValue(/canComplete == true/);
+  await page.getByRole('button', { name: 'Save view', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit Today', exact: true }).click();
+  const finalCondition = page.locator('.view-editor .filter-condition').first();
+  await expect(finalCondition.getByLabel('Value')).toHaveValue('true');
 });

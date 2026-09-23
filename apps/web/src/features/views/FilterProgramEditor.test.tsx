@@ -4,6 +4,11 @@ import { createWorkspace, pythonToFilter } from '@utm/core';
 import { FilterProgramEditor } from './FilterProgramEditor';
 
 describe('shared filter editor', () => {
+  it('does not display True for a saved empty boolean comparison', () => {
+    const html = renderToStaticMarkup(<FilterProgramEditor workspace={createWorkspace('Filters')} source='canComplete == ""' onChange={vi.fn()} onValidityChange={vi.fn()} />);
+    expect(html).toContain('<option value="" selected="">Choose value…</option>');
+    expect(html).not.toContain('<option value="true" selected="">');
+  });
   it('assigns neutral root and distinct surface tones to nested levels', () => {
     const workspace = createWorkspace('Filters');
     const html = renderToStaticMarkup(<FilterProgramEditor workspace={workspace} source='state == "open" || (state == "done" && includes(tags, "important"))' onChange={vi.fn()} onValidityChange={vi.fn()} />);

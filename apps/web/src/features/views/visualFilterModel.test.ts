@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { filterToPython, pythonToFilter } from '@utm/core';
+import { changeVisualOperator } from './visualFilterModel';
 import { compileQuery, createItem } from '@utm/core';
 import { defaultReminderPeriodValue, defaultSchedulePeriodValue, defaultVisualConditionForField, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterValueLabel, visualOperators, visualOptionsForField } from './visualFilterModel';
 
 describe('visual filter model', () => {
+  it('commits a real boolean when changing presence to equality and round-trips both code formats', () => {
+    const row = parseVisualRows('canComplete != null')![0]!;
+    const next = changeVisualOperator(row, '==');
+    expect(next.value).toBe('true');
+    const source = serializeVisualRows([next]);
+    expect(source).toContain('canComplete == true');
+    expect(filterToPython(source)).toContain('canComplete == True');
+    expect(parseVisualRows(pythonToFilter(filterToPython(source)))![0]!.value).toBe('true');
+    expect(changeVisualOperator({ ...next, value: 'false' }, '!=').value).toBe('false');
+  });
   it('keeps empty organization choices editable without selecting an arbitrary value', () => {
     for (const field of ['tags', 'area', 'project', 'list']) {
       for (const operator of ['==', '!=']) {

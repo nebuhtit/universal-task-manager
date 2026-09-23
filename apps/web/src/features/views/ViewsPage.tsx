@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { filterToPython } from '@utm/core';
 import {
   validateFilterProgram, compileSort, createId, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, evaluateScriptsForItem, migrateView, orderedListNames, orderedOrganizationNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parseExpression, parsePortablePackage, parseSortSource, serializeSortRules, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort, validateScriptDefinitions, validateViewCreationDefaults,
   type ProjectedOccurrence, type SavedView, type UniversalItem, type ViewSortRule, type WorkspaceDocument,
@@ -143,7 +144,8 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     if (!editing) return;
     setVisualRows(rows);
     setVisualDirty(false);
-    setEditing({ ...editing, query: { source: serializeVisualRows(rows, workspace.customFields) } });
+    const source = serializeVisualRows(rows, workspace.customFields);
+    setEditing({ ...editing, query: { source }, extensions: { ...editing.extensions, filterPython: filterToPython(source) } });
   };
   const beginEditing = (view: SavedView, templateId = 'builtin:inbox') => {
     const copy = modernizeLegacyViewScope(clean(view));
