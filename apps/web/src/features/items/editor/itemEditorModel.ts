@@ -79,6 +79,8 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
     result.recurrence = normalizedRecurrence;
     buildRecurrenceRule(result);
     result = makeSeries(result, normalizedRecurrence.rrule, { ...normalizedRecurrence, activationOffset: normalizedRecurrence.activationOffset ?? 'P7D' });
+    // Editing a linked cycle must not turn it into another recurrence owner.
+    if (item.role === 'occurrence' && item.occurrence) result.role = 'occurrence';
   } else { result.role = item.occurrence ? 'occurrence' : 'standalone'; delete result.recurrence; }
   if (result.state === 'done' || result.state === 'cancelled') result.closure = { at: result.closure?.at ?? now.toISOString(), actor: result.closure?.actor ?? 'user', reason: result.state === 'cancelled' ? 'cancelled' : result.closure?.reason ?? 'manual' };
   else if (result.state === 'open') delete result.closure;

@@ -2,6 +2,8 @@ import { itemDeletionTime, type UniversalItem, type WorkspaceDocument } from '@u
 
 /** Resolve an occurrence to the source series when recurrence settings are edited. */
 export function itemEditorSource(workspace: WorkspaceDocument | undefined, item: UniversalItem): UniversalItem {
+  const saved = workspace?.items[item.id];
+  if (saved?.role === 'series_template' && saved.occurrence) return saved;
   if (item.external?.readOnly === false || (item.role === 'occurrence' && item.schedule?.plannedDate)) return workspace?.items[item.id] ?? item;
   const seriesId = item.role === 'occurrence' ? item.occurrence?.seriesId : undefined;
   const series = seriesId ? workspace?.items[seriesId] : undefined;

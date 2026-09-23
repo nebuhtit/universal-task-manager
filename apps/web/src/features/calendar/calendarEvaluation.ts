@@ -1,5 +1,6 @@
 import {
   compileQuery,
+  recurrenceDisplayItems,
   activeRangeBounds,
   calendarDateKey,
   googleCalendarProjection,
@@ -94,7 +95,7 @@ export function evaluateCalendarRange(
   const today = calendarDateKey(now, timeZone);
   const rangeStart = zonedDateStart(rangeStartKey, timeZone);
   const rangeEnd = zonedDateStart(rangeEndKey, timeZone);
-  const calendarWorkspace = { ...workspace, items: Object.fromEntries(Object.values(workspace.items).map((item) => [item.id, googleCalendarProjection(item)])) };
+  const calendarWorkspace = { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map((item) => [item.id, googleCalendarProjection(item)])) };
   const projected = projectOccurrences(calendarWorkspace, rangeStart, rangeEnd)
     .map((row) => ({ row, item: itemForRow(calendarWorkspace, row) }))
     .filter((entry): entry is CalendarProjectedEntry => Boolean(entry.item));

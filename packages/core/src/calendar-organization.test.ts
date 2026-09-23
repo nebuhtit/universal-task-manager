@@ -12,6 +12,26 @@ function fixture() {
   return { workspace, item, calendar: workspace.calendarPreferences.googleCalendar.calendars[0]! };
 }
 describe('Calendar organization and durable local data', () => {
+  it('removes only the managed calendar tag when deletion is queued, even offline', () => {
+    const { workspace, item } = fixture();
+    reconcileCalendarOrganization(workspace);
+    item.tags.push('Manual');
+    delete item.external;
+    item.extensions!['utm:googleSave'] = { kind: 'delete' };
+    delete workspace.calendarPreferences.googleCalendar;
+    reconcileCalendarOrganization(workspace);
+    expect(item.tags).toEqual(['Manual']);
+    expect(item.areas).toEqual(['Personal', 'Office']);
+    expect(item.extensions!['utm:googleSave']).toEqual({ kind: 'delete' });
+    reconcileCalendarOrganization(workspace);
+    expect(item.tags).toEqual(['Manual']);
+  });
+  it('does not erase a calendar tag merely because a backup omits the external cache', () => {
+    const { workspace, item } = fixture(); reconcileCalendarOrganization(workspace);
+    delete item.external;
+    reconcileCalendarOrganization(workspace);
+    expect(item.tags).toEqual(['C.Work']);
+  });
   it('updates colors and names without losing manual memberships, then removes only automatic assignments', () => {
     const { workspace, item, calendar } = fixture();
     reconcileCalendarOrganization(workspace);

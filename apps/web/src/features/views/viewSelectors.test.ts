@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ACTIVE_ITEM_VIEW_QUERY, STANDARD_ATTENTION_VIEW_SORT_SOURCE, createItem, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
+import { ACTIVE_ITEM_VIEW_QUERY, STANDARD_ATTENTION_VIEW_SORT_SOURCE, createItem, createOccurrence, createWorkspace, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, makeSeries, reconcileRecurrences, reorderOrganization, reorderOrganizationPriority, type SavedView } from '@utm/core';
 import { viewFieldGroups } from './fieldCatalog';
 import { boardSettingsFor, completionPhase, evaluateView, hiddenItemIdsByExpandedView, MANUAL_ORDER_EXTENSION, mergeManualOrder, moveManualItem, selectViewItems, setCompletionHold, viewContinuouslyDependsOnCurrentTime, viewDependsOnCurrentTime } from './viewSelectors';
 
@@ -8,6 +8,17 @@ const view = (source = 'true'): SavedView => ({
 });
 
 describe('view selectors', () => {
+  it('shows the latest edited legacy cycle once, not the root plus its nested child', () => {
+    const workspace = createWorkspace();
+    const source = createItem('Legacy'); source.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00.000Z', dueAt: '2030-09-24T12:00:00.000Z', estimatedDuration: 'PT45M' };
+    const root = makeSeries(source, 'FREQ=WEEKLY');
+    const edited = createOccurrence(root, new Date(source.schedule.startAt!), 0);
+    edited.role = 'series_template'; edited.recurrence = root.recurrence!; edited.updatedAt = '2030-09-23T12:00:00.000Z';
+    const stale = createOccurrence(edited, new Date(source.schedule.startAt!), 0);
+    workspace.items = { [root.id]: root, [edited.id]: edited, [stale.id]: stale };
+    expect(selectViewItems(workspace, view()).map(item => item.id)).toEqual([edited.id]);
+    expect(Object.keys(workspace.items)).toHaveLength(3);
+  });
   it('evaluates membership and statistics together and only enables clocks when required', () => {
     const workspace = createWorkspace('Evaluation');
     const item = createItem('Static item');

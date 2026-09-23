@@ -1,6 +1,6 @@
 import { activeRangeBounds, compileQuery, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
-import { itemDeletionTime } from '@utm/core';
+import { itemDeletionTime, recurrenceDisplayItems } from '@utm/core';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { viewItemForEvaluation } from '../views/viewSelectors';
 import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, returnTravelInterval, type TimelineEvent } from './timelineLayout';
@@ -10,7 +10,7 @@ import { isCompletelyUndated, showUndatedItem, showOverdueToday } from './calend
 export function timelineData(workspace: WorkspaceDocument, key: string, now: Date) {
   const preferences = workspace.calendarPreferences;
   const day = dayBounds(key, preferences.timezone);
-  const mapped = { ...workspace, items: Object.fromEntries(Object.values(workspace.items).map(item => [item.id, googleCalendarProjection(item)])) };
+  const mapped = { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map(item => [item.id, googleCalendarProjection(item)])) };
   const items = Object.values(mapped.items).filter(item => !itemDeletionTime(mapped, item));
   // A finite padded projection catches overnight and long Duration occurrences.
   // Extremely long recurring spans are explicitly reported, never expanded unboundedly.

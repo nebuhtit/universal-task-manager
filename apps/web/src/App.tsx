@@ -681,6 +681,7 @@ export default function App() {
             apply: async (calendarId, event, finished, nextOperation) => {
               if (event.status === 'cancelled') {
                 const ok = commit('Confirm Google event deletion', (draft) => {
+                  reconcileCalendarOrganization(draft);
                   const target = draft.items[candidate.id];
                   if (!target || draft.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Google connection changed.');
                   delete target.external;

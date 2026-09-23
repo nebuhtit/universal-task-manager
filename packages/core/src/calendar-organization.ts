@@ -30,8 +30,20 @@ export interface CalendarOrganizationSource {
 const sameNames = (left: string[], right: string[]) => left.length === right.length && left.every((name, index) => String(name) === String(right[index]));
 const sameSource = (left: CalendarOrganizationSource | undefined, right: CalendarOrganizationSource) => Boolean(left && String(left.calendarId) === right.calendarId && String(left.tag) === right.tag && String(left.color ?? '') === String(right.color ?? '') && sameNames(left.areas, right.areas) && sameNames(left.projects, right.projects));
 
+export function removeDetachedCalendarTags(workspace: WorkspaceDocument): void {
+  // Explicit detachment is distinct from missing cached Google data in a backup.
+  for (const item of Object.values(workspace.items)) {
+    const pending = item.extensions?.['utm:googleSave'] as { kind?: string } | undefined;
+    const source = item.extensions?.[CALENDAR_ORGANIZATION] as unknown as CalendarOrganizationSource | undefined;
+    if (pending?.kind !== 'delete' || !source) continue;
+    item.tags = item.tags.filter(tag => String(tag) !== String(source.tag));
+    delete item.extensions![CALENDAR_ORGANIZATION];
+  }
+}
+
 /** Materialize source contributions while preserving memberships supplied by the user. */
 export function reconcileCalendarOrganization(workspace: WorkspaceDocument): void {
+  removeDetachedCalendarTags(workspace);
   const google = workspace.calendarPreferences.googleCalendar;
   if (!google) return;
   const used = new Set([...Object.values(workspace.items).flatMap((item) => item.tags), ...(workspace.organizationPreferences?.tagOrder ?? []).filter((name): name is string => name !== null)].map(String));

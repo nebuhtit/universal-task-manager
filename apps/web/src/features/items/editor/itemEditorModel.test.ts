@@ -57,6 +57,12 @@ describe('item editor normalization', () => {
   it('rejects an end before the opening date', () => { const item = createItem('Invalid'); item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:00Z', endAt: '2026-08-26T11:00:00Z' }; expect(() => normalize({ item })).toThrow('Event ends must be after'); });
   it('rejects a due date before the opening date', () => { const item = createItem('Invalid due'); item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:00Z', dueAt: '2026-08-26T11:00:00Z' }; expect(() => normalize({ item })).toThrow('Due / Active range ends cannot be earlier'); });
   it('materializes a stable recurring series rule', () => { const item = createItem('Weekly'); item.schedule = { timezone: 'UTC', startAt: '2026-08-26T12:00:00Z' }; const result = normalize({ item, recurring: true, repeatFrequency: 'WEEKLY', repeatIntervalDraft: '', repeatDays: ['MO'] }); expect(result.role).toBe('series_template'); expect(result.recurrence?.rrule).toContain('INTERVAL=1'); });
+  it('does not promote an edited recurrence occurrence to a nested series', () => {
+    const item = createItem('Cycle'); item.role = 'occurrence';
+    item.occurrence = { seriesId: 'parent', recurrenceId: '2030-09-20T12:00:00Z', sequence: 0, templateRevision: 1 };
+    item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z', dueAt: '2030-09-24T12:00:00Z', estimatedDuration: 'PT45M' };
+    expect(normalize({ item, recurring: true }).role).toBe('occurrence');
+  });
   it('keeps Due as the independent anchor of a due-only recurring series', () => {
     const now = new Date('2026-08-31T01:00:00.000Z');
     const workspace = createWorkspace('Due recurrence', now);

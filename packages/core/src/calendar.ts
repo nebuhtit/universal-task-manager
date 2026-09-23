@@ -1,6 +1,7 @@
 import { createId } from './types.js';
 import { buildRecurrenceRule, createOccurrence, deterministicOccurrenceId, recurrenceAnchor } from './recurrence.js';
 import { itemDeletionTime } from './item-deletion.js';
+import { recurrenceDisplayItems } from './recurrence-display.js';
 import type { ProjectedOccurrence, Schedule, UniversalItem, WorkspaceDocument } from './types.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -36,6 +37,7 @@ function projection(item: UniversalItem, sourceItemId = item.id, virtual = false
 /** Produces calendar rows for a visible range without persisting future occurrences. */
 export function projectOccurrences(workspace: WorkspaceDocument, rangeStart: Date, rangeEnd: Date): ProjectedOccurrence[] {
   if (!(rangeStart < rangeEnd)) throw new Error('Calendar range end must be after its start');
+  workspace = { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map(item => [item.id, item])) };
   const output: ProjectedOccurrence[] = [];
   // A legacy item can be both a materialized occurrence and a series template.
   // Its parent already projects that cycle; projecting it again creates twins.

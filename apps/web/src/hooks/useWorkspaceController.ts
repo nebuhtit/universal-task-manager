@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import * as Automerge from '@automerge/automerge';
 import {
   backfillItemCreationVersions, collectScheduledEvents, consolidateHabitOccurrences, createId, effectiveWorkspaceNow,
-  itemDeletionTime, migrateWorkspace, removeDuplicateReminders, reminderTime, runAutomationEvents, validateWorkspace, SCHEMA_VERSION,
+  itemDeletionTime, migrateWorkspace, removeDuplicateReminders, removeDetachedCalendarTags, reminderTime, runAutomationEvents, validateWorkspace, SCHEMA_VERSION,
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
@@ -138,6 +138,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       const targetWorkspace = draft as unknown as WorkspaceDocument;
       if (!compactNormalizedDocument && (targetWorkspace.schemaVersion !== migration.value.schemaVersion || migration.warnings.length > 0 || !targetWorkspace.calendarPreferences?.language || !Array.isArray(targetWorkspace.viewOrder))) { const target = targetWorkspace as unknown as Record<string, unknown>; Object.keys(target).forEach((key) => delete target[key]); Object.entries(migration.value as unknown as Record<string, unknown>).forEach(([key, value]) => { target[key] = clean(value); }); }
       if (selectedLanguage) targetWorkspace.calendarPreferences.language = selectedLanguage;
+      removeDetachedCalendarTags(targetWorkspace);
       backfillItemCreationVersions(targetWorkspace); Object.values(targetWorkspace.items).forEach(removeDuplicateReminders); consolidateHabitOccurrences(targetWorkspace, now);
     });
     finishActivationStage('migration');
