@@ -96,11 +96,15 @@ export function evaluateCalendarRange(
   const projected = projectOccurrences(calendarWorkspace, rangeStart, rangeEnd)
     .map((row) => ({ row, item: itemForRow(calendarWorkspace, row) }))
     .filter((entry): entry is CalendarProjectedEntry => Boolean(entry.item));
+  const projectedIds = new Set(projected.map(entry => entry.item.id));
   for (const item of Object.values(calendarWorkspace.items)) {
     const key = plannedDateForDisplay(item, now, timeZone);
     const overdue = today >= rangeStartKey && today < rangeEndKey && showOverdueToday(item, today, now, timeZone, item.occurrence ? calendarWorkspace.items[item.occurrence.seriesId] : undefined);
-    if (!itemDeletionTime(calendarWorkspace, item) && item.role !== 'series_template' && ((key && key >= rangeStartKey && key < rangeEndKey) || overdue) && !projected.some(entry => entry.item.id === item.id)) {
+    // A boundary outside the range can still have a Due or active span inside it.
+    const scheduledHere = !key && scheduleDateKeysInRange(item, settings.scheduleSources, rangeStartKey, rangeEndKey, { timeZone }).length > 0;
+    if (!itemDeletionTime(calendarWorkspace, item) && item.role !== 'series_template' && ((key && key >= rangeStartKey && key < rangeEndKey) || scheduledHere || overdue) && !projectedIds.has(item.id)) {
       projected.push({ item, row: { id: item.id, sourceItemId: item.id, materializedItemId: item.id, virtual: false, title: item.title, state: item.state, preset: item.preset, schedule: { ...item.schedule! }, dueOnly: false } });
+      projectedIds.add(item.id);
     }
   }
   const projectedWorkspace = {

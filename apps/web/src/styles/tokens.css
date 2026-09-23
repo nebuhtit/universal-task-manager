@@ -100,6 +100,7 @@
   --motion-easing-enter: ease-out;
   --opacity-disabled: 0.62;
   --opacity-timeline-event-surface: 55%;
+  --opacity-calendar-event-tint: 12%;
   --opacity-tentative-surface: 55%;
 
   /* Shared layout */

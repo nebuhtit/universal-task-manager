@@ -113,7 +113,11 @@ function buildWorkspaceIndex(workspace: WorkspaceDocument): WorkspaceIndex {
       .filter((relation) => relation.type === 'parent' && itemById.has(relation.targetId))
       .map((relation) => relation.targetId);
     if (children.length) childIdsByItemId.set(item.id, children);
-    for (const childId of children) parentIdsByItemId.set(childId, [...(parentIdsByItemId.get(childId) ?? []), item.id]);
+    for (const childId of children) {
+      const parents = parentIdsByItemId.get(childId);
+      if (parents) parents.push(item.id);
+      else parentIdsByItemId.set(childId, [item.id]);
+    }
   }
 
   const seriesTemplates = visibleItems.filter((item) => item.role === 'series_template');
@@ -124,7 +128,9 @@ function buildWorkspaceIndex(workspace: WorkspaceDocument): WorkspaceIndex {
     const seriesId = item.role === 'occurrence' ? item.occurrence?.seriesId : undefined;
     if (!seriesId) continue;
     seriesIdByOccurrenceId.set(item.id, seriesId);
-    occurrencesBySeriesId.set(seriesId, [...(occurrencesBySeriesId.get(seriesId) ?? []), item]);
+    const occurrences = occurrencesBySeriesId.get(seriesId);
+    if (occurrences) occurrences.push(item);
+    else occurrencesBySeriesId.set(seriesId, [item]);
   }
 
   const remindersByItemId = new Map<string, IndexedReminder[]>();

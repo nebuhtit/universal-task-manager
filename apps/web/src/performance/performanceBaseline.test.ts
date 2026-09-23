@@ -206,7 +206,7 @@ function expectSelectionMembershipToMatch(
   reference: ReturnType<typeof referenceBehaviorSnapshot>,
 ) {
   for (const [viewId, result] of Object.entries(production.views)) expect(result).toEqual(reference.views[viewId]);
-  for (const [key, result] of Object.entries(production.calendar)) expect(result).toEqual(reference.calendar[key]);
+  for (const [key, result] of Object.entries(production.calendar)) expect(result, `Calendar ${key}`).toEqual(reference.calendar[key]);
 }
 
 const measure = async <T,>(operation: () => T | Promise<T>) => {

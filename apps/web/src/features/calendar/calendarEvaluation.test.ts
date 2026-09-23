@@ -37,6 +37,16 @@ function rangeFor(sources: CalendarDayViewPreferences['scheduleSources']) {
 const idsByDay = (result: ReturnType<typeof rangeFor>) => Object.fromEntries(Object.entries(result.days).map(([key, day]) => [key, day.evaluation.items.map((item) => item.id)]));
 
 describe('calendar range evaluation', () => {
+  it('keeps a Due inside the range even when Event opens and ends are outside it', () => {
+    const workspace = createWorkspace('Cross-boundary Due', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    const item = createItem('Earlier event', 'event', now);
+    item.schedule = { timezone: 'UTC', startAt: '2026-08-30T11:00:00Z', endAt: '2026-08-30T12:00:00Z', dueAt: '2026-09-01T09:00:00Z', estimatedDuration: 'PT1H' };
+    workspace.items[item.id] = item;
+    const result = evaluateCalendarRange(workspace, '2026-08-31', '2026-09-03', settings(['due']), now);
+    expect(result.days['2026-08-31']?.evaluation.items).toEqual([]);
+    expect(result.days['2026-09-01']?.evaluation.items.map(value => value.id)).toEqual([item.id]);
+  });
   it('places a linked UTM task on its Google date without changing the saved UTM schedule', () => {
     const workspace = createWorkspace('Linked'); workspace.calendarPreferences.timezone = 'UTC';
     const item = createItem('Linked task'); item.schedule = { timezone: 'UTC', estimatedDuration: 'PT20M' };

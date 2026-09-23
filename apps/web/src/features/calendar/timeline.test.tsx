@@ -156,6 +156,7 @@ describe('timeline data and UI', () => {
     const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
     expect(html).not.toContain('168'); expect(html).toContain('5 h 45 min');
     expect(html).toContain('border-color:#12ab34'); expect(html).toContain('aria-label="Google Calendar"');
+    expect(html).toContain('timeline-calendar-tinted'); expect(html).toContain('--timeline-calendar-color:#12ab34');
     expect(event.schedule?.estimatedDuration).toBe('PT168H');
   });
   it('keeps one linked Google identity and leaves local history untouched', () => {

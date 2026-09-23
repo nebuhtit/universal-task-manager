@@ -1,4 +1,4 @@
-import { createItem, createWorkspace, makeSeries } from '@utm/core';
+import { createItem, createOccurrence, createWorkspace, makeSeries } from '@utm/core';
 import { describe, expect, it } from 'vitest';
 import { getWorkspaceIndex } from './workspaceIndex';
 
@@ -67,5 +67,23 @@ describe('workspace index', () => {
     const rebuilt = getWorkspaceIndex(workspace, true);
     expect(rebuilt).not.toBe(first);
     expect(rebuilt.itemById.get(added.id)).toBe(added);
+  });
+
+  it('preserves insertion order when grouping many occurrences and shared children', () => {
+    const workspace = createWorkspace('Grouped');
+    const source = createItem('Daily');
+    source.schedule = { timezone: 'UTC', startAt: '2026-09-01T09:00:00Z' };
+    const series = makeSeries(source, 'FREQ=DAILY');
+    const child = createItem('Shared child');
+    const parents = Array.from({ length: 4 }, (_, index) => {
+      const parent = createItem(`Parent ${index}`);
+      parent.relations = [{ id: `relation-${index}`, type: 'parent', targetId: child.id }];
+      return parent;
+    });
+    const occurrences = Array.from({ length: 64 }, (_, index) => createOccurrence(series, new Date(Date.UTC(2026, 8, index + 1, 9)), index));
+    workspace.items = Object.fromEntries([series, child, ...parents, ...occurrences].map(item => [item.id, item]));
+    const index = getWorkspaceIndex(workspace);
+    expect(index.parentIdsByItemId.get(child.id)).toEqual(parents.map(parent => parent.id));
+    expect(index.recurrence.occurrencesBySeriesId.get(series.id)).toEqual(occurrences);
   });
 });
