@@ -1,8 +1,9 @@
 import type { WorkspaceLanguage } from '@utm/core';
 import { Button, Input } from '../../../../components/ui/primitives';
 import { dateInput, formatViewDate, fromDateInput } from '../../../../utils/dates';
+import { dueWallInput, dueWallInputToIso } from '../../dueQuickActions';
 
-export function DateTimeField({ label, value, language, onChange, help, onFocus, minValue }: {
+export function DateTimeField({ label, value, language, onChange, help, onFocus, minValue, timeZone }: {
   label: string;
   value?: string | undefined;
   language?: WorkspaceLanguage | undefined;
@@ -10,16 +11,19 @@ export function DateTimeField({ label, value, language, onChange, help, onFocus,
   help?: string | undefined;
   onFocus?: (() => void) | undefined;
   minValue?: string | undefined;
+  timeZone?: string | undefined;
 }) {
+  const inputValue = value ? (timeZone ? dueWallInput(value, timeZone) : dateInput(value)) : '';
+  const minInput = minValue ? (timeZone ? dueWallInput(minValue, timeZone) : dateInput(minValue)) : undefined;
   return <div className="date-field">
     <div className="date-field-row">
       <Input
         aria-label={label}
         type="datetime-local"
-        value={dateInput(value)}
-        min={minValue ? dateInput(minValue) : undefined}
+        value={inputValue}
+        min={minInput}
         onFocus={onFocus}
-        onChange={(event) => onChange(fromDateInput(event.currentTarget.value))}
+        onChange={(event) => onChange(timeZone ? dueWallInputToIso(event.currentTarget.value, timeZone) : fromDateInput(event.currentTarget.value))}
       />
       <Button
         size="compact"
