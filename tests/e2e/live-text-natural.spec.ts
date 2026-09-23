@@ -18,11 +18,11 @@ test('Enter submits instead of choosing a suggestion; return travel is collapsed
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await capture.fill('Встреча завтра 19:00 ттб 30м бн н за 2ч 1д');
   await capture.press('Enter');
-  const back = page.locator('summary').filter({ hasText: /^(Travel back|Дорога обратно)$/ }).locator('..');
+  const back = page.locator('summary').filter({ hasText: /^(Travel back|Дорога обратно)(?: ·|$)/ }).locator('..');
   await expect(back).toHaveCount(1);
   await expect(back).not.toHaveAttribute('open');
   const dates = page.locator('details[data-editor-section="dates"]');
-  if (await dates.getAttribute('open') === null) await dates.locator(':scope > summary').click();
+  await dates.evaluate((element) => { (element as HTMLDetailsElement).open = true; });
   await back.locator('summary').click();
   await expect(page.getByLabel('Travel back amount')).toHaveValue('30');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();

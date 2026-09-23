@@ -700,6 +700,9 @@ function suggestInternal(input: string, caret: number, now: Date, language: 'ru'
     const matching = values.filter(v => v.startsWith(partial.replace(/\s/g, '')));
     const candidates = completeDuration !== null ? [...values].sort((a, b) => Number(duration(b) === completeDuration) - Number(duration(a) === completeDuration)) : matching.length ? matching : values;
     options = candidates.map(v => ({ label: v, insert: `${reminder[1]}:${prefix}${v}${reminderTail} `, detail: v.startsWith('выезд') ? 'От времени выезда' : v.startsWith('начало') || v.startsWith('start') ? 'От event opens' : v.startsWith('срок') || v.startsWith('due') ? 'От due' : v.startsWith('через') ? 'От момента создания карточки' : hasStart ? 'До event opens · автоматически' : 'До due · автоматически' }));
+  } else if (/^(ттб|ttb):/i.test(token)) {
+    const [key, partial = ''] = token.split(':');
+    options = ['30м', '45м', '1ч'].filter(value => value.startsWith(partial)).map(value => ({ label: value, insert: `${key}:${value} `, detail: language === 'ru' ? 'Одинаковое время туда и обратно' : 'Same duration both ways' }));
   } else if (/^(дорога|ехать|тт|tt|travel|travel time|drive|длительность|duration):/i.test(token)) {
     const [key, partial = ''] = token.split(':'); options = ['15м', '30м', '45м', '1ч', '1ч30м'].filter(v => v.startsWith(partial)).map(v => ({ label: v, insert: `${key}:${v} `, detail: 'Длительность' }));
   } else if (/^(срок|due|начало|start|opens|event opens|конец|end|ends|event ends):/i.test(token)) {

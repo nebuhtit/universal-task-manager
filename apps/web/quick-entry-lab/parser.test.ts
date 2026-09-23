@@ -299,6 +299,17 @@ describe('relaxed syntax', () => {
     expect(withoutTravel.reminders[0]?.anchor).toBe('start');
     expect(withoutTravel.reminders[0]?.at).toBe(iso(26, 13));
     expect(suggest('Даша сб 15:00 ', 'Даша сб 15:00 '.length, now).options.map(option => option.label)).toContain('ттб');
+    const text = 'Даша сб 17:00 ттб ';
+    const suggestions = suggest(text, text.length, now);
+    expect(suggestions.options.map(option => option.label)).toEqual(['30м', '45м', '1ч']);
+    for (const [option, minutes] of suggestions.options.map((value, index) => [value, [30, 45, 60][index]!] as const)) {
+      const completed = text.slice(0, suggestions.start) + option.insert + text.slice(suggestions.end);
+      const parsed = parseEntry(completed, now);
+      expect(parsed.errors).toEqual([]);
+      expect(parsed.title).toBe('Даша');
+      expect(parsed.travelMinutes).toBe(minutes);
+      expect(parsed.travelBackMinutes).toBe(minutes);
+    }
   });
   it('preserves quoted literal labels and dates', () => {
     const result = parseEntry('"начало завтра конец среда" срок пятница', now);
