@@ -3,8 +3,16 @@ import { translateInterfaceText } from './i18n';
 import { release1961TranslationKeys } from './i18n-release-1961';
 import { release1962TranslationKeys } from './i18n-release-1962';
 import { release1963TranslationKeys } from './i18n-release-1963';
+import { release305Russian } from './i18n-release-305';
 
 describe('Russian interface translation', () => {
+  it('covers 3.0.5 iOS, recovery, calendar and sync copy without changing English', () => {
+    for (const [source, russian] of Object.entries(release305Russian)) {
+      expect(translateInterfaceText(source, 'ru')).toBe(russian);
+      expect(translateInterfaceText(source, 'en')).toBe(source);
+      expect(russian).not.toBe(source);
+    }
+  });
   it('covers the newer workspace, recovery, organization and view controls', () => {
     expect(translateInterfaceText('Unlock with Face ID', 'ru')).toBe('Войти с Face ID');
     expect(translateInterfaceText('Download offline recovery kit', 'ru')).toBe('Скачать автономный комплект восстановления');
@@ -25,6 +33,9 @@ describe('Russian interface translation', () => {
   });
 
   it('translates dynamic labels without changing user-provided names', () => {
+    expect(translateInterfaceText('Loading My calendar (1/2)…', 'ru')).toBe('Загрузка: My calendar (1/2)…');
+    expect(translateInterfaceText('Sync complete: 12 events in 0.4s.', 'ru')).toBe('Синхронизация завершена. Событий: 12, время: 0.4 с.');
+    expect(translateInterfaceText('My calendar: page 2, 14 events…', 'ru')).toBe('My calendar: страница 2, событий: 14…');
     expect(translateInterfaceText('Edit Покупки', 'ru')).toBe('Редактировать Покупки');
     expect(translateInterfaceText('Add item to Работа', 'ru')).toBe('Добавить элемент в Работа');
     expect(translateInterfaceText('12 matching items', 'ru')).toBe('Подходящих элементов: 12');

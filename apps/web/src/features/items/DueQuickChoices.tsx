@@ -32,9 +32,9 @@ export function DueQuickChoices({ item, now, language, onChoose, error }: {
       setLocalError(''); onChoose(draftDay); return;
     }
     const at = dueWallInputToIso(draft, zone);
-    if (!at) { setLocalError(ru ? 'Такого времени нет в часовом поясе item.' : 'This time does not exist in the item time zone.'); return; }
+    if (!at) { setLocalError(ru ? 'Такого времени нет в часовом поясе элемента.' : 'This time does not exist in the item time zone.'); return; }
     if (Date.parse(at) <= now.getTime()) { setLocalError(ru ? 'Выберите будущее время.' : 'Choose a future time.'); return; }
-    if (item.schedule?.startAt && Date.parse(at) < Date.parse(item.schedule.startAt)) { setLocalError(ru ? 'Due не может быть раньше Event opens.' : 'Due cannot be before Event opens.'); return; }
+    if (item.schedule?.startAt && Date.parse(at) < Date.parse(item.schedule.startAt)) { setLocalError(ru ? 'Срок не может быть раньше начала события.' : 'Due cannot be before Event opens.'); return; }
     setLocalError(''); onChoose(at);
   };
   if (dateOnly) return <div className="due-quick-choices">
@@ -44,9 +44,9 @@ export function DueQuickChoices({ item, now, language, onChoose, error }: {
     {error && <small role="alert">{error}</small>}
   </div>;
   return <div className="due-quick-choices">
-    {dueQuickOptions(item, now).map(({ id, at, disabled }) => <Button key={id} size="compact" variant="ghost" disabled={disabled} title={disabled ? (ru ? 'Раньше Event opens' : 'Before Event opens') : undefined} onClick={() => onChoose(at)}><span>{labels[id]}</span><time dateTime={at}>{formatter.format(new Date(at))}</time></Button>)}
+    {dueQuickOptions(item, now).map(({ id, at, disabled }) => <Button key={id} size="compact" variant="ghost" disabled={disabled} title={disabled ? (ru ? 'Раньше начала события' : 'Before Event opens') : undefined} onClick={() => onChoose(at)}><span>{labels[id]}</span><time dateTime={at}>{formatter.format(new Date(at))}</time></Button>)}
     <Button size="compact" variant="ghost" aria-expanded={custom} onClick={() => setCustom((open) => !open)}>{ru ? 'Выбрать дату и время…' : 'Custom date and time…'}</Button>
-    {custom && <div className="due-custom"><label><input type="checkbox" checked={withoutTime} onChange={event => { setWithoutTime(event.target.checked); setLocalError(''); }} />{ru ? 'Без времени' : 'Without time'}</label>{withoutTime ? <Input type="date" aria-label={ru ? 'Дата Due без времени' : 'Due date without time'} value={draftDay} onChange={event => { setDraftDay(event.target.value); setLocalError(''); }} /> : <Input type="datetime-local" aria-label={ru ? 'Новый Due' : 'New Due'} value={draft} onChange={(event) => { setDraft(event.target.value); setLocalError(''); }} />}<Button size="compact" onClick={chooseCustom}>{ru ? 'Применить' : 'Apply'}</Button></div>}
+    {custom && <div className="due-custom"><label><input type="checkbox" checked={withoutTime} onChange={event => { setWithoutTime(event.target.checked); setLocalError(''); }} />{ru ? 'Без времени' : 'Without time'}</label>{withoutTime ? <Input type="date" aria-label={ru ? 'Дата срока без времени' : 'Due date without time'} value={draftDay} onChange={event => { setDraftDay(event.target.value); setLocalError(''); }} /> : <Input type="datetime-local" aria-label={ru ? 'Новый срок' : 'New Due'} value={draft} onChange={(event) => { setDraft(event.target.value); setLocalError(''); }} />}<Button size="compact" onClick={chooseCustom}>{ru ? 'Применить' : 'Apply'}</Button></div>}
     {(localError || error) && <small role="alert" className="ui-field-error">{localError || error}</small>}
   </div>;
 }

@@ -2,6 +2,7 @@ import type { WorkspaceLanguage } from '@utm/core';
 import { release1961Translations } from './i18n-release-1961';
 import { release1962Translations } from './i18n-release-1962';
 import { release1963Translations } from './i18n-release-1963';
+import { release305Russian } from './i18n-release-305';
 
 export const interfaceLanguages: Array<{ value: WorkspaceLanguage; label: string }> = [
   { value: 'en', label: 'English' },
@@ -485,6 +486,13 @@ const translatableAttributes = ['aria-label', 'placeholder', 'title'] as const;
 
 function translatedRussianDynamic(value: string) {
   const rules: Array<[RegExp, string]> = [
+    [/^Sync complete: (\d+) events\.$/, 'Синхронизация завершена. Событий: $1.'],
+    [/^Sync complete: (\d+) events in ([\d.]+)s\.$/, 'Синхронизация завершена. Событий: $1, время: $2 с.'],
+    [/^Google download complete: (\d+) events\.$/, 'Загрузка из Google завершена. Событий: $1.'],
+    [/^Loading (.+) \((\d+)\/(\d+)\)…$/, 'Загрузка: $1 ($2/$3)…'],
+    [/^Updating (.+) \((\d+)\/(\d+)\)…$/, 'Обновление: $1 ($2/$3)…'],
+    [/^(.+): page (\d+), (\d+) events…$/, '$1: страница $2, событий: $3…'],
+    [/^(.+): (\d+) events loaded\.$/, '$1: загружено событий: $2.'],
     [/^Add item to (.+)$/, 'Добавить элемент в $1'], [/^Add Area to (.+)$/, 'Добавить область в $1'],
     [/^Edit (.+)$/, 'Редактировать $1'], [/^Complete (.+)$/, 'Завершить $1'], [/^Reopen (.+)$/, 'Открыть снова: $1'],
     [/^Expand (.+)$/, 'Развернуть $1'], [/^Collapse (.+)$/, 'Свернуть $1'], [/^Reorder (.+)$/, 'Изменить порядок: $1'],
@@ -505,6 +513,7 @@ function translatedRussianDynamic(value: string) {
 
 export function translateInterfaceText(value: string, language: WorkspaceLanguage) {
   if (language === 'en') return value;
+  if (language === 'ru' && release305Russian[value]) return release305Russian[value];
   const exact = onboarding[language][value] ?? common[language][value] ?? extraTranslations[language][value];
   return exact ?? (language === 'ru' ? translatedRussianDynamic(value) : value);
 }

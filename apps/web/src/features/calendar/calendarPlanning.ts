@@ -295,9 +295,9 @@ export function calendarPlanMetricItems(plan: ReturnType<typeof buildCalendarPla
 
 export const planningReason = (reason: string, ru: boolean) => ({
   conflict: ru ? 'Это время занято событием, дорогой или скрытым резервом. Выберите «Параллельно» или «В очередь».' : 'This time overlaps an event, travel or hidden reserve. Choose Parallel or Queue.',
-  deadline: ru ? 'Размещение не помещается до Due.' : 'Placement does not fit before Due.',
-  capacity: ru ? 'Нет свободного непрерывного окна. Item остаётся вне расписания.' : 'No continuous free slot. The item remains outside the schedule.',
-  duration: ru ? 'Укажите Duration в исходном item.' : 'Set Duration on the source item.',
-  fixed: ru ? 'Событие с Event opens и Event ends фиксировано на Timeline.' : 'An event with Event opens and Event ends is fixed on Timeline.',
+  deadline: ru ? 'Задача не успевает завершиться до срока.' : 'Placement does not fit before Due.',
+  capacity: ru ? 'Нет свободного непрерывного окна. Элемент остаётся вне расписания.' : 'No continuous free slot. The item remains outside the schedule.',
+  duration: ru ? 'Укажите длительность исходного элемента.' : 'Set Duration on the source item.',
+  fixed: ru ? 'Событие с заданными началом и окончанием закреплено на временной шкале.' : 'An event with Event opens and Event ends is fixed on Timeline.',
   range: ru ? 'Выберите время внутри этого дня и активного диапазона, не в прошлом.' : 'Choose a time within this day and active range, not in the past.',
 }[reason] ?? reason);

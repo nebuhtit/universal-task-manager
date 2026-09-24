@@ -10,7 +10,7 @@ export function CalendarPlanningSettings({ workspace, commit, onFlush }: { works
       try { if (commit('Calendar planning switch', draft => { draft.calendarPreferences.planning ??= {}; draft.calendarPreferences.planning.enabled = enabled; }) === false) throw new Error('Could not save calendar preferences'); void onFlush().catch(reason => setError(String(reason))).finally(() => setSaving(false)); }
       catch (reason) { setError(String(reason)); setSaving(false); }
     }} />
-    <p className="hint">{ru ? 'Включено по умолчанию. Свайп вправо по карточке или Alt+P — закрепить на сегодня/завтра. Свайп влево по-прежнему меняет Due. Отключение возвращает прежний календарь, не удаляя сохранённый порядок и ссылки.' : 'Enabled by default. Swipe right on a card or press Alt+P to pin for today/tomorrow. Swipe left still changes Due. Disabling restores the previous calendar without deleting saved orders or references.'}</p>
+    <p className="hint">{ru ? 'Включено по умолчанию. Свайп вправо по карточке или Alt+P — закрепить на сегодня/завтра. Свайп влево по-прежнему меняет срок. Отключение возвращает прежний календарь, не удаляя сохранённый порядок и ссылки.' : 'Enabled by default. Swipe right on a card or press Alt+P to pin for today/tomorrow. Swipe left still changes Due. Disabling restores the previous calendar without deleting saved orders or references.'}</p>
     {error && <p role="alert">{error}</p>}
   </section>;
 }

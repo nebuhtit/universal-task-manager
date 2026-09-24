@@ -21,10 +21,10 @@ export function CalendarPlacementDialog({ item, day, duration, zone, now, ru, pi
     else setError(ru ? 'Не удалось сохранить размещение.' : 'Could not save placement.');
   };
   return <ResponsiveDialog open onOpenChange={open => { if (!open) onClose(); }} title={ru ? 'Размещение в календаре' : 'Calendar placement'} ariaLabel="Calendar placement">
-    <p>{item.title} · {day} · {Math.round(duration / 60_000 * 100) / 100} min</p>
-    <p>{ru ? 'Это ярлык-ссылка: исходные даты, duration и Google-событие не меняются. Параллельное размещение разрешает пересечения с событиями, Work, сном и скрытыми резервами, но не выход за будущий Due.' : 'This is a reference: original dates, duration and Google event stay unchanged. Parallel placement may overlap events, Work, sleep and hidden reserves, but not a future Due.'}</p>
+    <p><span translate="no" data-utm-user-data>{item.title}</span> · {day} · {Math.round(duration / 60_000 * 100) / 100} {ru ? 'мин' : 'min'}</p>
+    <p>{ru ? 'Это ярлык-ссылка: исходные даты, длительность и Google-событие не меняются. Параллельное размещение допускает пересечения с событиями, работой, сном и скрытыми резервами, но задача должна завершиться до будущего срока.' : 'This is a reference: original dates, duration and Google event stay unchanged. Parallel placement may overlap events, Work, sleep and hidden reserves, but not a future Due.'}</p>
     <label>{ru ? 'Начало' : 'Start time'}<Input type="time" aria-label="Parallel start time" value={time} onChange={event => { setTime(event.target.value); setError(''); }} /></label>
     {error && <p role="alert">{error}</p>}
-    <div className="calendar-pin-actions"><Button onClick={() => save(true)}>{ru ? 'Параллельно' : 'Parallel'}</Button><Button onClick={() => save(false)}>Queue</Button><Button variant="ghost" onClick={onClose}>{ru ? 'Отмена' : 'Cancel'}</Button></div>
+    <div className="calendar-pin-actions"><Button onClick={() => save(true)}>{ru ? 'Параллельно' : 'Parallel'}</Button><Button onClick={() => save(false)}>{ru ? 'В очередь' : 'Queue'}</Button><Button variant="ghost" onClick={onClose}>{ru ? 'Отмена' : 'Cancel'}</Button></div>
   </ResponsiveDialog>;
 }

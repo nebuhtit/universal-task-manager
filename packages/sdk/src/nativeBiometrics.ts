@@ -7,6 +7,7 @@ export const hasNativeBiometrics = () => Boolean(handler());
 export async function nativeBiometrics(kind: 'status' | 'create' | 'read' | 'remove', id?: string): Promise<Reply> {
   const bridge = handler();
   if (!bridge) throw new Error('Native Face ID is unavailable. Use your workspace password.');
-  try { return await bridge.postMessage({ kind, ...(id ? { id } : {}) }); }
+  const language = typeof document === 'undefined' ? 'en' : document.documentElement.lang;
+  try { return await bridge.postMessage({ kind, language, ...(id ? { id } : {}) }); }
   catch { throw new Error('Face ID was cancelled or unavailable. Use your workspace password, or enable Face ID again in Settings.'); }
 }

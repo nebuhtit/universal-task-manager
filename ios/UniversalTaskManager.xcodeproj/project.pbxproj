@@ -276,7 +276,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0.4;
+				MARKETING_VERSION = 3.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios";
 				GOOGLE_IOS_CLIENT_ID = "862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00.apps.googleusercontent.com";
 				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00";
@@ -307,7 +307,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0.4;
+				MARKETING_VERSION = 3.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios";
 				GOOGLE_IOS_CLIENT_ID = "862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00.apps.googleusercontent.com";
 				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00";

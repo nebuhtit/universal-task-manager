@@ -13,9 +13,9 @@ describe('native biometric bridge', () => {
     vi.stubGlobal('window', { webkit: { messageHandlers: { utmNativeBiometrics: { postMessage } } } });
     expect(hasNativeBiometrics()).toBe(true);
     expect(await nativeBiometrics('read', 'enrollment')).toEqual({ key: 'protected-key' });
-    expect(postMessage).toHaveBeenCalledWith({ kind: 'read', id: 'enrollment' });
+    expect(postMessage).toHaveBeenCalledWith({ kind: 'read', language: 'en', id: 'enrollment' });
     await nativeBiometrics('remove');
-    expect(postMessage).toHaveBeenLastCalledWith({ kind: 'remove' });
+    expect(postMessage).toHaveBeenLastCalledWith({ kind: 'remove', language: 'en' });
   });
   it('keeps password fallback on cancellation without leaking native error details', async () => {
     vi.stubGlobal('window', { webkit: { messageHandlers: { utmNativeBiometrics: { postMessage: vi.fn().mockRejectedValue(new Error('private native details')) } } } });

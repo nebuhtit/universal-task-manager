@@ -163,6 +163,7 @@ final class NativeBiometricBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         guard !busy else { replyHandler(nil, "Face ID is already active"); return }
         let context = LAContext()
+        let russian = (body["language"] as? String)?.hasPrefix("ru") == true
         context.localizedFallbackTitle = ""
         if kind == "status" {
             replyHandler(["available": context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)], nil)
@@ -188,7 +189,7 @@ final class NativeBiometricBridge: NSObject, WKScriptMessageHandlerWithReply {
         if kind == "read" {
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
-            context.localizedReason = "Unlock your Universal workspace"
+            context.localizedReason = russian ? "Откройте рабочее пространство Universal" : "Unlock your Universal workspace"
             query[kSecUseAuthenticationContext as String] = context
             let readQuery = query
             DispatchQueue.global(qos: .userInitiated).async {
@@ -205,7 +206,7 @@ final class NativeBiometricBridge: NSObject, WKScriptMessageHandlerWithReply {
             finish(nil, "Set up Face ID or Touch ID in device settings first"); return
         }
         let createQuery = query
-        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Enable quick unlock for this workspace") { success, _ in
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: russian ? "Включите быстрый вход в рабочее пространство" : "Enable quick unlock for this workspace") { success, _ in
             guard success else { finish(nil, "Face ID setup cancelled"); return }
             guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .biometryCurrentSet, nil) else {
                 finish(nil, "Cannot protect Face ID key"); return
