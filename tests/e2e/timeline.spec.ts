@@ -293,8 +293,14 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   const listUndated = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^No date/ });
   await expect(listUndated).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.calendar-no-date')).toContainText('Undated sentinel');
+  await listUndated.evaluate(element => element.scrollIntoView({ block: 'center' }));
   await listUndated.click(); await expect(page.locator('.calendar-no-date')).toHaveCount(0);
-  await listUndated.click(); await expect(page.locator('.calendar-no-date')).toContainText('Undated sentinel');
+  await expect(listUndated).toHaveAttribute('aria-pressed', 'false');
+  // Removing the section changes scroll anchoring. Center the control again
+  // before the second pointer action so sticky navigation can settle.
+  await listUndated.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await listUndated.click(); await expect(listUndated).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.calendar-no-date')).toContainText('Undated sentinel');
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const listAllDay = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^All day/ });
   await expect(page.locator('.calendar-all-day')).toContainText('All day sentinel');
