@@ -53,7 +53,11 @@ async function primary(page: Page) {
 
 test('editor opens the full quick line with bounded scrolling and a non-overlapping preview', async ({ page }) => {
   await setup(page, 'true', true);
-  await page.getByTestId('timeline-event').filter({ hasText: 'One minute title' }).click();
+  const event = page.getByTestId('timeline-event').filter({ hasText: 'One minute title' });
+  // Settle sticky navigation before the pointer interaction scrolls far down.
+  await event.evaluate(el => el.scrollIntoView({ block: 'center' }));
+  await expect(event).toBeInViewport();
+  await event.click();
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   const input = editor.getByRole('combobox', { name: 'Title', exact: true });
   await expect(input).toHaveAttribute('rows', '3');

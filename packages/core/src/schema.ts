@@ -349,6 +349,7 @@ export const workspaceJsonSchema = {
         liveTextSuggestions: { type: 'boolean' },
         planning: { type: 'object', additionalProperties: false, properties: {
           enabled: { type: 'boolean' },
+          parallel: { type: 'object', additionalProperties: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } } },
           orders: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } },
           pins: { type: 'object', additionalProperties: { type: 'object', additionalProperties: false, required: ['itemId', 'day', 'mode'], properties: {
             itemId: { type: 'string' }, seriesId: { type: 'string' }, recurrenceId: { type: 'string' },

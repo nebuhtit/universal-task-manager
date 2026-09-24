@@ -49,6 +49,81 @@ async function swipe(page: Page, id: string, right = true) {
   await card.dispatchEvent('touchstart', { touches: [{ identifier: 1, clientX: 160, clientY: 300 }] });
   await card.dispatchEvent('touchend', { changedTouches: [{ identifier: 1, clientX: right ? 280 : 40, clientY: 302 }] });
 }
+async function settledReload(page: Page) {
+  await page.clock.fastForward(11_000);
+  // Advancing timers is not an IndexedDB write acknowledgement. Await the real
+  // writer and startup markers before testing a normal (non-crash) reload.
+  await expect.poll(() => page.evaluate(() => ['utm:pending-save:v1', 'utm:startup-last-pending:v1'].map(key => localStorage.getItem(key)))).toEqual([null, null]);
+  await page.reload(); await unlock(page); await navigate(page, 'Calendar');
+}
+
+test('parallel reference persists, respects Due and queue never changes the source', async ({ page }) => {
+  const { read } = await setup(page, true, w => {
+    w.items.task!.schedule!.dueAt = '2026-09-24T10:00:00Z';
+    w.items.event!.schedule!.startAt = '2026-09-24T08:00:00Z';
+    w.items.event!.schedule!.endAt = '2026-09-24T12:00:00Z';
+  });
+  const before = (await read()).items;
+  const googleRequests: string[] = []; page.on('request', req => { if (/googleapis.com\/calendar/.test(req.url())) googleRequests.push(req.url()); });
+  await page.getByRole('button', { name: 'Parallel / Queue', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Calendar placement', exact: true });
+  await dialog.getByLabel('Parallel start time').fill('10:00');
+  await dialog.getByRole('button', { name: 'Parallel', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Due');
+  await dialog.getByLabel('Parallel start time').fill('08:30');
+  await dialog.getByRole('button', { name: 'Parallel', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => (await read()).calendarPreferences.planning?.parallel?.['2026-09-24']?.task).toBe('2026-09-24T08:30:00.000Z');
+  expect((await read()).items).toEqual(before);
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', /Parallel reference.*08:30–09:00/);
+  await page.screenshot({ path: test.info().outputPath('parallel-reference.png') });
+  await settledReload(page);
+  await page.getByRole('button', { name: 'Parallel / Queue', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Queue', exact: true }).click();
+  await expect.poll(async () => (await read()).calendarPreferences.planning?.parallel?.['2026-09-24']?.task).toBeUndefined();
+  expect((await read()).items).toEqual(before); expect(googleRequests).toEqual([]);
+});
+
+test('old order is repaired and persisted without mutating active-range originals', async ({ page }) => {
+  const { read } = await setup(page, true, w => {
+    w.items.task!.schedule = { timezone: 'UTC', startAt: '2026-09-21T00:00:00Z', dueAt: '2026-09-24T10:00:00Z', estimatedDuration: 'PT1H' };
+    w.items.other = { ...w.items.task!, id: 'other', title: 'Other active range' };
+    w.calendarPreferences.planning = { orders: { '2026-09-24': ['event', 'task', 'other'] } };
+  });
+  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['task', 'other', 'event']);
+  const before = (await read()).items;
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+  await expect(page.getByTestId('timeline-active-range')).toHaveCount(2);
+  await settledReload(page);
+  expect((await read()).items).toEqual(before);
+  expect((await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['task', 'other', 'event']);
+});
+
+test('parallel active-range reference remains visible inside compressed sleep in dark mode', async ({ page }) => {
+  const { read } = await setup(page, true, w => {
+    w.calendarPreferences.appearance.mode = 'dark';
+    w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: true, sleepItemId: 'event', showUndated: true };
+    w.items.task!.schedule = { timezone: 'UTC', startAt: '2026-09-23T00:00:00Z', dueAt: '2026-09-24T10:00:00Z', estimatedDuration: 'PT1H' };
+    w.items.event!.schedule!.startAt = '2026-09-24T00:00:00Z';
+    w.items.event!.schedule!.endAt = '2026-09-24T12:00:00Z';
+  });
+  const before = (await read()).items;
+  await page.getByRole('button', { name: 'Parallel / Queue', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Calendar placement', exact: true });
+  await dialog.getByLabel('Parallel start time').fill('08:30');
+  await page.screenshot({ path: test.info().outputPath('parallel-dialog-dark.png') });
+  await dialog.getByRole('button', { name: 'Parallel', exact: true }).click();
+  const reference = page.getByTestId('timeline-active-range');
+  await expect(reference).toHaveAttribute('aria-label', /↗.*08:30–09:00/);
+  await reference.scrollIntoViewIfNeeded(); await expect(reference).toBeVisible();
+  // The normal half-hour block uses the shared 36px minimum, not a compressed break.
+  await expect(page.locator('.timeline-break').filter({ hasText: '00:00–08:30' })).toHaveCount(1);
+  await expect(page.locator('.timeline-break').filter({ hasText: '09:00–12:00' })).toHaveCount(1);
+  await expect.poll(async () => (await read()).calendarPreferences.planning?.parallel?.['2026-09-24']?.task).toBeTruthy();
+  expect((await read()).calendarPreferences.timeline?.hideSleep).toBe(true);
+  expect((await read()).items).toEqual(before);
+});
 
 test('reference conflict, queue, reload and unpin leave original items unchanged', async ({ page }) => {
   const { read } = await setup(page), before = (await read()).items;

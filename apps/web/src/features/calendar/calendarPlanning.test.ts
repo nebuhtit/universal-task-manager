@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createItem, createOccurrence, createWorkspace, fromCanonicalJSON, toCanonicalJSON, validateWorkspace, type UniversalItem } from '@utm/core';
-import { buildCalendarPlan, activeCalendarPins, calendarPlanMetricItems, calendarReorderIssue, createCalendarPlanCache, dueBoundary, naturallyOnDay, planningEnabled, referenceKey, removeCalendarPin, resolveCalendarSource, sameTimeInterval, setCalendarPin, sourceReference, validateCalendarMove } from './calendarPlanning';
+import { buildCalendarPlan, activeCalendarPins, calendarPlanMetricItems, calendarReorderIssue, createCalendarPlanCache, dueBoundary, naturallyOnDay, parallelPlacementIssue, planningEnabled, referenceKey, removeCalendarPin, resolveCalendarSource, sameTimeInterval, setCalendarPin, sourceReference, validateCalendarMove } from './calendarPlanning';
 import { prepareTimelineData } from './timelineData';
 import { calendarVisibleCapacity } from './calendarCapacity';
 import { evaluateCalendarRange } from './calendarEvaluation';
@@ -19,6 +19,77 @@ function fixture() {
 const pin = (item: UniversalItem, day: string, mode: 'queue' | 'same_time' = 'queue') => ({ ...sourceReference(item), day, mode });
 const ms = (hour: number) => Date.parse(at(hour));
 describe('calendar references and manual placement', () => {
+  it('clears a pinned parallel placement when changing its day or unpinning', () => {
+    const { w, task } = fixture(), source = JSON.stringify(w.items);
+    setCalendarPin(w, pin(task, day));
+    w.calendarPreferences.planning!.parallel = { [day]: { task: at(9) } };
+    setCalendarPin(w, pin(task, tomorrow));
+    expect(w.calendarPreferences.planning!.parallel![day]!.task).toBeUndefined();
+    w.calendarPreferences.planning!.parallel![tomorrow] = { task: `${tomorrow}T09:00:00Z` };
+    removeCalendarPin(w, sourceReference(task));
+    expect(w.calendarPreferences.planning!.parallel![tomorrow]!.task).toBeUndefined();
+    expect(JSON.stringify(w.items)).toBe(source);
+  });
+  it('uses this weekly occurrence Due and isolates its parallel reference from next week', () => {
+    const { w, task } = fixture();
+    task.role = 'series_template';
+    task.schedule = { timezone: 'UTC', startAt: '2026-09-07T00:00:00Z', dueAt: '2026-09-10T19:00:00Z', estimatedDuration: 'PT1H' };
+    task.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', exdates: [], rdates: [], anchor: 'schedule', closeAt: 'due', autoRenew: true };
+    const prepared = prepareTimelineData(w, day, now), occurrence = prepared.activeRange[0]!;
+    expect(occurrence.schedule!.dueAt).toBe('2026-09-24T19:00:00.000Z');
+    w.calendarPreferences.planning = { parallel: { [day]: { [occurrence.id]: at(10) } } };
+    const plan = buildCalendarPlan(w, day, prepared, now);
+    expect(plan.events.find(v => v.item.id === occurrence.id)!.end - ms(10)).toBe(15 * 60000);
+    const next = prepareTimelineData(w, '2026-10-01', now);
+    expect(next.activeRange[0]!.schedule!.dueAt).toBe('2026-10-01T19:00:00.000Z');
+    expect(buildCalendarPlan(w, '2026-10-01', next, now).parallel.size).toBe(0);
+    expect(task.schedule.dueAt).toBe('2026-09-10T19:00:00Z');
+  });
+  it('repairs both stale active-range positions without rewriting sources and is idempotent', () => {
+    const { w, task, event } = fixture();
+    task.schedule = { timezone: 'UTC', startAt: '2026-09-21T00:00:00Z', dueAt: at(19), estimatedDuration: 'PT45M' };
+    const other = { ...task, id: 'other', schedule: { ...task.schedule, dueAt: at(18), estimatedDuration: 'PT30M' } };
+    w.items.other = other; event.schedule!.startAt = at(19); event.schedule!.endAt = at(20);
+    w.calendarPreferences.planning = { orders: { [day]: ['event', 'task', 'other'] } };
+    const source = JSON.stringify(w.items), prepared = prepareTimelineData(w, day, now);
+    const plan = buildCalendarPlan(w, day, prepared, now);
+    expect(plan.repairedOrder).toEqual(['task', 'other', 'event']);
+    expect(plan.unplaced).toEqual([]);
+    expect(plan.proposals.every(v => v.end <= dueBoundary(v.item, 'UTC'))).toBe(true);
+    w.calendarPreferences.planning.orders![day] = plan.repairedOrder!;
+    expect(buildCalendarPlan(w, day, prepared, now).repairedOrder).toBeNull();
+    expect(JSON.stringify(w.items)).toBe(source);
+  });
+  it('permits repairing one old Due conflict while another remains', () => {
+    const { w, task } = fixture(); task.schedule!.dueAt = at(10);
+    w.items.other = { ...task, id: 'other' };
+    const prepared = prepareTimelineData(w, day, now);
+    const before = buildCalendarPlan(w, day, prepared, now, [], ['event', 'task', 'other']);
+    const after = buildCalendarPlan(w, day, prepared, now, [], ['task', 'event', 'other']);
+    expect(calendarReorderIssue(before, after, 'task', now, 'UTC', false)).toBeNull();
+    expect(after.orderConflicts.has('other')).toBe(true);
+  });
+  it('parallel references overlap reservations but preserve Due, sources and union statistics', () => {
+    const { w, task, event } = fixture(); task.schedule!.dueAt = at(12);
+    w.calendarPreferences.planning = { parallel: { [day]: { task: at(10) } } };
+    const source = JSON.stringify(w.items), prepared = prepareTimelineData(w, day, now);
+    const plan = buildCalendarPlan(w, day, prepared, now, [event]);
+    expect(plan.parallel.has(task.id)).toBe(true);
+    expect(plan.events.find(v => v.item.id === task.id)?.start).toBe(ms(10));
+    expect(parallelPlacementIssue(task, day, ms(12), 3600000, now, 'UTC')).toBe('deadline');
+    const evaluated = evaluateCalendarRange(w, day, tomorrow, w.calendarPreferences.dayView, now).days[day]!;
+    const metricDay = { ...evaluated, evaluation: { ...evaluated.evaluation, items: calendarPlanMetricItems(plan, evaluated.evaluation.items) } };
+    expect(calendarVisibleCapacity(w, metricDay, day, now, [task], true).freeMs).toBe(14 * 3600000);
+    expect(validateWorkspace(w)).toEqual({ valid: true, errors: [] });
+    expect(fromCanonicalJSON(toCanonicalJSON(w)).calendarPreferences.planning).toEqual(w.calendarPreferences.planning);
+    expect(JSON.stringify(w.items)).toBe(source);
+    expect(buildCalendarPlan(w, day, prepared, new Date(`${tomorrow}T00:00:00Z`)).parallel.size).toBe(0);
+    delete w.calendarPreferences.planning.parallel![day]!.task;
+    expect(buildCalendarPlan(w, day, prepared, now).parallel.size).toBe(0);
+    task.state = 'done';
+    w.calendarPreferences.planning.parallel![day]!.task = at(10);
+    expect(buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now).parallel.size).toBe(0);
+  });
   it('places active-range daily shares after anchors and travel back in the saved order', () => {
     const { w, task, event } = fixture();
     task.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: '2026-09-25T18:00:00Z', estimatedDuration: 'PT1H' };

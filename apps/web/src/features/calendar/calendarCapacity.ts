@@ -54,7 +54,7 @@ export function calendarVisibleCapacity(
     if (item.schedule?.allDay && !overdue && !allDayOpen) continue;
     visible.set(item.id, item);
   }
-  if (settings?.showUndated === true) for (const item of undatedItems) visible.set(item.id, item);
+  if (settings?.showUndated === true) for (const item of undatedItems) if (!visible.has(item.id)) visible.set(item.id, item);
   const visibleSources = new Set([...visible.values()].map(item => item.occurrence?.seriesId ?? item.id));
   for (const item of visible.values()) {
     const overdue = showOverdueToday(item, key, now, zone, item.occurrence ? workspace.items[item.occurrence.seriesId] : undefined);

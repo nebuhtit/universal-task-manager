@@ -4,6 +4,24 @@
 disabling restores the previous calendar path and hides pin gestures/reset controls.
 Stored orders and references are preserved while disabled.
 
+## Deadline repair and parallel references (2.9.13)
+
+Saved orders that put flexible work behind an anchor whose end (including travel
+back) prevents meeting a future Due are repaired before placement. The selected
+day's repaired order is persisted with a notice. Repairing one old conflict is
+not blocked by another unchanged conflict; new illegal moves are still rejected.
+Recurring tasks use concrete occurrence dates, not the template's historical dates.
+
+`parallel[YYYY-MM-DD][concreteItemId]` stores an explicit ISO start for a day-local
+reference. Unplaced tasks offer Parallel / Queue. Parallel may overlap visible
+events, Work, sleep and hidden reserves, but cannot exceed a future Due or day end.
+Queue removes only this override and uses the ordinary free-gap calculation.
+Neither operation modifies items, estimates, reminders, history or Google queues.
+The reference uses the current source estimate (the daily share for active ranges).
+Statistics use an isolated interval projection and union overlapping occupancy;
+the source is never replaced by this projection. Sleep compression reveals only
+the reference interval, without changing the user's hide-sleep preference.
+
 - `orders[YYYY-MM-DD]` stores source item/occurrence IDs in display order.
 - `pins[identity]` contains only `itemId`, optional `seriesId`/`recurrenceId`, local
   `day`, and `mode` (`same_time` or `queue`). One reference per concrete identity.

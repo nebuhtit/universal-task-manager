@@ -41,11 +41,21 @@ export function activeCalendarPins(workspace: WorkspaceDocument, day: string, no
 export function setCalendarPin(workspace: WorkspaceDocument, pin: CalendarPin) {
   workspace.calendarPreferences.planning ??= {};
   workspace.calendarPreferences.planning.pins ??= {};
+  const previous = workspace.calendarPreferences.planning.pins[referenceKey(pin)];
+  if (previous && previous.day !== pin.day) {
+    const placements = workspace.calendarPreferences.planning.parallel?.[previous.day];
+    if (placements) delete placements[previous.itemId];
+  }
   workspace.calendarPreferences.planning.pins[referenceKey(pin)] = { ...pin };
 }
 export function removeCalendarPin(workspace: WorkspaceDocument, ref: CalendarSourceReference) {
   const pins = workspace.calendarPreferences.planning?.pins;
-  if (pins) delete pins[referenceKey(ref)];
+  const pin = pins?.[referenceKey(ref)];
+  if (pin) {
+    const placements = workspace.calendarPreferences.planning?.parallel?.[pin.day];
+    if (placements) delete placements[pin.itemId];
+    delete pins![referenceKey(ref)];
+  }
 }
 
 export function sameTimeInterval(item: UniversalItem, day: string, zone: string): TimelineEvent | null {
@@ -65,6 +75,29 @@ export function dueBoundary(item: UniversalItem, zone: string): number {
 }
 
 type Prepared = ReturnType<typeof prepareTimelineData>;
+/** Only future deadlines constrain order. Compare individual edges, not a global error flag. */
+function deadlineEdges(ids: string[], fixed: Map<string, TimelineEvent>, tasks: Map<string, UniversalItem>, durations: Map<string, number>, now: Date, zone: string, anchors: TimelineEvent[]) {
+  const edges = new Map<string, string[]>();
+  for (const [id, item] of tasks) {
+    const due = dueBoundary(item, zone);
+    if (!Number.isFinite(due) || due <= +now) continue;
+    const blockers = ids.slice(0, ids.indexOf(id)).filter(other => {
+      const anchor = fixed.get(other);
+      return anchor && Math.max(anchor.end, ...anchors.filter(event => event.item.id === other && event.travelBack).map(event => event.end)) + (durations.get(id) ?? 0) > due;
+    });
+    if (blockers.length) edges.set(id, blockers);
+  }
+  return edges;
+}
+
+export function parallelPlacementIssue(item: UniversalItem, key: string, start: number, duration: number, now: Date, zone: string, pinned = false): string | null {
+  const day = dayBounds(key, zone), due = dueBoundary(item, zone);
+  if (!Number.isFinite(duration) || duration <= 0) return 'duration';
+  const from = pinned ? day.start : Math.max(day.start, Date.parse(item.schedule?.availableFrom ?? '') || day.start, activeRangeBounds(item)?.start ?? day.start);
+  if (!Number.isFinite(start) || start < Math.max(from, +now) || start + duration > day.end) return 'range';
+  if (due > +now && start + duration > due) return 'deadline';
+  return null;
+}
 /** Minute ticks affect today's queue, not every other visible day. */
 export function createCalendarPlanCache() {
   const values = new Map<string, { workspace: WorkspaceDocument; prepared: Prepared; reserved: UniversalItem[]; stamp: string; value: ReturnType<typeof buildCalendarPlan> }>();
@@ -128,9 +161,39 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
   for (const item of tasks.values()) all.set(item.id, item);
   for (const item of [...prepared.allDay, ...prepared.activeRange]) all.set(item.id, item);
   for (const warning of warnings) all.set(warning.item.id, warning.item);
+  const durations = new Map([...tasks].map(([id, item]) => [id, activeRanges.has(id) ? activeRangeDailyDuration(item, viewPeriodBoundsForDates(key, key, zone)) ?? 0 : effectiveItemDurationMs(item)]));
+  const parallel = new Set<string>();
+  const parallelStarts = planningEnabled(workspace) && key >= calendarDateKey(now, zone) ? workspace.calendarPreferences.planning?.parallel?.[key] ?? {} : {};
+  for (const [id, item] of tasks) {
+    const value = parallelStarts[id];
+    if (!value) continue;
+    parallel.add(id);
+    const start = Date.parse(value), duration = durations.get(id)!;
+    // Existing placements may have started already; do not move them with the clock.
+    const issue = parallelPlacementIssue(item, key, start, duration, new Date(Math.min(+now, start)), zone, pins.has(id));
+    const realDue = dueBoundary(item, zone);
+    if (issue && !(issue === 'deadline' && realDue <= +now)) warnings.push({ item, reason: issue });
+    else {
+      const event: TimelineEvent = { item, start, end: start + duration, tentative: true, point: false, invalid: false };
+      anchors.push(event); visibleAnchors.push(event); fixed.set(id, event);
+    }
+    tasks.delete(id);
+  }
   const baseIds = sortViewItems(workspace, calendarDayView(key, workspace.calendarPreferences.dayView), [...all.values()], now).map(item => item.id);
   const savedOrder = orderOverride ?? workspace.calendarPreferences.planning?.orders?.[key];
   const ids = [...new Set([...(savedOrder ?? []).filter(id => all.has(id)), ...baseIds])];
+  let repairedOrder: string[] | null = null;
+  if (savedOrder && orderOverride === undefined) {
+    const original = [...ids];
+    const conflicts = deadlineEdges(ids, fixed, tasks, durations, now, zone, anchors);
+    for (const id of original) {
+      const blockers = conflicts.get(id);
+      if (!blockers?.length) continue;
+      ids.splice(ids.indexOf(id), 1); ids.splice(ids.indexOf(blockers[0]!), 0, id);
+    }
+    if (ids.some((id, index) => id !== original[index])) repairedOrder = [...ids];
+  }
+  const orderConflicts = deadlineEdges(ids, fixed, tasks, durations, now, zone, anchors);
   const busy = mergeIntervals([...reservations, ...anchors.filter(event => !event.invalid && (event.travel || event.item.external?.transparency !== 'transparent'))].map(v => ({ start: Math.max(day.start, v.start), end: Math.min(day.end, v.end) })));
   const gaps: Interval[] = [];
   let cursor = now.getTime() >= day.start && now.getTime() < day.end ? Math.ceil(+now / 60_000) * 60_000 : day.start;
@@ -146,7 +209,7 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
     }
     const item = tasks.get(id);
     if (!item) continue;
-    const duration = activeRanges.has(id) ? activeRangeDailyDuration(item, viewPeriodBoundsForDates(key, key, zone)) ?? 0 : effectiveItemDurationMs(item);
+    const duration = durations.get(id)!;
     const due = dueBoundary(item, zone), overdue = due <= +now;
     // A reference uses the source estimate but never its old event dates.
     const earliest = pins.has(id) ? lowerBound : Math.max(lowerBound, Date.parse(item.schedule?.availableFrom ?? '') || day.start, activeRanges.has(id) ? activeRangeBounds(item)!.start : day.start);
@@ -164,7 +227,7 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
     gap.start = end; gaps.sort((a, b) => a.start - b.start);
     if (savedOrder) lowerBound = end;
   }
-  return { ids, items: ids.map(id => all.get(id)!), pins, fixed, activeRanges, proposals, events: [...visibleAnchors, ...proposals], warnings, reservations, busy,
+  return { ids, items: ids.map(id => all.get(id)!), pins, fixed, activeRanges, parallel, durations, repairedOrder, orderConflicts, proposals, events: [...visibleAnchors, ...proposals], warnings, reservations, busy,
     movable: new Set(tasks.keys()), unplaced: warnings.map(warning => warning.item) };
 }
 
@@ -179,12 +242,9 @@ export function validateCalendarMove(plan: ReturnType<typeof buildCalendarPlan>,
 
 /** Capacity failures keep a visible unplaced card; moving another row must never bypass Due. */
 export function calendarReorderIssue(before: ReturnType<typeof buildCalendarPlan>, after: ReturnType<typeof buildCalendarPlan>, movedId: string, now: Date, zone: string, allowFixed: boolean) {
-  const reason = validateCalendarMove(after, movedId, now, zone, allowFixed);
-  if (reason && reason !== 'capacity') return { item: after.items.find(item => item.id === movedId)!, reason };
-  for (const item of after.items) {
-    if (!after.movable.has(item.id)) continue;
-    const due = dueBoundary(item, zone);
-    if (due > +now && after.ids.slice(0, after.ids.indexOf(item.id)).some(id => (after.fixed.get(id)?.start ?? -Infinity) >= due)) return { item, reason: 'deadline' };
+  if (!after.movable.has(movedId) && !(allowFixed && after.fixed.has(movedId))) return { item: after.items.find(item => item.id === movedId)!, reason: 'fixed' };
+  for (const [id, blockers] of after.orderConflicts) {
+    if (blockers.some(blocker => !before.orderConflicts.get(id)?.includes(blocker))) return { item: after.items.find(item => item.id === id)!, reason: 'deadline' };
   }
   return after.warnings.find(warning => warning.reason === 'deadline' && !before.warnings.some(previous => previous.item.id === warning.item.id && previous.reason === 'deadline')) ?? null;
 }
@@ -194,10 +254,10 @@ export function calendarPlanMetricItems(plan: ReturnType<typeof buildCalendarPla
   const items = new Map(originals.map(item => [item.id, item]));
   for (const item of plan.items) items.set(item.id, item);
   for (const event of plan.events) {
-    if (plan.activeRanges.has(event.item.id)) continue; // Keep the daily-share accounting, not the full estimate.
+    if (plan.activeRanges.has(event.item.id) && !plan.parallel.has(event.item.id)) continue; // Parallel shares need real intervals for union accounting.
     if (event.travel || (!event.tentative && !plan.pins.has(event.item.id))) continue;
     const { external: _external, ...source } = event.item;
-    items.set(source.id, { ...source, schedule: { timezone: source.schedule?.timezone ?? 'UTC', startAt: new Date(event.start).toISOString(), endAt: new Date(event.end).toISOString(), estimatedDuration: source.schedule?.estimatedDuration ?? 'PT0S' } });
+    items.set(source.id, { ...source, schedule: { timezone: source.schedule?.timezone ?? 'UTC', startAt: new Date(event.start).toISOString(), endAt: new Date(event.end).toISOString(), estimatedDuration: plan.parallel.has(source.id) ? `PT${(event.end - event.start) / 1000}S` : source.schedule?.estimatedDuration ?? 'PT0S' } });
   }
   for (const item of plan.unplaced) {
     if (plan.activeRanges.has(item.id)) continue;
@@ -213,4 +273,5 @@ export const planningReason = (reason: string, ru: boolean) => ({
   capacity: ru ? 'Нет свободного непрерывного окна. Item остаётся вне расписания.' : 'No continuous free slot. The item remains outside the schedule.',
   duration: ru ? 'Укажите Duration в исходном item.' : 'Set Duration on the source item.',
   fixed: ru ? 'Событие с Event opens и Event ends фиксировано на Timeline.' : 'An event with Event opens and Event ends is fixed on Timeline.',
+  range: ru ? 'Выберите время внутри этого дня и активного диапазона, не в прошлом.' : 'Choose a time within this day and active range, not in the past.',
 }[reason] ?? reason);
