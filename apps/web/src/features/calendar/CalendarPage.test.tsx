@@ -73,6 +73,21 @@ describe('CalendarPage daily-list contract', () => {
     expect(markup).toContain('Late item');
   });
 
+  it('shows an unplaced task capacity warning once beside its placement action', () => {
+    const now = new Date('2026-08-26T10:00:00.000Z');
+    const workspace = createWorkspace('Calendar', now);
+    workspace.calendarPreferences.timezone = 'UTC'; workspace.calendarPreferences.dayView.filter.source = 'true'; workspace.calendarPreferences.timeline = { mode: 'list', hideSleep: false, showUndated: true };
+    const task = createItem('На великах покататься', 'task', now);
+    task.schedule = { timezone: 'UTC', estimatedDuration: 'PT1H' };
+    const busy = createItem('Busy all day', 'event', now);
+    busy.schedule = { timezone: 'UTC', startAt: now.toISOString(), endAt: '2026-08-27T00:00:00.000Z' };
+    workspace.items[task.id] = task; workspace.items[busy.id] = busy;
+    const markup = renderToStaticMarkup(<CalendarPage workspace={workspace} now={now} commit={vi.fn()} onEditItem={vi.fn()} onState={vi.fn()} createUiItem={(title, preset, createdAt) => createItem(title ?? '', preset, createdAt)} />);
+    const warning = 'No continuous free slot. The item remains outside the schedule.';
+    expect(markup).toContain('Parallel / Queue');
+    expect(markup.split(warning)).toHaveLength(2);
+  });
+
   it('uses semantic tokens and a seven-column mobile week navigator', () => {
     const css = readFileSync(fileURLToPath(new URL('./calendar.css', import.meta.url)), 'utf8');
     expect(css).toContain('overflow: hidden');

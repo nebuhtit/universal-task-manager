@@ -177,6 +177,9 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   }, [plan, selectedDate, workspace, commit, onPlanningNotice, preferences.language]);
   useEffect(() => { setPlacementId(null); }, [selectedDate]);
   const placementItem = plan?.items.find(item => item.id === placementId);
+  const placementOptions = plan?.items.filter(item => plan.parallel.has(item.id) || (plan.movable.has(item.id) && plan.unplaced.some(value => value.id === item.id))) ?? [];
+  const placementWarnings = new Map(plan?.warnings.map(warning => [warning.item.id, warning.reason]));
+  const placementOptionIds = new Set(placementOptions.map(item => item.id));
   const savePlacement = (start: string | null) => commit('Calendar placement reference', draft => {
     if (!placementItem) return;
     draft.calendarPreferences.planning ??= {};
@@ -309,8 +312,8 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       <Button size="compact" aria-pressed={preferences.timeline?.mode !== 'timeline'} onClick={() => commit('Calendar list mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'list', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>{preferences.language === 'ru' ? 'Список' : 'List'}</Button>
       <Button size="compact" aria-pressed={preferences.timeline?.mode === 'timeline'} onClick={() => commit('Calendar timeline mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'timeline', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>Timeline</Button>
     </div>
-    {plan && <div className="calendar-placement-options">{plan.items.filter(item => plan.parallel.has(item.id) || (plan.movable.has(item.id) && plan.unplaced.some(value => value.id === item.id))).map(item => <div key={item.id}>
-      <span>{item.title}: {plan.parallel.has(item.id) ? (preferences.language === 'ru' ? '↗ Параллельный ярлык' : '↗ Parallel reference') : planningReason(plan.warnings.find(warning => warning.item.id === item.id)?.reason ?? 'capacity', preferences.language === 'ru')}</span>
+    {plan && <div className="calendar-placement-options">{placementOptions.map(item => <div key={item.id}>
+      <span>{item.title}: {placementWarnings.has(item.id) ? planningReason(placementWarnings.get(item.id)!, preferences.language === 'ru') : (preferences.language === 'ru' ? '↗ Параллельный ярлык' : '↗ Parallel reference')}</span>
       <Button size="compact" onClick={() => setPlacementId(item.id)}>{preferences.language === 'ru' ? 'Параллельно / Queue' : 'Parallel / Queue'}</Button>
     </div>)}</div>}
     {placementItem && plan && <CalendarPlacementDialog key={`${selectedDate}:${placementItem.id}`} item={placementItem} day={selectedDate} duration={plan.durations.get(placementItem.id) ?? 0} zone={preferences.timezone} now={capacityNow} ru={preferences.language === 'ru'} pinned={plan.pins.has(placementItem.id)} onClose={() => setPlacementId(null)} onSave={savePlacement} />}
@@ -329,7 +332,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       </>}</Surface></>}
     {planning && <Button size="compact" onClick={() => setResetStep(1)} disabled={!preferences.planning?.orders?.[selectedDate]?.length}>{preferences.language === 'ru' ? 'Сбросить порядок дня' : 'Reset day order'}</Button>}
     {planningMessage && <p role="status">{planningMessage}</p>}
-    {plan && plan.warnings.map(warning => <p role="status" key={warning.item.id}>{warning.item.title}: {planningReason(warning.reason, preferences.language === 'ru')}</p>)}
+    {plan && plan.warnings.filter(warning => !placementOptionIds.has(warning.item.id)).map(warning => <p role="status" key={warning.item.id}>{warning.item.title}: {planningReason(warning.reason, preferences.language === 'ru')}</p>)}
     <ResponsiveDialog open={resetStep > 0} onOpenChange={open => { if (!open) setResetStep(0); }} title={preferences.language === 'ru' ? 'Сброс порядка' : 'Reset order'} ariaLabel="Reset calendar order">
       <p>{resetStep === 1 ? (preferences.language === 'ru' ? 'Вернуть исходную сортировку? Закрепления и items останутся без изменений.' : 'Restore the initial sorting? Pins and items will not change.') : `${preferences.language === 'ru' ? 'Подтвердите сброс порядка только для' : 'Confirm resetting order only for'} ${selectedLabel} (${selectedDate}).`}</p>
       <Button onClick={() => { if (resetStep === 1) setResetStep(2); else { commit('Reset calendar day order', draft => { if (draft.calendarPreferences.planning?.orders) delete draft.calendarPreferences.planning.orders[selectedDate]; }); setResetStep(0); } }}>{resetStep === 1 ? (preferences.language === 'ru' ? 'Продолжить' : 'Continue') : (preferences.language === 'ru' ? 'Подтвердить сброс' : 'Confirm reset')}</Button>

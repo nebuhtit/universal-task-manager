@@ -5,3 +5,50 @@
 .due-custom { display: flex; gap: var(--space-2); min-width: 0; }
 .due-custom input { min-width: 0; flex: 1; }
 @media (max-width: 480px) { .due-quick-choices > .ui-button { flex-wrap: wrap; } .due-custom { flex-wrap: wrap; } }
+
+.ui-dialog-popup.quick-due-dialog { background: var(--color-capture-active); }
+.quick-due-dialog .ui-dialog-header,
+.quick-due-dialog .ui-dialog-footer { background: transparent; }
+.glass-item-reference {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  overflow-wrap: anywhere;
+  border: 1px solid var(--color-capture-border-idle);
+  border-radius: var(--radius-md);
+  background: var(--color-capture-idle);
+  color: var(--color-text);
+}
+.quick-due-dialog .glass-action-button,
+.quick-due-dialog .due-quick-choices > .ui-button,
+.quick-due-dialog .due-custom > .ui-button {
+  border-color: var(--color-capture-border-idle);
+  background: var(--color-capture-idle);
+  color: var(--color-text);
+}
+.quick-due-dialog .glass-action-button:hover,
+.quick-due-dialog .due-quick-choices > .ui-button:hover:not(:disabled),
+.quick-due-dialog .due-custom > .ui-button:hover:not(:disabled) { background: var(--color-capture-active); }
+.quick-due-dialog .glass-action-button:disabled,
+.quick-due-dialog .due-quick-choices > .ui-button:disabled,
+.quick-due-dialog .due-custom > .ui-button:disabled { background: var(--color-interactive-disabled); color: var(--color-text-disabled); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ui-dialog-popup.quick-due-dialog,
+  .quick-due-dialog .glass-item-reference,
+  .quick-due-dialog .glass-action-button,
+  .quick-due-dialog .due-quick-choices > .ui-button,
+  .quick-due-dialog .due-custom > .ui-button {
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+    backdrop-filter: blur(18px) saturate(1.15);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ui-dialog-popup.quick-due-dialog,
+  .quick-due-dialog .glass-item-reference,
+  .quick-due-dialog .glass-action-button,
+  .quick-due-dialog .due-quick-choices > .ui-button,
+  .quick-due-dialog .due-custom > .ui-button { -webkit-backdrop-filter: none; backdrop-filter: none; }
+@media (prefers-reduced-transparency: reduce) {
+  .ui-dialog-popup.quick-due-dialog { background: var(--color-surface-elevated); }
+  .quick-due-dialog .glass-item-reference { background: var(--color-surface); }
+}
+}

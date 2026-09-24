@@ -42,13 +42,13 @@ export function CalendarPinDialog({ workspace, target, onClose, commit, onFlush 
     if (mode !== 'queue' && issue) { setConflict(issue.reason === 'conflict'); setMessage(planningReason(issue.reason, ru)); return; }
     void save(draft => setCalendarPin(draft, value));
   };
-  return <ResponsiveDialog open onOpenChange={open => { if (!open && !saving) onClose(); }} title={ru ? 'Временно в календарь' : 'Temporary calendar reference'} ariaLabel="Calendar pin" footer={<Button disabled={saving} onClick={onClose}>{ru ? 'Закрыть' : 'Close'}</Button>}>
-    <p>{item?.title}</p><p className="hint">{ru ? 'Только ярлык-ссылка до конца выбранного дня. Исходные даты и Google-событие не меняются.' : 'A reference until the selected day ends. Original dates and the Google event stay unchanged.'}</p>
-    <div className="calendar-pin-actions">{!onToday && <Button disabled={saving || !item} onClick={() => choose(today)}>{ru ? 'На сегодня' : 'Today'}</Button>}{!onTomorrow && <Button disabled={saving || !item} onClick={() => choose(tomorrow)}>{ru ? 'На завтра' : 'Tomorrow'}</Button>}
-      <Button disabled={saving || !pin} onClick={() => void save(draft => removeCalendarPin(draft, target))}>{ru ? 'Снять закрепление' : 'Unpin'}</Button></div>
+  return <ResponsiveDialog open onOpenChange={open => { if (!open && !saving) onClose(); }} title={ru ? 'Временно в календарь' : 'Temporary calendar reference'} ariaLabel="Calendar pin" className="calendar-pin-dialog" footer={<Button className="calendar-pin-glass-button" disabled={saving} onClick={onClose}>{ru ? 'Закрыть' : 'Close'}</Button>}>
+    <p className="calendar-pin-item">{item?.title}</p><p className="hint">{ru ? 'Только ярлык-ссылка до конца выбранного дня. Исходные даты и Google-событие не меняются.' : 'A reference until the selected day ends. Original dates and the Google event stay unchanged.'}</p>
+    <div className="calendar-pin-actions">{!onToday && <Button className="calendar-pin-glass-button" disabled={saving || !item} onClick={() => choose(today)}>{ru ? 'На сегодня' : 'Today'}</Button>}{!onTomorrow && <Button className="calendar-pin-glass-button" disabled={saving || !item} onClick={() => choose(tomorrow)}>{ru ? 'На завтра' : 'Tomorrow'}</Button>}
+      <Button className="calendar-pin-glass-button" disabled={saving || !pin} onClick={() => void save(draft => removeCalendarPin(draft, target))}>{ru ? 'Снять закрепление' : 'Unpin'}</Button></div>
     {onToday && onTomorrow && <p className="hint">{ru ? 'Item уже присутствует сегодня и завтра.' : 'This item is already present today and tomorrow.'}</p>}
-    {day && item?.schedule?.startAt && <div className="calendar-pin-actions"><span>{day}</span><Button disabled={saving} onClick={() => choose(day, 'same_time')}>{ru ? 'На то же время' : 'Same time'}</Button><Button disabled={saving} onClick={() => choose(day, 'queue')}>{ru ? 'В очередь' : 'Queue'}</Button></div>}
+    {day && item?.schedule?.startAt && <div className="calendar-pin-actions"><span>{day}</span><Button className="calendar-pin-glass-button" disabled={saving} onClick={() => choose(day, 'same_time')}>{ru ? 'На то же время' : 'Same time'}</Button><Button className="calendar-pin-glass-button" disabled={saving} onClick={() => choose(day, 'queue')}>{ru ? 'В очередь' : 'Queue'}</Button></div>}
     {message && <p role="status">{message}</p>}
-    {conflict && day && <Button disabled={saving} onClick={() => choose(day, 'parallel')}>{ru ? 'Параллельно' : 'Parallel'}</Button>}
+    {conflict && day && <Button className="calendar-pin-glass-button" disabled={saving} onClick={() => choose(day, 'parallel')}>{ru ? 'Параллельно' : 'Parallel'}</Button>}
   </ResponsiveDialog>;
 }

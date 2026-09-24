@@ -13,7 +13,7 @@
 .live-text-input:has(textarea) .live-text-panel { position: relative; bottom: auto; margin-top: var(--space-2); }
 .live-text-panel { position: absolute; bottom: calc(100% + var(--space-2)); left: 0; right: 0; max-height: min(40dvh, 20rem); overflow: auto; overscroll-behavior: contain; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-capture-active); color: var(--color-text); box-shadow: var(--shadow-elevated); z-index: 1; }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .live-text-panel { -webkit-backdrop-filter: blur(var(--blur-capture-idle)) saturate(1.2); backdrop-filter: blur(var(--blur-capture-idle)) saturate(1.2); }
+  .live-text-panel { -webkit-backdrop-filter: blur(18px) saturate(1.15); backdrop-filter: blur(18px) saturate(1.15); }
 }
 .live-text-panel.live-text-panel-inline { position: relative; bottom: auto; max-height: min(30dvh, 20rem); margin-top: var(--space-2); box-shadow: none; }
 .live-text-panel { display: flex; flex-direction: column; overflow: hidden; }
@@ -21,12 +21,23 @@
 .live-text-panel > .live-day-preview { flex-shrink: 0; }
 .live-text-options { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .live-text-options [role="option"] { padding: var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-secondary); }
-.live-text-options [role="option"]:hover, .live-text-options [aria-selected="true"] { background: var(--color-surface-muted); outline: 1px solid var(--color-border-strong); }
+.live-text-options [role="option"] { background: var(--color-capture-idle); outline: 1px solid var(--color-capture-border-idle); }
+.live-text-options [role="option"]:hover, .live-text-options [aria-selected="true"] { background: var(--color-capture-active); outline-color: var(--color-border-strong); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .live-text-options [role="option"] { -webkit-backdrop-filter: blur(18px) saturate(1.15); backdrop-filter: blur(18px) saturate(1.15); }
+}
 .live-text-options small { display: block; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
 .live-text-preview { padding: var(--space-1); font-size: var(--font-size-secondary); overflow-wrap: anywhere; }
 .live-day-preview { position: relative; display: grid; gap: var(--space-1); width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-capture-active); color: var(--color-text); font: inherit; font-size: var(--font-size-caption); text-align: start; cursor: pointer; }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .live-day-preview { -webkit-backdrop-filter: blur(var(--blur-capture-idle)) saturate(1.2); backdrop-filter: blur(var(--blur-capture-idle)) saturate(1.2); }
+  .live-day-preview { -webkit-backdrop-filter: blur(18px) saturate(1.15); backdrop-filter: blur(18px) saturate(1.15); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .live-text-panel,
+  .live-text-options [role="option"],
+  .live-day-preview { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .live-text-panel, .live-day-preview,
+  .live-text-options [role="option"], .live-text-options [role="option"]:hover, .live-text-options [aria-selected="true"] { background: var(--color-surface-elevated); }
 }
 .item-editor-dialog .live-text-input > textarea { height: auto; min-height: 0; max-height: none; padding-block: var(--space-0); resize: none; overflow-y: auto; }
 .live-day-preview:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
