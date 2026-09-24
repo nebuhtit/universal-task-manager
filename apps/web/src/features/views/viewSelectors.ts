@@ -146,6 +146,7 @@ export function evaluateView(workspace: WorkspaceDocument, view: SavedView, now 
   const metrics = view.statistics?.showTime === false ? null : calculateViewTimeMetrics(workspace, { ...view, statistics: { ...view.statistics, showTime: true, reservedItemIds: view.statistics?.reservedItemIds ?? [], includeHiddenCompleted: false } }, counted, now);
   const results: ViewResult[] = [...visibleItems.map((item) => ({ kind: 'item' as const, id: item.id, item })), ...projects];
   const manual = manualOrderFor(view);
+  const manualPosition = new Map(manual.map((id, position) => [id, position]));
   const rules = projects.length ? parseSortSource(view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction} nulls ${sort.nulls ?? 'last'}`).join('\n')) : [];
   const index = getWorkspaceIndex(workspace);
   const sortValue = (entry: ViewResult, expression: string): unknown => {
@@ -172,7 +173,7 @@ export function evaluateView(workspace: WorkspaceDocument, view: SavedView, now 
   };
   const valuesById = new Map(results.map((entry) => [entry.id, new Map(rules.map((rule) => [rule.expression, sortValue(entry, rule.expression)]))]));
   results.sort((a, b) => {
-    const ai = manual.indexOf(a.id); const bi = manual.indexOf(b.id);
+    const ai = manualPosition.get(a.id) ?? -1; const bi = manualPosition.get(b.id) ?? -1;
     if (ai >= 0 || bi >= 0) return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi);
     if (!projects.length) return 0;
     for (const rule of rules) {

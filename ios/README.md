@@ -6,7 +6,7 @@ does not depend on GitHub Pages or an internet connection.
 
 ## Requirements
 
-- Xcode 16 or newer with an iOS 17 SDK
+- Xcode 27 or newer (Xcode 27.2 beta is compatible) with an iOS 27 SDK; the app deployment target remains iOS 17
 - Node.js and pnpm dependencies installed at the repository root
 - an Apple Development team selected in Xcode for a physical device
 
@@ -15,7 +15,8 @@ does not depend on GitHub Pages or an internet connection.
 1. Install Xcode from the Mac App Store and open `UniversalTaskManager.xcodeproj`
    in this folder (double-click it in Finder or use **File → Open** in Xcode).
 2. Select the blue project, then the app target. In **Signing & Capabilities**,
-   enable automatic signing and choose your Team.
+   enable automatic signing and choose **Personal Team** (free Apple Account) to
+   install on your own iPhone. No paid membership is needed for local testing.
 3. Simulator: choose an installed iPhone in the top device menu and press
    **Run** (`⌘R`). Allow notifications inside the app.
 4. iPhone: connect and trust the device, enable Developer Mode if iOS asks,
@@ -23,7 +24,8 @@ does not depend on GitHub Pages or an internet connection.
    taken, replace it with a unique Bundle Identifier.
 
 A free Personal Team can install a test build on your own iPhone, but its
-signing is temporary. Normal long-lived distribution requires the Apple
+provisioning expires after 7 days; rebuild and reinstall from Xcode when asked.
+App Store, TestFlight, and long-lived distribution require the paid Apple
 Developer Program.
 
 The Xcode build phase runs `pnpm ios:prepare`, places the production web bundle
