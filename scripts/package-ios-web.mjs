@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const source = resolve(repositoryRoot, 'apps/web/dist');
+const source = resolve(repositoryRoot, 'apps/web/dist-native');
 const destination = resolve(repositoryRoot, 'ios/UniversalTaskManager/Generated/WebApp');
 
 await rm(destination, { recursive: true, force: true });

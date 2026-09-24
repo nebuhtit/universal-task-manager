@@ -13,6 +13,7 @@ const hasLocalChanges = () => {
 };
 const localCommit = readLocalCommit();
 const isObsidianBuild = process.env.VITE_OBSIDIAN === 'true';
+const isNativeBuild = process.env.VITE_NATIVE_IOS === 'true';
 
 const liveBuildInfo: Plugin = {
   name: 'utm-live-build-info',
@@ -33,6 +34,8 @@ const base = process.env.VITE_GITHUB_PAGES === 'true'
 
 export default defineConfig({
   base,
+  // Native packaging must not overwrite the website's service worker output.
+  build: { outDir: isNativeBuild ? 'dist-native' : 'dist' },
   // The separate lab build must not trigger full reloads of the main app.
   server: { watch: { ignored: ['**/quick-entry-lab/dist/**'] } },
   define: {
@@ -53,7 +56,7 @@ export default defineConfig({
     liveBuildInfo,
     react(),
     VitePWA({
-      disable: isObsidianBuild,
+      disable: isObsidianBuild || isNativeBuild,
       registerType: 'autoUpdate',
       strategies: 'injectManifest',
       srcDir: 'src',
