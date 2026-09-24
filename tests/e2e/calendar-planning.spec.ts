@@ -99,8 +99,10 @@ test('existing due swipe and keyboard pin shortcut coexist', async ({ page }) =>
   await setup(page); await swipe(page, 'task', false);
   const due = page.getByRole('dialog', { name: 'Quick Due' }); await expect(due).toBeVisible(); await due.getByRole('button', { name: 'Cancel', exact: true }).click();
   const item = page.locator('[data-utm-item-id="event"] button').last(); await item.focus(); await item.press('Alt+p');
-  const pin = page.getByRole('dialog', { name: 'Calendar pin' }); await expect(pin).toBeVisible(); await pin.getByRole('button', { name: 'Today', exact: true }).click();
-  await expect(pin.getByRole('status')).toContainText('already on this day'); await pin.getByRole('button', { name: 'Close', exact: true }).click();
+  const pin = page.getByRole('dialog', { name: 'Calendar pin' }); await expect(pin).toBeVisible();
+  await expect(pin.getByRole('button', { name: 'Today', exact: true })).toHaveCount(0);
+  await expect(pin.getByRole('button', { name: 'Tomorrow', exact: true })).toBeVisible();
+  await pin.getByRole('button', { name: 'Close', exact: true }).click();
 });
 
 test('same-time reference expires without touching the source; vertical scroll does not pin', async ({ page }) => {
@@ -150,4 +152,35 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2); await page.mouse.down();
   await page.mouse.move(anchorBox!.x + anchorBox!.width / 2, anchorBox!.y + 4, { steps: 8 }); await page.mouse.up();
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['task', 'event']);
+});
+
+test('List moves a fixed event without changing its Timeline interval', async ({ page }) => {
+  const { read } = await setup(page), before = (await read()).items;
+  const eventHandle = page.getByRole('button', { name: 'Reorder B event', exact: true });
+  await eventHandle.press('ArrowUp');
+  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Reorder B event', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('timeline-event').filter({ hasText: 'B event' })).toBeVisible();
+  expect((await read()).items).toEqual(before);
+});
+
+test('tomorrow item offers only Today and editor completion closes with Undo', async ({ page }) => {
+  const { read } = await setup(page);
+  await page.locator('.calendar-day-choice').filter({ hasText: 'Sep 25' }).click();
+  await swipe(page, 'blocker');
+  const pin = page.getByRole('dialog', { name: 'Calendar pin' });
+  await expect(pin.getByRole('button', { name: 'Tomorrow', exact: true })).toHaveCount(0);
+  await expect(pin.getByRole('button', { name: 'Today', exact: true })).toBeVisible();
+  await pin.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.calendar-day-choice').filter({ hasText: 'Sep 24' }).click();
+  await page.locator('[data-view-item-id="task"] .item-title').click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await editor.getByLabel('Title', { exact: true }).fill('Renamed task');
+  await editor.getByRole('button', { name: 'Complete item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => (await read()).items.task!.state).toBe('done');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(async () => (await read()).items.task!.state).toBe('open');
+  expect((await read()).items.task!.title).toBe('Renamed task');
 });

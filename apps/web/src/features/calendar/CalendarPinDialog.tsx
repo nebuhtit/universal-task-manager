@@ -17,6 +17,9 @@ export function CalendarPinDialog({ workspace, target, onClose, commit, onFlush 
   const [day, setDay] = useState<string | null>(null), [message, setMessage] = useState(''), [saving, setSaving] = useState(false);
   const item = resolveCalendarSource(workspace, target);
   const pin = workspace.calendarPreferences.planning?.pins?.[referenceKey(target)];
+  const tomorrow = nextDay(today);
+  const presentOn = (key: string) => Boolean(item && (pin?.day === key || naturallyOnDay(item, prepareTimelineData(workspace, key, now), key)));
+  const onToday = presentOn(today), onTomorrow = presentOn(tomorrow);
   const save = async (action: (draft: WorkspaceDocument) => void) => {
     setSaving(true); setMessage('');
     try { if (commit('Calendar reference', action) === false) throw new Error(ru ? 'Не удалось сохранить закрепление.' : 'Could not save the reference.'); await onFlush(); onClose(); }
@@ -40,8 +43,9 @@ export function CalendarPinDialog({ workspace, target, onClose, commit, onFlush 
   };
   return <ResponsiveDialog open onOpenChange={open => { if (!open && !saving) onClose(); }} title={ru ? 'Временно в календарь' : 'Temporary calendar reference'} ariaLabel="Calendar pin" footer={<Button disabled={saving} onClick={onClose}>{ru ? 'Закрыть' : 'Close'}</Button>}>
     <p>{item?.title}</p><p className="hint">{ru ? 'Только ярлык-ссылка до конца выбранного дня. Исходные даты и Google-событие не меняются.' : 'A reference until the selected day ends. Original dates and the Google event stay unchanged.'}</p>
-    <div className="calendar-pin-actions"><Button disabled={saving || !item} onClick={() => choose(today)}>{ru ? 'На сегодня' : 'Today'}</Button><Button disabled={saving || !item} onClick={() => choose(nextDay(today))}>{ru ? 'На завтра' : 'Tomorrow'}</Button>
+    <div className="calendar-pin-actions">{!onToday && <Button disabled={saving || !item} onClick={() => choose(today)}>{ru ? 'На сегодня' : 'Today'}</Button>}{!onTomorrow && <Button disabled={saving || !item} onClick={() => choose(tomorrow)}>{ru ? 'На завтра' : 'Tomorrow'}</Button>}
       <Button disabled={saving || !pin} onClick={() => void save(draft => removeCalendarPin(draft, target))}>{ru ? 'Снять закрепление' : 'Unpin'}</Button></div>
+    {onToday && onTomorrow && <p className="hint">{ru ? 'Item уже присутствует сегодня и завтра.' : 'This item is already present today and tomorrow.'}</p>}
     {day && item?.schedule?.startAt && <div className="calendar-pin-actions"><span>{day}</span><Button disabled={saving} onClick={() => choose(day, 'same_time')}>{ru ? 'На то же время' : 'Same time'}</Button><Button disabled={saving} onClick={() => choose(day, 'queue')}>{ru ? 'В очередь' : 'Queue'}</Button></div>}
     {message && <p role="status">{message}</p>}
   </ResponsiveDialog>;

@@ -9,6 +9,7 @@ import { calendarDayView } from './calendarEvaluation';
 import { sortViewItems } from '../views/viewSelectors';
 
 export const planningEnabled = (workspace: WorkspaceDocument) => workspace.calendarPreferences.planning?.enabled !== false;
+export const hasFixedEventInterval = (item: UniversalItem) => Boolean(item.schedule?.startAt && item.schedule?.endAt);
 export const sourceReference = (item: UniversalItem): CalendarSourceReference => ({ itemId: item.id, ...(item.occurrence ? { seriesId: item.occurrence.seriesId, recurrenceId: item.occurrence.recurrenceId } : {}) });
 export const referenceKey = (ref: CalendarSourceReference) => ref.seriesId && ref.recurrenceId ? `${ref.seriesId}@${ref.recurrenceId}` : ref.itemId;
 
@@ -99,7 +100,7 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
   const anchors: TimelineEvent[] = [];
   const visibleAnchors: TimelineEvent[] = [];
   for (const event of prepared.events) {
-    if (!event.travel && !event.item.schedule?.startAt && !event.item.schedule?.allDay && event.item.state === 'open') tasks.set(event.item.id, event.item);
+    if (!event.travel && !hasFixedEventInterval(event.item) && !event.item.schedule?.allDay && event.item.state === 'open') tasks.set(event.item.id, event.item);
     else { anchors.push(event); if (prepared.visible.includes(event)) visibleAnchors.push(event); }
   }
   for (const item of [...prepared.undated, ...prepared.dateOnlyTasks, ...(prepared.showOverdue ? prepared.overdue : [])]) {
@@ -164,7 +165,8 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
     movable: new Set(tasks.keys()), unplaced: warnings.map(warning => warning.item) };
 }
 
-export function validateCalendarMove(plan: ReturnType<typeof buildCalendarPlan>, movedId: string, now: Date, zone: string): string | null {
+export function validateCalendarMove(plan: ReturnType<typeof buildCalendarPlan>, movedId: string, now: Date, zone: string, allowFixed = false): string | null {
+  if (allowFixed && plan.fixed.has(movedId)) return null; // List order never moves this interval.
   if (!plan.movable.has(movedId)) return 'fixed';
   const item = plan.items.find(value => value.id === movedId)!;
   const due = dueBoundary(item, zone);
@@ -193,5 +195,5 @@ export const planningReason = (reason: string, ru: boolean) => ({
   deadline: ru ? 'Размещение не помещается до Due.' : 'Placement does not fit before Due.',
   capacity: ru ? 'Нет свободного непрерывного окна. Item остаётся вне расписания.' : 'No continuous free slot. The item remains outside the schedule.',
   duration: ru ? 'Укажите Duration в исходном item.' : 'Set Duration on the source item.',
-  fixed: ru ? 'Событие с Event opens — фиксированная опора.' : 'An event with Event opens is a fixed anchor.',
+  fixed: ru ? 'Событие с Event opens и Event ends фиксировано на Timeline.' : 'An event with Event opens and Event ends is fixed on Timeline.',
 }[reason] ?? reason);

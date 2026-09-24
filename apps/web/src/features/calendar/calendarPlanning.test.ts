@@ -19,6 +19,18 @@ function fixture() {
 const pin = (item: UniversalItem, day: string, mode: 'queue' | 'same_time' = 'queue') => ({ ...sourceReference(item), day, mode });
 const ms = (hour: number) => Date.parse(at(hour));
 describe('calendar references and manual placement', () => {
+  it('moves start-only items but leaves complete event intervals fixed on Timeline', () => {
+    const { w, task, event } = fixture(); task.schedule!.startAt = at(9);
+    const before = JSON.stringify(w.items);
+    const plan = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [], ['event', 'task']);
+    expect(plan.movable.has(task.id)).toBe(true);
+    expect(plan.movable.has(event.id)).toBe(false);
+    expect(plan.fixed.get(event.id)?.start).toBe(ms(10));
+    expect(plan.proposals.find(value => value.item.id === task.id)?.start).toBe(ms(11) + 30 * 60_000);
+    expect(validateCalendarMove(plan, event.id, now, 'UTC')).toBe('fixed');
+    expect(validateCalendarMove(plan, event.id, now, 'UTC', true)).toBeNull();
+    expect(JSON.stringify(w.items)).toBe(before);
+  });
   it('reuses other days across minute ticks, invalidates today and midnight', () => {
     const { w } = fixture(), cache = createCalendarPlanCache(), prepared = prepareTimelineData(w, tomorrow, now), reserved: UniversalItem[] = [];
     const first = cache(w, tomorrow, prepared, now, reserved);

@@ -132,14 +132,14 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const reorder = (ids: string[], movedId: string) => {
     if (!plan || !preparedDays) return;
     const next = buildCalendarPlan(workspace, selectedDate, preparedDays[selectedDate]!, capacityNow, originalSelected.reservedItems, ids);
-    const reason = validateCalendarMove(next, movedId, capacityNow, preferences.timezone);
+    const reason = validateCalendarMove(next, movedId, capacityNow, preferences.timezone, preferences.timeline?.mode !== 'timeline');
     const newlyUnplaced = next.warnings.find(warning => !plan.warnings.some(previous => previous.item.id === warning.item.id));
     if (reason || newlyUnplaced) { const message = planningReason(reason ?? newlyUnplaced!.reason, preferences.language === 'ru'); setPlanningMessage(message); onPlanningNotice?.(message); return; }
     setPlanningMessage('');
     pendingOrderFocus.current = movedId;
     commit('Calendar day order', draft => { draft.calendarPreferences.planning ??= {}; draft.calendarPreferences.planning.orders ??= {}; draft.calendarPreferences.planning.orders[selectedDate] = [...ids]; });
   };
-  const orderProps = { onReorder: plan ? reorder : undefined, reorderIds: plan?.ids, movableIds: plan?.movable, referenceIds: plan ? new Set(plan.pins.keys()) : undefined };
+  const orderProps = { onReorder: plan ? reorder : undefined, reorderIds: plan?.ids, movableIds: plan ? new Set([...plan.movable, ...plan.fixed.keys()]) : undefined, referenceIds: plan ? new Set(plan.pins.keys()) : undefined };
   const listView = { ...selected.view, fields: calendarListFields(preferences.dayView) };
   const overdueIds = new Set(selected.evaluation.items.filter(item => showOverdueToday(item, selectedDate, now, preferences.timezone, item.occurrence ? workspace.items[item.occurrence.seriesId] : undefined)).map(item => item.id));
   const allDayIds = new Set(selected.evaluation.items.filter(item => item.schedule?.allDay && !overdueIds.has(item.id)).map(item => item.id));

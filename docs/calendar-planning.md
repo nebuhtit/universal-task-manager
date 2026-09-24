@@ -15,7 +15,7 @@ Stored orders and references are preserved while disabled.
   are ignored, not automatically deleted from the document.
 
 The pure `buildCalendarPlan` service is shared by Calendar List and Timeline.
-Fixed events and same-time references are anchors; their occupied intervals,
+Events with both Event opens and Event ends and same-time references are anchors; their occupied intervals,
 travel, sleep and hidden reservations constrain full-duration free-gap placement.
 Future deadlines constrain the end; date-only deadlines mean local day end.
 Past deadlines allow rescheduling. A rejected move leaves the saved order intact.
@@ -23,8 +23,11 @@ Unplaced items remain visible with a reason and their original duration.
 
 Left-to-right swipe (or Alt+P while focused within a card) opens calendar pinning.
 Right-to-left retains Quick Due. Vertical scrolling cancels a pending swipe.
-Native drag handles support pointer capture and Arrow Up/Down; fixed anchors
-cannot be dragged. Reset asks twice, names the selected date, and removes only
+Native drag handles support pointer capture and Arrow Up/Down. In List, anchors
+can be reordered to place the surrounding queue before/after them, without moving
+their Timeline intervals. Timeline handles are limited to flexible items (including
+start-only items). Already-present Today/Tomorrow destinations are hidden in the
+pin dialog. Reset asks twice, names the selected date, and removes only
 that day's order. Calendar categories retain their membership.
 
 Verification: `calendarPlanning.test.ts`, Calendar unit suite, and

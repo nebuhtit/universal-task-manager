@@ -1296,7 +1296,30 @@ export default function App() {
       if (result.changed) void flushPersistence().then(() => setToast(result.rescheduled ? 'Completion time saved. Next cycle updated.' : 'Completion time saved.')).catch(() => setToast('Completion time is not saved yet. Retry local saving.'));
       return { series: result.series, rescheduled: result.rescheduled };
     }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', currentWorkspaceNow()); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={async (item, options) => {
+      const beforeCompletion = options?.completedFromEditor && workspace.items[item.id] ? clean(workspace.items[item.id]!) : undefined;
+      const seriesId = item.occurrence?.seriesId;
+      const beforeSeries = beforeCompletion && seriesId && workspace.items[seriesId] ? clean(workspace.items[seriesId]!) : undefined;
       const result = await saveService.saveItem(item, options, currentWorkspaceNow());
+      if (beforeCompletion && item.state === 'done') {
+        const afterSeriesSchedule = seriesId ? clean(getCurrentWorkspace()?.items[seriesId]?.schedule ?? null) : null;
+        queueUndo('Item completed', () => {
+          commit('Undo editor completion', draft => {
+            const target = draft.items[item.id]; if (!target || target.deletedAt || target.state !== 'done') return;
+            target.state = beforeCompletion.state;
+            for (const key of ['closure', 'completionEntries', 'cycleHistory', 'habit', 'progress'] as const) {
+              if (beforeCompletion[key] === undefined) delete target[key];
+              else Object.assign(target, { [key]: clean(beforeCompletion[key]) });
+            }
+            target.revision += 1; target.updatedAt = currentWorkspaceNow().toISOString();
+            const series = seriesId ? draft.items[seriesId] : undefined;
+            if (series && beforeSeries && JSON.stringify(series.schedule ?? null) === JSON.stringify(afterSeriesSchedule)) {
+              if (beforeSeries.schedule) series.schedule = clean(beforeSeries.schedule);
+              series.revision += 1; series.updatedAt = target.updatedAt;
+            }
+          });
+          void flushPersistence();
+        }, undefined, item.id);
+      }
       recordDiagnostic({ kind: 'result', message: 'Item saved', operation: 'Save item', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, pendingGoogle: result.pendingGoogle }) });
       setEditorIsNew(false); setEditor(null);
       if (result.pendingGoogle) setToast(workspace.calendarPreferences.language === 'ru' ? 'Сохранено в UTM, ожидает синхронизации. Подробности — в редакторе.' : 'Saved in UTM, waiting for sync. Details are available in the editor.');
