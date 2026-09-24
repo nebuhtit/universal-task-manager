@@ -39,6 +39,13 @@ jobs:
         run: pnpm test:google
       - name: Calendar planning, sticky navigation and editor (Chromium and WebKit)
         run: pnpm exec playwright test tests/e2e/calendar-planning.spec.ts tests/e2e/timeline.spec.ts --workers=2
+      - name: Preserve synthetic browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-diagnostics
+          path: test-results/
+          retention-days: 3
       - run: pnpm build
         env:
           VITE_GITHUB_PAGES: 'true'

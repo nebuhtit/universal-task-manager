@@ -83,7 +83,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   useLayoutEffect(() => {
     const title = titleRef.current, root = calendarRoot.current, start = navigatorStart.current;
     if (!title || !root || !start) return;
-    let frame = 0, pointerActive = false;
+    let frame = 0, pointerActive = false, releaseTimer = 0;
     const update = () => {
       frame = 0;
       root.style.setProperty('--calendar-title-height', `${title.getBoundingClientRect().height}px`);
@@ -93,16 +93,20 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       if (!pointerActive) setCompactNavigator(start.getBoundingClientRect().top < top);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
-    const pointerStart = () => { pointerActive = true; };
-    const pointerEnd = () => { pointerActive = false; schedule(); };
+    const pointerStart = () => { window.clearTimeout(releaseTimer); pointerActive = true; };
+    const pointerEnd = () => { window.clearTimeout(releaseTimer); pointerActive = false; schedule(); };
+    // WebKit can paint between pointerup and its synthesized click. Keep the
+    // target still until click dispatch; a cancelled drag has no click to await.
+    const pointerUp = () => { releaseTimer = window.setTimeout(pointerEnd, 350); };
     const observer = new ResizeObserver(schedule); observer.observe(title);
     window.addEventListener('scroll', schedule, { passive: true, capture: true });
     window.addEventListener('resize', schedule);
     window.addEventListener('pointerdown', pointerStart, true);
-    window.addEventListener('pointerup', pointerEnd, true);
+    window.addEventListener('pointerup', pointerUp, true);
+    window.addEventListener('click', pointerEnd, true);
     window.addEventListener('pointercancel', pointerEnd, true);
     update();
-    return () => { observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); window.removeEventListener('pointerdown', pointerStart, true); window.removeEventListener('pointerup', pointerEnd, true); window.removeEventListener('pointercancel', pointerEnd, true); };
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); window.clearTimeout(releaseTimer); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); window.removeEventListener('pointerdown', pointerStart, true); window.removeEventListener('pointerup', pointerUp, true); window.removeEventListener('click', pointerEnd, true); window.removeEventListener('pointercancel', pointerEnd, true); };
   }, []);
   const [editorOpen, setEditorOpen] = useState(false);
   const [planningMessage, setPlanningMessage] = useState('');

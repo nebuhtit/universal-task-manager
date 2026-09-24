@@ -75,6 +75,24 @@ test('editor opens the full quick line with bounded scrolling and a non-overlapp
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
 
+test('sticky navigation waits through pointerup until click dispatch', async ({ page }) => {
+  await setup(page);
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
+  const nav = page.locator('.calendar-navigator');
+  await expect(nav).not.toHaveClass(/is-compact/);
+  await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent('pointerdown'));
+    window.scrollTo(0, 650);
+    window.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new PointerEvent('pointerup'));
+  });
+  await page.clock.runFor(50);
+  await expect(nav).not.toHaveClass(/is-compact/);
+  await page.evaluate(() => window.dispatchEvent(new MouseEvent('click')));
+  await page.clock.runFor(50);
+  await expect(nav).toHaveClass(/is-compact/);
+});
+
 test('week stays below the header while month and controls return at the top', async ({ page }) => {
   await setup(page);
   const nav = page.locator('.calendar-navigator');
@@ -238,7 +256,9 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(tentative).toHaveCount(0);
   const showUndated = page.locator('.timeline-toolbar').getByRole('button', { name: /^No date/ });
   await expect(showUndated).toHaveAttribute('aria-pressed', 'false');
+  await showUndated.evaluate(element => element.scrollIntoView({ block: 'center' }));
   await showUndated.click();
+  await expect(showUndated).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
   const saved = await primary(page);
   await expect(tentative).toHaveCount(1);
