@@ -3,6 +3,8 @@ import UIKit
 import WebKit
 import AuthenticationServices
 import CryptoKit
+import LocalAuthentication
+import Security
 
 struct WebAppView: UIViewRepresentable {
     let startURL: URL
@@ -16,6 +18,7 @@ struct WebAppView: UIViewRepresentable {
         configuration.userContentController.add(context.coordinator.backupBridge, name: "utmNativeBackup")
         configuration.userContentController.add(context.coordinator.reminderBridge, name: "utmNativeReminders")
         configuration.userContentController.add(context.coordinator.googleBridge, name: "utmNativeGoogleAuth")
+        configuration.userContentController.addScriptMessageHandler(context.coordinator.biometricBridge, contentWorld: .page, name: "utmNativeBiometrics")
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.allowsInlineMediaPlayback = true
@@ -40,6 +43,7 @@ struct WebAppView: UIViewRepresentable {
         let backupBridge = NativeBackupBridge()
         let reminderBridge = NativeReminderBridge()
         let googleBridge = NativeGoogleAuthBridge()
+        let biometricBridge = NativeBiometricBridge()
         private var downloads: [ObjectIdentifier: URL] = [:]
 
         private func presenter(_ webView: WKWebView) -> UIViewController? {
@@ -141,6 +145,81 @@ struct WebAppView: UIViewRepresentable {
                 UIApplication.shared.open(url)
             }
             return nil
+        }
+    }
+}
+
+/// A per-enrollment wrapping key, never a password. Keychain enforces biometrics
+/// on each read; no synchronizable item, passcode fallback or transferable key.
+final class NativeBiometricBridge: NSObject, WKScriptMessageHandlerWithReply {
+    private let service = "dev.universal-task-manager.biometric-unlock.v1"
+    private var busy = false
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+        let origin = message.frameInfo.securityOrigin
+        guard message.frameInfo.isMainFrame, origin.protocol == "http", origin.host == "127.0.0.1", origin.port == 49381,
+              let body = message.body as? [String: Any], let kind = body["kind"] as? String else {
+            replyHandler(nil, "Untrusted Face ID request"); return
+        }
+        guard !busy else { replyHandler(nil, "Face ID is already active"); return }
+        let context = LAContext()
+        context.localizedFallbackTitle = ""
+        if kind == "status" {
+            replyHandler(["available": context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)], nil)
+            return
+        }
+        let id = body["id"] as? String
+        guard (kind == "remove" && id == nil) || (id.flatMap { UUID(uuidString: $0) } != nil) else {
+            replyHandler(nil, "Invalid Face ID key identifier"); return
+        }
+        guard ["create", "read", "remove"].contains(kind) else { replyHandler(nil, "Unknown Face ID operation"); return }
+        busy = true
+        let finish: (Any?, String?) -> Void = { value, error in
+            DispatchQueue.main.async { self.busy = false; replyHandler(value, error) }
+        }
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
+        if let id { query[kSecAttrAccount as String] = id }
+        if kind == "remove" {
+            let status = SecItemDelete(query as CFDictionary)
+            finish(status == errSecSuccess || status == errSecItemNotFound ? [:] : nil,
+                   status == errSecSuccess || status == errSecItemNotFound ? nil : "Cannot remove Face ID key")
+            return
+        }
+        if kind == "read" {
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+            context.localizedReason = "Unlock your Universal workspace"
+            query[kSecUseAuthenticationContext as String] = context
+            let readQuery = query
+            DispatchQueue.global(qos: .userInitiated).async {
+                var value: CFTypeRef?
+                let status = SecItemCopyMatching(readQuery as CFDictionary, &value)
+                guard status == errSecSuccess, let key = value as? Data, key.count == 32 else {
+                    finish(nil, "Face ID cancelled or key unavailable. Use your workspace password."); return
+                }
+                finish(["key": key.base64EncodedString()], nil)
+            }
+            return
+        }
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else {
+            finish(nil, "Set up Face ID or Touch ID in device settings first"); return
+        }
+        let createQuery = query
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Enable quick unlock for this workspace") { success, _ in
+            guard success else { finish(nil, "Face ID setup cancelled"); return }
+            guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .biometryCurrentSet, nil) else {
+                finish(nil, "Cannot protect Face ID key"); return
+            }
+            var key = Data(count: 32)
+            let status = key.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
+            guard status == errSecSuccess else { finish(nil, "Cannot create Face ID key"); return }
+            var attributes = createQuery
+            attributes[kSecAttrAccessControl as String] = access
+            attributes[kSecValueData as String] = key
+            guard SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess else {
+                finish(nil, "Cannot save Face ID key"); return
+            }
+            finish(["key": key.base64EncodedString()], nil)
         }
     }
 }

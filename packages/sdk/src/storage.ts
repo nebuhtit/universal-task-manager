@@ -1,4 +1,5 @@
 import * as Automerge from '@automerge/automerge';
+import { hasNativeBiometrics, nativeBiometrics } from './nativeBiometrics.js';
 import { entryProgress } from './entryDiagnostics.js';
 import { createWorkspace, migrateWorkspace, validateWorkspace, workspaceForExport, WORKSPACE_FORMAT_GUIDE } from '@utm/core';
 import type { WorkspaceDocument, WorkspaceLanguage } from '@utm/core';
@@ -115,7 +116,7 @@ async function ensureExportSafeBlock(document: Automerge.Doc<WorkspaceDocument>,
 export interface LocalWorkspaceSnapshotInfo { id: string; createdAt: string; schemaVersion: string; reason: string }
 interface LocalWorkspaceSnapshot extends LocalWorkspaceSnapshotInfo { metadata: LocalMetadata; workspace: LocalBlock }
 interface VerifiedWorkspaceMirror { savedAt: string; metadata: EncryptedLocalMetadata; workspace: EncryptedLocalBlock }
-interface FaceIdUnlockRecord { version: 1; credentialId: string; salt: string; wrappedDataKey: { nonce: string; ciphertext: string }; createdAt: string }
+interface FaceIdUnlockRecord { version: 1; native?: true; credentialId: string; salt: string; wrappedDataKey: { nonce: string; ciphertext: string }; createdAt: string }
 interface PasswordBypassRecord { version: 1; dataKey: string; enabledAt: string }
 export interface LocalProtectionStatus { verifiedMirrors: number; latestVerifiedAt?: string }
 export type PasswordProtectionStatus = 'required' | 'disabled' | 'plaintext';
@@ -227,6 +228,11 @@ async function faceIdKey(credentialId: ArrayBuffer, salt: Uint8Array): Promise<U
 }
 
 export async function faceIdStatus(): Promise<'available' | 'unsupported' | 'configured'> {
+  if (hasNativeBiometrics()) {
+    const record = await getRecord<FaceIdUnlockRecord>(FACE_ID_KEY);
+    if (record?.native) return 'configured';
+    return (await nativeBiometrics('status')).available ? 'available' : 'unsupported';
+  }
   if (!webAuthnAvailable()) return 'unsupported';
   if (await getRecord<FaceIdUnlockRecord>(FACE_ID_KEY)) return 'configured';
   try { return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable() ? 'available' : 'unsupported'; }
@@ -235,6 +241,23 @@ export async function faceIdStatus(): Promise<'available' | 'unsupported' | 'con
 
 /** Enables Face ID/Touch ID only as a local convenience unlock. Password recovery always remains available. */
 export async function enableFaceIdUnlock(dataKey: Uint8Array): Promise<void> {
+  if (hasNativeBiometrics()) {
+    const previous = await getRecord<FaceIdUnlockRecord>(FACE_ID_KEY);
+    const id = crypto.randomUUID();
+    let key: Uint8Array | undefined;
+    try {
+      const result = await nativeBiometrics('create', id);
+      key = Uint8Array.from(atob(result.key ?? ''), character => character.charCodeAt(0));
+      if (key.length !== 32) throw new Error('Invalid Face ID key');
+      const wrappedDataKey = await encryptWithKey(dataKey, key, FACE_ID_AAD);
+      await putRecords([[FACE_ID_KEY, { version: 1, native: true, credentialId: id, salt: '', wrappedDataKey, createdAt: new Date().toISOString() } satisfies FaceIdUnlockRecord]]);
+    } catch (reason) {
+      await nativeBiometrics('remove', id).catch(() => undefined);
+      throw reason;
+    } finally { key?.fill(0); }
+    if (previous?.native) await nativeBiometrics('remove', previous.credentialId).catch(() => undefined);
+    return;
+  }
   if (!webAuthnAvailable()) throw new Error('Face ID is not available in this browser. Use your password instead.');
   if (!await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(() => false)) throw new Error('This device has no available Face ID, Touch ID, or secure screen lock. Use your password instead.');
   const salt = randomBytes(32);
@@ -253,9 +276,13 @@ export async function enableFaceIdUnlock(dataKey: Uint8Array): Promise<void> {
   } finally { key.fill(0); }
 }
 
-export async function disableFaceIdUnlock(): Promise<void> { await transactRecords([], [FACE_ID_KEY]); }
+export async function disableFaceIdUnlock(): Promise<void> {
+  if (hasNativeBiometrics()) await nativeBiometrics('remove');
+  await transactRecords([], [FACE_ID_KEY]);
+}
 
 export async function unlockLocalWorkspaceWithFaceId(): Promise<UnlockedWorkspace> {
+  await ready();
   entryProgress({ stage: 'decrypt', phase: 'started' });
   const record = await getRecord<FaceIdUnlockRecord>(FACE_ID_KEY);
   const metadata = await getRecord<LocalMetadata>(META_KEY);
@@ -264,7 +291,10 @@ export async function unlockLocalWorkspaceWithFaceId(): Promise<UnlockedWorkspac
   let biometricKey: Uint8Array | undefined;
   let dataKey: Uint8Array | undefined;
   try {
-    biometricKey = await faceIdKey(arrayBuffer(fromBase64(record.credentialId)), fromBase64(record.salt));
+    biometricKey = record.native
+      ? Uint8Array.from(atob((await nativeBiometrics('read', record.credentialId)).key ?? ''), character => character.charCodeAt(0))
+      : await faceIdKey(arrayBuffer(fromBase64(record.credentialId)), fromBase64(record.salt));
+    if (biometricKey.length !== 32) throw new Error('Face ID key unavailable. Use your password instead.');
     dataKey = await decryptWithKey(record.wrappedDataKey, biometricKey, FACE_ID_AAD);
     const document = await loadEntryDocument(block, dataKey);
     await ensureExportSafeBlock(document, dataKey, block);
@@ -764,6 +794,7 @@ export async function enablePasswordRequirement(currentPassword: string): Promis
 }
 
 export async function clearLocalWorkspace(): Promise<void> {
+  if (hasNativeBiometrics()) await nativeBiometrics('remove');
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const request = db.transaction(STORE, 'readwrite').objectStore(STORE).clear();

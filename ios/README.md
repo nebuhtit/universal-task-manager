@@ -105,6 +105,24 @@ Real-account consent and Calendar sync still require device testing after setup.
 
 ## Recovery and Password AutoFill
 
+### Native biometric unlock (3.0.4)
+
+After unlocking an encrypted workspace, open Settings → Device unlock → Enable
+Face ID. iOS verifies Face ID / Touch ID and stores a random wrapping key in
+Keychain, protected by the current biometric enrollment and a device passcode.
+The workspace password is not saved. The key does not synchronize to iCloud or
+migrate to another device. Re-enrolling biometrics invalidates it: unlock with
+the workspace password, disable Face ID, then enable it again.
+
+On a subsequent launch the existing lock screen attempts biometric unlock once.
+Cancellation leaves password entry available. Disabling Face ID removes its
+Keychain keys without deleting the workspace. This works with Personal Team;
+it is separate from website Password AutoFill / Associated Domains.
+
+Device acceptance: enable, force-close/reopen, cancel and use password, then
+disable and verify the next launch requests the password. Browser mocks and
+an unsigned build cannot verify the actual biometric prompt.
+
 Native text exports (including diagnostics) use the system Files picker, keeping
 the application screen intact. Unavailable automatic iCloud backup is throttled:
 the same snapshot is not retried and changed snapshots wait at least five minutes

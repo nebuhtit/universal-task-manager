@@ -1,3 +1,5 @@
+import { nativeBackupFilename } from './backupFilename';
+
 type NativeMessage = { id: string; kind: string; [key: string]: unknown };
 type NativeStatus = { id: string; ok: boolean; error?: string };
 
@@ -46,7 +48,7 @@ export async function writeNativeICloudBackup(source: string, fileName: string, 
   setupListeners();
   const id = newId();
   const completion = new Promise<void>((resolve, reject) => pending.set(id, { resolve, reject }));
-  target.postMessage({ id, kind: 'backup.begin', fileName, destination, byteLength: new TextEncoder().encode(source).byteLength });
+  target.postMessage({ id, kind: 'backup.begin', fileName: nativeBackupFilename(fileName), destination, byteLength: new TextEncoder().encode(source).byteLength });
   for (let offset = 0, index = 0; offset < source.length; index += 1) {
     let end = Math.min(offset + chunkSize, source.length);
     // Native converts each chunk to UTF-8; never split a surrogate pair.
