@@ -20,6 +20,11 @@ travel, sleep and hidden reservations constrain full-duration free-gap placement
 Future deadlines constrain the end; date-only deadlines mean local day end.
 Past deadlines allow rescheduling. A rejected move leaves the saved order intact.
 Unplaced items remain visible with a reason and their original duration.
+Active-range outlines participate in the same ordering using only their daily
+duration share. Moving an anchor before a future Due cannot bypass the deadline
+of the tasks pushed below it. Lack of capacity alone does not reject an order:
+those tasks remain visible outside the schedule. Capacity is shown once in the
+sticky calendar heading, not repeated in bold above Timeline.
 
 Left-to-right swipe (or Alt+P while focused within a card) opens calendar pinning.
 Right-to-left retains Quick Due. Vertical scrolling cancels a pending swipe.

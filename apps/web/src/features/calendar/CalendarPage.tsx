@@ -17,7 +17,7 @@ import { CalendarTimeline } from './CalendarTimeline';
 import { calendarDayView, createCalendarEvaluator } from './calendarEvaluation';
 import { calendarVisibleCapacity, createCalendarCapacityCache } from './calendarCapacity';
 import { prepareTimelineData } from './timelineData';
-import { buildCalendarPlan, calendarPlanMetricItems, createCalendarPlanCache, planningEnabled, planningReason, validateCalendarMove } from './calendarPlanning';
+import { buildCalendarPlan, calendarPlanMetricItems, calendarReorderIssue, createCalendarPlanCache, planningEnabled, planningReason } from './calendarPlanning';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { calendarProjectionPadding } from './calendarProjectionCache';
 import { MoonPhase } from './MoonPhase';
@@ -132,9 +132,8 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const reorder = (ids: string[], movedId: string) => {
     if (!plan || !preparedDays) return;
     const next = buildCalendarPlan(workspace, selectedDate, preparedDays[selectedDate]!, capacityNow, originalSelected.reservedItems, ids);
-    const reason = validateCalendarMove(next, movedId, capacityNow, preferences.timezone, preferences.timeline?.mode !== 'timeline');
-    const newlyUnplaced = next.warnings.find(warning => !plan.warnings.some(previous => previous.item.id === warning.item.id));
-    if (reason || newlyUnplaced) { const message = planningReason(reason ?? newlyUnplaced!.reason, preferences.language === 'ru'); setPlanningMessage(message); onPlanningNotice?.(message); return; }
+    const issue = calendarReorderIssue(plan, next, movedId, capacityNow, preferences.timezone, preferences.timeline?.mode !== 'timeline');
+    if (issue) { const message = `${issue.item.title}: ${planningReason(issue.reason, preferences.language === 'ru')}`; setPlanningMessage(message); onPlanningNotice?.(message); return; }
     setPlanningMessage('');
     pendingOrderFocus.current = movedId;
     commit('Calendar day order', draft => { draft.calendarPreferences.planning ??= {}; draft.calendarPreferences.planning.orders ??= {}; draft.calendarPreferences.planning.orders[selectedDate] = [...ids]; });

@@ -206,7 +206,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(tentative).toHaveCount(1);
   await expect(tentative).toHaveCSS('border-top-style', 'dotted');
   await expect(tentative).toHaveAttribute('aria-label', 'Tentative · Tentative task · 13:00–15:00');
-  await expect(page.getByTestId('timeline-planning-summary')).toContainText('Free');
+  await expect(page.locator('.timeline-planning-summary strong')).toHaveCount(0);
   await tentative.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-light.png` });
   await tentative.focus();

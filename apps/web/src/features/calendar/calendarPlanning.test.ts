@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createItem, createOccurrence, createWorkspace, fromCanonicalJSON, toCanonicalJSON, validateWorkspace, type UniversalItem } from '@utm/core';
-import { buildCalendarPlan, activeCalendarPins, calendarPlanMetricItems, createCalendarPlanCache, dueBoundary, naturallyOnDay, planningEnabled, referenceKey, removeCalendarPin, resolveCalendarSource, sameTimeInterval, setCalendarPin, sourceReference, validateCalendarMove } from './calendarPlanning';
+import { buildCalendarPlan, activeCalendarPins, calendarPlanMetricItems, calendarReorderIssue, createCalendarPlanCache, dueBoundary, naturallyOnDay, planningEnabled, referenceKey, removeCalendarPin, resolveCalendarSource, sameTimeInterval, setCalendarPin, sourceReference, validateCalendarMove } from './calendarPlanning';
 import { prepareTimelineData } from './timelineData';
 import { calendarVisibleCapacity } from './calendarCapacity';
 import { evaluateCalendarRange } from './calendarEvaluation';
@@ -19,6 +19,35 @@ function fixture() {
 const pin = (item: UniversalItem, day: string, mode: 'queue' | 'same_time' = 'queue') => ({ ...sourceReference(item), day, mode });
 const ms = (hour: number) => Date.parse(at(hour));
 describe('calendar references and manual placement', () => {
+  it('places active-range daily shares after anchors and travel back in the saved order', () => {
+    const { w, task, event } = fixture();
+    task.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: '2026-09-25T18:00:00Z', estimatedDuration: 'PT1H' };
+    const source = JSON.stringify(w.items), prepared = prepareTimelineData(w, day, now);
+    const before = buildCalendarPlan(w, day, prepared, now);
+    const after = buildCalendarPlan(w, day, prepared, now, [], ['event', 'task']);
+    expect(after.activeRanges.has(task.id)).toBe(true);
+    expect(after.proposals[0]!.start).toBe(ms(11) + 30 * 60_000);
+    expect(after.proposals[0]!.end - after.proposals[0]!.start).toBe(20 * 60_000);
+    expect(calendarReorderIssue(before, after, event.id, now, 'UTC', true)).toBeNull();
+    expect(calendarPlanMetricItems(after, [task, event]).find(item => item.id === task.id)).toBe(task);
+    expect(JSON.stringify(w.items)).toBe(source);
+  });
+  it('rejects moving an anchor above active-range work with an earlier future Due', () => {
+    const { w, task, event } = fixture();
+    task.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: at(10), estimatedDuration: 'PT1H' };
+    const prepared = prepareTimelineData(w, day, now), before = buildCalendarPlan(w, day, prepared, now);
+    const after = buildCalendarPlan(w, day, prepared, now, [], ['event', 'task']);
+    expect(calendarReorderIssue(before, after, event.id, now, 'UTC', true)).toMatchObject({ item: { id: task.id }, reason: 'deadline' });
+  });
+  it('accepts an anchor moved to the top when capacity leaves a task visible but unplaced', () => {
+    const { w, task, event } = fixture();
+    event.schedule!.startAt = at(22); event.schedule!.endAt = '2026-09-24T23:15:00Z';
+    const prepared = prepareTimelineData(w, day, now), before = buildCalendarPlan(w, day, prepared, now);
+    const after = buildCalendarPlan(w, day, prepared, now, [], ['event', 'task']);
+    expect(after.unplaced.map(item => item.id)).toContain(task.id);
+    expect(calendarReorderIssue(before, after, event.id, now, 'UTC', true)).toBeNull();
+    expect(after.items.map(item => item.id)).toEqual(['event', 'task']);
+  });
   it('moves start-only items but leaves complete event intervals fixed on Timeline', () => {
     const { w, task, event } = fixture(); task.schedule!.startAt = at(9);
     const before = JSON.stringify(w.items);

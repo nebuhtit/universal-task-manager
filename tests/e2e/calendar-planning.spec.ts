@@ -5,7 +5,7 @@ import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wra
 
 const password = 'calendar-planning-fixture';
 const now = new Date('2026-09-24T08:00:00Z');
-async function setup(page: Page, conflict = true) {
+async function setup(page: Page, conflict = true, customize?: (workspace: WorkspaceDocument) => void) {
   const w = createWorkspace('Planning', now); w.calendarPreferences.timezone = 'UTC';
   w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = 'true';
   w.calendarPreferences.dayView.sortSource = 'title asc'; w.calendarPreferences.dayView.sort = [{ expression: 'title', direction: 'asc', nulls: 'last' }];
@@ -15,6 +15,7 @@ async function setup(page: Page, conflict = true) {
   const busy = createItem('C blocker', 'event', now); busy.id = 'blocker'; busy.schedule = { timezone: 'UTC', startAt: '2026-09-25T10:00:00Z', endAt: '2026-09-25T12:00:00Z' };
   w.items = { task, event, blocker: busy };
   if (!conflict) { busy.schedule!.startAt = '2026-09-25T13:00:00Z'; busy.schedule!.endAt = '2026-09-25T14:00:00Z'; }
+  customize?.(w);
   const doc = createAutomergeDocument(w), key = await randomKey();
   const metadata = { version: 1, wrappedKey: await wrapKey(key, password), createdAt: now.toISOString() };
   const block = { version: 1, ...await encryptWithKey(Automerge.save(doc), key, 'utm:local:workspace:v1') }; Automerge.free(doc);
@@ -162,6 +163,45 @@ test('List moves a fixed event without changing its Timeline interval', async ({
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Reorder B event', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('timeline-event').filter({ hasText: 'B event' })).toBeVisible();
+  expect((await read()).items).toEqual(before);
+});
+
+test('active-range ordering follows List below the event and capacity has only one heading', async ({ page }) => {
+  const { read } = await setup(page, true, w => {
+    w.items.task!.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: '2026-09-25T18:00:00Z', estimatedDuration: 'PT1H' };
+  });
+  const before = (await read()).items;
+  await page.getByRole('button', { name: 'Reorder B event', exact: true }).press('ArrowUp');
+  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+  const range = page.getByTestId('timeline-active-range');
+  await expect(range).toHaveAttribute('aria-label', /11:30–11:50/);
+  await expect(range).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('.timeline-planning-summary strong')).toHaveCount(0);
+  expect((await read()).items).toEqual(before);
+});
+
+test('late anchor can reach the first row even if the remaining task has no free slot', async ({ page }) => {
+  const { read } = await setup(page, true, w => {
+    w.items.task!.schedule = { timezone: 'UTC', estimatedDuration: 'PT1H' };
+    w.items.event!.schedule!.startAt = '2026-09-24T22:00:00Z'; w.items.event!.schedule!.endAt = '2026-09-24T23:15:00Z';
+  });
+  const before = (await read()).items;
+  await page.getByRole('button', { name: 'Reorder B event', exact: true }).press('ArrowUp');
+  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
+  await expect(page.locator('.calendar-page')).toContainText('No continuous free slot');
+  expect((await read()).items).toEqual(before);
+});
+
+test('moving an event cannot put an active-range task after its future Due', async ({ page }) => {
+  const { read } = await setup(page, true, w => {
+    w.items.task!.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: '2026-09-24T10:00:00Z', estimatedDuration: 'PT1H' };
+  });
+  const before = (await read()).items;
+  await page.getByRole('button', { name: 'Reorder B event', exact: true }).press('ArrowUp');
+  await expect(page.locator('.calendar-page')).toContainText('A task: Placement does not fit before Due.');
+  expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   expect((await read()).items).toEqual(before);
 });
 

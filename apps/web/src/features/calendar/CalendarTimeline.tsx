@@ -101,11 +101,12 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
     })));
   }, [reservedItems, dateKey, zone, segments]);
   const rangeCues = useMemo(() => {
+    if (plan) return [];
     const morning = zonedDateTime(dateKey, 9, 0, zone).getTime();
     const preferred = dateKey === calendarDateKey(planningNow, zone) ? Math.max(morning, Math.floor(planningNow.getTime() / 3_600_000) * 3_600_000) : morning;
     return placeActiveRangeCues(data.activeRange, segments, [...layout.events, ...layout.more, ...hiddenReserve], positionAt(preferred, segments));
-  }, [data.activeRange, segments, layout, hiddenReserve, dateKey, zone, planningNow]);
-  const rangeFallback = data.activeRange.filter(item => !rangeCues.some(cue => cue.item.id === item.id));
+  }, [plan, data.activeRange, segments, layout, hiddenReserve, dateKey, zone, planningNow]);
+  const rangeFallback = plan ? [] : data.activeRange.filter(item => !rangeCues.some(cue => cue.item.id === item.id));
   const height = Math.max((segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0), ...layout.events.map(v => v.top + v.height), ...layout.more.map(v => v.top + v.height));
   const ticks: number[] = [];
   for (let at = data.day.start; at < data.day.end; at += 60_000) if (timeLabel(at, zone).endsWith(':00') && !data.hidden.some(v => at >= v.start && at < v.end)) ticks.push(at);
@@ -121,8 +122,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
     </div>
     {data.sleepMissing && <p className="hint">{ru ? 'Нет интервала сна на этот день. Показаны полные сутки.' : 'No sleep interval for this day. Showing the full day.'}</p>}
     {data.projectionLimited && <p role="status">{ru ? 'Для повторений с длительностью более года показана ограниченная проекция.' : 'Recurrences longer than one year use a limited projection.'}</p>}
-    {workspace.calendarPreferences.dayView.statistics?.showTime !== false && <div className="timeline-planning-summary" data-testid="timeline-planning-summary">
-      <strong>{capacityLabel ?? (ru ? 'Свободно' : 'Free')}</strong>
+    {workspace.calendarPreferences.showExplanations && <div className="timeline-planning-summary" data-testid="timeline-planning-summary">
       {workspace.calendarPreferences.showExplanations && <small>{ru ? 'За выбранные сутки. Точечные блоки — предложение, даты задач не меняются.' : 'For the selected day. Dotted blocks are proposals; task dates stay unchanged.'}</small>}
       {workspace.calendarPreferences.showExplanations && data.planning.warnings.map(({ item, reason }) => <small key={item.id}>{item.title}: {reason === 'deadline' ? (ru ? 'Не помещается до Due' : 'Does not fit before Due') : reason === 'fragmented' ? (ru ? 'Времени суммарно хватает, но нет непрерывного окна' : 'Enough total time, but no continuous slot') : (ru ? 'Недостаточно свободного времени' : 'Not enough available time')}</small>)}
     </div>}
@@ -161,6 +161,11 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
       {!settings.hideSleep && data.sleepGaps.length > 0 && <button type="button" className="timeline-night-collapse" style={{ top: positionAt(data.sleepGaps[0]!.start, segments) }} aria-expanded={true} onClick={() => onPreferences({ ...settings, hideSleep: true })}>{ru ? 'Свернуть ночь' : 'Collapse night'} {timeLabel(data.sleepGaps[0]!.start, zone)}–{timeLabel(data.sleepGaps.at(-1)!.end, zone)}</button>}
       <div className="timeline-events">
         {layout.events.map(event => {
+          if (plan?.activeRanges.has(event.item.id)) {
+            const share = activeRangeDailyDuration(event.item, viewPeriodBoundsForDates(dateKey, dateKey, zone)) ?? 0;
+            const label = `${ru ? 'Активный диапазон' : 'Active range'} · ${event.item.title} · ${durationLabel(share)}${ru ? ' на день' : ' per day'} · ${timeLabel(event.start, zone)}–${timeLabel(event.end, zone)}`;
+            return <button type="button" data-calendar-order-id={event.item.id} data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} className="timeline-active-range" key={event.item.id} data-testid="timeline-active-range" style={columnStyle(event)} title={label} aria-label={label} onClick={() => open(event.item)}><span>{event.item.title}</span><small>{durationLabel(share)}{ru ? ' / день' : ' / day'}</small></button>;
+          }
           const organization = event.item.extensions?.['utm:calendarOrganization'] as { color?: string; tag?: string } | undefined;
           const calendar = workspace.calendarPreferences.googleCalendar?.calendars.find(value => value.id === event.item.external?.calendarId);
           const color = calendar?.color ?? organization?.color;

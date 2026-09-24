@@ -1,5 +1,5 @@
 import {
-  calendarDateKey, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, itemDeletionTime,
+  activeRangeBounds, activeRangeDailyDuration, calendarDateKey, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, itemDeletionTime,
   occupiedIntervals, viewPeriodBoundsForDates, zonedDateTime,
   type CalendarPin, type CalendarSourceReference, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
@@ -106,6 +106,8 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
   for (const item of [...prepared.undated, ...prepared.dateOnlyTasks, ...(prepared.showOverdue ? prepared.overdue : [])]) {
     if (!item.schedule?.startAt && !item.schedule?.endAt && item.state === 'open' && !item.isNote && !item.schedule?.allDay) tasks.set(item.id, item);
   }
+  const activeRanges = new Set(prepared.activeRange.map(item => item.id));
+  for (const item of prepared.activeRange) tasks.set(item.id, item);
   const warnings: Array<{ item: UniversalItem; reason: string }> = [];
   for (const { pin, item } of activeCalendarPins(workspace, key, now)) {
     if (naturallyOnDay(item, prepared, key)) continue;
@@ -144,9 +146,10 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
     }
     const item = tasks.get(id);
     if (!item) continue;
-    const duration = effectiveItemDurationMs(item), due = dueBoundary(item, zone), overdue = due <= +now;
+    const duration = activeRanges.has(id) ? activeRangeDailyDuration(item, viewPeriodBoundsForDates(key, key, zone)) ?? 0 : effectiveItemDurationMs(item);
+    const due = dueBoundary(item, zone), overdue = due <= +now;
     // A reference uses the source estimate but never its old event dates.
-    const earliest = pins.has(id) ? lowerBound : Math.max(lowerBound, Date.parse(item.schedule?.availableFrom ?? '') || day.start);
+    const earliest = pins.has(id) ? lowerBound : Math.max(lowerBound, Date.parse(item.schedule?.availableFrom ?? '') || day.start, activeRanges.has(id) ? activeRangeBounds(item)!.start : day.start);
     const nextAnchor = savedOrder ? ids.slice(index + 1).map(next => fixed.get(next)).find(Boolean) : undefined;
     const latest = Math.min(overdue ? day.end : due, nextAnchor?.start ?? day.end);
     // With no manual order, keep a due-only block close to its deadline when possible.
@@ -161,7 +164,7 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
     gap.start = end; gaps.sort((a, b) => a.start - b.start);
     if (savedOrder) lowerBound = end;
   }
-  return { ids, items: ids.map(id => all.get(id)!), pins, fixed, proposals, events: [...visibleAnchors, ...proposals], warnings, reservations, busy,
+  return { ids, items: ids.map(id => all.get(id)!), pins, fixed, activeRanges, proposals, events: [...visibleAnchors, ...proposals], warnings, reservations, busy,
     movable: new Set(tasks.keys()), unplaced: warnings.map(warning => warning.item) };
 }
 
@@ -174,16 +177,30 @@ export function validateCalendarMove(plan: ReturnType<typeof buildCalendarPlan>,
   return plan.warnings.find(warning => warning.item.id === movedId)?.reason ?? null;
 }
 
+/** Capacity failures keep a visible unplaced card; moving another row must never bypass Due. */
+export function calendarReorderIssue(before: ReturnType<typeof buildCalendarPlan>, after: ReturnType<typeof buildCalendarPlan>, movedId: string, now: Date, zone: string, allowFixed: boolean) {
+  const reason = validateCalendarMove(after, movedId, now, zone, allowFixed);
+  if (reason && reason !== 'capacity') return { item: after.items.find(item => item.id === movedId)!, reason };
+  for (const item of after.items) {
+    if (!after.movable.has(item.id)) continue;
+    const due = dueBoundary(item, zone);
+    if (due > +now && after.ids.slice(0, after.ids.indexOf(item.id)).some(id => (after.fixed.get(id)?.start ?? -Infinity) >= due)) return { item, reason: 'deadline' };
+  }
+  return after.warnings.find(warning => warning.reason === 'deadline' && !before.warnings.some(previous => previous.item.id === warning.item.id && previous.reason === 'deadline')) ?? null;
+}
+
 /** Isolated statistics inputs, never passed to editing, persistence or synchronization. */
 export function calendarPlanMetricItems(plan: ReturnType<typeof buildCalendarPlan>, originals: UniversalItem[]) {
   const items = new Map(originals.map(item => [item.id, item]));
   for (const item of plan.items) items.set(item.id, item);
   for (const event of plan.events) {
+    if (plan.activeRanges.has(event.item.id)) continue; // Keep the daily-share accounting, not the full estimate.
     if (event.travel || (!event.tentative && !plan.pins.has(event.item.id))) continue;
     const { external: _external, ...source } = event.item;
     items.set(source.id, { ...source, schedule: { timezone: source.schedule?.timezone ?? 'UTC', startAt: new Date(event.start).toISOString(), endAt: new Date(event.end).toISOString(), estimatedDuration: source.schedule?.estimatedDuration ?? 'PT0S' } });
   }
   for (const item of plan.unplaced) {
+    if (plan.activeRanges.has(item.id)) continue;
     const { external: _external, ...source } = item;
     items.set(source.id, { ...source, schedule: { timezone: source.schedule?.timezone ?? 'UTC', estimatedDuration: source.schedule?.estimatedDuration ?? 'PT0S' } });
   }
