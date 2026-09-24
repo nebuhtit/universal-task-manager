@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useClockMilliseconds } from '../../../hooks/useClock';
 import { playTimerIntervalSound, prepareTimerAlarm, startTimerAlarm } from '../../../hooks/useUiSounds';
-import { cancelNativeTimer, isNativeReminderAvailable, requestNativeReminderPermission, scheduleNativeTimer } from '../../../services/nativeReminders';
+import { cancelNativeTimer, isNativeReminderAvailable, scheduleNativeTimer } from '../../../services/nativeReminders';
 import { Button, Checkbox, Input, Select } from '../../../components/ui/primitives';
 import type { ItemTimerSession, UniversalItem } from '@utm/core';
 import './quick-item-timer.css';
@@ -87,9 +87,9 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
     setRunning(false);
     persistActive(session ? { id: session.id, mode: session.mode, startedAt: session.startedAt, stoppedAt: session.endedAt, durationSeconds: session.durationSeconds, ...(session.targetSeconds ? { targetSeconds: session.targetSeconds } : {}) } : undefined);
     stopAlarmRef.current();
-    stopAlarmRef.current = startTimerAlarm(soundEnabled);
+    stopAlarmRef.current = startTimerAlarm(soundEnabled && !isNativeReminderAvailable());
     notifyFinished();
-    setAlarming(soundEnabled);
+    setAlarming(soundEnabled && !isNativeReminderAvailable());
   }, [duration, finished, running]);
 
   useEffect(() => () => stopAlarmRef.current(), []);
@@ -116,11 +116,8 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
     sessionIdRef.current = id;
     nativeTimerIdRef.current = id;
     setNotificationError('');
-    if (mode === 'timer' && isNativeReminderAvailable()) void requestNativeReminderPermission().then((status) => {
-      if (status.authorization !== 'granted') { setNotificationError('Allow notifications in iOS Settings for a lock-screen timer alert.'); return; }
-      if (sessionIdRef.current !== id) return;
-      return scheduleNativeTimer(id, `${timerTitle} · Timer finished`, new Date(timestamp + Math.max(1, minutes) * 60_000).toISOString());
-    }).catch(() => setNotificationError('Could not schedule the system timer alert.'));
+    if (mode === 'timer' && isNativeReminderAvailable()) void scheduleNativeTimer(id, `${timerTitle} · Timer finished`, new Date(timestamp + Math.max(1, minutes) * 60_000).toISOString())
+      .catch((reason) => setNotificationError(reason instanceof Error ? reason.message : 'Could not schedule the system timer alarm.'));
     else if (mode === 'timer' && 'Notification' in window && Notification.permission === 'default') void Notification.requestPermission().then((permission) => { if (permission !== 'granted') setNotificationError('Allow notifications for a visible timer alert.'); });
     else if (mode === 'timer' && !('Notification' in window)) setNotificationError('System timer alerts are unavailable in this browser.');
     setRecorded(undefined); setCounted(false); setElapsedBeforeStart(0); setStartedAt(timestamp); setRunning(true);

@@ -73,7 +73,7 @@ describe('CalendarPage daily-list contract', () => {
     expect(markup).toContain('Late item');
   });
 
-  it('shows an unplaced task capacity warning once beside its placement action', () => {
+  it('does not show capacity explanations or placement buttons', () => {
     const now = new Date('2026-08-26T10:00:00.000Z');
     const workspace = createWorkspace('Calendar', now);
     workspace.calendarPreferences.timezone = 'UTC'; workspace.calendarPreferences.dayView.filter.source = 'true'; workspace.calendarPreferences.timeline = { mode: 'list', hideSleep: false, showUndated: true };
@@ -84,8 +84,8 @@ describe('CalendarPage daily-list contract', () => {
     workspace.items[task.id] = task; workspace.items[busy.id] = busy;
     const markup = renderToStaticMarkup(<CalendarPage workspace={workspace} now={now} commit={vi.fn()} onEditItem={vi.fn()} onState={vi.fn()} createUiItem={(title, preset, createdAt) => createItem(title ?? '', preset, createdAt)} />);
     const warning = 'No continuous free slot. The item remains outside the schedule.';
-    expect(markup).toContain('Parallel / Queue');
-    expect(markup.split(warning)).toHaveLength(2);
+    expect(markup).not.toContain('Parallel / Queue');
+    expect(markup).not.toContain(warning);
   });
 
   it('uses semantic tokens and a seven-column mobile week navigator', () => {

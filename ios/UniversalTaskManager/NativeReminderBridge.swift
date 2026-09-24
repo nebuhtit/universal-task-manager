@@ -1,11 +1,23 @@
 import Foundation
 import UserNotifications
 import WebKit
+import SwiftUI
+import AlarmKit
+
+@available(iOS 26.0, *)
+private struct TimerAlarmMetadata: AlarmMetadata {}
 
 final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotificationCenterDelegate {
     weak var webView: WKWebView?
     private let center = UNUserNotificationCenter.current()
     private let identifierPrefix = "utm:"
+    private var cancelledTimers = Set<String>()
+
+    private func parseDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
 
     override init() {
         super.init()
@@ -47,7 +59,7 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
                       let title = item["title"] as? String,
                       let body = item["body"] as? String,
                       let at = item["at"] as? String,
-                      let date = ISO8601DateFormatter().date(from: at), date > Date() else { continue }
+                      let date = self.parseDate(at), date > Date() else { continue }
                 let content = UNMutableNotificationContent()
                 content.title = title
                 content.body = body
@@ -75,8 +87,29 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
         guard let timerId = payload["timerId"] as? String,
               let title = payload["title"] as? String,
               let at = payload["at"] as? String,
-              let date = ISO8601DateFormatter().date(from: at), date > Date() else {
+              let date = parseDate(at), date > Date() else {
             sendStatus(id: id, error: "Invalid timer deadline")
+            return
+        }
+        if #available(iOS 26.0, *), let alarmId = UUID(uuidString: timerId) {
+            cancelledTimers.remove(timerId)
+            Task { @MainActor in
+                do {
+                    let manager = AlarmManager.shared
+                    let authorization = try await manager.requestAuthorization()
+                    guard !self.cancelledTimers.contains(timerId) else { self.sendStatus(id: id); return }
+                    guard authorization == .authorized else {
+                        self.sendStatus(id: id, error: "Allow alarms for Universal in iOS Settings to use the system timer alarm.")
+                        return
+                    }
+                    let alert = AlarmPresentation.Alert(title: LocalizedStringResource(stringLiteral: title), stopButton: AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.fill"))
+                    let attributes = AlarmAttributes(presentation: AlarmPresentation(alert: alert), metadata: TimerAlarmMetadata(), tintColor: Color.accentColor)
+                    // A fixed alarm needs no countdown widget and survives app suspension.
+                    _ = try await manager.schedule(id: alarmId, configuration: .alarm(schedule: .fixed(date), attributes: attributes))
+                    if self.cancelledTimers.contains(timerId) { try manager.cancel(id: alarmId) }
+                    self.sendStatus(id: id)
+                } catch { self.sendStatus(id: id, error: error.localizedDescription) }
+            }
             return
         }
         let identifier = "utm:timer:\(timerId)"
@@ -85,13 +118,21 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
         content.body = "Timer finished"
         content.sound = .default
         let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
-        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false))) { [weak self] error in
-            self?.sendStatus(id: id, error: error?.localizedDescription)
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
+            guard let self else { return }
+            guard granted else { self.sendStatus(id: id, error: error?.localizedDescription ?? "Allow notifications in iOS Settings."); return }
+            self.center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false))) { error in
+                self.sendStatus(id: id, error: error?.localizedDescription)
+            }
         }
     }
 
     private func cancelTimer(id: String, payload: [String: Any]) {
         guard let timerId = payload["timerId"] as? String else { sendStatus(id: id, error: "Missing timer ID"); return }
+        cancelledTimers.insert(timerId)
+        if #available(iOS 26.0, *), let alarmId = UUID(uuidString: timerId) {
+            try? AlarmManager.shared.cancel(id: alarmId)
+        }
         let identifier = "utm:timer:\(timerId)"
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.removeDeliveredNotifications(withIdentifiers: [identifier])

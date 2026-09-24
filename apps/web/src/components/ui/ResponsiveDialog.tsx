@@ -9,6 +9,7 @@ export interface ResponsiveDialogProps {
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  backdropClassName?: string;
   initialFocus?: boolean | RefObject<HTMLElement | null>;
   finalFocus?: ComponentProps<typeof Dialog.Popup>['finalFocus'];
   closeLabel?: string;
@@ -28,6 +29,7 @@ export function ResponsiveDialog({
   children,
   footer,
   className,
+  backdropClassName,
   initialFocus,
   finalFocus,
   closeLabel = 'Close dialog',
@@ -35,7 +37,7 @@ export function ResponsiveDialog({
 }: ResponsiveDialogProps) {
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
-      <Dialog.Backdrop className="ui-dialog-backdrop" />
+      <Dialog.Backdrop className={['ui-dialog-backdrop', backdropClassName].filter(Boolean).join(' ')} />
       <Dialog.Viewport className="ui-dialog-viewport">
         <Dialog.Popup
           className={['ui-dialog-popup', className].filter(Boolean).join(' ')}

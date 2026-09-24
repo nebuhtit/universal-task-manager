@@ -519,6 +519,11 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
       await onFlush();
       const content = await exportEncryptedLocalBackup();
       const filename = `${session.document.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}.utmb`;
+      if (isNativeICloudBackupAvailable()) {
+        await writeNativeICloudBackup(content, filename, 'files');
+        onBackupExported?.();
+        return;
+      }
       const file = new File([content], filename, { type: 'application/octet-stream', lastModified: Date.now() });
       const shareNavigator = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
       const isAppleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
@@ -595,7 +600,7 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
-  return <div className="modal-backdrop"><section className="dialog"><header><h2>Encrypted backup & transfer</h2><button className="icon-button" onClick={onClose}>×</button></header><p>The unlocked workspace can be exported immediately: Universal reuses its existing encryption and verifies the saved encrypted block. A password is needed only to open an imported backup.</p>{isNativeICloudBackupAvailable() && <p className="hint">The iOS app automatically keeps the current encrypted backup and one previous version in its private iCloud Drive folder. Google Calendar data is never included.</p>}<label>Backup password (only for import)<input type="password" minLength={10} value={password} onChange={(event) => { setPassword(event.target.value); setRestoreSource(null); }} /></label>{error && <p className="error">{error}</p>}<div className="transfer-actions">{isNativeICloudBackupAvailable() && <button className="primary" disabled={busy} onClick={() => void saveToICloud()}>Back up to iCloud now</button>}<button className="secondary" disabled={busy} onClick={() => void download()}>Export encrypted .utmb</button><button className="secondary" disabled={password.length < 10 || busy} onClick={() => isNativeICloudBackupAvailable() ? requestNativeICloudImport() : input.current?.click()}>{restoreSource ? 'Choose another backup' : 'Merge from backup'}</button><input ref={input} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} /></div>{restoreSource && <div className="restore-warning"><strong>Replace this device?</strong><p>This removes the current local workspace from this browser and restores the selected encrypted backup. The backup itself is not changed.</p><button className="danger" disabled={busy} onClick={() => void replaceFromBackup()}>Replace local workspace from backup</button></div>}<p className="hint">On iPhone, choose a <code>.utmb</code> backup in Files. Wrong passwords, unrelated files and modified containers are rejected before your local workspace changes.</p></section></div>;
+  return <div className="modal-backdrop"><section className="dialog"><header><h2>Encrypted backup & transfer</h2><button className="icon-button" onClick={onClose}>×</button></header><p>The unlocked workspace can be exported immediately: Universal reuses its existing encryption and verifies the saved encrypted block. A password is needed only to open an imported backup.</p>{isNativeICloudBackupAvailable() && <p className="hint">Export encrypted .utmb lets you choose a folder in Files. Automatic iCloud backup requires an available iCloud container in this signed build; it keeps the current and previous encrypted copies. Google Calendar data is never included.</p>}<label>Backup password (only for import)<input type="password" minLength={10} value={password} onChange={(event) => { setPassword(event.target.value); setRestoreSource(null); }} /></label>{error && <p className="error">{error}</p>}<div className="transfer-actions">{isNativeICloudBackupAvailable() && <button className="primary" disabled={busy} onClick={() => void saveToICloud()}>Back up to iCloud now</button>}<button className="secondary" disabled={busy} onClick={() => void download()}>Export encrypted .utmb</button><button className="secondary" disabled={password.length < 10 || busy} onClick={() => isNativeICloudBackupAvailable() ? requestNativeICloudImport() : input.current?.click()}>{restoreSource ? 'Choose another backup' : 'Merge from backup'}</button><input ref={input} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} /></div>{restoreSource && <div className="restore-warning"><strong>Replace this device?</strong><p>This removes the current local workspace from this browser and restores the selected encrypted backup. The backup itself is not changed.</p><button className="danger" disabled={busy} onClick={() => void replaceFromBackup()}>Replace local workspace from backup</button></div>}<p className="hint">On iPhone, choose a <code>.utmb</code> backup in Files. Wrong passwords, unrelated files and modified containers are rejected before your local workspace changes.</p></section></div>;
 }
 
 type QuickDueTarget = { itemId: string; seriesId?: string; recurrenceId?: string };
@@ -735,13 +740,12 @@ export default function App() {
     if (!workspace || !session || session.storageMode !== 'encrypted' || !isNativeICloudBackupAvailable()) return;
     const signature = `${workspace.workspaceId}:${workspace.updatedAt}`;
     if (iCloudBackupSignature.current === signature) return;
-    iCloudBackupSignature.current = signature;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void flushPersistence()
         .then(() => exportEncryptedLocalBackup())
         .then((source) => writeNativeICloudBackup(source, `${safeFilename(workspace.name)}.utmb`))
-        .then(() => { if (!cancelled) recordDiagnostic({ kind: 'result', operation: 'iCloud backup', outcome: 'succeeded', message: 'Encrypted recovery backup saved to iCloud' }); })
+        .then(() => { if (!cancelled) { iCloudBackupSignature.current = signature; recordDiagnostic({ kind: 'result', operation: 'iCloud backup', outcome: 'succeeded', message: 'Encrypted recovery backup saved to iCloud' }); } })
         .catch((reason) => { if (!cancelled) recordDiagnostic({ kind: 'error', operation: 'iCloud backup', outcome: 'failed', message: reason instanceof Error ? reason.message : String(reason) }); });
     }, 1_500);
     return () => { cancelled = true; window.clearTimeout(timer); };
@@ -750,11 +754,10 @@ export default function App() {
     if (!workspace || !isNativeReminderAvailable() || workspace.calendarPreferences.testClock?.enabled) return;
     const signature = `${workspace.workspaceId}:${workspace.updatedAt}`;
     if (nativeReminderSignature.current === signature) return;
-    nativeReminderSignature.current = signature;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void syncNativeReminders(workspace).then((status) => {
-        if (!cancelled) recordDiagnostic({ kind: 'result', operation: 'Native reminder sync', outcome: 'succeeded', message: `${status.scheduled ?? 0} iOS reminders scheduled` });
+        if (!cancelled) { nativeReminderSignature.current = signature; recordDiagnostic({ kind: 'result', operation: 'Native reminder sync', outcome: 'succeeded', message: `${status.scheduled ?? 0} iOS reminders scheduled` }); }
       }).catch((reason) => {
         if (!cancelled) recordDiagnostic({ kind: 'error', operation: 'Native reminder sync', outcome: 'failed', message: reason instanceof Error ? reason.message : String(reason) });
       });
@@ -782,13 +785,18 @@ export default function App() {
           const confirmation = window.prompt(russian ? 'Повторите пароль' : 'Repeat the password');
           if (confirmation !== password) throw new Error(russian ? 'Пароли не совпадают' : 'Passwords do not match');
           const source = await exportContainer(session.document, password);
-          downloadText(source, `${safeFilename(workspace.name)}-encrypted-backup-${stamp}.utmb`, 'application/octet-stream');
+          const filename = `${safeFilename(workspace.name)}-encrypted-backup-${stamp}.utmb`;
+          if (isNativeICloudBackupAvailable()) await writeNativeICloudBackup(source, filename, 'files');
+          else downloadText(source, filename, 'application/octet-stream');
           savedEncrypted = true;
         } else {
-          downloadText(toCanonicalJSON(workspaceForExport(workspace), true), `${safeFilename(workspace.name)}-plaintext-backup-${stamp}.json`);
+          const source = toCanonicalJSON(workspaceForExport(workspace), true), filename = `${safeFilename(workspace.name)}-plaintext-backup-${stamp}.json`;
+          if (isNativeICloudBackupAvailable()) await writeNativeICloudBackup(source, filename, 'files');
+          else downloadText(source, filename);
         }
       } else {
-        await downloadLockedRecoveryCopy();
+        if (isNativeICloudBackupAvailable()) await writeNativeICloudBackup(await exportEncryptedLocalBackup(), `${safeFilename(workspace.name)}.utmb`, 'files');
+        else await downloadLockedRecoveryCopy();
       }
       setBackupReminder(false);
       setToast(savedEncrypted ? 'Encrypted backup saved.' : 'Plaintext backup saved.');
@@ -1233,7 +1241,7 @@ export default function App() {
       </Suspense>
     </AppShell>
     {quickPinTarget && planningEnabled(workspace) && <CalendarPinDialog workspace={workspace} target={quickPinTarget} onClose={() => setQuickPinTarget(null)} commit={commit} onFlush={flushPersistence} />}
-    {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={quickDueItem.schedule?.plannedDate ? (workspace.calendarPreferences.language === 'ru' ? 'Перепланировать' : 'Reschedule') : (workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due')} ariaLabel="Quick Due" className="quick-due-dialog" footer={<Button className="glass-action-button" disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><p className="glass-item-reference">{quickDueItem.title}</p><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
+    {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={quickDueItem.schedule?.plannedDate ? (workspace.calendarPreferences.language === 'ru' ? 'Перепланировать' : 'Reschedule') : (workspace.calendarPreferences.language === 'ru' ? 'Перенести Due' : 'Move Due')} ariaLabel="Quick Due" className="quick-due-dialog" backdropClassName="is-glass" footer={<Button className="glass-action-button" disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><p className="glass-item-reference">{quickDueItem.title}</p><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
     {page !== 'settings' && page !== 'organization' && <div className="capture-dock"><form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} placeholder={capturePlaceholder} error={quickError} timeZone={workspace.calendarPreferences.timezone} viewedTimelineDate={page === 'calendar' && workspace.calendarPreferences.timeline?.mode === 'timeline' ? calendarCaptureDate : undefined} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); commit('Open calendar Timeline', draft => { draft.calendarPreferences.timeline = { ...draft.calendarPreferences.timeline, mode: 'timeline', hideSleep: draft.calendarPreferences.timeline?.hideSleep ?? false }; }); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form></div>}
     {quickCompletion && <QuickCompletionInput
       open

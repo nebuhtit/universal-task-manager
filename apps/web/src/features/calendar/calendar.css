@@ -6,7 +6,7 @@
 .calendar-title {
   position: sticky;
   z-index: 9;
-  top: var(--layout-topbar-height);
+  top: calc(var(--layout-topbar-height) + env(safe-area-inset-top));
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -34,7 +34,7 @@
 
 .calendar-navigator {
   position: sticky;
-  top: calc(var(--layout-topbar-height) + var(--calendar-title-height, 0px));
+  top: calc(var(--layout-topbar-height) + env(safe-area-inset-top) + var(--calendar-title-height, 0px));
   z-index: 8;
   display: grid;
   gap: var(--space-3);
@@ -164,8 +164,8 @@
   .ui-dialog-popup.calendar-pin-dialog,
   .calendar-pin-item,
   .calendar-pin-glass-button {
-    -webkit-backdrop-filter: blur(18px) saturate(1.15);
-    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(var(--blur-capture-idle));
+    backdrop-filter: blur(var(--blur-capture-idle));
   }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -175,7 +175,6 @@
   .ui-dialog-popup.calendar-pin-dialog { background: var(--color-surface-elevated); }
   .calendar-pin-item { background: var(--color-surface); }
 }
-.calendar-placement-options > div { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-block: var(--space-2); }
 .calendar-reference-badge { color: var(--color-text-secondary); padding: var(--space-1); }
 .calendar-order-handle { touch-action: none; pointer-events: auto; background: var(--color-surface); border-radius: var(--radius-sm); }
 .calendar-category-label { display: block; font-size: var(--font-size-caption); color: var(--color-text-secondary); margin-block-start: var(--space-2); }

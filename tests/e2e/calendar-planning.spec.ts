@@ -57,7 +57,7 @@ async function settledReload(page: Page) {
   await page.reload(); await unlock(page); await navigate(page, 'Calendar');
 }
 
-test('parallel reference persists, respects Due and queue never changes the source', async ({ page }) => {
+test('overflow is placed automatically before Due without source changes', async ({ page }) => {
   const { read } = await setup(page, true, w => {
     w.items.task!.schedule!.dueAt = '2026-09-24T10:00:00Z';
     w.items.event!.schedule!.startAt = '2026-09-24T08:00:00Z';
@@ -65,23 +65,12 @@ test('parallel reference persists, respects Due and queue never changes the sour
   });
   const before = (await read()).items;
   const googleRequests: string[] = []; page.on('request', req => { if (/googleapis.com\/calendar/.test(req.url())) googleRequests.push(req.url()); });
-  await page.getByRole('button', { name: 'Parallel / Queue', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Calendar placement', exact: true });
-  await dialog.getByLabel('Parallel start time').fill('10:00');
-  await dialog.getByRole('button', { name: 'Parallel', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Due');
-  await dialog.getByLabel('Parallel start time').fill('08:30');
-  await dialog.getByRole('button', { name: 'Parallel', exact: true }).click();
-  await expect(dialog).toBeHidden();
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.parallel?.['2026-09-24']?.task).toBe('2026-09-24T08:30:00.000Z');
-  expect((await read()).items).toEqual(before);
+  await expect(page.getByRole('button', { name: 'Parallel / Queue', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', /Parallel reference.*08:30–09:00/);
-  await page.screenshot({ path: test.info().outputPath('parallel-reference.png') });
+  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', /09:30–10:00/);
+  await expect(page.locator('.calendar-page')).not.toContainText('No continuous free slot');
   await settledReload(page);
-  await page.getByRole('button', { name: 'Parallel / Queue', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Queue', exact: true }).click();
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.parallel?.['2026-09-24']?.task).toBeUndefined();
+  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveCount(1);
   expect((await read()).items).toEqual(before); expect(googleRequests).toEqual([]);
 });
 
@@ -100,7 +89,7 @@ test('old order is repaired and persisted without mutating active-range original
   expect((await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['task', 'other', 'event']);
 });
 
-test('parallel active-range reference remains visible inside compressed sleep in dark mode', async ({ page }) => {
+test('automatic overflow remains visible inside compressed sleep in dark mode', async ({ page }) => {
   const { read } = await setup(page, true, w => {
     w.calendarPreferences.appearance.mode = 'dark';
     w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: true, sleepItemId: 'event', showUndated: true };
@@ -109,18 +98,10 @@ test('parallel active-range reference remains visible inside compressed sleep in
     w.items.event!.schedule!.endAt = '2026-09-24T12:00:00Z';
   });
   const before = (await read()).items;
-  await page.getByRole('button', { name: 'Parallel / Queue', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Calendar placement', exact: true });
-  await dialog.getByLabel('Parallel start time').fill('08:30');
-  await page.screenshot({ path: test.info().outputPath('parallel-dialog-dark.png') });
-  await dialog.getByRole('button', { name: 'Parallel', exact: true }).click();
   const reference = page.getByTestId('timeline-active-range');
-  await expect(reference).toHaveAttribute('aria-label', /↗.*08:30–09:00/);
+  await expect(reference).toHaveCount(1);
   await reference.scrollIntoViewIfNeeded(); await expect(reference).toBeVisible();
-  // The normal half-hour block uses the shared 36px minimum, not a compressed break.
-  await expect(page.locator('.timeline-break').filter({ hasText: '00:00–08:30' })).toHaveCount(1);
-  await expect(page.locator('.timeline-break').filter({ hasText: '09:00–12:00' })).toHaveCount(1);
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.parallel?.['2026-09-24']?.task).toBeTruthy();
+  await expect(page.getByRole('button', { name: 'Parallel / Queue', exact: true })).toHaveCount(0);
   expect((await read()).calendarPreferences.timeline?.hideSleep).toBe(true);
   expect((await read()).items).toEqual(before);
 });
@@ -292,7 +273,7 @@ test('late anchor can reach the first row even if the remaining task has no free
   await page.getByRole('button', { name: 'Reorder B event', exact: true }).press('ArrowUp');
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
-  await expect(page.locator('.calendar-page')).toContainText('No continuous free slot');
+  await expect(page.locator('.calendar-page')).not.toContainText('No continuous free slot');
   expect((await read()).items).toEqual(before);
 });
 

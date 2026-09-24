@@ -19,6 +19,22 @@ function fixture() {
 const pin = (item: UniversalItem, day: string, mode: 'queue' | 'same_time' = 'queue') => ({ ...sourceReference(item), day, mode });
 const ms = (hour: number) => Date.parse(at(hour));
 describe('calendar references and manual placement', () => {
+  it('places overflow over occupancy without changing items or crossing future Due', () => {
+    const { w, task, event } = fixture();
+    task.schedule!.dueAt = at(10);
+    event.schedule!.startAt = at(8); event.schedule!.endAt = at(23);
+    const source = JSON.stringify(w.items);
+    const plan = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now);
+    const proposal = plan.proposals.find(value => value.item.id === task.id)!;
+    expect(proposal.end).toBeLessThanOrEqual(ms(10));
+    expect(proposal.end - proposal.start).toBe(3_600_000);
+    expect(proposal.tentativeOverdue).toBe(true);
+    expect(plan.unplaced).toEqual([]);
+    expect(JSON.stringify(w.items)).toBe(source);
+    task.schedule!.dueAt = '2026-09-24T08:30:00Z';
+    const tooShort = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now);
+    expect(tooShort.unplaced.map(value => value.id)).toContain(task.id);
+  });
   it('pins the original interval in parallel without changing source data', () => {
     const { w, event } = fixture();
     event.schedule!.startAt = '2026-09-23T10:00:00Z'; event.schedule!.endAt = '2026-09-23T11:00:00Z';

@@ -40,14 +40,20 @@ function setupListeners() {
   };
 }
 
-export async function writeNativeICloudBackup(source: string, fileName: string): Promise<void> {
+export async function writeNativeICloudBackup(source: string, fileName: string, destination: 'icloud' | 'files' = 'icloud'): Promise<void> {
   const target = handler();
   if (!target) throw new Error('iCloud backup is available only in the Universal iOS app');
   setupListeners();
   const id = newId();
   const completion = new Promise<void>((resolve, reject) => pending.set(id, { resolve, reject }));
-  target.postMessage({ id, kind: 'backup.begin', fileName, byteLength: new TextEncoder().encode(source).byteLength });
-  for (let offset = 0, index = 0; offset < source.length; offset += chunkSize, index += 1) target.postMessage({ id, kind: 'backup.chunk', index, value: source.slice(offset, offset + chunkSize) });
+  target.postMessage({ id, kind: 'backup.begin', fileName, destination, byteLength: new TextEncoder().encode(source).byteLength });
+  for (let offset = 0, index = 0; offset < source.length; index += 1) {
+    let end = Math.min(offset + chunkSize, source.length);
+    // Native converts each chunk to UTF-8; never split a surrogate pair.
+    if (end < source.length && /[\uD800-\uDBFF]/.test(source[end - 1]!)) end -= 1;
+    target.postMessage({ id, kind: 'backup.chunk', index, value: source.slice(offset, end) });
+    offset = end;
+  }
   target.postMessage({ id, kind: 'backup.end' });
   return completion;
 }

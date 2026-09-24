@@ -16,6 +16,9 @@
   overscroll-behavior: contain;
 }
 
+/* Glass sheets already tint their surface. Keep the page behind them undimmed. */
+.ui-dialog-backdrop.is-glass { background: transparent; }
+
 .ui-dialog-popup {
   width: min(100%, var(--layout-dialog-max));
   max-height: min(90dvh, 900px);

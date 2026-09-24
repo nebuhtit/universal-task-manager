@@ -33,6 +33,16 @@ inside the application, and then starts it from a loopback-only HTTP server.
 The default `WKWebsiteDataStore` keeps the existing IndexedDB workspace between
 launches and application updates.
 
+The native shell fills the screen; web safe-area insets protect the status bar
+and home indicator. The app icon reuses the web mark; regenerate it with
+`node scripts/generate-ios-icon.mjs` after changing `apps/web/public/icon.svg`.
+
+On iOS 26 and later, item timers schedule a fixed system alarm with AlarmKit.
+Allow the separate alarm permission when starting a timer. Pause/reset cancels
+the alarm. Older iOS versions use a local notification with sound instead.
+Physical-device acceptance: start a one-minute timer, lock the phone, check the
+alarm, then repeat with pause/reset to confirm cancellation.
+
 To inspect the packaged bundle without Xcode, run:
 
 ```sh
@@ -53,6 +63,11 @@ no Google Calendar cache, OAuth tokens or Google event data.
 Open **Encrypted Transfer** in the app to force a backup now or import a
 `.utmb` from Files. Import still requires the backup password and either merges
 the same workspace or explicitly offers replacement for a different one.
+
+**Export encrypted .utmb** and the main backup button open the system Files save
+picker in the native app. Choose On My iPhone, iCloud Drive or another file
+provider; success is reported only after saving. This manual path does not
+require the app's iCloud entitlement. Cancelling does not mark a backup saved.
 
 Before running on a device, select a Development Team in Xcode and enable
 **iCloud / CloudDocuments** for `iCloud.dev.universal-task-manager` in the

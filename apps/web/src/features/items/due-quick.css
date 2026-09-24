@@ -37,8 +37,8 @@
   .quick-due-dialog .glass-action-button,
   .quick-due-dialog .due-quick-choices > .ui-button,
   .quick-due-dialog .due-custom > .ui-button {
-    -webkit-backdrop-filter: blur(18px) saturate(1.15);
-    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(var(--blur-capture-idle));
+    backdrop-filter: blur(var(--blur-capture-idle));
   }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -47,8 +47,6 @@
   .quick-due-dialog .glass-action-button,
   .quick-due-dialog .due-quick-choices > .ui-button,
   .quick-due-dialog .due-custom > .ui-button { -webkit-backdrop-filter: none; backdrop-filter: none; }
-@media (prefers-reduced-transparency: reduce) {
   .ui-dialog-popup.quick-due-dialog { background: var(--color-surface-elevated); }
   .quick-due-dialog .glass-item-reference { background: var(--color-surface); }
-}
 }

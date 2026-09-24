@@ -235,7 +235,18 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
     const fits = (gap: Interval, from: number) => Math.max(gap.start, from, earliest) + duration <= Math.min(gap.end, latest);
     const preferredGap = gaps.find(gap => fits(gap, preferred));
     const gap = preferredGap ?? gaps.find(gap => fits(gap, earliest));
-    if (!gap || !Number.isFinite(duration) || duration <= 0) { warnings.push({ item, reason: duration <= 0 ? 'duration' : !overdue && due < day.end ? 'deadline' : 'capacity' }); continue; }
+    if (!gap || !Number.isFinite(duration) || duration <= 0) {
+      // Overflow is a read-only calendar proposal, like an overdue block. It may
+      // overlap occupancy, but must still respect the active range and future Due.
+      const from = Math.max(earliest, +now >= day.start && +now < day.end ? Math.ceil(+now / 60_000) * 60_000 : day.start);
+      if (Number.isFinite(duration) && duration > 0 && from + duration <= latest) {
+        const start = Math.max(from, Math.min(preferred, latest - duration));
+        proposals.push({ item, start, end: start + duration, invalid: false, point: false, tentative: true, tentativeOverdue: true });
+        parallel.add(id);
+        if (savedOrder) lowerBound = start + duration;
+      } else warnings.push({ item, reason: duration <= 0 ? 'duration' : !overdue && due < day.end ? 'deadline' : 'capacity' });
+      continue;
+    }
     const start = Math.max(gap.start, earliest, preferredGap ? preferred : earliest), end = start + duration;
     proposals.push({ item, start, end, invalid: false, point: false, tentative: true, ...(overdue ? { tentativeOverdue: true } : {}) });
     if (start > gap.start) gaps.push({ start: gap.start, end: start });

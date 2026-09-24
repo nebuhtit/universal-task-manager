@@ -11,6 +11,9 @@ test('date-aware capture shows a compact day preview and selected calendar day',
   const preview = page.locator('.capture-dock .live-day-preview');
   await expect(preview).toBeVisible();
   const panel = page.locator('.capture-dock .live-text-panel');
+  expect(await panel.evaluate(element => getComputedStyle(element, '::before').backdropFilter)).toBe('blur(6px)');
+  await expect(page.locator('.capture-dock .quick-capture')).toHaveCSS('backdrop-filter', 'none');
+  await page.screenshot({ path: test.info().outputPath('capture-glass.png') });
   const body = page.locator('.capture-dock .live-text-panel-body');
   await body.evaluate(element => { element.scrollTop = element.scrollHeight; });
   const bounds = await panel.boundingBox(), previewBounds = await preview.boundingBox();

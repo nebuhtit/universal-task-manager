@@ -56,6 +56,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready(let url):
                 WebAppView(startURL: url)
+                    .ignoresSafeArea(.container)
             case .failed(let message):
                 ContentUnavailableView {
                     Label("Cannot open the app", systemImage: "exclamationmark.triangle")
