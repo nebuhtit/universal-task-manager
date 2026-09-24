@@ -149,18 +149,30 @@ test('reference conflict, queue, reload and unpin leave original items unchanged
 
 test('keyboard reorder shared with Timeline, two reset confirmations and off switch', async ({ page }) => {
   const { read } = await setup(page), before = (await read()).items;
+  const openReset = async () => {
+    const button = page.getByRole('button', { name: 'Reset day order', exact: true });
+    await button.evaluate(element => element.scrollIntoView({ block: 'center' }));
+    // A long Timeline ends near the fixed quick-add composer. Verify the actual
+    // hit target after sticky navigation and browser scroll anchoring settle.
+    await expect.poll(async () => button.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })).toBe(true);
+    await button.click();
+    await expect(page.getByRole('dialog', { name: 'Reset calendar order' })).toBeVisible();
+  };
   const handle = page.getByRole('button', { name: 'Reorder A task', exact: true });
   await handle.focus(); await handle.press('ArrowDown');
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   await expect(handle).toBeFocused();
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', /11:30–12:00/);
-  await page.getByRole('button', { name: 'Reset day order', exact: true }).click();
+  await openReset();
   const dialog = page.getByRole('dialog', { name: 'Reset calendar order' });
   await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await expect(dialog).toContainText('2026-09-24');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
-  await page.getByRole('button', { name: 'Reset day order', exact: true }).click(); await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await dialog.getByRole('button', { name: 'Confirm reset', exact: true }).click();
+  await openReset(); await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await dialog.getByRole('button', { name: 'Confirm reset', exact: true }).click();
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toBeUndefined();
   expect((await read()).items).toEqual(before);
   await navigate(page, 'Settings');
