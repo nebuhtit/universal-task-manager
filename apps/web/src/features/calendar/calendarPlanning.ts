@@ -142,6 +142,7 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
   const activeRanges = new Set(prepared.activeRange.map(item => item.id));
   for (const item of prepared.activeRange) tasks.set(item.id, item);
   const warnings: Array<{ item: UniversalItem; reason: string }> = [];
+  const parallel = new Set<string>();
   for (const { pin, item } of activeCalendarPins(workspace, key, now)) {
     if (naturallyOnDay(item, prepared, key)) continue;
     pins.set(item.id, pin);
@@ -151,8 +152,8 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
       const blocked = [...reservations, ...anchors.filter(event => event.item.external?.transparency !== 'transparent' || event.travel)];
       const due = dueBoundary(item, zone);
       if (interval && due > +now && interval.end > due) warnings.push({ item, reason: 'deadline' });
-      else if (!interval || interval.end > day.end || blocked.some(busy => intersects(busy, interval))) warnings.push({ item, reason: 'conflict' });
-      else { anchors.push(interval); visibleAnchors.push(interval); }
+      else if (!interval || interval.end > day.end || (pin.mode !== 'parallel' && blocked.some(busy => intersects(busy, interval)))) warnings.push({ item, reason: 'conflict' });
+      else { anchors.push(interval); visibleAnchors.push(interval); if (pin.mode === 'parallel') parallel.add(item.id); }
     }
   }
   // A fixed anchor appears once in ordering; its travel blocks still reserve time.
@@ -162,7 +163,6 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
   for (const item of [...prepared.allDay, ...prepared.activeRange]) all.set(item.id, item);
   for (const warning of warnings) all.set(warning.item.id, warning.item);
   const durations = new Map([...tasks].map(([id, item]) => [id, activeRanges.has(id) ? activeRangeDailyDuration(item, viewPeriodBoundsForDates(key, key, zone)) ?? 0 : effectiveItemDurationMs(item)]));
-  const parallel = new Set<string>();
   const parallelStarts = planningEnabled(workspace) && key >= calendarDateKey(now, zone) ? workspace.calendarPreferences.planning?.parallel?.[key] ?? {} : {};
   for (const [id, item] of tasks) {
     const value = parallelStarts[id];
@@ -217,6 +217,21 @@ export function buildCalendarPlan(workspace: WorkspaceDocument, key: string, pre
     const latest = Math.min(overdue ? day.end : due, nextAnchor?.start ?? day.end);
     // With no manual order, keep a due-only block close to its deadline when possible.
     const preferred = !savedOrder && Number.isFinite(due) && !overdue && !pins.has(id) ? due - duration : earliest;
+    // A deadline-only reference may sit over hidden reserve, but not over visible
+    // events or other queued work. Keep the original deadline and estimate intact.
+    const deadlineStart = due - duration;
+    if (!pins.has(id) && !item.schedule?.startAt && !item.schedule?.endAt && !item.schedule?.dueDateOnly &&
+        Number.isFinite(duration) && duration > 0 && !overdue && deadlineStart >= Math.max(earliest, +now, day.start) && due <= latest &&
+        ![...anchors, ...proposals].some(event => intersects(event, { start: deadlineStart, end: due }))) {
+      proposals.push({ item, start: deadlineStart, end: due, invalid: false, point: false, tentative: true });
+      // Reveal compressed hidden time without turning this into a persisted override.
+      parallel.add(id);
+      const remaining = gaps.flatMap(gap => !intersects(gap, { start: deadlineStart, end: due }) ? [gap] :
+        [{ start: gap.start, end: Math.min(gap.end, deadlineStart) }, { start: Math.max(gap.start, due), end: gap.end }].filter(part => part.end > part.start));
+      gaps.splice(0, gaps.length, ...remaining);
+      if (savedOrder) lowerBound = due;
+      continue;
+    }
     const fits = (gap: Interval, from: number) => Math.max(gap.start, from, earliest) + duration <= Math.min(gap.end, latest);
     const preferredGap = gaps.find(gap => fits(gap, preferred));
     const gap = preferredGap ?? gaps.find(gap => fits(gap, earliest));
@@ -268,7 +283,7 @@ export function calendarPlanMetricItems(plan: ReturnType<typeof buildCalendarPla
 }
 
 export const planningReason = (reason: string, ru: boolean) => ({
-  conflict: ru ? 'Это время занято событием, дорогой или скрытым резервом. Можно поставить в очередь.' : 'This time overlaps an event, travel or hidden reserve. Choose queue instead.',
+  conflict: ru ? 'Это время занято событием, дорогой или скрытым резервом. Выберите «Параллельно» или «В очередь».' : 'This time overlaps an event, travel or hidden reserve. Choose Parallel or Queue.',
   deadline: ru ? 'Размещение не помещается до Due.' : 'Placement does not fit before Due.',
   capacity: ru ? 'Нет свободного непрерывного окна. Item остаётся вне расписания.' : 'No continuous free slot. The item remains outside the schedule.',
   duration: ru ? 'Укажите Duration в исходном item.' : 'Set Duration on the source item.',

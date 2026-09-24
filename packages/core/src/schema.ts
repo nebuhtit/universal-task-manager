@@ -353,7 +353,7 @@ export const workspaceJsonSchema = {
           orders: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } },
           pins: { type: 'object', additionalProperties: { type: 'object', additionalProperties: false, required: ['itemId', 'day', 'mode'], properties: {
             itemId: { type: 'string' }, seriesId: { type: 'string' }, recurrenceId: { type: 'string' },
-            day: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, mode: { enum: ['same_time', 'queue'] },
+            day: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, mode: { enum: ['same_time', 'queue', 'parallel'] },
           } } },
         } },
         hideDuplicateItemsAcrossHomeViews: { type: 'boolean' },

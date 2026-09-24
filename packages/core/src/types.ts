@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '2.9.13';
-export const APP_RELEASED_AT = '2026-09-24T08:52:37.949Z';
+export const APP_VERSION = '2.9.14';
+export const APP_RELEASED_AT = '2026-09-24T13:23:58.532Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -638,7 +638,7 @@ export interface CalendarDayViewPreferences {
   sortSource?: string;
 }
 export interface CalendarSourceReference { itemId: string; seriesId?: string; recurrenceId?: string }
-export interface CalendarPin extends CalendarSourceReference { day: string; mode: 'same_time' | 'queue' }
+export interface CalendarPin extends CalendarSourceReference { day: string; mode: 'same_time' | 'queue' | 'parallel' }
 export interface CalendarPlanningPreferences {
   /** Missing means enabled. Disabling preserves the user's placements. */
   enabled?: boolean;

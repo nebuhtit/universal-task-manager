@@ -19,6 +19,29 @@ function fixture() {
 const pin = (item: UniversalItem, day: string, mode: 'queue' | 'same_time' = 'queue') => ({ ...sourceReference(item), day, mode });
 const ms = (hour: number) => Date.parse(at(hour));
 describe('calendar references and manual placement', () => {
+  it('pins the original interval in parallel without changing source data', () => {
+    const { w, event } = fixture();
+    event.schedule!.startAt = '2026-09-23T10:00:00Z'; event.schedule!.endAt = '2026-09-23T11:00:00Z';
+    const source = JSON.stringify(w.items);
+    setCalendarPin(w, { ...sourceReference(event), day, mode: 'parallel' });
+    const reserved = { ...event, id: 'work', schedule: { timezone: 'UTC', startAt: at(9), endAt: at(17) } };
+    const result = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [reserved]);
+    expect(result.parallel.has(event.id)).toBe(true);
+    expect(result.events.find(v => v.item.id === event.id)?.start).toBe(ms(10));
+    expect(result.events.find(v => v.item.id === event.id)?.end).toBe(ms(11));
+    expect(validateWorkspace(fromCanonicalJSON(toCanonicalJSON(w))).valid).toBe(true);
+    expect(JSON.stringify(w.items)).toBe(source);
+  });
+  it('places a due-only reference at its deadline over hidden reserve', () => {
+    const { w, task } = fixture(); delete w.items.event;
+    task.schedule!.dueAt = at(11);
+    const source = JSON.stringify(w.items);
+    const reserve = { ...task, id: 'work', schedule: { timezone: 'UTC', startAt: at(9), endAt: at(17) } };
+    const result = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [reserve]);
+    expect(result.proposals.find(v => v.item.id === task.id)?.start).toBe(ms(10));
+    expect(result.proposals.find(v => v.item.id === task.id)?.end).toBe(ms(11));
+    expect(JSON.stringify(w.items)).toBe(source);
+  });
   it('clears a pinned parallel placement when changing its day or unpinning', () => {
     const { w, task } = fixture(), source = JSON.stringify(w.items);
     setCalendarPin(w, pin(task, day));

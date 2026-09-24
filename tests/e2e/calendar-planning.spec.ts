@@ -125,6 +125,21 @@ test('parallel active-range reference remains visible inside compressed sleep in
   expect((await read()).items).toEqual(before);
 });
 
+test('conflicting same-time pin offers parallel without touching sources or Google', async ({ page }) => {
+  const { read } = await setup(page), before = (await read()).items;
+  const requests: string[] = []; page.on('request', req => { if (/googleapis.com\/calendar/.test(req.url())) requests.push(req.url()); });
+  await swipe(page, 'event');
+  const dialog = page.getByRole('dialog', { name: 'Calendar pin' });
+  await dialog.getByRole('button', { name: 'Tomorrow', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Same time', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Queue', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Parallel', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => (await read()).calendarPreferences.planning?.pins?.event?.mode).toBe('parallel');
+  expect((await read()).items).toEqual(before);
+  expect(requests).toEqual([]);
+});
+
 test('reference conflict, queue, reload and unpin leave original items unchanged', async ({ page }) => {
   const { read } = await setup(page), before = (await read()).items;
   const googleRequests: string[] = []; page.on('request', req => { if (/googleapis.com\/calendar/.test(req.url())) googleRequests.push(req.url()); });

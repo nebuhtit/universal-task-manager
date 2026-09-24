@@ -15,6 +15,7 @@ export function CalendarPinDialog({ workspace, target, onClose, commit, onFlush 
   const today = calendarDateKey(now, zone);
   const nextDay = (key: string) => new Date(Date.parse(`${key}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
   const [day, setDay] = useState<string | null>(null), [message, setMessage] = useState(''), [saving, setSaving] = useState(false);
+  const [conflict, setConflict] = useState(false);
   const item = resolveCalendarSource(workspace, target);
   const pin = workspace.calendarPreferences.planning?.pins?.[referenceKey(target)];
   const tomorrow = nextDay(today);
@@ -25,8 +26,8 @@ export function CalendarPinDialog({ workspace, target, onClose, commit, onFlush 
     try { if (commit('Calendar reference', action) === false) throw new Error(ru ? 'Не удалось сохранить закрепление.' : 'Could not save the reference.'); await onFlush(); onClose(); }
     catch (error) { setMessage(String(error)); } finally { setSaving(false); }
   };
-  const choose = (key: string, mode?: 'same_time' | 'queue') => {
-    setMessage(''); setDay(key);
+  const choose = (key: string, mode?: 'same_time' | 'queue' | 'parallel') => {
+    setMessage(''); setDay(key); setConflict(false);
     if (!item || item.state !== 'open') { setMessage(ru ? 'Исходный item удалён или завершён.' : 'The source was deleted or completed.'); return; }
     if (item.role === 'series_template') { setMessage(ru ? 'Откройте конкретное повторение в календаре, чтобы закрепить его, а не всю серию.' : 'Open a specific calendar occurrence to pin it, not the series.'); return; }
     const prepared = prepareTimelineData(workspace, key, now);
@@ -38,7 +39,7 @@ export function CalendarPinDialog({ workspace, target, onClose, commit, onFlush 
     const evaluation = evaluateCalendarRange(workspace, key, nextDay(key), workspace.calendarPreferences.dayView, now);
     const result = buildCalendarPlan(candidate, key, prepared, now, evaluation.days[key]?.reservedItems ?? []);
     const issue = result.warnings.find(warning => warning.item.id === item.id);
-    if (mode === 'same_time' && issue) { setMessage(planningReason(issue.reason, ru)); return; }
+    if (mode !== 'queue' && issue) { setConflict(issue.reason === 'conflict'); setMessage(planningReason(issue.reason, ru)); return; }
     void save(draft => setCalendarPin(draft, value));
   };
   return <ResponsiveDialog open onOpenChange={open => { if (!open && !saving) onClose(); }} title={ru ? 'Временно в календарь' : 'Temporary calendar reference'} ariaLabel="Calendar pin" footer={<Button disabled={saving} onClick={onClose}>{ru ? 'Закрыть' : 'Close'}</Button>}>
@@ -48,5 +49,6 @@ export function CalendarPinDialog({ workspace, target, onClose, commit, onFlush 
     {onToday && onTomorrow && <p className="hint">{ru ? 'Item уже присутствует сегодня и завтра.' : 'This item is already present today and tomorrow.'}</p>}
     {day && item?.schedule?.startAt && <div className="calendar-pin-actions"><span>{day}</span><Button disabled={saving} onClick={() => choose(day, 'same_time')}>{ru ? 'На то же время' : 'Same time'}</Button><Button disabled={saving} onClick={() => choose(day, 'queue')}>{ru ? 'В очередь' : 'Queue'}</Button></div>}
     {message && <p role="status">{message}</p>}
+    {conflict && day && <Button disabled={saving} onClick={() => choose(day, 'parallel')}>{ru ? 'Параллельно' : 'Parallel'}</Button>}
   </ResponsiveDialog>;
 }
