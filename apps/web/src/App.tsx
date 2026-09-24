@@ -1,4 +1,5 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
+import { NativeBackupGate } from './services/nativeBackupGate';
 import { planningEnabled } from './features/calendar/calendarPlanning';
 import { weatherService } from './features/weather/weatherService';
 import { createWorkspaceSaveService } from './services/workspaceSaveService';
@@ -88,7 +89,8 @@ const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date())
   return item;
 };
 const safeFilename = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'universal';
-const downloadText = (content: string, filename: string, type = 'application/json') => {
+const downloadText = async (content: string, filename: string, type = 'application/json') => {
+  if (isNativeICloudBackupAvailable()) return writeNativeICloudBackup(content, filename, 'files');
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
@@ -103,7 +105,7 @@ const exportSafeDiagnostics = () => [...readStartupLog().map((entry) => ({ at: e
     ? { ...entry, details }
     : entry;
 })];
-const downloadDiagnosticsFile = () => downloadText(JSON.stringify(exportSafeDiagnostics(), null, 2), 'utm-diagnostics.json');
+const downloadDiagnosticsFile = () => downloadText(JSON.stringify(exportSafeDiagnostics(), null, 2), 'utm-diagnostics.json').catch(reason => window.alert(String(reason)));
 const downloadOfflineRecoveryKit = async () => {
   const module = document.querySelector<HTMLScriptElement>('script[type="module"][src]');
   if (!module?.src || module.src.includes('/src/')) throw new Error('Build the production app before downloading the offline recovery kit');
@@ -113,7 +115,7 @@ const downloadOfflineRecoveryKit = async () => {
     ...styles.map((link) => fetch(link.href, { cache: 'no-store' }).then((response) => { if (!response.ok) throw new Error('Cannot download recovery styles'); return response.text(); })),
   ]);
   const html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Universal offline recovery kit v${APP_VERSION}</title><style>${css.join('\n')}</style></head><body><div id="root"></div><script>window.__UTM_OFFLINE_RECOVERY_KIT__=true;</script><script type="module">${javascript.replace(/<\/script/gi, '<\\/script')}</script></body></html>`;
-  downloadText(html, `universal-offline-recovery-kit-v${APP_VERSION}.html`, 'text/html;charset=utf-8');
+  await downloadText(html, `universal-offline-recovery-kit-v${APP_VERSION}.html`, 'text/html;charset=utf-8');
 };
 const downloadLockedRecoveryCopy = async (source?: string, filenamePrefix = 'universal-locked-recovery') => {
   const recovery = JSON.parse(source ?? await exportEncryptedLocalBackup()) as Record<string, unknown>;
@@ -124,7 +126,7 @@ const downloadLockedRecoveryCopy = async (source?: string, filenamePrefix = 'uni
   // Keep the release and schema visible in Files so several recovery copies
   // cannot be confused during an incident.
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', 'Z');
-  downloadText(JSON.stringify(recovery), `${filenamePrefix}-utm-v${APP_VERSION}-schema-${SCHEMA_VERSION}-${stamp}.utmb`, 'application/octet-stream');
+  await downloadText(JSON.stringify(recovery), `${filenamePrefix}-utm-v${APP_VERSION}-schema-${SCHEMA_VERSION}-${stamp}.utmb`, 'application/octet-stream');
 };
 const downloadBlob = (content: BlobPart, filename: string, type: string) => {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -136,12 +138,12 @@ type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const packageForItems = (workspace: WorkspaceDocument, items: UniversalItem[], selection: PortableSelection) => createPortablePackage(workspace, { kind: 'items', items: collectItemDependencies(workspace, items), selection });
 const exportPortable = async (workspace: WorkspaceDocument, portable: ReturnType<typeof createPortablePackage>, filename: string, format: PortableFormat, metadata = false): Promise<void> => {
   if (!confirmPlaintextDownload(`This ${format.toUpperCase()} export is readable plaintext and may contain private item data. Download it now?`)) return;
-  if (format === 'json') { downloadText(serializePortablePackage(portable), `${filename}.json`); return; }
+  if (format === 'json') { await downloadText(serializePortablePackage(portable), `${filename}.json`); return; }
   // Keep the canonical item column in readable tabular exports. The friendly
   // columns remain first for people; this final metadata column makes CSV and
   // Excel round-trips lossless for scripts, recurrence, reminders and future
   // universal fields that a flat table cannot otherwise represent.
-  if (format === 'csv') { const data = packageToTabular(portable); const columns = [...new Set(data.items.flatMap((row) => Object.keys(row)))]; downloadText(toCsv(data.items, columns), `${filename}.csv`, 'text/csv;charset=utf-8'); return; }
+  if (format === 'csv') { const data = packageToTabular(portable); const columns = [...new Set(data.items.flatMap((row) => Object.keys(row)))]; await downloadText(toCsv(data.items, columns), `${filename}.csv`, 'text/csv;charset=utf-8'); return; }
   if (format === 'xlsx') {
     const XLSX = await import('xlsx');
     const data = packageToTabular(portable); const book = XLSX.utils.book_new();
@@ -157,7 +159,7 @@ const exportPortable = async (workspace: WorkspaceDocument, portable: ReturnType
   }
   const clone = clean(workspace); clone.items = Object.fromEntries(portable.items.map((item) => [item.id, item]));
   const exported = toICS(clone, { includeUtmMetadata: metadata });
-  downloadText(exported.ics, `${filename}${metadata ? '-utm' : ''}.ics`, 'text/calendar;charset=utf-8');
+  await downloadText(exported.ics, `${filename}${metadata ? '-utm' : ''}.ics`, 'text/calendar;charset=utf-8');
 };
 
 const exportSavedView = (workspace: WorkspaceDocument, view: SavedView, mode: 'definition' | 'results' | 'bundle', format: PortableFormat = 'json', metadata = false): Promise<void> => {
@@ -200,7 +202,8 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [interrupted] = useState(interruptedStartup);
-  const [safeEntry, setSafeEntry] = useState(interrupted);
+  // A terminated iOS process is not evidence of corrupt data. Recovery is opt-in.
+  const [safeEntry, setSafeEntry] = useState(false);
   const [unconfirmedSave] = useState(() => { try { return Boolean(localStorage.getItem(PENDING_SAVE_KEY)); } catch { return false; } });
   const [plaintext, setPlaintext] = useState(false);
   useEffect(() => { if (exists) void localWorkspaceMode().then((mode) => setPlaintext(mode === 'plaintext')); }, [exists]);
@@ -324,7 +327,7 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
   };
 
   useEffect(() => {
-    if (!exists || interrupted || safeEntry || faceId !== 'configured' || faceIdAttempted.current || selectedBackup || decryptFile) return;
+    if (!exists || safeEntry || faceId !== 'configured' || faceIdAttempted.current || selectedBackup || decryptFile) return;
     faceIdAttempted.current = true;
     void unlockWithFaceId();
   }, [decryptFile, exists, faceId, selectedBackup]);
@@ -345,7 +348,7 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
     setDecryptBusy(true); setDecryptError('');
     try {
       const readable = await decryptWorkspaceFile(await readEncryptedBackup(decryptFile), decryptPassword);
-      downloadText(JSON.stringify(readable, null, 2), `${safeFilename(decryptFile.name.replace(/\.[^.]+$/, ''))}-readable.json`, 'application/json;charset=utf-8');
+      await downloadText(JSON.stringify(readable, null, 2), `${safeFilename(decryptFile.name.replace(/\.[^.]+$/, ''))}-readable.json`, 'application/json;charset=utf-8');
       recordDiagnostic({ kind: 'result', message: 'External encrypted workspace decrypted to readable JSON', operation: 'Decrypt workspace file', outcome: 'succeeded' });
     } catch (reason) {
       recordDiagnostic({ kind: 'error', message: 'External workspace decryption failed', operation: 'Decrypt workspace file', outcome: 'failed', details: diagnosticFailureCode(reason) });
@@ -372,8 +375,8 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
             <p role="status">{safeEntry ? 'Сейчас выбран безопасный просмотр. Для обычного входа снимите галочку выше.' : 'Сейчас выбран обычный вход. Нажмите Unlock, чтобы попробовать открыть workspace.'}</p>
           </div></>}
         {!exists && <label>{selectedBackup ? 'Backup file' : 'Workspace name'}<input value={selectedBackup ? selectedBackup.name : name} readOnly={Boolean(selectedBackup)} onChange={(event) => setName(event.target.value)} required /></label>}
-        {(selectedBackup || (!plaintext && !(!exists && unencryptedTestWorkspace))) && <label>{selectedBackup ? 'Backup password' : 'Password'}<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>}
-        {!exists && !selectedBackup && !unencryptedTestWorkspace && <label>Confirm password<input type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
+        {(selectedBackup || (!plaintext && !(!exists && unencryptedTestWorkspace))) && <label>{selectedBackup ? 'Backup password' : 'Password'}<input id="workspace-password" name="password" type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>}
+        {!exists && !selectedBackup && !unencryptedTestWorkspace && <label>Confirm password<input name="confirm-password" autoComplete="new-password" type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
         {!exists && !selectedBackup && <label className="check"><input type="checkbox" checked={unencryptedTestWorkspace} onChange={(event) => { setUnencryptedTestWorkspace(event.target.checked); setError(''); }} />Create a local test workspace without password or encryption</label>}
         {!exists && unencryptedTestWorkspace && <p className="error" role="alert">Test mode: anyone with access to this browser profile can read these items. Do not use it for personal data, and do not rely on it as a backup.</p>}
         {error && <p className="error" role="alert">{error}</p>}
@@ -461,6 +464,16 @@ const compareVersions = (left: string, right: string) => {
 };
 
 function RecoveryShell({ session, reason, onRetry, backupPreview = false }: { session: UnlockedWorkspace | undefined; reason: string; onRetry?: () => void; backupPreview?: boolean | undefined }) {
+  const [exportError, setExportError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const saveRecovery = async () => {
+    setExportError(''); setExporting(true);
+    try {
+      if (session?.storageMode === 'plaintext') await downloadText(JSON.stringify(session.document), 'universal-plaintext-recovery.json');
+      else await downloadLockedRecoveryCopy();
+    } catch (error) { setExportError(error instanceof Error ? error.message : String(error)); }
+    finally { setExporting(false); }
+  };
   useEffect(() => {
     if (!session) return;
     const timer = window.setTimeout(finishStartup, 10_000);
@@ -473,10 +486,11 @@ function RecoveryShell({ session, reason, onRetry, backupPreview = false }: { se
     <p role="status">{reason}</p>
     <p>Recurrence, scripts, automations, reminders, push and saved filters are disabled in this mode.</p>
     <div className="settings-actions">
-      {!backupPreview && session?.storageMode !== 'plaintext' && <Button onClick={() => void downloadLockedRecoveryCopy()}>Download encrypted workspace + log</Button>}
+      {!backupPreview && <Button disabled={exporting} onClick={() => void saveRecovery()}>{session?.storageMode === 'plaintext' ? 'Save plaintext recovery copy' : 'Download encrypted workspace + log'}</Button>}
       <Button onClick={downloadDiagnosticsFile}>Download log</Button>
       {onRetry && <Button onClick={onRetry}>Вернуться к выбору открытия</Button>}
     </div>
+    {exportError && <p role="alert" className="error">{exportError}</p>}
     {items.length > 0 && <section><h2>Readable items ({items.length})</h2><p>Показаны первые 200 записей; остальные данные не изменены.</p><div className="rule-list">
       {items.slice(0, 200).map((item) => <article className="rule-card" key={String(item.id)}><strong>{typeof item.title === 'string' ? item.title : 'Untitled item'}</strong><small>{typeof item.state === 'string' ? item.state : 'unknown'}</small>{typeof item.bodyMarkdown === 'string' && item.bodyMarkdown && <p>{item.bodyMarkdown.slice(0, 240)}</p>}</article>)}
     </div></section>}
@@ -734,19 +748,26 @@ export default function App() {
     window.addEventListener('utm-open-item', openHostItem);
     return () => window.removeEventListener('utm-open-item', openHostItem);
   }, [workspace]);
-  const iCloudBackupSignature = useRef<string | null>(null);
+  const iCloudBackupGate = useRef(new NativeBackupGate());
   const nativeReminderSignature = useRef<string | null>(null);
   useEffect(() => {
     if (!workspace || !session || session.storageMode !== 'encrypted' || !isNativeICloudBackupAvailable()) return;
     const signature = `${workspace.workspaceId}:${workspace.updatedAt}`;
-    if (iCloudBackupSignature.current === signature) return;
+    if (!iCloudBackupGate.current.canStart(signature)) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
+      // Claim only when work actually starts. Diagnostics rerenders must not retry failures.
+      if (!iCloudBackupGate.current.start(signature)) return;
+      let failed = false;
       void flushPersistence()
         .then(() => exportEncryptedLocalBackup())
         .then((source) => writeNativeICloudBackup(source, `${safeFilename(workspace.name)}.utmb`))
-        .then(() => { if (!cancelled) { iCloudBackupSignature.current = signature; recordDiagnostic({ kind: 'result', operation: 'iCloud backup', outcome: 'succeeded', message: 'Encrypted recovery backup saved to iCloud' }); } })
-        .catch((reason) => { if (!cancelled) recordDiagnostic({ kind: 'error', operation: 'iCloud backup', outcome: 'failed', message: reason instanceof Error ? reason.message : String(reason) }); });
+        .then(() => { if (!cancelled) recordDiagnostic({ kind: 'result', operation: 'iCloud backup', outcome: 'succeeded', message: 'Encrypted recovery backup saved to iCloud' }); })
+        .catch((reason) => {
+          failed = true;
+          recordDiagnostic({ kind: 'error', operation: 'iCloud backup', outcome: 'failed', message: reason instanceof Error ? reason.message : String(reason) });
+        })
+        .finally(() => { iCloudBackupGate.current.finish(failed); });
     }, 1_500);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [flushPersistence, session, workspace]);
@@ -787,12 +808,12 @@ export default function App() {
           const source = await exportContainer(session.document, password);
           const filename = `${safeFilename(workspace.name)}-encrypted-backup-${stamp}.utmb`;
           if (isNativeICloudBackupAvailable()) await writeNativeICloudBackup(source, filename, 'files');
-          else downloadText(source, filename, 'application/octet-stream');
+          else await downloadText(source, filename, 'application/octet-stream');
           savedEncrypted = true;
         } else {
           const source = toCanonicalJSON(workspaceForExport(workspace), true), filename = `${safeFilename(workspace.name)}-plaintext-backup-${stamp}.json`;
           if (isNativeICloudBackupAvailable()) await writeNativeICloudBackup(source, filename, 'files');
-          else downloadText(source, filename);
+          else await downloadText(source, filename);
         }
       } else {
         if (isNativeICloudBackupAvailable()) await writeNativeICloudBackup(await exportEncryptedLocalBackup(), `${safeFilename(workspace.name)}.utmb`, 'files');

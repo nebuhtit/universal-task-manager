@@ -1,5 +1,6 @@
 import type { GoogleCalendarDefinition, GoogleCalendarEvent, GoogleCalendarPreferences, GoogleCalendarSyncBatch } from '@utm/core';
 import { googleHistoryKey } from './googleHistoryKey';
+import { authorizeNativeGoogle, isNativeGoogleAuthAvailable } from './nativeGoogleAuth';
 
 const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
 const GOOGLE_SCRIPT_TIMEOUT_MS = 20_000;
@@ -52,9 +53,18 @@ function loadGoogleIdentityServices(): Promise<void> {
 }
 
 export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIENT_ID, access: 'read' | 'create' = 'read'): Promise<{ accessToken: string; expiresAt: number }> {
-  if (!clientId) throw new Error('Google Calendar is not configured for this build. Add VITE_GOOGLE_CLIENT_ID.');
+  const native = isNativeGoogleAuthAvailable();
+  if (!clientId && !native) throw new Error('Google Calendar is not configured for this build. Add VITE_GOOGLE_CLIENT_ID.');
   const scopes = access === 'create' ? GOOGLE_WRITE_SCOPES : [GOOGLE_SCOPE];
   if (cachedGoogleCalendarToken && cachedGoogleCalendarToken.expiresAt > Date.now() + 60_000 && scopes.every((scope) => cachedScopes.has(scope))) return cachedGoogleCalendarToken;
+  if (native) {
+    const result = await authorizeNativeGoogle(scopes);
+    const granted = new Set(result.scope.split(/\s+/));
+    if (!scopes.every(scope => granted.has(scope))) throw new Error('Google Calendar permission was not granted.');
+    cachedScopes = granted;
+    cachedGoogleCalendarToken = { accessToken: result.accessToken, expiresAt: Date.now() + Math.max(60, result.expiresIn) * 1000 };
+    return cachedGoogleCalendarToken;
+  }
   await loadGoogleIdentityServices();
   return new Promise((resolve, reject) => {
     const oauth2 = window.google?.accounts?.oauth2;

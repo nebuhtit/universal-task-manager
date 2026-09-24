@@ -51,7 +51,7 @@ final class NativeBackupBridge: NSObject, WKScriptMessageHandler, UIDocumentPick
         }
     }
 
-    private func showExport(id: String, url: URL) {
+    func showExport(id: String, url: URL) {
         guard exporting == nil, let presenter = webView?.window?.rootViewController else {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
             sendStatus(id: id, error: "Another file picker is already open.")

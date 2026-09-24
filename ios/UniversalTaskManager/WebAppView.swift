@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
 import WebKit
+import AuthenticationServices
+import CryptoKit
 
 struct WebAppView: UIViewRepresentable {
     let startURL: URL
@@ -13,6 +15,7 @@ struct WebAppView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(context.coordinator.backupBridge, name: "utmNativeBackup")
         configuration.userContentController.add(context.coordinator.reminderBridge, name: "utmNativeReminders")
+        configuration.userContentController.add(context.coordinator.googleBridge, name: "utmNativeGoogleAuth")
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.allowsInlineMediaPlayback = true
@@ -20,6 +23,7 @@ struct WebAppView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.backupBridge.webView = webView
         context.coordinator.reminderBridge.webView = webView
+        context.coordinator.googleBridge.webView = webView
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -31,10 +35,68 @@ struct WebAppView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
         var localOrigin: URL
         let backupBridge = NativeBackupBridge()
         let reminderBridge = NativeReminderBridge()
+        let googleBridge = NativeGoogleAuthBridge()
+        private var downloads: [ObjectIdentifier: URL] = [:]
+
+        private func presenter(_ webView: WKWebView) -> UIViewController? {
+            var controller = webView.window?.rootViewController
+            while let next = controller?.presentedViewController { controller = next }
+            return controller
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+            guard let host = presenter(webView) else { completionHandler(); return }
+            let alert = UIAlertController(title: "Universal", message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler() })
+            host.present(alert, animated: true)
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+            guard let host = presenter(webView) else { completionHandler(false); return }
+            let alert = UIAlertController(title: "Universal", message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(false) })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
+            host.present(alert, animated: true)
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+            guard let host = presenter(webView) else { completionHandler(nil); return }
+            let alert = UIAlertController(title: "Universal", message: prompt, preferredStyle: .alert)
+            alert.addTextField { field in
+                field.text = defaultText
+                field.isSecureTextEntry = prompt.lowercased().contains("password") || prompt.lowercased().contains("парол")
+                field.textContentType = field.isSecureTextEntry ? .password : nil
+            }
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(nil) })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(alert.textFields?.first?.text) })
+            host.present(alert, animated: true)
+        }
+
+        func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { download.delegate = self }
+        func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { download.delegate = self }
+        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+        }
+        func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let url = directory.appendingPathComponent(URL(fileURLWithPath: suggestedFilename).lastPathComponent)
+                downloads[ObjectIdentifier(download)] = url
+                completionHandler(url)
+            } catch { completionHandler(nil) }
+        }
+        func downloadDidFinish(_ download: WKDownload) {
+            guard let url = downloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
+            backupBridge.showExport(id: UUID().uuidString, url: url)
+        }
+        func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+            if let url = downloads.removeValue(forKey: ObjectIdentifier(download)) { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        }
 
         init(localOrigin: URL) {
             self.localOrigin = localOrigin
@@ -50,8 +112,10 @@ struct WebAppView: UIViewRepresentable {
                 return
             }
 
+            if navigationAction.shouldPerformDownload { decisionHandler(.download); return }
+
             let isLocal = url.host == localOrigin.host && url.port == localOrigin.port
-            if isLocal || url.scheme == "about" || url.scheme == "blob" {
+            if isLocal || url.scheme == "about" {
                 decisionHandler(.allow)
                 return
             }
@@ -77,6 +141,73 @@ struct WebAppView: UIViewRepresentable {
                 UIApplication.shared.open(url)
             }
             return nil
+        }
+    }
+}
+
+final class NativeGoogleAuthBridge: NSObject, WKScriptMessageHandler, ASWebAuthenticationPresentationContextProviding {
+    weak var webView: WKWebView?
+    private var session: ASWebAuthenticationSession?
+    private var activeRequestID: String?
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        webView?.window ?? ASPresentationAnchor()
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let payload = message.body as? [String: Any], let id = payload["id"] as? String else { return }
+        guard session == nil else { reply(id, error: "Google sign-in is already open."); return }
+        let client = (Bundle.main.object(forInfoDictionaryKey: "UTMGoogleIOSClientID") as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard client.hasSuffix(".apps.googleusercontent.com"), !client.contains("$(") else {
+            reply(id, error: "Set GOOGLE_IOS_CLIENT_ID and GOOGLE_IOS_REVERSED_CLIENT_ID in Xcode using an OAuth client of type iOS for this Bundle ID. The website client cannot authorize the offline iOS app.")
+            return
+        }
+        let scheme = client.components(separatedBy: ".").reversed().joined(separator: ".")
+        let registered = (Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []).flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+        guard registered.contains(scheme) else { reply(id, error: "GOOGLE_IOS_REVERSED_CLIENT_ID does not match the iOS OAuth client."); return }
+        let allowed = Set(["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly"])
+        guard let scopes = payload["scopes"] as? [String], !scopes.isEmpty, Set(scopes).isSubset(of: allowed) else { reply(id, error: "Invalid Calendar scopes."); return }
+        let state = UUID().uuidString
+        let verifier = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        let redirect = "\(scheme):/oauthredirect"
+        var url = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
+        url.queryItems = ["client_id": client, "redirect_uri": redirect, "response_type": "code", "scope": scopes.joined(separator: " "), "state": state, "code_challenge": challenge, "code_challenge_method": "S256"].map { URLQueryItem(name: $0.key, value: $0.value) }
+        let auth = ASWebAuthenticationSession(url: url.url!, callbackURLScheme: scheme) { [weak self] callback, error in
+            guard let self else { return }
+            guard let callback, error == nil, let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false), parts.queryItems?.first(where: { $0.name == "state" })?.value == state,
+                  let code = parts.queryItems?.first(where: { $0.name == "code" })?.value else {
+                self.reply(id, error: "Google sign-in was cancelled or its response was invalid."); return
+            }
+            var form = URLComponents()
+            form.queryItems = ["client_id": client, "redirect_uri": redirect, "code": code, "code_verifier": verifier, "grant_type": "authorization_code"].map { URLQueryItem(name: $0.key, value: $0.value) }
+            var request = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!, timeoutInterval: 30)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = form.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200, let data,
+                      let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let token = result["access_token"] as? String else {
+                    self.reply(id, error: "Google token exchange failed. Check the iOS OAuth client configuration."); return
+                }
+                self.reply(id, values: ["accessToken": token, "expiresIn": result["expires_in"] ?? 3600, "scope": result["scope"] ?? ""])
+            }.resume()
+        }
+        auth.presentationContextProvider = self
+        activeRequestID = id
+        session = auth
+        if !auth.start() { reply(id, error: "Could not open Google sign-in.") }
+    }
+
+    private func reply(_ id: String, values: [String: Any] = [:], error: String? = nil) {
+        var result = values
+        result["id"] = id
+        result["ok"] = error == nil
+        if let error { result["error"] = error }
+        guard let data = try? JSONSerialization.data(withJSONObject: result), let json = String(data: data, encoding: .utf8) else { return }
+        DispatchQueue.main.async {
+            if self.activeRequestID == id { self.session = nil; self.activeRequestID = nil }
+            self.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('utm-native-google-status', {detail: \(json)}));")
         }
     }
 }

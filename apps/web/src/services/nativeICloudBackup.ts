@@ -1,4 +1,4 @@
-type NativeMessage = { id: string; kind: 'backup.begin' | 'backup.chunk' | 'backup.end' | 'backup.import'; [key: string]: unknown };
+type NativeMessage = { id: string; kind: string; [key: string]: unknown };
 type NativeStatus = { id: string; ok: boolean; error?: string };
 
 const handlerName = 'utmNativeBackup';

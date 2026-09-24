@@ -89,7 +89,12 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       const top = parseFloat(getComputedStyle(title).top) + title.getBoundingClientRect().height;
       // Do not move a pressed card between pointerdown and click as the
       // navigator collapses after scrolling (especially on touch WebKit).
-      if (!pointerActive) setCompactNavigator(start.getBoundingClientRect().top < top);
+      // Hysteresis prevents subpixel/iOS rubber-band scroll from repeatedly
+      // expanding and collapsing at the sticky boundary.
+      if (!pointerActive) {
+        const distance = start.getBoundingClientRect().top - top;
+        setCompactNavigator(current => current ? distance < 4 : distance < -4);
+      }
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
     const pointerStart = () => { window.clearTimeout(releaseTimer); pointerActive = true; };

@@ -83,5 +83,35 @@ acknowledged, unresolved, deleted, and inactive reminders. The nearest 60 are
 scheduled; every workspace change replaces the app-owned pending set.
 Accelerated test-clock reminders remain in-app and never create real alarms.
 
-Local reminders need no Push Notifications capability or server. Google OAuth
-through `ASWebAuthenticationSession` remains a separate next stage.
+Local reminders need no Push Notifications capability or server.
+
+## Native Google Calendar setup
+
+The app serves the bundled WebApp folder offline at a stable localhost origin;
+it does not load the GitHub Pages website. Do not change that origin: existing
+encrypted browser storage belongs to it.
+
+Google's web OAuth client cannot authorize this native origin. In Google Cloud,
+create an OAuth client of type **iOS**, with bundle ID
+`dev.universal-task-manager.ios`. In both Xcode target build configurations set:
+
+- `GOOGLE_IOS_CLIENT_ID`: the public client ID ending in `.apps.googleusercontent.com`.
+- `GOOGLE_IOS_REVERSED_CLIENT_ID`: its reversed dot-separated components (Google's iOS URL scheme).
+
+Rebuild and run. Native sign-in uses ASWebAuthenticationSession and authorization
+code + PKCE. No client secret is embedded. Without this configuration the app
+shows a setup error instead of launching the incompatible web sign-in flow.
+Real-account consent and Calendar sync still require device testing after setup.
+
+## Recovery and Password AutoFill
+
+Native text exports (including diagnostics) use the system Files picker, keeping
+the application screen intact. Unavailable automatic iCloud backup is throttled:
+the same snapshot is not retried and changed snapshots wait at least five minutes
+after a failure. Manual Files export is independent of the iCloud entitlement.
+
+Password inputs expose current/new-password autofill hints. Automatic association
+with credentials saved for the website additionally requires Apple's Associated
+Domains entitlement and a matching apple-app-site-association file on a controlled
+HTTPS domain. HTML hints alone do not associate localhost with GitHub Pages;
+select an existing credential manually from Passwords when needed.

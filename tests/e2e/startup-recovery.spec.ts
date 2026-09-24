@@ -1,5 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
 
+test('force-close marker does not block automatic plaintext workspace opening', async ({ page }) => {
+  await page.goto(process.env.UTM_TEST_URL ?? '/');
+  await page.getByRole('checkbox', { name: 'Create a local test workspace without password or encryption' }).check();
+  await page.getByRole('button', { name: 'Create unencrypted test workspace' }).click();
+  await expect(page.getByPlaceholder('Add new item')).toBeVisible();
+  await page.evaluate(() => {
+    localStorage.setItem('utm:startup-last-pending:v1', crypto.randomUUID());
+    sessionStorage.setItem('utm:startup-pending:v1', '1');
+  });
+  await page.reload();
+  await expect(page.getByPlaceholder('Add new item')).toBeVisible();
+  await expect(page.getByText('SAFE RECOVERY MODE', { exact: true })).toHaveCount(0);
+});
+
 async function storedRecords(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -33,10 +47,8 @@ test('interrupted startup offers read-only recovery and backup comparison withou
   await page.evaluate(() => sessionStorage.setItem('utm:startup-pending:v1', '1'));
   await page.reload();
   const safe = page.getByRole('checkbox', { name: /Безопасное открытие/ });
-  await expect(safe).toBeChecked();
+  await expect(safe).not.toBeChecked();
   await expect(page.getByText('Как войти как обычно:', { exact: true })).toBeVisible();
-  await expect(page.getByText('Сейчас выбран безопасный просмотр.', { exact: false })).toBeVisible();
-  await safe.uncheck();
   await expect(page.getByText('Сейчас выбран обычный вход.', { exact: false })).toBeVisible();
   await safe.check();
   await page.getByText('Help', { exact: true }).click();

@@ -12,7 +12,7 @@ import {
 } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
 import { diagnosticFailureCode, googleCalendarFailureDetails, recordDiagnostic } from '../services/diagnostics';
-import { beginStartup, failStartup, finishStartup, interruptedStartup, startupCheckpoint } from '../services/startupDiagnostics';
+import { beginStartup, failStartup, finishStartup, startupCheckpoint } from '../services/startupDiagnostics';
 import { acquireWorkspaceWriter, releaseWorkspaceWriter, markPendingSave, clearPendingSave } from '../services/workspaceWriter';
 import { clockService } from '../services/clockService';
 import { getWorkspaceIndex } from '../services/workspaceIndex';
@@ -57,7 +57,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   useEffect(() => {
     void localWorkspaceMode().then(async (mode) => {
       if (!mode) { setBoot('empty'); return; }
-      if (interruptedStartup()) { setBoot('locked'); return; }
+      // Pending markers survive force-close and are diagnostic, not proof of failure.
+      // Try normal opening; the existing catch paths retain recovery on real errors.
       if (mode === 'plaintext') {
         beginStartup('automatic');
         setPasswordProtection('plaintext');

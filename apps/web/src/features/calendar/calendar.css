@@ -1,4 +1,6 @@
 .calendar-page {
+  /* Collapsing the navigator must not re-anchor scroll to the rows below it. */
+  overflow-anchor: none;
   max-width: 920px;
   padding-top: var(--space-5);
 }
