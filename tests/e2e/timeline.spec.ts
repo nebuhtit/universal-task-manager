@@ -1,9 +1,15 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Locator } from '@playwright/test';
 import * as Automerge from '@automerge/automerge';
 import { createWorkspace, createItem, createOccurrence } from '../../packages/core/dist/index.js';
 import { createAutomergeDocument, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
 
 const password = 'timeline-fixture-test-only';
+// The fixture uses Playwright's clock. Flush its animation frames after
+// scrolling so the sticky navigator settles before a real pointer click.
+async function centerStableControl(control: Locator) {
+  await control.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await control.page().clock.runFor(250);
+}
 const now = new Date('2026-09-22T12:00:00Z');
 async function setup(page: Page, filter = 'true', quickSource = false) {
   const w = createWorkspace('Timeline', now); w.calendarPreferences.timezone = 'UTC';
@@ -256,7 +262,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(tentative).toHaveCount(0);
   const showUndated = page.locator('.timeline-toolbar').getByRole('button', { name: /^No date/ });
   await expect(showUndated).toHaveAttribute('aria-pressed', 'false');
-  await showUndated.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await centerStableControl(showUndated);
   await showUndated.click();
   await expect(showUndated).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
@@ -313,12 +319,12 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   const listUndated = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^No date/ });
   await expect(listUndated).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.calendar-no-date')).toContainText('Undated sentinel');
-  await listUndated.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await centerStableControl(listUndated);
   await listUndated.click(); await expect(page.locator('.calendar-no-date')).toHaveCount(0);
   await expect(listUndated).toHaveAttribute('aria-pressed', 'false');
   // Removing the section changes scroll anchoring. Center the control again
   // before the second pointer action so sticky navigation can settle.
-  await listUndated.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await centerStableControl(listUndated);
   await listUndated.click(); await expect(listUndated).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.calendar-no-date')).toContainText('Undated sentinel');
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true');
