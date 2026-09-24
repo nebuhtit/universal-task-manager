@@ -4,6 +4,7 @@ import { createWorkspace, createItem, type WorkspaceDocument } from '../../packa
 import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
 
 const password = 'calendar-planning-fixture';
+test.use({ trace: 'retain-on-failure', screenshot: 'only-on-failure' });
 const now = new Date('2026-09-24T08:00:00Z');
 async function setup(page: Page, conflict = true, customize?: (workspace: WorkspaceDocument) => void) {
   const w = createWorkspace('Planning', now); w.calendarPreferences.timezone = 'UTC';
@@ -215,6 +216,7 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   // Keep the drop point away from the fixed quick-add composer. Font metrics on
   // Linux can leave the bottom edge of an otherwise visible card behind it.
   await target.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await page.clock.runFor(500);
   await expect(handle).toBeInViewport();
   const from = await handle.boundingBox(), to = await target.boundingBox();
   const drop = { x: to!.x + to!.width / 2, y: to!.y + to!.height * 0.65 };
@@ -232,7 +234,12 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   await page.screenshot({ path: test.info().outputPath('calendar-order-dark.png') });
   const timelineHandle = page.getByRole('button', { name: 'Reorder A task', exact: true });
   const anchor = page.getByTestId('timeline-event').filter({ hasText: 'B event' });
-  await timelineHandle.scrollIntoViewIfNeeded(); const sourceBox = await timelineHandle.boundingBox(), anchorBox = await anchor.boundingBox();
+  // scrollIntoViewIfNeeded considers an element underneath the sticky header
+  // visible. Center it and flush the fixture clock before reading drag geometry.
+  await timelineHandle.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await page.clock.runFor(500);
+  const sourceBox = await timelineHandle.boundingBox(), anchorBox = await anchor.boundingBox();
+  await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('[data-calendar-handle-id]')?.getAttribute('data-calendar-handle-id'), { x: sourceBox!.x + sourceBox!.width / 2, y: sourceBox!.y + sourceBox!.height / 2 })).toBe('task');
   await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2); await page.mouse.down();
   await page.mouse.move(anchorBox!.x + anchorBox!.width / 2, anchorBox!.y + 4, { steps: 8 }); await page.mouse.up();
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['task', 'event']);
