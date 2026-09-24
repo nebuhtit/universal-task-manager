@@ -37,6 +37,8 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium webkit
       - name: Google save and recovery smoke (mock API, desktop and mobile)
         run: pnpm test:google
+      - name: Calendar references and manual order (Chromium and WebKit)
+        run: pnpm exec playwright test tests/e2e/calendar-planning.spec.ts --workers=2
       - run: pnpm build
         env:
           VITE_GITHUB_PAGES: 'true'

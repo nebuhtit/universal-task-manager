@@ -132,3 +132,8 @@
   .calendar-day-spacer { min-height: 58px; }
   .calendar-day-list { padding: var(--space-2); border-radius: var(--radius-md); }
 }
+.calendar-pin-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.calendar-reference-badge { color: var(--color-text-secondary); padding: var(--space-1); }
+.calendar-order-handle { touch-action: none; pointer-events: auto; background: var(--color-surface); border-radius: var(--radius-sm); }
+.calendar-category-label { display: block; font-size: var(--font-size-caption); color: var(--color-text-secondary); margin-block-start: var(--space-2); }
+.timeline-events .calendar-order-handle { transform: translateX(-100%); }

@@ -1,0 +1,166 @@
+import { describe, expect, it } from 'vitest';
+import { createItem, createOccurrence, createWorkspace, fromCanonicalJSON, toCanonicalJSON, validateWorkspace, type UniversalItem } from '@utm/core';
+import { buildCalendarPlan, activeCalendarPins, calendarPlanMetricItems, createCalendarPlanCache, dueBoundary, naturallyOnDay, planningEnabled, referenceKey, removeCalendarPin, resolveCalendarSource, sameTimeInterval, setCalendarPin, sourceReference, validateCalendarMove } from './calendarPlanning';
+import { prepareTimelineData } from './timelineData';
+import { calendarVisibleCapacity } from './calendarCapacity';
+import { evaluateCalendarRange } from './calendarEvaluation';
+
+const day = '2026-09-24', tomorrow = '2026-09-25', now = new Date(`${day}T08:00:00Z`);
+const at = (hour: number) => `${day}T${String(hour).padStart(2, '0')}:00:00Z`;
+function fixture() {
+  const w = createWorkspace('Planning test', now);
+  w.calendarPreferences.timezone = 'UTC'; w.calendarPreferences.dayView.filter.source = 'true';
+  w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, showUndated: true };
+  const task = createItem('task', 'task', now); task.id = 'task'; task.schedule = { timezone: 'UTC', estimatedDuration: 'PT1H' };
+  const event = createItem('event', 'event', now); event.id = 'event'; event.schedule = { timezone: 'UTC', startAt: at(10), endAt: at(11), travelDuration: 'PT30M', travelBackDuration: 'PT30M', estimatedDuration: 'PT1H' };
+  w.items = { task, event };
+  return { w, task, event };
+}
+const pin = (item: UniversalItem, day: string, mode: 'queue' | 'same_time' = 'queue') => ({ ...sourceReference(item), day, mode });
+const ms = (hour: number) => Date.parse(at(hour));
+describe('calendar references and manual placement', () => {
+  it('reuses other days across minute ticks, invalidates today and midnight', () => {
+    const { w } = fixture(), cache = createCalendarPlanCache(), prepared = prepareTimelineData(w, tomorrow, now), reserved: UniversalItem[] = [];
+    const first = cache(w, tomorrow, prepared, now, reserved);
+    expect(cache(w, tomorrow, prepared, new Date(+now + 60_000), reserved)).toBe(first);
+    expect(cache(w, tomorrow, prepared, new Date(`${tomorrow}T00:00:00Z`), reserved)).not.toBe(first);
+    const todayPrepared = prepareTimelineData(w, day, now), todayPlan = cache(w, day, todayPrepared, now, reserved);
+    expect(cache(w, day, todayPrepared, new Date(+now + 60_000), reserved)).not.toBe(todayPlan);
+  });
+  it('defaults enabled, can disable without losing references or source data', () => {
+    const { w, task } = fixture(), source = JSON.stringify(w.items);
+    expect(planningEnabled(w)).toBe(true); setCalendarPin(w, pin(task, tomorrow));
+    w.calendarPreferences.planning!.enabled = false;
+    expect(activeCalendarPins(w, tomorrow, now)).toEqual([]);
+    expect(w.calendarPreferences.planning!.pins).toHaveProperty(task.id);
+    expect(JSON.stringify(w.items)).toBe(source);
+  });
+  it('roundtrips through workspace schema, including per-day orders', () => {
+    const { w, task } = fixture(); setCalendarPin(w, pin(task, tomorrow));
+    w.calendarPreferences.planning!.orders = { [day]: ['event', 'task'] };
+    expect(validateWorkspace(w)).toEqual({ valid: true, errors: [] });
+    expect(fromCanonicalJSON(toCanonicalJSON(w)).calendarPreferences.planning).toEqual(w.calendarPreferences.planning);
+  });
+  it('keeps a single reference when changing day; unpin never deletes items', () => {
+    const { w, task } = fixture(), source = JSON.stringify(w.items);
+    setCalendarPin(w, pin(task, day)); setCalendarPin(w, pin(task, tomorrow));
+    expect(Object.keys(w.calendarPreferences.planning!.pins!)).toEqual(['task']);
+    expect(activeCalendarPins(w, day, now)).toEqual([]);
+    removeCalendarPin(w, sourceReference(task)); expect(JSON.stringify(w.items)).toBe(source);
+  });
+  it('expires on local midnight without a write; deletion and completion do not reserve', () => {
+    const { w, task } = fixture(); setCalendarPin(w, pin(task, day));
+    const saved = JSON.stringify(w);
+    expect(activeCalendarPins(w, day, new Date(`${day}T23:59:59Z`))).toHaveLength(1);
+    expect(activeCalendarPins(w, day, new Date(`${tomorrow}T00:00:00Z`))).toHaveLength(0);
+    expect(JSON.stringify(w)).toBe(saved);
+    task.state = 'done'; expect(activeCalendarPins(w, day, now)).toHaveLength(0);
+    task.state = 'open'; task.deletedAt = now.toISOString(); expect(activeCalendarPins(w, day, now)).toHaveLength(0);
+  });
+  it('pins one virtual occurrence without materializing it', () => {
+    const { w, task } = fixture(); task.role = 'series_template'; task.schedule!.startAt = at(7);
+    task.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', exdates: [], rdates: [], anchor: 'schedule', closeAt: 'due', autoRenew: false };
+    const occurrence = createOccurrence(task, new Date(at(7)), 0), ref = sourceReference(occurrence);
+    setCalendarPin(w, pin(occurrence, tomorrow));
+    expect(resolveCalendarSource(w, ref)?.id).toBe(occurrence.id);
+    expect(w.items[occurrence.id]).toBeUndefined();
+    expect(referenceKey(ref)).toContain(occurrence.occurrence!.recurrenceId);
+    task.recurrence.exdates.push(ref.recurrenceId!); expect(resolveCalendarSource(w, ref)).toBeNull();
+  });
+  it('same-time placement preserves wall time across DST and original interval duration', () => {
+    const { event } = fixture(); event.schedule!.startAt = '2026-10-24T07:30:00Z'; event.schedule!.endAt = '2026-10-24T09:30:00Z';
+    const slot = sameTimeInterval(event, '2026-10-25', 'Europe/Berlin')!;
+    expect(new Date(slot.start).toISOString()).toBe('2026-10-25T08:30:00.000Z'); expect(slot.end - slot.start).toBe(7_200_000);
+  });
+  it('does not add a second card when the original is present', () => {
+    const { w, event } = fixture(); setCalendarPin(w, pin(event, day, 'same_time'));
+    const prepared = prepareTimelineData(w, day, now), result = buildCalendarPlan(w, day, prepared, now);
+    expect(naturallyOnDay(event, prepared, day)).toBe(true);
+    expect(result.pins.size).toBe(0); expect(result.events.filter(e => e.item.id === event.id && !e.travel)).toHaveLength(1);
+  });
+  it('queues an old event using its estimate, without rewriting dates or Google data', () => {
+    const { w, event } = fixture(); setCalendarPin(w, pin(event, tomorrow)); const source = JSON.stringify(w.items);
+    event.schedule!.estimatedDuration = 'PT30M'; const changedSource = JSON.stringify(w.items);
+    const result = buildCalendarPlan(w, tomorrow, prepareTimelineData(w, tomorrow, now), now);
+    expect(result.proposals.find(e => e.item.id === event.id)!.end - result.proposals.find(e => e.item.id === event.id)!.start).toBe(1_800_000);
+    expect(JSON.stringify(w.items)).toBe(changedSource); expect(changedSource).not.toBe(source);
+  });
+  it('same-time conflicts with reservations remain unplaced and queue can fit', () => {
+    const { w, event } = fixture();
+    const hidden = createItem('hidden', 'event', now); hidden.schedule = { timezone: 'UTC', startAt: `${tomorrow}T10:00:00Z`, endAt: `${tomorrow}T12:00:00Z` };
+    setCalendarPin(w, pin(event, tomorrow, 'same_time'));
+    const prepared = prepareTimelineData(w, tomorrow, now);
+    const blocked = buildCalendarPlan(w, tomorrow, prepared, now, [hidden]);
+    expect(blocked.warnings.find(v => v.item.id === event.id)?.reason).toBe('conflict');
+    setCalendarPin(w, pin(event, tomorrow));
+    expect(buildCalendarPlan(w, tomorrow, prepared, now, [hidden]).proposals.some(v => v.item.id === event.id)).toBe(true);
+  });
+  it('reorders immediately after travel back and respects hidden reserve', () => {
+    const { w } = fixture();
+    const hidden = createItem('hidden', 'event', now); hidden.schedule = { timezone: 'UTC', startAt: at(12), endAt: at(13) };
+    const result = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [hidden], ['event', 'task']);
+    expect(result.proposals[0]!.start).toBe(ms(13));
+    const clear = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [], ['event', 'task']);
+    expect(clear.proposals[0]!.start).toBe(ms(11) + 30 * 60_000);
+  });
+  it('rejects future due after an event starting exactly at due', () => {
+    const { w, task } = fixture(); task.schedule!.dueAt = at(10);
+    const result = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [], ['event', 'task']);
+    expect(validateCalendarMove(result, task.id, now, 'UTC')).toBe('deadline');
+  });
+  it('allows a due task after travel back with evaluator reservations', () => {
+    const { w, task } = fixture(); task.schedule!.dueAt = at(12); task.schedule!.estimatedDuration = 'PT30M';
+    const migrated = fromCanonicalJSON(toCanonicalJSON(w));
+    const evaluated = evaluateCalendarRange(migrated, day, tomorrow, migrated.calendarPreferences.dayView, now).days[day]!;
+    const result = buildCalendarPlan(migrated, day, prepareTimelineData(migrated, day, now), now, evaluated.reservedItems, ['event', 'task']);
+    expect(result.warnings).toEqual([]);
+    expect(validateCalendarMove(result, 'task', now, 'UTC')).toBeNull();
+  });
+  it('allows overdue work after event and preserves its deadline', () => {
+    const { w, task } = fixture(); task.schedule!.dueAt = at(7);
+    const result = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [], ['event', 'task']);
+    expect(validateCalendarMove(result, task.id, now, 'UTC')).toBeNull();
+    expect(result.proposals[0]!.start).toBe(ms(11) + 1_800_000); expect(task.schedule!.dueAt).toBe(at(7));
+  });
+  it('treats date-only due as the end of its local day', () => {
+    const { task } = fixture(); task.schedule!.dueAt = at(0); task.schedule!.dueDateOnly = true;
+    expect(dueBoundary(task, 'UTC')).toBe(Date.parse(`${tomorrow}T00:00:00Z`));
+  });
+  it('plans date-only due on its own day, not at the previous midnight', () => {
+    const { w, task } = fixture(); task.schedule!.dueAt = at(0); task.schedule!.dueDateOnly = true;
+    const result = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [], ['event', 'task']);
+    expect(result.movable.has(task.id)).toBe(true); expect(result.proposals[0]!.start).toBe(ms(11) + 1_800_000);
+    expect(validateCalendarMove(result, task.id, now, 'UTC')).toBeNull();
+  });
+  it('avoids a selected sleep source and never treats missing sleep id as all events', () => {
+    const { w, event } = fixture(); const prepared = prepareTimelineData(w, day, now);
+    expect(prepared.sleep).toEqual([]);
+    w.calendarPreferences.timeline!.sleepItemId = event.id; w.calendarPreferences.timeline!.hideSleep = true;
+    const result = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now, [], ['event', 'task']);
+    expect(result.proposals[0]!.start).toBeGreaterThanOrEqual(ms(11) + 1_800_000);
+  });
+  it('never changes a linked Google source, reminders, history or outbox while planning', () => {
+    const { w, event } = fixture();
+    event.external = { provider: 'google_calendar', calendarId: 'fixture-calendar', eventId: 'fixture-event', connectionId: 'fixture', sourceUrl: 'https://calendar.google.com/', syncedAt: now.toISOString(), readOnly: false, startAt: at(10), endAt: at(11) };
+    event.extensions = { 'utm:googleLinkKey': 'fixture-key' };
+    event.reminders = [{ id: 'reminder', mode: 'absolute', at: at(9), urgency: 'normal', repeatUntilAcknowledged: false }];
+    const source = JSON.stringify(w.items);
+    setCalendarPin(w, pin(event, tomorrow, 'queue'));
+    const plan = buildCalendarPlan(w, tomorrow, prepareTimelineData(w, tomorrow, now), now, [], ['event']);
+    calendarPlanMetricItems(plan, []); removeCalendarPin(w, sourceReference(event));
+    expect(JSON.stringify(w.items)).toBe(source);
+  });
+  it('keeps duration intact when no full gap remains', () => {
+    const { w, task } = fixture(); task.schedule!.estimatedDuration = 'PT24H';
+    const result = buildCalendarPlan(w, day, prepareTimelineData(w, day, now), now);
+    expect(result.unplaced.map(item => item.id)).toContain(task.id); expect(task.schedule!.estimatedDuration).toBe('PT24H');
+  });
+  it('does not double count pins in daily statistics', () => {
+    const { w, event } = fixture(); w.calendarPreferences.timeline!.showUndated = false;
+    setCalendarPin(w, pin(event, tomorrow, 'same_time'));
+    const evaluated = evaluateCalendarRange(w, tomorrow, '2026-09-26', w.calendarPreferences.dayView, now).days[tomorrow]!;
+    const plan = buildCalendarPlan(w, tomorrow, prepareTimelineData(w, tomorrow, now), now);
+    const metricDay = { ...evaluated, evaluation: { ...evaluated.evaluation, items: calendarPlanMetricItems(plan, evaluated.evaluation.items) } };
+    expect(calendarVisibleCapacity(w, metricDay, tomorrow, now, [], true).freeMs).toBe(23 * 3_600_000);
+  });
+});

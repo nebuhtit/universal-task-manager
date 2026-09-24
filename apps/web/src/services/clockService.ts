@@ -54,11 +54,19 @@ export const clockService = {
     const normalizedCadence = Math.max(100, Math.floor(cadenceMs));
     const subscription: ClockSubscription = { listener, cadenceMs: normalizedCadence, bucket: Math.floor(snapshot / normalizedCadence) };
     subscriptions.add(subscription);
-    if (subscriptions.size === 1 && typeof document !== 'undefined') document.addEventListener('visibilitychange', refreshAfterForeground);
+    if (subscriptions.size === 1 && typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', refreshAfterForeground);
+      window.addEventListener('focus', refreshAfterForeground);
+      window.addEventListener('pageshow', refreshAfterForeground);
+    }
     scheduleTimer();
     return () => {
       subscriptions.delete(subscription);
-      if (subscriptions.size === 0 && typeof document !== 'undefined') document.removeEventListener('visibilitychange', refreshAfterForeground);
+      if (subscriptions.size === 0 && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', refreshAfterForeground);
+        window.removeEventListener('focus', refreshAfterForeground);
+        window.removeEventListener('pageshow', refreshAfterForeground);
+      }
       scheduleTimer();
     };
   },

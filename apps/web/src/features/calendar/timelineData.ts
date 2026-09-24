@@ -1,4 +1,4 @@
-import { activeRangeBounds, compileQuery, createOccurrence, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { activeRangeBounds, calendarDateKey, compileQuery, createOccurrence, googleCalendarProjection, plannedDateForDisplay, projectOccurrences, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { itemDeletionTime, recurrenceDisplayItems } from '@utm/core';
 import { isItemTemplate } from '../items/fieldDisplay';
@@ -63,14 +63,16 @@ export function prepareTimelineData(workspace: WorkspaceDocument, key: string, n
   const events: TimelineEvent[] = [], allDay: UniversalItem[] = [], undated: UniversalItem[] = [], activeRange: UniversalItem[] = [];
   const sleep: TimelineEvent[] = [];
   const overdue: UniversalItem[] = [];
+  const dateOnlyTasks: UniversalItem[] = [];
   const sleepId = preferences.timeline?.sleepItemId;
-  const isSleep = (item: UniversalItem) => item.id === sleepId || item.occurrence?.seriesId === sleepId;
+  const isSleep = (item: UniversalItem) => Boolean(sleepId) && (item.id === sleepId || item.occurrence?.seriesId === sleepId);
   const sources = preferences.dayView.scheduleSources;
   for (const [cycleKey, { item }] of unique) {
     const interval = itemInterval(item);
     if (interval && isSleep(item) && !item.schedule?.allDay && item.state !== 'cancelled' && item.state !== 'archived' && !interval.invalid && !interval.point && intersects(interval, day)) sleep.push(interval);
     if (!accepted(item)) continue;
     const schedule = item.schedule;
+    if (!schedule?.startAt && !schedule?.endAt && schedule?.dueDateOnly && schedule.dueAt && calendarDateKey(new Date(schedule.dueAt), preferences.timezone) === key && sources.some(value => value === 'due' || value === 'active')) dateOnlyTasks.push(item);
     const completelyUndated = isCompletelyUndated(item);
     if (completelyUndated && !showUndatedItem(item, now, preferences.timezone)) continue;
     if (completelyUndated && preferences.timeline?.showUndated !== true) continue;
@@ -106,7 +108,7 @@ export function prepareTimelineData(workspace: WorkspaceDocument, key: string, n
   const withoutSleep = events.filter(event => !isSleep(event.item));
   const visible = hiding ? withoutSleep : events;
   const sleepGaps = hiddenIntervals(sleep, withoutSleep, day);
-  return { day, events, visible, allDay, undated, activeRange, overdue, sleep, sleepGaps, hiding,
+  return { day, events, visible, allDay, undated, activeRange, overdue, dateOnlyTasks, sleep, sleepGaps, hiding,
     showOverdue: preferences.timeline?.showOverdue !== false,
     sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)), projectionLimited: desiredPadding > padding };
 }

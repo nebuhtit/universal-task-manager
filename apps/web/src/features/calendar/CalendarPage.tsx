@@ -15,7 +15,10 @@ import { CalendarDayViewEditor } from './CalendarDayViewEditor';
 import { calendarListFields, calendarTimelineFields } from './calendarCardFields';
 import { CalendarTimeline } from './CalendarTimeline';
 import { calendarDayView, createCalendarEvaluator } from './calendarEvaluation';
-import { createCalendarCapacityCache } from './calendarCapacity';
+import { calendarVisibleCapacity, createCalendarCapacityCache } from './calendarCapacity';
+import { prepareTimelineData } from './timelineData';
+import { buildCalendarPlan, calendarPlanMetricItems, createCalendarPlanCache, planningEnabled, planningReason, validateCalendarMove } from './calendarPlanning';
+import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { calendarProjectionPadding } from './calendarProjectionCache';
 import { MoonPhase } from './MoonPhase';
 import { calendarUndatedItems, showOverdueToday } from './calendarVisibility';
@@ -52,7 +55,7 @@ function weekStart(key: string, startsOn: 0 | 1): string {
   return shiftDateKey(key, -((weekday - startsOn + 7) % 7));
 }
 
-export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem, onCreateItem, celebrationColors = new Map(), requestedDate, onSelectedDateChange }: {
+export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem, onCreateItem, celebrationColors = new Map(), requestedDate, onSelectedDateChange, onPlanningNotice }: {
   workspace: WorkspaceDocument;
   now?: Date;
   commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
@@ -63,6 +66,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   celebrationColors?: ReadonlyMap<string, string>;
   requestedDate?: { key: string; request: number };
   onSelectedDateChange?: (key: string) => void;
+  onPlanningNotice?: (message: string) => void;
 }) {
   const preferences = workspace.calendarPreferences;
   const navigationNow = useWorkspaceBoundaryNow(workspace, suppliedNow);
@@ -72,6 +76,18 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   useEffect(() => { if (requestedDate) setSelectedDate(requestedDate.key); }, [requestedDate]);
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
   const [editorOpen, setEditorOpen] = useState(false);
+  const [planningMessage, setPlanningMessage] = useState('');
+  const [resetStep, setResetStep] = useState(0);
+  const pendingOrderFocus = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const id = pendingOrderFocus.current;
+    if (!id) return;
+    pendingOrderFocus.current = null;
+    const row = [...document.querySelectorAll<HTMLElement>('.calendar-page [data-view-item-id]')].find(node => node.dataset.viewItemId === id);
+    const handle = row?.querySelector<HTMLButtonElement>('.view-drag-handle') ?? [...document.querySelectorAll<HTMLButtonElement>('.calendar-page [data-calendar-handle-id]')].find(node => node.dataset.calendarHandleId === id);
+    handle?.focus({ preventScroll: true });
+  }, [workspace]);
+  useEffect(() => { setResetStep(0); setPlanningMessage(''); }, [selectedDate]);
   const [allDayOpen, setAllDayOpen] = useState(() => readUiBoolean('calendar:all-day', true));
   const dayPanelRef = useRef<HTMLDivElement>(null);
   const todayChoiceRef = useRef<HTMLButtonElement>(null);
@@ -79,6 +95,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const selectedDayView = useMemo(() => ({ ...calendarDayView(selectedDate, preferences.dayView), fields: [...new Set([...calendarListFields(preferences.dayView), ...calendarTimelineFields(preferences.dayView)])] }), [selectedDate, preferences.dayView]);
   const evaluator = useMemo(() => createCalendarEvaluator(), []);
   const capacityCache = useMemo(() => createCalendarCapacityCache(), []);
+  const planCache = useMemo(() => createCalendarPlanCache(), []);
   const createAt = (at: number) => {
     const draft = createUiItem('', 'task', suppliedNow ?? new Date());
     draft.schedule = { timezone: preferences.timezone, startAt: new Date(at).toISOString(), endAt: new Date(at + 3_600_000).toISOString(), estimatedDuration: 'PT1H' };
@@ -106,14 +123,40 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   }, [rangeStartKey, rangeEndKey]);
   const calendar = useMemo(() => evaluator.evaluate(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now), [evaluator, completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
   const dayData = calendar.days;
-  const selected = dayData[selectedDate]!;
+  const planning = planningEnabled(workspace);
+  const preparedDays = useMemo(() => planning ? Object.fromEntries(dayKeys.map(key => [key, prepareTimelineData(workspace, key, now, evaluator.projections)])) : null, [planning, workspace, dayKeys, now.getTime(), evaluator]);
+  const plans = useMemo(() => preparedDays ? Object.fromEntries(dayKeys.map(key => [key, planCache(workspace, key, preparedDays[key]!, capacityNow, dayData[key]!.reservedItems)])) : null, [planCache, preparedDays, workspace, dayKeys, capacityNow.getTime(), dayData]);
+  const plan = plans?.[selectedDate];
+  const originalSelected = dayData[selectedDate]!;
+  const selected = plan ? { ...originalSelected, evaluation: { metrics: originalSelected.evaluation.metrics, now: originalSelected.evaluation.now, items: [...plan.items, ...originalSelected.evaluation.items.filter(item => !plan.ids.includes(item.id))] } } : originalSelected;
+  const reorder = (ids: string[], movedId: string) => {
+    if (!plan || !preparedDays) return;
+    const next = buildCalendarPlan(workspace, selectedDate, preparedDays[selectedDate]!, capacityNow, originalSelected.reservedItems, ids);
+    const reason = validateCalendarMove(next, movedId, capacityNow, preferences.timezone);
+    const newlyUnplaced = next.warnings.find(warning => !plan.warnings.some(previous => previous.item.id === warning.item.id));
+    if (reason || newlyUnplaced) { const message = planningReason(reason ?? newlyUnplaced!.reason, preferences.language === 'ru'); setPlanningMessage(message); onPlanningNotice?.(message); return; }
+    setPlanningMessage('');
+    pendingOrderFocus.current = movedId;
+    commit('Calendar day order', draft => { draft.calendarPreferences.planning ??= {}; draft.calendarPreferences.planning.orders ??= {}; draft.calendarPreferences.planning.orders[selectedDate] = [...ids]; });
+  };
+  const orderProps = { onReorder: plan ? reorder : undefined, reorderIds: plan?.ids, movableIds: plan?.movable, referenceIds: plan ? new Set(plan.pins.keys()) : undefined };
   const listView = { ...selected.view, fields: calendarListFields(preferences.dayView) };
   const overdueIds = new Set(selected.evaluation.items.filter(item => showOverdueToday(item, selectedDate, now, preferences.timezone, item.occurrence ? workspace.items[item.occurrence.seriesId] : undefined)).map(item => item.id));
   const allDayIds = new Set(selected.evaluation.items.filter(item => item.schedule?.allDay && !overdueIds.has(item.id)).map(item => item.id));
   const selectedIds = new Set(selected.evaluation.items.map(item => item.id));
   const allUndatedItems = useMemo(() => calendarUndatedItems(workspace, now), [workspace, now.getTime()]);
-  const undatedItems = sortViewItems(workspace, selected.view, allUndatedItems.filter(item => !selectedIds.has(item.id)), now);
-  const capacities = useMemo(() => Object.fromEntries(dayKeys.map(key => [key, capacityCache.calculate(workspace, dayData[key]!, key, capacityNow, allUndatedItems, allDayOpen)])), [capacityCache, workspace, dayData, dayKeys, capacityNow.getTime(), allUndatedItems, allDayOpen]);
+  const unsortedUndatedItems = sortViewItems(workspace, selected.view, allUndatedItems.filter(item => !selectedIds.has(item.id) || (plan?.movable.has(item.id) && !plan.pins.has(item.id))), now);
+  const undatedItems = plan ? [...unsortedUndatedItems].sort((a, b) => plan.ids.indexOf(a.id) - plan.ids.indexOf(b.id)) : unsortedUndatedItems;
+  const undatedIds = new Set(undatedItems.map(item => item.id));
+  const manuallyOrdered = Boolean(plan && preferences.planning?.orders?.[selectedDate]?.length);
+  const categoryLabels = new Map(selected.evaluation.items.flatMap(item => {
+    const label = overdueIds.has(item.id) ? (preferences.language === 'ru' ? 'Просрочено' : 'Overdue') : allDayIds.has(item.id) ? (preferences.language === 'ru' ? 'Весь день' : 'All day') : undatedIds.has(item.id) ? (preferences.language === 'ru' ? 'Без даты' : 'No date') : '';
+    return label ? [[item.id, label] as const] : [];
+  }));
+  const capacities = useMemo(() => Object.fromEntries(dayKeys.map(key => {
+    const day = dayData[key]!, dayPlan = plans?.[key];
+    return [key, dayPlan ? calendarVisibleCapacity(workspace, { ...day, evaluation: { ...day.evaluation, items: calendarPlanMetricItems(dayPlan, day.evaluation.items) } }, key, capacityNow, allUndatedItems.filter(item => !dayPlan.ids.includes(item.id)), allDayOpen) : capacityCache.calculate(workspace, day, key, capacityNow, allUndatedItems, allDayOpen)];
+  })), [plans, capacityCache, workspace, dayData, dayKeys, capacityNow.getTime(), allUndatedItems, allDayOpen]);
   const capacityLabel = (key: string, compact = false) => {
     const result = capacities[key]!;
     const amount = formatCompactRemainingDuration(Math.abs(result.freeMs), preferences.language) || '0min';
@@ -206,17 +249,26 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       <Button size="compact" aria-pressed={preferences.timeline?.mode === 'timeline'} onClick={() => commit('Calendar timeline mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'timeline', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>Timeline</Button>
     </div>
     {preferences.timeline?.mode === 'timeline'
-      ? <CalendarTimeline onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
+      ? <CalendarTimeline plan={plan} onReorder={plan ? reorder : undefined} onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
       : <><div className="timeline-toolbar calendar-list-toolbar">
         {overdueIds.size > 0 && <Button size="compact" aria-pressed={timelineSettings.showOverdue !== false} onClick={() => setTimelineSetting({ showOverdue: timelineSettings.showOverdue === false })}>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</Button>}
         <Button size="compact" aria-pressed={timelineSettings.showUndated === true} onClick={() => setTimelineSetting({ showUndated: timelineSettings.showUndated !== true })}>{preferences.language === 'ru' ? 'Без даты' : 'No date'}{undatedItems.length ? ` · ${undatedItems.length}` : ''}</Button>
         {allDayIds.size > 0 && <Button size="compact" aria-pressed={allDayOpen} onClick={() => { const next = !allDayOpen; persistUiBoolean('calendar:all-day', next); setAllDayOpen(next); }}>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</Button>}
       </div><Surface className="calendar-day-list">
-        {overdueIds.size > 0 && timelineSettings.showOverdue !== false && <div className="calendar-overdue"><h2>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</h2><ViewResults view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
-        {allDayIds.size > 0 && allDayOpen && <div className="calendar-all-day"><h2>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</h2><ViewResults view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
-        <ViewResults view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
-        {timelineSettings.showUndated === true && undatedItems.length > 0 && <div className="calendar-no-date"><h2>{preferences.language === 'ru' ? 'Без даты' : 'No date'} · {undatedItems.length}</h2><ViewResults view={listView} calendarTimeOnly workspace={workspace} evaluation={{ items: undatedItems, metrics: null, now }} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
-      </Surface></>}
+        {manuallyOrdered ? <ViewResults {...orderProps} itemLabels={categoryLabels} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !plan?.pins.has(item.id) && ((overdueIds.has(item.id) && timelineSettings.showOverdue === false) || (allDayIds.has(item.id) && !allDayOpen) || (undatedIds.has(item.id) && timelineSettings.showUndated !== true))).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /> : <>
+        {overdueIds.size > 0 && timelineSettings.showOverdue !== false && <div className="calendar-overdue"><h2>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
+        {allDayIds.size > 0 && allDayOpen && <div className="calendar-all-day"><h2>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
+        <ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id) || undatedIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
+        {timelineSettings.showUndated === true && undatedItems.length > 0 && <div className="calendar-no-date"><h2>{preferences.language === 'ru' ? 'Без даты' : 'No date'} · {undatedItems.length}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={workspace} evaluation={{ items: undatedItems, metrics: null, now }} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
+      </>}</Surface></>}
+    {planning && <Button size="compact" onClick={() => setResetStep(1)} disabled={!preferences.planning?.orders?.[selectedDate]?.length}>{preferences.language === 'ru' ? 'Сбросить порядок дня' : 'Reset day order'}</Button>}
+    {planningMessage && <p role="status">{planningMessage}</p>}
+    {plan && plan.warnings.map(warning => <p role="status" key={warning.item.id}>{warning.item.title}: {planningReason(warning.reason, preferences.language === 'ru')}</p>)}
+    <ResponsiveDialog open={resetStep > 0} onOpenChange={open => { if (!open) setResetStep(0); }} title={preferences.language === 'ru' ? 'Сброс порядка' : 'Reset order'} ariaLabel="Reset calendar order">
+      <p>{resetStep === 1 ? (preferences.language === 'ru' ? 'Вернуть исходную сортировку? Закрепления и items останутся без изменений.' : 'Restore the initial sorting? Pins and items will not change.') : `${preferences.language === 'ru' ? 'Подтвердите сброс порядка только для' : 'Confirm resetting order only for'} ${selectedLabel} (${selectedDate}).`}</p>
+      <Button onClick={() => { if (resetStep === 1) setResetStep(2); else { commit('Reset calendar day order', draft => { if (draft.calendarPreferences.planning?.orders) delete draft.calendarPreferences.planning.orders[selectedDate]; }); setResetStep(0); } }}>{resetStep === 1 ? (preferences.language === 'ru' ? 'Продолжить' : 'Continue') : (preferences.language === 'ru' ? 'Подтвердить сброс' : 'Confirm reset')}</Button>
+      <Button onClick={() => setResetStep(0)}>{preferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>
+    </ResponsiveDialog>
     <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView, timeline) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); draft.calendarPreferences.timeline = structuredClone(timeline); })} />
   </section>;
 }

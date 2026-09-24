@@ -69,7 +69,7 @@ describe('CalendarPage daily-list contract', () => {
     const markup = renderToStaticMarkup(<CalendarPage workspace={workspace} now={now} commit={vi.fn()} onEditItem={vi.fn()} onState={vi.fn()} createUiItem={(title, preset, createdAt) => createItem(title ?? '', preset, createdAt)} />);
     expect(markup).toContain('calendar-list-toolbar');
     expect(markup).toContain('Overdue · 1'); expect(markup).toContain('No date · 1');
-    expect((markup.match(/Undated item/g) ?? [])).toHaveLength(2); // title and completion button label
+    expect((markup.match(new RegExp(`data-utm-item-id="${undated.id}"`, 'g')) ?? [])).toHaveLength(1);
     expect(markup).toContain('Late item');
   });
 

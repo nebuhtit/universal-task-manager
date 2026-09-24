@@ -34,7 +34,13 @@ export function calendarUndatedItems(workspace: WorkspaceDocument, now: Date): U
 /** Additional inclusion only; never moves or edits the original schedule. */
 export function showOverdueToday(item: UniversalItem, key: string, now: Date, zone: string, series?: UniversalItem) {
   if (item.deletedAt || item.state !== 'open' || key !== calendarDateKey(now, zone)) return false;
-  const due = Date.parse(item.schedule?.dueAt ?? '');
+  const rawDue = item.schedule?.dueAt;
+  let due = Date.parse(rawDue ?? '');
+  if (rawDue && Number.isFinite(due) && item.schedule?.dueDateOnly) {
+    const key = calendarDateKey(new Date(due), zone);
+    const next = new Date(Date.parse(`${key}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+    due = +zonedDateStart(next, zone);
+  }
   const missedDue = Number.isFinite(due) && due < now.getTime();
   const missedPlannedDate = Boolean(item.schedule?.plannedDate && item.schedule.plannedDate < key);
   if (!missedDue && !missedPlannedDate) return false;

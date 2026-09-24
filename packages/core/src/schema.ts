@@ -347,6 +347,14 @@ export const workspaceJsonSchema = {
         showExplanations: { type: 'boolean' },
         headerDateFormat: { enum: ['ru-adaptive', 'numeric', 'interface'] },
         liveTextSuggestions: { type: 'boolean' },
+        planning: { type: 'object', additionalProperties: false, properties: {
+          enabled: { type: 'boolean' },
+          orders: { type: 'object', additionalProperties: { type: 'array', items: { type: 'string' } } },
+          pins: { type: 'object', additionalProperties: { type: 'object', additionalProperties: false, required: ['itemId', 'day', 'mode'], properties: {
+            itemId: { type: 'string' }, seriesId: { type: 'string' }, recurrenceId: { type: 'string' },
+            day: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, mode: { enum: ['same_time', 'queue'] },
+          } } },
+        } },
         hideDuplicateItemsAcrossHomeViews: { type: 'boolean' },
         testClock: { type: 'object', additionalProperties: false, required: ['enabled', 'secondsPerDay', 'startedAt', 'virtualAt'], properties: { enabled: { type: 'boolean' }, secondsPerDay: { type: 'number', exclusiveMinimum: 0 }, dayDurationValue: { type: 'number', exclusiveMinimum: 0 }, dayDurationUnit: { enum: ['seconds', 'minutes', 'hours'] }, startedAt: { type: 'string', format: 'date-time' }, virtualAt: { type: 'string', format: 'date-time' } } },
         backupPreferences: { type: 'object', additionalProperties: false, required: ['reminderDays'], properties: { reminderDays: { type: 'integer', minimum: 0 }, lastBackupAt: { type: 'string', format: 'date-time' }, locationLabel: { type: 'string' } } },
@@ -910,7 +918,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'dayView', 'timeline', 'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'liveTextSuggestions', 'headerDateFormat', 'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
+    'planning', 'liveTextSuggestions', 'headerDateFormat', 'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
