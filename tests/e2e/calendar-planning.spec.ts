@@ -126,9 +126,15 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   const { read } = await setup(page), before = (await read()).items;
   const handle = page.getByRole('button', { name: 'Reorder A task', exact: true });
   const target = page.locator('[data-view-item-id="event"]');
-  await target.scrollIntoViewIfNeeded(); const from = await handle.boundingBox(), to = await target.boundingBox();
+  // Keep the drop point away from the fixed quick-add composer. Font metrics on
+  // Linux can leave the bottom edge of an otherwise visible card behind it.
+  await target.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await expect(handle).toBeInViewport();
+  const from = await handle.boundingBox(), to = await target.boundingBox();
+  const drop = { x: to!.x + to!.width / 2, y: to!.y + to!.height * 0.65 };
+  await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('[data-view-item-id]')?.getAttribute('data-view-item-id'), drop)).toBe('event');
   await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2); await page.mouse.down();
-  await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height - 4, { steps: 8 }); await page.mouse.up();
+  await page.mouse.move(drop.x, drop.y, { steps: 8 }); await page.mouse.up();
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   expect((await read()).items).toEqual(before);
   await navigate(page, 'Settings');
