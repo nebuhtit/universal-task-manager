@@ -33,11 +33,20 @@
 .calendar-moon-phase { width: var(--space-5); height: var(--space-5); flex: none; color: var(--color-text-secondary); }
 
 .calendar-navigator {
+  position: sticky;
+  top: calc(var(--layout-topbar-height) + var(--calendar-title-height, 0px));
+  z-index: 8;
   display: grid;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
   padding: var(--space-3);
   border-radius: var(--radius-lg);
+}
+.calendar-navigator-start { height: 0; }
+.calendar-navigator.is-compact { background: var(--color-surface-translucent); }
+.calendar-navigator-toolbar[hidden] { display: none; }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .calendar-navigator.is-compact { background: var(--color-capture-active); -webkit-backdrop-filter: blur(var(--blur-capture-idle)); backdrop-filter: blur(var(--blur-capture-idle)); }
 }
 
 .calendar-navigator-toolbar,

@@ -3,6 +3,23 @@ import { applyQuickEntryEditorText } from './quickEntry';
 import { applyQuickEntryText, createQuickEntryItem, formatQuickEntryForEditor, quickEntrySource, syncQuickEntrySource } from './quickEntry';
 
 describe('quick entry presentation', () => {
+  it.each([
+    ['Встреча начало 24.09.2026 18:00 длительность 1ч дорога 30м обратно 30м напомнить начало-30м', 'Встреча начало 24.09.2026 18:00 дл 1ч тт 30м тб 30м н начало-30м'],
+    ['Meeting event opens 24.09.2026 18:00 duration 1h travel time 30m travel back 30m remind start-30m', 'Meeting start 24.09.2026 18:00 dr 1h tt 30m tb 30m r start-30m'],
+  ])('compacts recognized commands without changing their data: %s', (source, compact) => {
+    expect(formatQuickEntryForEditor(source)).toBe(compact);
+    const now = new Date(2026, 8, 24, 8);
+    const before = createQuickEntryItem(source, now);
+    const after = applyQuickEntryEditorText(before, formatQuickEntryForEditor(quickEntrySource(before)!.text), now).item;
+    expect(after.title).toBe(before.title);
+    expect(after.schedule).toEqual(before.schedule);
+    expect(after.reminders.map(({ id, ...r }) => r)).toEqual(before.reminders.map(({ id, ...r }) => r));
+    expect(formatQuickEntryForEditor(compact)).toBe(compact);
+  });
+  it('does not shorten ordinary or quoted title words', () => {
+    expect(formatQuickEntryForEditor('«дорога обратно длительность напомнить»')).toBe('«дорога обратно длительность напомнить»');
+    expect(formatQuickEntryForEditor('Дорога домой')).toBe('Дорога домой');
+  });
   it('hides the default start reminder pair but retains it when editing the title', () => {
     const now = new Date('2026-09-23T12:00:00Z');
     const item = createQuickEntryItem('Встреча завтра 17:00 напомнить начало-120м, начало-1440м', now);

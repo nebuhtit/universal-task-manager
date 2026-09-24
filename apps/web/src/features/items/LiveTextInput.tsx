@@ -181,7 +181,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     </div>;
   return <div className="live-text-input" ref={root}>
     {!overlaySuggestions && !multiline && suggestionPanel}
-    {multiline ? <Textarea {...common} ref={textarea} rows={4} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint={overlaySuggestions ? 'done' : 'go'} />}
+    {multiline ? <Textarea {...common} ref={textarea} rows={3} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint={overlaySuggestions ? 'done' : 'go'} />}
     {(overlaySuggestions || multiline) && suggestionPanel}
     {highlighted && <div ref={highlight} aria-hidden="true" className={`live-text-highlight${multiline ? ' is-multiline' : ''}`}><span>{(() => {
       let cursor = 0;

@@ -40,3 +40,10 @@ Verification: `calendarPlanning.test.ts`, Calendar unit suite, and
 recurrences, expiry, constraints, keyboard, gestures, reload, conflict-to-queue,
 reset cancellation/confirmation and feature disablement on Chromium/WebKit.
 Physical iPhone Safari/PWA testing remains a separate acceptance step.
+# Compact calendar navigation
+
+The date and capacity header stays pinned. Scrolling collapses navigation to the
+selected day's week, including adjacent-month days, below that header. Period
+controls and the full month return at the top. This is presentation state only;
+navigation does not write items or calendar preferences. Pointer interactions
+defer the collapse so that a pressed card is not displaced before its click.

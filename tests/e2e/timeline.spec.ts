@@ -56,14 +56,48 @@ test('editor opens the full quick line with bounded scrolling and a non-overlapp
   await page.getByTestId('timeline-event').filter({ hasText: 'One minute title' }).click();
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   const input = editor.getByRole('combobox', { name: 'Title', exact: true });
+  await expect(input).toHaveAttribute('rows', '3');
+  const initialHeight = (await input.boundingBox())!.height;
   await expect(input).toHaveValue(/начало-30м, начало-60м/);
   await input.fill('Заметка '.repeat(80) + ' завтра');
   await expect(input).toHaveCSS('overflow-y', 'auto');
   expect(await input.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+  expect((await input.boundingBox())!.height).toBe(initialHeight);
+  const rows = await input.evaluate(el => { const s = getComputedStyle(el); return (el.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom)) / parseFloat(s.lineHeight); });
+  expect(Math.abs(rows - 3)).toBeLessThan(0.1);
   await expect(editor.locator('.live-day-preview')).toHaveCSS('position', 'relative');
   await expect(editor.getByRole('listbox')).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('quick-entry-scroll.png') });
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+
+test('week stays below the header while month and controls return at the top', async ({ page }) => {
+  await setup(page);
+  const nav = page.locator('.calendar-navigator');
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  await expect(nav.locator('.calendar-day-choice')).toHaveCount(30);
+  await nav.locator('[data-date="2026-09-30"]').click();
+  const snapshot = await primary(page);
+  await page.evaluate(() => window.scrollTo(0, 650));
+  await expect(nav).toHaveClass(/is-compact/);
+  await expect(nav.locator('.calendar-day-choice')).toHaveCount(7);
+  await expect(nav.locator('[data-date="2026-10-04"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Month', exact: true })).toBeHidden();
+  const title = (await page.locator('.calendar-title').boundingBox())!;
+  const box = (await nav.boundingBox())!;
+  expect(Math.abs(box.y - title.y - title.height)).toBeLessThan(3);
+  await nav.locator('[data-date="2026-10-01"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(nav.locator('[data-date="2026-10-01"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(nav.locator('[data-date="2026-10-01"]')).toBeFocused();
+  await page.screenshot({ path: test.info().outputPath('sticky-week-light.png') });
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await page.screenshot({ path: test.info().outputPath('sticky-week-dark.png') });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(nav).not.toHaveClass(/is-compact/);
+  await expect(page.getByRole('button', { name: 'Month', exact: true })).toBeVisible();
+  await expect(nav.locator('.calendar-day-choice')).toHaveCount(31);
+  expect(await primary(page)).toBe(snapshot);
 });
 
 test('holding an empty hour opens an unsaved one-hour draft with focused title', async ({ page }) => {

@@ -75,6 +75,34 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   useEffect(() => { onSelectedDateChange?.(selectedDate); }, [selectedDate, onSelectedDateChange]);
   useEffect(() => { if (requestedDate) setSelectedDate(requestedDate.key); }, [requestedDate]);
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
+  const [compactNavigator, setCompactNavigator] = useState(false);
+  const calendarRoot = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLElement>(null);
+  const navigatorStart = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const title = titleRef.current, root = calendarRoot.current, start = navigatorStart.current;
+    if (!title || !root || !start) return;
+    let frame = 0, pointerActive = false;
+    const update = () => {
+      frame = 0;
+      root.style.setProperty('--calendar-title-height', `${title.getBoundingClientRect().height}px`);
+      const top = parseFloat(getComputedStyle(title).top) + title.getBoundingClientRect().height;
+      // Do not move a pressed card between pointerdown and click as the
+      // navigator collapses after scrolling (especially on touch WebKit).
+      if (!pointerActive) setCompactNavigator(start.getBoundingClientRect().top < top);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const pointerStart = () => { pointerActive = true; };
+    const pointerEnd = () => { pointerActive = false; schedule(); };
+    const observer = new ResizeObserver(schedule); observer.observe(title);
+    window.addEventListener('scroll', schedule, { passive: true, capture: true });
+    window.addEventListener('resize', schedule);
+    window.addEventListener('pointerdown', pointerStart, true);
+    window.addEventListener('pointerup', pointerEnd, true);
+    window.addEventListener('pointercancel', pointerEnd, true);
+    update();
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); window.removeEventListener('pointerdown', pointerStart, true); window.removeEventListener('pointerup', pointerEnd, true); window.removeEventListener('pointercancel', pointerEnd, true); };
+  }, []);
   const [editorOpen, setEditorOpen] = useState(false);
   const [planningMessage, setPlanningMessage] = useState('');
   const [resetStep, setResetStep] = useState(0);
@@ -104,8 +132,9 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const capacityClock = useSyncExternalStore(subscribeCapacityClock, clockService.getSnapshot, clockService.getSnapshot);
   const capacityNow = suppliedNow ?? effectiveWorkspaceNow(workspace, new Date(capacityClock));
   const todayKey = localDateKey(suppliedNow ?? navigationNow, preferences.timezone);
-  const rangeStartKey = navigatorMode === 'week' ? weekStart(selectedDate, preferences.weekStartsOn) : monthStart(selectedDate);
-  const rangeEndKey = navigatorMode === 'week' ? shiftDateKey(rangeStartKey, 7) : nextMonthStart(selectedDate);
+  const selectedWeekStart = weekStart(selectedDate, preferences.weekStartsOn);
+  const rangeStartKey = navigatorMode === 'week' ? selectedWeekStart : weekStart(monthStart(selectedDate), preferences.weekStartsOn);
+  const rangeEndKey = navigatorMode === 'week' ? shiftDateKey(rangeStartKey, 7) : shiftDateKey(weekStart(shiftDateKey(nextMonthStart(selectedDate), -1), preferences.weekStartsOn), 7);
   const projectedBoundaries = useMemo(() => {
     const { padding } = calendarProjectionPadding(Object.values(evaluator.projections.workspaceFor(workspace).items));
     const rows = [
@@ -167,7 +196,9 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const rowsById = new Map(selected.entries.map(({ row, item }) => [item.id, row]));
   const formatDate = (key: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(preferences.language, { ...options, timeZone: 'UTC' }).format(dateFromKey(key));
   const selectedLabel = formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const weekdayOffset = navigatorMode === 'month' ? (dateFromKey(rangeStartKey).getUTCDay() - preferences.weekStartsOn + 7) % 7 : 0;
+  const weekdayOffset = navigatorMode === 'month' ? (dateFromKey(monthStart(selectedDate)).getUTCDay() - preferences.weekStartsOn + 7) % 7 : 0;
+  const showWeek = navigatorMode === 'week' || compactNavigator;
+  const visibleDayKeys = dayKeys.filter(key => showWeek ? key >= selectedWeekStart && key < shiftDateKey(selectedWeekStart, 7) : key.slice(0, 7) === selectedDate.slice(0, 7));
   const labelWeek = weekStart('2026-08-31', preferences.weekStartsOn);
 
   useLayoutEffect(() => {
@@ -216,14 +247,15 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     return result;
   };
 
-  return <section className="calendar-page page-section">
-    <header className="calendar-title">
+  return <section className="calendar-page page-section" ref={calendarRoot}>
+    <header className="calendar-title" ref={titleRef}>
       <div><div className="calendar-heading-date"><h1>{selectedLabel}</h1><MoonPhase dateKey={selectedDate} zone={preferences.timezone} ru={preferences.language === 'ru'} /></div>{selected.view.statistics?.showTime !== false && <span className="view-metrics-summary" data-testid="calendar-header-capacity">{capacityLabel(selectedDate)}</span>}</div>
       <IconButton size="compact" variant="ghost" onClick={() => setEditorOpen(true)} aria-label="Edit calendar day view"><LineIcon name="settings" /></IconButton>
     </header>
 
-    <Surface className="calendar-navigator">
-      <div className="calendar-navigator-toolbar">
+    <div ref={navigatorStart} className="calendar-navigator-start" aria-hidden="true" />
+    <Surface className={`calendar-navigator${compactNavigator ? ' is-compact' : ''}`}>
+      <div className="calendar-navigator-toolbar" hidden={compactNavigator}>
         <div className="calendar-period-switch" aria-label="Calendar navigation mode">
           {(['week', 'month'] as const).map((mode) => <Button size="compact" variant="ghost" aria-pressed={navigatorMode === mode} className={navigatorMode === mode ? 'active' : ''} key={mode} onClick={() => setNavigatorMode(mode)}>{mode === 'week' ? 'Week' : 'Month'}</Button>)}
         </div>
@@ -233,11 +265,11 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
           <IconButton size="compact" variant="ghost" aria-label="Next period" onClick={() => setSelectedDate(navigatorMode === 'week' ? shiftDateKey(selectedDate, 7) : shiftMonth(selectedDate, 1))}>›</IconButton>
         </div>
       </div>
-      <div className={`calendar-day-panel is-${navigatorMode}`} ref={dayPanelRef}>
-        {navigatorMode === 'month' && Array.from({ length: 7 }, (_, index) => <span className="calendar-weekday-label" key={index}>{formatDate(shiftDateKey(labelWeek, index), { weekday: 'short' })}</span>)}
-        {navigatorMode === 'month' && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
-        {dayKeys.map((key) => <button type="button" ref={key === todayKey ? todayChoiceRef : undefined} className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} aria-current={key === todayKey ? 'date' : undefined} onClick={() => setSelectedDate(key)} key={key}>
-          <span className="calendar-day-label"><b>{navigatorMode === 'week' ? formatDate(key, { weekday: 'short' }) : Number(key.slice(-2))}</b>{navigatorMode === 'week' && <small>{formatDate(key, { day: 'numeric', month: 'short' })}</small>}</span>
+      <div className={`calendar-day-panel is-${showWeek ? 'week' : 'month'}`} ref={dayPanelRef}>
+        {!showWeek && Array.from({ length: 7 }, (_, index) => <span className="calendar-weekday-label" key={index}>{formatDate(shiftDateKey(labelWeek, index), { weekday: 'short' })}</span>)}
+        {!showWeek && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
+        {visibleDayKeys.map((key) => <button type="button" data-date={key} ref={key === todayKey ? todayChoiceRef : undefined} className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} aria-current={key === todayKey ? 'date' : undefined} onClick={() => setSelectedDate(key)} key={key}>
+          <span className="calendar-day-label"><b>{showWeek ? formatDate(key, { weekday: 'short' }) : Number(key.slice(-2))}</b>{showWeek && <small>{formatDate(key, { day: 'numeric', month: 'short' })}</small>}</span>
           {dayData[key]!.view.statistics?.showTime !== false && <span className="view-metrics-summary" aria-label={capacityLabel(key)}>{capacityLabel(key, true)}{capacities[key]!.hiddenReservedMs > 0 ? ' *' : ''}</span>}
         </button>)}
       </div>

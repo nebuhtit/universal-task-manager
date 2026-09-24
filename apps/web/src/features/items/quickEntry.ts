@@ -98,6 +98,17 @@ function reminderItems(draft: Draft): UniversalItem['reminders'] {
 /** Presentation only: keep quoted titles and decimal commas untouched. */
 export function formatQuickEntryForEditor(text: string): string {
   text = text.replace(editorDefaultReminders, '').trimEnd();
+  // Compact only parser-recognized commands, and verify semantic parity. Never
+  // rewrite a title, quoted text, dates, or an ambiguous/unfinished command.
+  const now = new Date(2026, 0, 15, 12);
+  const parsed = parseEntry(text, now);
+  const aliases: Record<string, string> = { длительность: 'дл', duration: 'dr', дорога: 'тт', ехать: 'тт', обратно: 'тб', 'travel time': 'tt', travel: 'tt', drive: 'tt', 'travel back': 'tb', напомнить: 'н', напоминание: 'н', remind: 'r', reminder: 'r', 'remind me': 'r', 'event opens': 'start', 'event ends': 'end' };
+  const candidate = text.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(длительность|duration|дорога|ехать|обратно|travel time|travel back|travel|drive|напомнить|напоминание|remind me|reminder|remind|event opens|event ends)(?=\s|:)/gi, (match, leading: string | undefined, command: string | undefined, offset: number) => {
+    if (!command || !parsed.commandSpans?.some(span => span.start <= offset + leading!.length && span.end > offset + leading!.length)) return match;
+    return leading + aliases[command.toLowerCase()]!;
+  });
+  const semantic = ({ commandSpans: _spans, ...draft }: Draft) => JSON.stringify(draft);
+  if (candidate !== text && !parsed.errors.length && semantic(parsed) === semantic(parseEntry(candidate, now))) text = candidate;
   let quote = '', result = '';
   for (let index = 0; index < text.length; index++) {
     const char = text[index]!;
