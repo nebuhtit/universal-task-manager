@@ -39,10 +39,13 @@ struct AgendaWidgetView: View {
     @Environment(\.widgetFamily) private var family
     private func statusText(_ value: String, font: Font) -> some View {
         let departure = value.hasPrefix("⇥ ")
-        return HStack(alignment: .firstTextBaseline, spacing: 3) {
+        return HStack(alignment: .center, spacing: 3) {
             if departure {
-                Image(systemName: "car.side").imageScale(.small).scaleEffect(x: -1, y: 1).accessibilityHidden(true)
-                Image(systemName: "arrow.right").imageScale(.small).accessibilityHidden(true)
+                DepartureMark()
+                    .stroke(style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+                    .frame(width: 25, height: 12)
+                    .fixedSize()
+                    .accessibilityHidden(true)
             }
             Text(departure ? String(value.dropFirst(2)) : value).lineLimit(1)
         }
@@ -50,15 +53,20 @@ struct AgendaWidgetView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(departure ? "\(Locale.current.language.languageCode?.identifier == "ru" ? "Выезд" : "Departure") · \(value.dropFirst(2))" : value)
     }
-    private var content: some View {
+    private func content(outerInset: CGFloat = 0, middleInset: CGFloat = 0) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            if !entry.current.isEmpty { statusText(entry.current, font: .caption) }
+            if !entry.current.isEmpty {
+                statusText(entry.current, font: .caption)
+                    .padding(.horizontal, outerInset)
+            }
             statusText(entry.title, font: .headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, middleInset)
             if let target = entry.target, target > entry.date {
                 HStack(spacing: 4) {
                     Text(entry.label)
                     Text(timerInterval: entry.date...target, countsDown: true).monospacedDigit()
-                }.font(.caption)
+                }.font(.caption).padding(.horizontal, outerInset)
             }
         }
         .lineLimit(1)
@@ -69,22 +77,48 @@ struct AgendaWidgetView: View {
         Group {
             if family == .accessoryRectangular {
                 GeometryReader { geometry in
-                    // Keep all three lines inside the capsule's straight-sided
-                    // center, including at larger system text sizes.
-                    content
+                    // The capsule is widest at its center: let the title use
+                    // that space, while captions stay clear of the curved ends.
+                    content(outerInset: min(geometry.size.height, geometry.size.width) * 0.3 + 4,
+                            middleInset: 8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, min(geometry.size.height, geometry.size.width) / 2)
                         .padding(.vertical, 4)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .background { AccessoryWidgetBackground().clipShape(Capsule()) }
                         .clipShape(Capsule())
                 }
             } else {
-                content.frame(maxWidth: .infinity, alignment: .leading)
+                content().frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .privacySensitive()
         .containerBackground(.fill.tertiary, for: .widget)
+    }
+}
+
+/// One compact side-facing car + direction glyph, sharing the web geometry.
+private struct DepartureMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: x / 40 * rect.width, y: (y - 3) / 18 * rect.height)
+        }
+        func line(_ points: [(CGFloat, CGFloat)]) {
+            guard let first = points.first else { return }
+            path.move(to: point(first.0, first.1))
+            for value in points.dropFirst() { path.addLine(to: point(value.0, value.1)) }
+        }
+        line([(4,17),(2,17),(2,10),(5,10),(8,5),(15,5),(18,10),(23,12),(23,17),(20,17)])
+        line([(8,17),(16,17)])
+        line([(5,10),(18,10)])
+        line([(11,5),(11,10)])
+        for x in [CGFloat(6), CGFloat(18)] {
+            let origin = point(x - 2, 15)
+            path.addEllipse(in: CGRect(x: origin.x, y: origin.y, width: 4 / 40 * rect.width, height: 4 / 18 * rect.height))
+        }
+        line([(28,12),(38,12)])
+        line([(34,8),(38,12),(34,16)])
+        return path
     }
 }
 @main

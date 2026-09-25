@@ -5,7 +5,8 @@
 The Lock Screen background is a capsule with semicircular ends. Text uses
 height-aware horizontal insets, single-line truncation and limited scaling to
 stay inside the shape. The app and widget render departure as proportional
-side-view car and right-arrow icons (3.1.1).
+compact side-view car/right-arrow mark (3.1.4). The capsule's middle title row
+uses wider space than the caption rows, which keep extra inset at the curved ends.
 After installing, open and unlock the app to refresh the shared widget snapshot.
 
 ## 3.0.8: travel status and timer history
