@@ -22,7 +22,7 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
   await expect(page.getByLabel('Changes per 24 hours', { exact: true })).toHaveValue('25');
   await expect(page.getByLabel('Per synchronization', { exact: true })).toHaveValue('5');
   await page.getByLabel('Changes per 24 hours', { exact: true }).fill('1');
-  await page.getByText('Work calendar · PARA', { exact: true }).click(); await page.locator('summary').filter({ hasText: /^Areas ·/ }).click(); await page.getByRole('checkbox', { name: 'Office', exact: true }).check();
+  await page.getByText('Work calendar · Assignments', { exact: true }).click(); await page.locator('summary').filter({ hasText: /^Areas ·/ }).click(); await page.getByRole('checkbox', { name: 'Office', exact: true }).check();
   await nav('Home'); await page.getByPlaceholder('Add new item').fill('Offline event'); await page.getByPlaceholder('Add new item').press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   await expand(editor.locator('[data-editor-section="dates"] > summary')); await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(1);
