@@ -152,6 +152,9 @@
 
 .notice-tray .notice-card { position: relative; pointer-events: auto; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .notice-popups .notice-card { box-shadow: var(--shadow-elevated); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .notice-popups .notice-card { background: var(--color-capture-active); -webkit-backdrop-filter: blur(calc(var(--blur-capture-idle) * 2)); backdrop-filter: blur(calc(var(--blur-capture-idle) * 2)); }
+}
 .notice-content.ui-button { min-width: 0; min-height: 0; display: block; padding: var(--space-3) var(--space-4); border: 0; border-radius: 0; text-align: left; touch-action: manipulation; }
 .notice-content strong,
 .notice-content span { display: block; }
@@ -206,17 +209,21 @@
   position: fixed;
   z-index: calc(var(--z-overlay) + 100);
   left: 50%;
-  bottom: var(--space-5);
+  top: calc(env(safe-area-inset-top) + var(--space-6));
+  max-width: calc(100vw - var(--space-8));
   transform: translateX(-50%);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
+  background: var(--color-capture-active);
+  color: var(--color-text);
+  border: 1px solid var(--color-capture-border-idle);
+  -webkit-backdrop-filter: blur(calc(var(--blur-capture-idle) * 2));
+  backdrop-filter: blur(calc(var(--blur-capture-idle) * 2));
   box-shadow: var(--shadow-elevated);
   font-size: var(--font-size-secondary);
 }
 
-.undo-toast-stack { position: fixed; z-index: calc(var(--z-overlay) + 101); left: 50%; bottom: calc(var(--layout-capture-reserve) + var(--space-3) + env(safe-area-inset-bottom)); width: min(320px, calc(100vw - var(--space-8))); display: grid; gap: var(--space-2); transform: translateX(-50%); }
+.undo-toast-stack { position: fixed; z-index: calc(var(--z-overlay) + 101); left: 50%; top: calc(env(safe-area-inset-top) + var(--space-6)); width: min(320px, calc(100vw - var(--space-8))); display: grid; gap: var(--space-2); transform: translateX(-50%); }
 .undo-toast {
   position: static;
   width: 100%;
@@ -234,6 +241,9 @@
 .undo-toast > span { min-width: 0; flex: 1; }
 .undo-toast > strong { min-width: 1.5em; color: var(--color-text-secondary); text-align: center; font-variant-numeric: tabular-nums; }
 .undo-toast .ui-button { border-color: color-mix(in srgb, var(--color-border) 38%, transparent); background: color-mix(in srgb, var(--color-surface-elevated) 24%, transparent); color: var(--color-text); }
+@media (prefers-reduced-transparency: reduce) {
+  .toast, .undo-toast, .notice-popups .notice-card { background: var(--color-surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
 
 .backup-reminder { max-width: min(640px, calc(100vw - var(--space-5))); display: flex; align-items: center; gap: var(--space-3); pointer-events: none; }
 .backup-reminder > span { min-width: 0; }
@@ -262,7 +272,7 @@
   .topbar { height: calc(56px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--space-4) 0; }
   .notice-tray,
   .notification-center { top: calc(61px + env(safe-area-inset-top)); right: var(--space-4); }
-  .backup-reminder { right: var(--space-3); bottom: calc(76px + env(safe-area-inset-bottom)); left: var(--space-3); max-width: none; transform: none; padding: var(--space-2) var(--space-3); font-size: var(--font-size-caption); }
+  .backup-reminder { right: var(--space-3); bottom: auto; left: var(--space-3); max-width: none; transform: none; padding: var(--space-2) var(--space-3); font-size: var(--font-size-caption); }
   .backup-reminder .ui-button { white-space: nowrap; }
 }
 

@@ -59,6 +59,7 @@ struct WebAppView: UIViewRepresentable {
         configuration.allowsInlineMediaPlayback = true
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.observeKeyboard(webView)
         context.coordinator.backupBridge.webView = webView
         context.coordinator.reminderBridge.webView = webView
         context.coordinator.googleBridge.webView = webView
@@ -82,6 +83,35 @@ struct WebAppView: UIViewRepresentable {
         let soundBridge = NativeSoundBridge()
         let agendaBridge = NativeAgendaBridge()
         private var downloads: [ObjectIdentifier: URL] = [:]
+        private weak var keyboardWebView: WKWebView?
+
+        func observeKeyboard(_ webView: WKWebView) {
+            keyboardWebView = webView
+            NotificationCenter.default.addObserver(self, selector: #selector(openCalendarToday), name: Notification.Name("utm.openCalendarToday"), object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+        }
+
+        @objc private func keyboardChanged(_ notification: Notification) {
+            guard let webView = keyboardWebView, webView.url?.host == localOrigin.host, webView.url?.port == localOrigin.port else { return }
+            let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect ?? .zero
+            let screenHeight = webView.window?.screen.bounds.height ?? 0
+            let open = notification.name != UIResponder.keyboardWillHideNotification && frame.height > 0 && frame.minY < screenHeight
+            webView.evaluateJavaScript("document.documentElement.dataset.nativeKeyboardOpen = '\(open)'; window.dispatchEvent(new Event('utm:native-keyboard'))", completionHandler: nil)
+        }
+
+        deinit { NotificationCenter.default.removeObserver(self) }
+
+        @objc private func openCalendarToday() {
+            guard UserDefaults.standard.bool(forKey: "utm.pendingCalendarToday"),
+                  let webView = keyboardWebView, !webView.isLoading,
+                  webView.url?.scheme == localOrigin.scheme, webView.url?.host == localOrigin.host, webView.url?.port == localOrigin.port else { return }
+            webView.evaluateJavaScript("sessionStorage.setItem('utm:open-calendar-today', '1'); window.dispatchEvent(new Event('utm:open-calendar-today'))") { _, error in
+                if error == nil { UserDefaults.standard.removeObject(forKey: "utm.pendingCalendarToday") }
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { openCalendarToday() }
 
         private func presenter(_ webView: WKWebView) -> UIViewController? {
             var controller = webView.window?.rootViewController

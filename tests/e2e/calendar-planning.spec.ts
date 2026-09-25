@@ -92,6 +92,19 @@ test('glass quick navigation lifts capture only while the keyboard is closed', a
     window.visualViewport!.dispatchEvent(new Event('resize'));
   });
   await expect(nav).toBeVisible();
+  // Native WKWebView can resize both layout and visual viewports together,
+  // leaving no measurable difference. UIKit's keyboard signal is authoritative.
+  await page.evaluate(() => {
+    document.documentElement.dataset.nativeKeyboardOpen = 'true';
+    window.dispatchEvent(new Event('utm:native-keyboard'));
+  });
+  await expect(nav).toBeHidden();
+  await page.evaluate(() => {
+    document.documentElement.dataset.nativeKeyboardOpen = 'false';
+    window.dispatchEvent(new Event('utm:native-keyboard'));
+  });
+  await expect(nav).toBeVisible();
+  expect((await nav.getByRole('button').first().boundingBox())!.x).toBeLessThan(navBox!.x + 40);
   await page.locator('.capture-dock input').blur();
   await page.screenshot({ path: test.info().outputPath('quick-navigation.png') });
 });
@@ -109,6 +122,25 @@ test('a failed menu section preserves workspace, navigation and diagnostics', as
   await expect(page.getByRole('heading', { name: 'Could not open this section' })).toHaveCount(0);
   await expect(page.locator('[data-utm-item-id="task"]').first()).toBeVisible();
   expect((await read()).items.task!.title).toBe('A task');
+});
+
+test('widget route opens today both while unlocked and after unlock', async ({ page }) => {
+  await setup(page);
+  await page.locator('.calendar-day-panel [data-date="2026-09-25"]').click();
+  await navigate(page, 'All items');
+  const requestToday = () => page.evaluate(() => {
+    sessionStorage.setItem('utm:open-calendar-today', '1');
+    window.dispatchEvent(new Event('utm:open-calendar-today'));
+  });
+  await requestToday();
+  await expect(page.locator('.calendar-day-panel .selected')).toHaveAttribute('data-date', '2026-09-24');
+  await page.reload();
+  await page.getByLabel('Password', { exact: true }).waitFor();
+  await requestToday();
+  expect(await page.evaluate(() => sessionStorage.getItem('utm:open-calendar-today'))).toBe('1');
+  await unlock(page);
+  await expect(page.locator('.calendar-day-panel .selected')).toHaveAttribute('data-date', '2026-09-24');
+  expect(await page.evaluate(() => sessionStorage.getItem('utm:open-calendar-today'))).toBeNull();
 });
 
 test('calendar period swipes, conditional Today, vertical scrolling and keyboard', async ({ page }) => {
@@ -329,8 +361,10 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   await target.evaluate(element => element.scrollIntoView({ block: 'center' }));
   await page.clock.runFor(500);
   await expect(handle).toBeInViewport();
+  await handle.scrollIntoViewIfNeeded();
   const from = await handle.boundingBox(), to = await target.boundingBox();
   const drop = { x: to!.x + to!.width / 2, y: to!.y + to!.height * 0.65 };
+  await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('button')?.getAttribute('aria-label'), { x: from!.x + from!.width / 2, y: from!.y + from!.height / 2 })).toBe('Reorder A task');
   await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('[data-view-item-id]')?.getAttribute('data-view-item-id'), drop)).toBe('event');
   await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2); await page.mouse.down();
   await page.mouse.move(drop.x, drop.y, { steps: 8 }); await page.mouse.up();

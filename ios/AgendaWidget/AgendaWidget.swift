@@ -95,6 +95,7 @@ struct AgendaWidgetView: View {
             }
         }
         .privacySensitive()
+        .widgetURL(URL(string: "utm://calendar/today"))
         .containerBackground(.fill.tertiary, for: .widget)
     }
 }

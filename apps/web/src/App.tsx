@@ -912,6 +912,18 @@ export default function App() {
     }));
   };
   const currentWorkspaceNow = () => workspace ? effectiveWorkspaceNow(workspace, clockService.now()) : clockService.now();
+  useEffect(() => {
+    if (!workspace || recovery) return;
+    const open = () => {
+      if (sessionStorage.getItem('utm:open-calendar-today') !== '1') return;
+      const key = calendarDateKey(effectiveWorkspaceNow(workspace, clockService.now()), workspace.calendarPreferences.timezone);
+      setPage('calendar'); setCalendarJump({ key, request: Date.now() });
+      setEditor(null); setMobileNavOpen(false); setNoticeCenterOpen(false);
+      sessionStorage.removeItem('utm:open-calendar-today');
+    };
+    window.addEventListener('utm:open-calendar-today', open); open();
+    return () => window.removeEventListener('utm:open-calendar-today', open);
+  }, [workspace, recovery]);
   const backupReminderDays = workspace?.calendarPreferences.backupPreferences?.reminderDays ?? 7;
   const [backupReminderDraft, setBackupReminderDraft] = useState(() => String(backupReminderDays));
   useEffect(() => { setBackupReminderDraft(String(backupReminderDays)); }, [backupReminderDays]);

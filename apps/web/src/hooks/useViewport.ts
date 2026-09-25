@@ -10,18 +10,25 @@ export function useViewport(captureInputRef: RefObject<HTMLInputElement | null>,
   }, [ready]);
   useEffect(() => {
     const viewport = window.visualViewport; if (!viewport) return;
+    let restingHeight = window.innerHeight;
+    let nativeOpen = document.documentElement.dataset.nativeKeyboardOpen === 'true';
     const update = () => {
       const focused = document.activeElement === captureInputRef.current;
       const occluded = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
       const editable = document.activeElement?.matches('input, textarea, [contenteditable="true"]');
-      document.documentElement.classList.toggle('keyboard-open', Boolean(editable) && viewport.scale === 1 && occluded > 80);
+      const keyboardOpen = nativeOpen || (Boolean(editable) && viewport.scale === 1 && Math.max(occluded, restingHeight - viewport.height) > 80);
+      if (!editable && !nativeOpen) restingHeight = window.innerHeight;
+      document.documentElement.classList.toggle('keyboard-open', keyboardOpen);
       document.documentElement.style.setProperty('--keyboard-offset', `${focused ? occluded : 0}px`);
-      document.documentElement.classList.toggle('capture-keyboard-open', focused && occluded > 80);
+      document.documentElement.classList.toggle('capture-keyboard-open', focused && keyboardOpen);
     };
     const release = () => { document.documentElement.classList.remove('capture-keyboard-open', 'keyboard-open'); document.documentElement.style.setProperty('--keyboard-offset', '0px'); };
     const focusIn = () => { window.requestAnimationFrame(update); };
     const focusOut = () => { window.requestAnimationFrame(update); };
+    const nativeKeyboard = () => { nativeOpen = document.documentElement.dataset.nativeKeyboardOpen === 'true'; update(); };
+    window.addEventListener('utm:native-keyboard', nativeKeyboard);
+    window.addEventListener('resize', update);
     document.addEventListener('focusin', focusIn); document.addEventListener('focusout', focusOut); viewport.addEventListener('resize', update); viewport.addEventListener('scroll', update); update();
-    return () => { document.removeEventListener('focusin', focusIn); document.removeEventListener('focusout', focusOut); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); release(); document.documentElement.style.removeProperty('--keyboard-offset'); };
+    return () => { window.removeEventListener('utm:native-keyboard', nativeKeyboard); window.removeEventListener('resize', update); document.removeEventListener('focusin', focusIn); document.removeEventListener('focusout', focusOut); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); release(); document.documentElement.style.removeProperty('--keyboard-offset'); };
   }, [captureInputRef]);
 }

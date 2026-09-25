@@ -5,7 +5,8 @@
   right: 0;
   bottom: var(--space-4);
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-inline: var(--space-6);
   gap: var(--space-3);
   pointer-events: none;
   background: transparent;
@@ -30,7 +31,7 @@
 :root:has(.quick-page-nav):not(.keyboard-open) .content { padding-bottom: calc(var(--layout-capture-reserve) + var(--control-height-touch) + var(--space-2)); }
 .keyboard-open .quick-page-nav { display: none; }
 @media (max-width: 950px) {
-  .quick-page-nav { left: 0; bottom: calc(var(--space-3) + env(safe-area-inset-bottom)); }
+  .quick-page-nav { left: 0; padding-inline: var(--space-3); bottom: calc(var(--space-3) + env(safe-area-inset-bottom)); }
   :root:has(.quick-page-nav):not(.keyboard-open) .capture-dock { bottom: calc(var(--space-3) + env(safe-area-inset-bottom) + var(--control-height-touch) + var(--space-2)); }
 }
 @media (prefers-reduced-transparency: reduce) {
