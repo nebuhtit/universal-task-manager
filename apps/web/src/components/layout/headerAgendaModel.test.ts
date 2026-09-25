@@ -19,8 +19,8 @@ it('shows departure before an event, travel as current, and then the event', () 
   workspace.calendarPreferences.language = 'ru';
   const item = add('Даша', 7200, 10800);
   item.schedule!.travelDuration = 'PT60M';
-  expect(selectHeaderAgenda(workspace, now).next).toMatchObject({ at: now + 3600000, title: 'Выезд · Даша' });
-  expect(selectHeaderAgenda(workspace, now + 3600000).current?.title).toBe('Выезд · Даша');
+  expect(selectHeaderAgenda(workspace, now).next).toMatchObject({ at: now + 3600000, title: '⇥ Даша' });
+  expect(selectHeaderAgenda(workspace, now + 3600000).current?.title).toBe('⇥ Даша');
   expect(selectHeaderAgenda(workspace, now + 3600000).next?.at).toBe(now + 7200000);
   expect(selectHeaderAgenda(workspace, now + 7200000).current?.title).toBe('Даша');
 });

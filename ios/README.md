@@ -1,5 +1,12 @@
 # Universal Task Manager for iOS
 
+## 3.0.9: compact Lock Screen presentation
+
+The Lock Screen background is a capsule with semicircular ends. Text uses
+height-aware horizontal insets, single-line truncation and limited scaling to
+stay inside the shape. Departure is shown as `⇥` in both the app and widget.
+After installing, open and unlock the app to refresh the shared widget snapshot.
+
 ## 3.0.8: travel status and timer history
 
 The shared app/widget agenda includes departure (event start minus travel time).

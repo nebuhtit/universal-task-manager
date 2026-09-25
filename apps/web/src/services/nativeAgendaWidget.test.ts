@@ -3,6 +3,17 @@ import { createItem, createWorkspace } from '@utm/core';
 import { agendaWidgetSnapshot } from './nativeAgendaWidget';
 
 describe('lock screen agenda projection', () => {
+  it.each(['en', 'ru'] as const)('uses the compact departure symbol in %s before and during travel', language => {
+    const now = Date.parse('2026-09-25T08:00:00Z');
+    const workspace = createWorkspace('Travel'); workspace.items = {};
+    workspace.calendarPreferences.language = language;
+    const item = createItem('Задача');
+    item.schedule = { timezone: 'UTC', startAt: '2026-09-25T10:00:00Z', endAt: '2026-09-25T11:00:00Z', travelDuration: 'PT60M' };
+    workspace.items[item.id] = item;
+    const snapshot = agendaWidgetSnapshot(workspace, now);
+    expect(snapshot.entries[0]).toMatchObject({ title: '⇥ Задача', target: (now + 3600000) / 1000 });
+    expect(snapshot.entries.find(entry => entry.at === (now + 3600000) / 1000)).toMatchObject({ current: '⇥ Задача', title: 'Задача' });
+  });
   it('prepares transitions without changing or exporting full source items', () => {
     const now = Date.parse('2026-09-25T08:00:00Z');
     const workspace = createWorkspace('Private workspace'); workspace.items = {};

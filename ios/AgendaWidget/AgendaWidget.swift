@@ -37,7 +37,7 @@ struct AgendaProvider: TimelineProvider {
 struct AgendaWidgetView: View {
     let entry: AgendaEntry
     @Environment(\.widgetFamily) private var family
-    var body: some View {
+    private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
             if !entry.current.isEmpty { Text(entry.current).font(.caption).lineLimit(1) }
             Text(entry.title).font(.headline).lineLimit(1)
@@ -48,11 +48,26 @@ struct AgendaWidgetView: View {
                 }.font(.caption)
             }
         }
-        .padding(family == .accessoryRectangular ? 4 : 0)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
+        .lineLimit(1)
+        .minimumScaleFactor(0.85)
+        .truncationMode(.tail)
+    }
+    var body: some View {
+        Group {
             if family == .accessoryRectangular {
-                AccessoryWidgetBackground().clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                GeometryReader { geometry in
+                    // Keep all three lines inside the capsule's straight-sided
+                    // center, including at larger system text sizes.
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, min(geometry.size.height, geometry.size.width) / 2)
+                        .padding(.vertical, 4)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .background { AccessoryWidgetBackground().clipShape(Capsule()) }
+                        .clipShape(Capsule())
+                }
+            } else {
+                content.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .privacySensitive()

@@ -53,7 +53,7 @@ export function selectHeaderAgenda(workspace: WorkspaceDocument, now: number): H
     try { travel = durationToMs(item.schedule?.travelDuration ?? 'PT0S'); } catch { /* Invalid legacy duration is not an agenda boundary. */ }
     if (Number.isFinite(start) && Number.isFinite(travel) && travel > 0) {
       const departure = start - travel;
-      const entry: AgendaEntry = { ...event, at: departure, title: `${workspace.calendarPreferences.language === 'ru' ? 'Выезд' : 'Departure'} · ${item.title}` };
+      const entry: AgendaEntry = { ...event, at: departure, title: `⇥ ${item.title}` };
       boundary(departure);
       if (departure > now) future.push(entry);
       else if (now < start) active.push({ entry, duration: travel, started: departure });
