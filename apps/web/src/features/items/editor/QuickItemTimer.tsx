@@ -28,7 +28,7 @@ const formatClock = (milliseconds: number, includeMilliseconds = false) => {
     : [minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
 };
 
-export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwatchStartedAt, timerTitle = 'Universal', onLegacyStop, onActiveTimerChange, onSaveCompletion }: { soundEnabled?: boolean; activeTimer?: RunningTimer | undefined; initialStopwatchStartedAt?: string | undefined; timerTitle?: string; onLegacyStop?: () => void | Promise<void>; onActiveTimerChange?: (timer: RunningTimer | undefined) => void | Promise<void>; onSaveCompletion?: (session: ItemTimerSession) => void | Promise<void> }) {
+export function QuickItemTimer({ soundEnabled = true, defaultDurationSeconds = 600, activeTimer, initialStopwatchStartedAt, timerTitle = 'Universal', onLegacyStop, onActiveTimerChange, onSaveCompletion }: { soundEnabled?: boolean; defaultDurationSeconds?: number; activeTimer?: RunningTimer | undefined; initialStopwatchStartedAt?: string | undefined; timerTitle?: string; onLegacyStop?: () => void | Promise<void>; onActiveTimerChange?: (timer: RunningTimer | undefined) => void | Promise<void>; onSaveCompletion?: (session: ItemTimerSession) => void | Promise<void> }) {
   const savedStartedAt = activeTimer ? Date.parse(activeTimer.startedAt) : Number.NaN;
   const pendingSession = activeTimer?.stoppedAt && activeTimer.durationSeconds ? {
     id: activeTimer.id, mode: activeTimer.mode, startedAt: activeTimer.startedAt, endedAt: activeTimer.stoppedAt,
@@ -43,7 +43,11 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
   const [countError, setCountError] = useState('');
   const [notificationError, setNotificationError] = useState('');
   const [mode, setMode] = useState<TimerMode>(activeTimer?.mode ?? (resumeLegacy ? 'stopwatch' : 'timer'));
-  const [minutesInput, setMinutesInput] = useState(activeTimer?.targetSeconds ? String(Math.max(1, Math.ceil(activeTimer.targetSeconds / 60))) : '10');
+  const [minutesInput, setMinutesInput] = useState(String(Math.max(1, Math.ceil((activeTimer?.targetSeconds ?? defaultDurationSeconds) / 60))));
+  const minutesEdited = useRef(false);
+  useEffect(() => {
+    if (!minutesEdited.current && !activeTimer) setMinutesInput(String(Math.max(1, Math.ceil(defaultDurationSeconds / 60))));
+  }, [defaultDurationSeconds, activeTimer]);
   const minutes = Math.max(1, Math.floor(Number(minutesInput) || 1));
   const [running, setRunning] = useState(resumeSaved || resumeLegacy);
   const [startedAt, setStartedAt] = useState(resumeSaved ? savedStartedAt : resumeLegacy ? legacyStartedAt : 0);
@@ -147,7 +151,7 @@ export function QuickItemTimer({ soundEnabled = true, activeTimer, initialStopwa
       <Select aria-label="Quick timer mode" value={mode} onChange={(event) => changeMode(event.target.value as TimerMode)}>
         <option value="timer">Timer</option><option value="stopwatch">Stopwatch</option>
       </Select>
-      {mode === 'timer' && <label><span>Minutes</span><Input aria-label="Timer minutes" type="number" min="1" step="1" value={minutesInput} onChange={(event) => { setMinutesInput(event.target.value); reset(); }} onBlur={() => setMinutesInput(String(minutes))} /></label>}
+      {mode === 'timer' && <label><span>Minutes</span><Input aria-label="Timer minutes" type="number" min="1" step="1" value={minutesInput} onChange={(event) => { minutesEdited.current = true; setMinutesInput(event.target.value); reset(); }} onBlur={() => setMinutesInput(String(minutes))} /></label>}
     </div>
     <output aria-live={finished ? 'polite' : 'off'}>{formatClock(mode === 'timer' ? remaining : elapsed, mode === 'stopwatch')}</output>
     <div className="quick-item-timer-interval">

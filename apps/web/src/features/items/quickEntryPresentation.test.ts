@@ -3,6 +3,17 @@ import { applyQuickEntryEditorText } from './quickEntry';
 import { applyQuickEntryText, createQuickEntryItem, formatQuickEntryForEditor, quickEntrySource, syncQuickEntrySource } from './quickEntry';
 
 describe('quick entry presentation', () => {
+  it('hides departure defaults without deleting reminder properties, and recalculates after travel edits', () => {
+    const now = new Date(2026, 8, 25, 8);
+    const item = createQuickEntryItem('Даша 29.09.2026 16:00 дорога 60м обратно 60м', now);
+    const visible = formatQuickEntryForEditor(quickEntrySource(item)!.text);
+    expect(visible).not.toContain('выезд-');
+    const saved = applyQuickEntryEditorText(item, visible.replace('Даша', 'Встреча'), now).item;
+    expect(saved.reminders.map(({ id, ...r }) => r)).toEqual(item.reminders.map(({ id, ...r }) => r));
+    const moved = applyQuickEntryEditorText(saved, visible.replace('тт 60м', 'тт 30м'), now).item;
+    expect(Date.parse(moved.reminders[0]!.at!) - Date.parse(saved.reminders[0]!.at!)).toBe(30 * 60000);
+    expect(formatQuickEntryForEditor('Даша 29.09.2026 16:00 н выезд-120м, выезд-1440м')).not.toContain('выезд-');
+  });
   it.each([
     ['Встреча начало 24.09.2026 18:00 длительность 1ч дорога 30м обратно 30м напомнить начало-30м', 'Встреча начало 24.09.2026 18:00 дл 1ч тт 30м тб 30м н начало-30м'],
     ['Meeting event opens 24.09.2026 18:00 duration 1h travel time 30m travel back 30m remind start-30m', 'Meeting start 24.09.2026 18:00 dr 1h tt 30m tb 30m r start-30m'],

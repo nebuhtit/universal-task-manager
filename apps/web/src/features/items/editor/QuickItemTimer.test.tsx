@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { QuickItemTimer } from './QuickItemTimer';
 
 describe('QuickItemTimer', () => {
+  it('uses the item duration for a new timer', () => {
+    expect(renderToStaticMarkup(<QuickItemTimer defaultDurationSeconds={2700} />)).toContain('45:00');
+  });
   it('starts collapsed as a ten minute timer and also offers a stopwatch', () => {
     const markup = renderToStaticMarkup(<QuickItemTimer />);
     expect(markup).toContain('<details class="quick-item-timer"');

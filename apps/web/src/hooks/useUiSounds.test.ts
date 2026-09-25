@@ -3,6 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 
 describe('timer alarm recovery', () => {
+  it('uses the native sound bridge and respects disabled completion sounds', async () => {
+    const postMessage = vi.fn();
+    vi.stubGlobal('window', { webkit: { messageHandlers: { utmNativeSound: { postMessage } } } });
+    const { previewCompletionSound, playTimerIntervalSound } = await import('./useUiSounds');
+    previewCompletionSound('off', false);
+    expect(postMessage).not.toHaveBeenCalled();
+    previewCompletionSound('on', true);
+    playTimerIntervalSound();
+    expect(postMessage.mock.calls).toEqual([['completion'], ['interval']]);
+  });
   it('resumes interrupted audio, retries on return, and removes recovery after stop', async () => {
     const param = () => ({ setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() });
     const nodes: Array<{ stop: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = [];

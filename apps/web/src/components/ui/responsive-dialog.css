@@ -62,10 +62,10 @@
 .ui-dialog-close:focus-visible { outline-color: var(--color-focus-ring); }
 
 @media (max-width: 620px) {
-  .ui-dialog-viewport { place-items: end stretch; padding: 0; }
+  .ui-dialog-viewport { place-items: end stretch; padding: env(safe-area-inset-top) 0 0; }
   .ui-dialog-popup {
     width: 100%;
-    max-height: 100dvh;
+    max-height: calc(100dvh - env(safe-area-inset-top));
     border-width: 1px 0 0;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     padding-bottom: env(safe-area-inset-bottom);

@@ -3,6 +3,12 @@ import { useEffect } from 'react';
 type UiSoundKind = 'click' | 'confirm' | 'dismiss' | 'toggle' | 'expand' | 'reset';
 let sharedAudioContext: AudioContext | undefined;
 
+const nativeSound = (kind: UiSoundKind | 'completion' | 'interval') => {
+  const bridge = (window as typeof window & { webkit?: { messageHandlers?: { utmNativeSound?: { postMessage: (kind: string) => void } } } }).webkit?.messageHandlers?.utmNativeSound;
+  if (!bridge) return false;
+  try { bridge.postMessage(kind); return true; } catch { return false; }
+};
+
 const resumeAudio = (context: AudioContext) => {
   // Safari can report "interrupted" after a call, lock, or app switch.
   if (context.state !== 'running' && context.state !== 'closed') void context.resume().catch(() => undefined);
@@ -83,6 +89,7 @@ export function startTimerAlarm(enabled = true): () => void {
 /** A short, unobtrusive cue for optional timer intervals. */
 export function playTimerIntervalSound(enabled = true): void {
   if (!enabled) return;
+  if (nativeSound('interval')) return;
   try {
     const context = audioContext();
     if (!context) return;
@@ -95,6 +102,7 @@ export function playTimerIntervalSound(enabled = true): void {
 }
 
 const playUiSound = (kind: UiSoundKind) => {
+  if (nativeSound(kind)) return;
   try {
     const context = audioContext();
     if (!context) return;
@@ -108,6 +116,7 @@ const playUiSound = (kind: UiSoundKind) => {
 
 const completionSoundPreviews = new Map<string, number>();
 const playCompletionTone = () => {
+  if (nativeSound('completion')) return;
   try {
     const context = audioContext();
     if (!context) return;

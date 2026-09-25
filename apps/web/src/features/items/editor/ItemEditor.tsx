@@ -9,7 +9,7 @@ import { EventProgramSection } from './sections/EventProgramSection';
 import { programOverflow, trimEventProgram } from '@utm/core';
 import { EditGoogleEventDialog, type GoogleEditingCallbacks } from '../../calendar/EditGoogleEventDialog';
 import {
-  createId, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage,
+  createId, durationToMs, evaluateFormulas, evaluateItemScripts, itemAreas, itemProjects, migrateItem, orderedListNames, orderedTagEntries, organizationAccentFor, organizationDefinitionFor, parsePortablePackage,
   type RecurrenceCompletionRecord, type Schedule, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { CodeEditor } from '../../../components/ui/CodeEditor';
@@ -521,7 +521,7 @@ export function ItemEditor({ focusTitle = false, initial, workspace, now: suppli
           {!googleEvent && item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
         {!sourceEditing && <>
-        <QuickItemTimer soundEnabled timerTitle={item.title || 'Universal'} activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
+        <QuickItemTimer soundEnabled defaultDurationSeconds={item.schedule?.estimatedDuration ? durationToMs(item.schedule.estimatedDuration) / 1000 : 600} timerTitle={item.title || 'Universal'} activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
           if (onTimerStateSave && workspace.items[(timerOwner ?? item).id]) await onTimerStateSave((timerOwner ?? item).id, runningTimer);
           if (!timerOwner) setItem((current) => {
             const next = { ...current };

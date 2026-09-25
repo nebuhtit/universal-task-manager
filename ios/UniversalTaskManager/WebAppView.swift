@@ -5,6 +5,39 @@ import AuthenticationServices
 import CryptoKit
 import LocalAuthentication
 import Security
+import AVFAudio
+
+/// Short locally generated cues; no audio downloads and no background playback.
+final class NativeSoundBridge: NSObject, WKScriptMessageHandler {
+    private var player: AVAudioPlayer?
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        let origin = message.frameInfo.securityOrigin
+        guard message.frameInfo.isMainFrame, origin.protocol == "http", origin.host == "127.0.0.1", origin.port == 49381,
+              let kind = message.body as? String,
+              ["click", "confirm", "dismiss", "toggle", "expand", "reset", "completion", "interval"].contains(kind) else { return }
+        let frequency = kind == "completion" ? 880.0 : kind == "interval" ? 520.0 : 560.0
+        let duration = kind == "completion" ? 0.16 : 0.07
+        let count = Int(44100 * duration)
+        var data = Data()
+        func word(_ value: UInt16) { var v = value.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }
+        func long(_ value: UInt32) { var v = value.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }
+        data.append(contentsOf: "RIFF".utf8); long(UInt32(36 + count * 2)); data.append(contentsOf: "WAVEfmt ".utf8)
+        long(16); word(1); word(1); long(44100); long(88200); word(2); word(16)
+        data.append(contentsOf: "data".utf8); long(UInt32(count * 2))
+        for index in 0..<count {
+            let envelope = sin(Double.pi * Double(index) / Double(count))
+            let sample = Int16(sin(2 * Double.pi * frequency * Double(index) / 44100) * envelope * 3000)
+            word(UInt16(bitPattern: sample))
+        }
+        do {
+            // Explicitly enabled app sounds should be audible without stopping music.
+            try AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
+            try AVAudioSession.sharedInstance().setActive(true)
+            player = try AVAudioPlayer(data: data)
+            player?.play()
+        } catch { /* Optional feedback must never block editing or completion. */ }
+    }
+}
 
 struct WebAppView: UIViewRepresentable {
     let startURL: URL
@@ -19,6 +52,7 @@ struct WebAppView: UIViewRepresentable {
         configuration.userContentController.add(context.coordinator.reminderBridge, name: "utmNativeReminders")
         configuration.userContentController.add(context.coordinator.googleBridge, name: "utmNativeGoogleAuth")
         configuration.userContentController.addScriptMessageHandler(context.coordinator.biometricBridge, contentWorld: .page, name: "utmNativeBiometrics")
+        configuration.userContentController.add(context.coordinator.soundBridge, name: "utmNativeSound")
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.allowsInlineMediaPlayback = true
@@ -44,6 +78,7 @@ struct WebAppView: UIViewRepresentable {
         let reminderBridge = NativeReminderBridge()
         let googleBridge = NativeGoogleAuthBridge()
         let biometricBridge = NativeBiometricBridge()
+        let soundBridge = NativeSoundBridge()
         private var downloads: [ObjectIdentifier: URL] = [:]
 
         private func presenter(_ webView: WKWebView) -> UIViewController? {

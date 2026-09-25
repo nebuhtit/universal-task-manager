@@ -120,12 +120,12 @@ export function formatQuickEntryForEditor(text: string): string {
   return result;
 }
 
-const editorDefaultReminders = /\s+(?:напомнить|remind)\s+(?:начало|start)-120[мm],\s*(?:начало|start)-1440[мm]\s*$/i;
+const editorDefaultReminders = /\s+(?:напомнить|нап|н|remind|reminder|r)\s+(?:начало|start|выезд|leave)-120[мm],\s*(?:начало|start|выезд|leave)-1440[мm]\s*$/i;
 
 /** Hidden default reminder syntax remains part of the source, not the visible title. */
 export function applyQuickEntryEditorText(item: UniversalItem, text: string, now: Date) {
   const hidden = quickEntrySource(item)?.text.match(editorDefaultReminders)?.[0];
-  const expanded = hidden && !parseEntry(text, now).reminders.length ? text.trimEnd() + hidden : text;
+  const expanded = hidden && !editorDefaultReminders.test(text) && !parseEntry(text, now).noDefaultReminders ? text.trimEnd() + hidden : text;
   return applyQuickEntryText(item, expanded, now);
 }
 
