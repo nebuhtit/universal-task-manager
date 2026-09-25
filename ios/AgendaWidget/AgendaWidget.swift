@@ -41,7 +41,7 @@ struct AgendaWidgetView: View {
         let departure = value.hasPrefix("⇥ ")
         return HStack(alignment: .firstTextBaseline, spacing: 3) {
             if departure {
-                Image(systemName: "car").imageScale(.small).accessibilityHidden(true)
+                Image(systemName: "car.side").imageScale(.small).scaleEffect(x: -1, y: 1).accessibilityHidden(true)
                 Image(systemName: "arrow.right").imageScale(.small).accessibilityHidden(true)
             }
             Text(departure ? String(value.dropFirst(2)) : value).lineLimit(1)

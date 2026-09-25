@@ -280,5 +280,6 @@
 .header-agenda-part > span:not(.header-agenda-title) { flex: 0 0 auto; }
 .header-agenda-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .header-agenda-title > span { display: inline; }
+.header-agenda-departure-icon { display: inline-block; width: 2.22em; height: 1em; vertical-align: -0.12em; }
 
 .header-agenda-part .header-agenda-title { flex: 0 1 auto; }
