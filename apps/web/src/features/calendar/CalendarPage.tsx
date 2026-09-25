@@ -56,7 +56,7 @@ function weekStart(key: string, startsOn: 0 | 1): string {
   return shiftDateKey(key, -((weekday - startsOn + 7) % 7));
 }
 
-export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem, onCreateItem, celebrationColors = new Map(), requestedDate, onSelectedDateChange, onPlanningNotice }: {
+export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem, onCreateItem, celebrationColors = new Map(), requestedDate, initialDate, onSelectedDateChange, onPlanningNotice }: {
   workspace: WorkspaceDocument;
   now?: Date;
   commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => boolean | void;
@@ -66,13 +66,14 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   createUiItem: (title?: string, preset?: ItemPreset, now?: Date) => UniversalItem;
   celebrationColors?: ReadonlyMap<string, string>;
   requestedDate?: { key: string; request: number };
+  initialDate?: string;
   onSelectedDateChange?: (key: string) => void;
   onPlanningNotice?: (message: string) => void;
 }) {
   const preferences = workspace.calendarPreferences;
   const navigationNow = useWorkspaceBoundaryNow(workspace, suppliedNow);
   const initialNow = suppliedNow ?? navigationNow;
-  const [selectedDate, setSelectedDate] = useState(() => localDateKey(initialNow, preferences.timezone));
+  const [selectedDate, setSelectedDate] = useState(() => initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : localDateKey(initialNow, preferences.timezone));
   useEffect(() => { onSelectedDateChange?.(selectedDate); }, [selectedDate, onSelectedDateChange]);
   useEffect(() => { if (requestedDate) setSelectedDate(requestedDate.key); }, [requestedDate]);
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');

@@ -11,8 +11,8 @@ describe('lock screen agenda projection', () => {
     item.schedule = { timezone: 'UTC', startAt: '2026-09-25T10:00:00Z', endAt: '2026-09-25T11:00:00Z', travelDuration: 'PT60M' };
     workspace.items[item.id] = item;
     const snapshot = agendaWidgetSnapshot(workspace, now);
-    expect(snapshot.entries[0]).toMatchObject({ title: '⇥ Задача', target: (now + 3600000) / 1000 });
-    expect(snapshot.entries.find(entry => entry.at === (now + 3600000) / 1000)).toMatchObject({ current: '⇥ Задача', title: 'Задача' });
+    expect(snapshot.entries[0]).toMatchObject({ title: '[[travel-to]] Задача', target: (now + 3600000) / 1000 });
+    expect(snapshot.entries.find(entry => entry.at === (now + 3600000) / 1000)).toMatchObject({ current: '[[travel-road]] Задача', title: 'Задача' });
   });
   it('prepares transitions without changing or exporting full source items', () => {
     const now = Date.parse('2026-09-25T08:00:00Z');

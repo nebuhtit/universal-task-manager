@@ -1,6 +1,9 @@
 import { buildRecurrenceRule, createOccurrence, durationToMs, itemDeletionTime, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 export type AgendaEntry = { id: string; title: string; at: number; kind: 'event' | 'program' | 'due' };
+export const TRAVEL_TO = '[[travel-to]] ';
+export const TRAVEL_ROAD = '[[travel-road]] ';
+export const TRAVEL_BACK_TO = '[[travel-back-to]] ';
 export type HeaderAgenda = { current?: AgendaEntry; concurrent: AgendaEntry[]; additional: number; next?: AgendaEntry; validUntil: number };
 const timestamp = (value?: string) => Date.parse(value ?? '');
 const stable = (a: AgendaEntry, b: AgendaEntry) => a.id.localeCompare(b.id);
@@ -41,6 +44,8 @@ export function selectHeaderAgenda(workspace: WorkspaceDocument, now: number): H
   let validUntil = Infinity;
   const boundary = (at: number) => { if (at > now) validUntil = Math.min(validUntil, at); };
   for (const item of agendaItems(workspace, now)) {
+    const sleepId = workspace.calendarPreferences.timeline?.sleepItemId;
+    if (sleepId && (item.id === sleepId || item.occurrence?.seriesId === sleepId)) continue;
     const start = timestamp(item.schedule?.startAt), end = timestamp(item.schedule?.endAt);
     const timed = !item.schedule?.plannedDate && !item.schedule?.allDay;
     const event: AgendaEntry = { id: item.id, title: item.title, at: start, kind: 'event' };
@@ -53,10 +58,16 @@ export function selectHeaderAgenda(workspace: WorkspaceDocument, now: number): H
     try { travel = durationToMs(item.schedule?.travelDuration ?? 'PT0S'); } catch { /* Invalid legacy duration is not an agenda boundary. */ }
     if (Number.isFinite(start) && Number.isFinite(travel) && travel > 0) {
       const departure = start - travel;
-      const entry: AgendaEntry = { ...event, at: departure, title: `⇥ ${item.title}` };
+      const entry: AgendaEntry = { ...event, at: departure, title: `${TRAVEL_TO}${item.title}` };
       boundary(departure);
       if (departure > now) future.push(entry);
-      else if (now < start) active.push({ entry, duration: travel, started: departure });
+      else if (now < start) active.push({ entry: { ...entry, title: `${TRAVEL_ROAD}${item.title}` }, duration: travel, started: departure });
+    }
+    let travelBack = 0;
+    try { travelBack = durationToMs(item.schedule?.travelBackDuration ?? 'PT0S'); } catch { /* Invalid legacy duration. */ }
+    if (Number.isFinite(end) && Number.isFinite(travelBack) && travelBack > 0) {
+      boundary(end + travelBack);
+      if (end > now) future.push({ ...event, at: end, title: `${TRAVEL_BACK_TO}${item.title}` });
     }
     if (start > now) future.push(event);
     const blocks = (item.eventProgram?.blocks ?? []).map(block => ({ id: `${item.id}/${block.id}`, title: block.title, at: start + block.startOffsetSeconds * 1000, end: start + block.endOffsetSeconds * 1000, kind: 'program' as const }));

@@ -685,6 +685,16 @@ export default function App() {
   const { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey } = useWorkspaceController({ onToast: setToast, setNotices });
   const notices = workspace ? visibleItemNotices(workspace, rawNotices) : rawNotices;
   useEffect(() => {
+    if (!workspace) return;
+    const prune = () => setNotices(current => {
+      const visible = visibleItemNotices(workspace, current);
+      return visible.length === current.length ? current : visible;
+    });
+    prune();
+    const timer = window.setInterval(prune, 60_000);
+    return () => window.clearInterval(timer);
+  }, [workspace]);
+  useEffect(() => {
     // The editor owns its pending timer journal. Never overwrite its unsaved state.
     if (!workspace || recovery || editor || !isNativeReminderAvailable() || workspace.calendarPreferences.testClock?.enabled) return;
     const reconcile = () => {
@@ -1292,7 +1302,7 @@ export default function App() {
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {(saveStatus === 'saving' || saveStatus === 'error') && <p className={`save-status-banner${saveStatus === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : 'Не сохранено. Последние изменения пока только в памяти.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>}
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
-      {page === 'calendar' && <CalendarPage onPlanningNotice={setToast} onCreateItem={item => { setEditorIsNew(true); setFocusEditorId(item.id); setEditor(item); }} workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onSelectedDateChange={setCalendarCaptureDate} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
+      {page === 'calendar' && <CalendarPage onPlanningNotice={setToast} onCreateItem={item => { setEditorIsNew(true); setFocusEditorId(item.id); setEditor(item); }} workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} {...(calendarCaptureDate ? { initialDate: calendarCaptureDate } : {})} onSelectedDateChange={setCalendarCaptureDate} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={openWorkspaceItem} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onQuickAddItem={captureQuickViewItem} onExport={() => exportAfterFlush(() => exportParaStructure(workspace))} /></section>}

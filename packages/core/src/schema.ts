@@ -2,6 +2,7 @@ import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 import { initializeItemHistory } from './item-history.js';
 import { validateEventProgram } from './event-program.js';
 import { mergeGoogleCalendarCopies } from './google-calendar.js';
+import { retireLegacyCalendarTags } from './calendar-organization.js';
 import addFormats from 'ajv-formats';
 import { ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_VERSION, LEGACY_ACTIVE_ITEM_VIEW_QUERY, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, standardAttentionViewSort } from './types.js';
 import { normalizedOrganizationPriorityOrder } from './organization.js';
@@ -365,7 +366,7 @@ export const workspaceJsonSchema = {
           properties: {
             connectionId: { type: 'string', minLength: 1 }, accountEmail: { type: 'string' }, defaultCalendarId: { type: 'string' }, allowPastEventEditing: { type: 'boolean' },
             writeDailyLimit: { type: 'integer', minimum: 1, maximum: 200 }, writeBatchLimit: { type: 'integer', minimum: 1, maximum: 20 }, writeTimestamps: { type: 'array', items: { type: 'string', format: 'date-time' } },
-            calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, accessRole: { type: 'string' }, selected: { type: 'boolean' }, color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, managedTag: { type: 'string' }, areas: { type: 'array', items: { type: 'string' } }, projects: { type: 'array', items: { type: 'string' } } } } },
+            calendars: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'name', 'selected'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, primary: { type: 'boolean' }, accessRole: { type: 'string' }, selected: { type: 'boolean' }, color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, managedTag: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } }, areas: { type: 'array', items: { type: 'string' } }, projects: { type: 'array', items: { type: 'string' } } } } },
             syncTokens: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
             syncWindow: { type: 'object', additionalProperties: false, required: ['timeMin', 'timeMax', 'refreshedAt'], properties: { timeMin: { type: 'string', format: 'date-time' }, timeMax: { type: 'string', format: 'date-time' }, refreshedAt: { type: 'string', format: 'date-time' } } },
             lastSyncedAt: { type: 'string', format: 'date-time' }, lastError: { type: 'string' },
@@ -1009,7 +1010,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
         const value = entry as Record<string, unknown>;
         if (typeof value.id !== 'string' || !value.id || typeof value.name !== 'string' || !value.name) return [];
-        return [{ id: value.id, name: value.name, ...(typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color) ? { color: value.color } : {}), ...(typeof value.managedTag === 'string' ? { managedTag: value.managedTag } : {}), ...Object.fromEntries(['areas', 'projects'].filter((key) => Array.isArray(value[key])).map((key) => [key, (value[key] as unknown[]).filter((name) => typeof name === 'string')])), ...(typeof value.accessRole === 'string' ? { accessRole: value.accessRole } : {}), selected: value.selected !== false, ...(value.primary === true ? { primary: true } : {}) }];
+        return [{ id: value.id, name: value.name, ...(typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color) ? { color: value.color } : {}), ...(typeof value.managedTag === 'string' ? { managedTag: value.managedTag } : {}), ...Object.fromEntries(['areas', 'projects', 'tags'].filter((key) => Array.isArray(value[key])).map((key) => [key, (value[key] as unknown[]).filter((name) => typeof name === 'string')])), ...(typeof value.accessRole === 'string' ? { accessRole: value.accessRole } : {}), selected: value.selected !== false, ...(value.primary === true ? { primary: true } : {}) }];
       }) : [];
       const tokens = google.syncTokens && typeof google.syncTokens === 'object' && !Array.isArray(google.syncTokens)
         ? Object.fromEntries(Object.entries(google.syncTokens as Record<string, unknown>).filter((entry): entry is [string, string] => Boolean(entry[0]) && typeof entry[1] === 'string' && Boolean(entry[1]))) : {};
@@ -1082,6 +1083,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const validation = validateWorkspace(source);
   if (!validation.valid) throw new Error(validation.errors.join('; '));
   mergeGoogleCalendarCopies(source as unknown as WorkspaceDocument);
+  retireLegacyCalendarTags(source as unknown as WorkspaceDocument);
   if (previous !== SCHEMA_VERSION) warnings.unshift(`Migrated workspace schema ${previous} to ${SCHEMA_VERSION}`);
   return { value: source as unknown as WorkspaceDocument, warnings };
 }

@@ -19,10 +19,21 @@ it('shows departure before an event, travel as current, and then the event', () 
   workspace.calendarPreferences.language = 'ru';
   const item = add('Даша', 7200, 10800);
   item.schedule!.travelDuration = 'PT60M';
-  expect(selectHeaderAgenda(workspace, now).next).toMatchObject({ at: now + 3600000, title: '⇥ Даша' });
-  expect(selectHeaderAgenda(workspace, now + 3600000).current?.title).toBe('⇥ Даша');
+  expect(selectHeaderAgenda(workspace, now).next).toMatchObject({ at: now + 3600000, title: '[[travel-to]] Даша' });
+  expect(selectHeaderAgenda(workspace, now + 3600000).current?.title).toBe('[[travel-road]] Даша');
   expect(selectHeaderAgenda(workspace, now + 3600000).next?.at).toBe(now + 7200000);
   expect(selectHeaderAgenda(workspace, now + 7200000).current?.title).toBe('Даша');
+});
+it('counts down to return travel, then skips its active interval; ignores pinned sleep', () => {
+  const { workspace, add } = fixture();
+  const sleep = add('Sleep', 1800, 3600);
+  workspace.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, sleepItemId: sleep.id };
+  const item = add('Meeting', 7200, 10800);
+  item.schedule!.travelBackDuration = 'PT45M';
+  add('Next', 14400, 18000);
+  expect(selectHeaderAgenda(workspace, now).next?.title).toBe('Meeting');
+  expect(selectHeaderAgenda(workspace, now + 7200000).next).toMatchObject({ at: now + 10800000, title: '[[travel-back-to]] Meeting' });
+  expect(selectHeaderAgenda(workspace, now + 10800000).next?.title).toBe('Next');
 });
 describe('header agenda', () => {
   it.each([[1, '1 с'], [59000, '59 с'], [60000, '1 мин 0 с'], [3599000, '59 мин 59 с'], [3600000, '1 ч 0 мин'], [86399000, '23 ч 59 мин'], [86400000, '1 д 0 ч'], [183600000, '2 д 3 ч']])('formats %s ms', (ms, label) => expect(formatAgendaRemaining(ms, 'ru')).toBe(label));

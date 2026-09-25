@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { renameTagDefinition, deleteOrganizationDefinition } from './organization.js';
 import { createWorkspace, createItem, ensureAreaDefinition, ensureProjectDefinition, googleWriteLimitReached, recordGoogleWrite, reconcileCalendarOrganization, migrateWorkspace, validateWorkspace, workspaceForExport, recordCompletionTransition } from './index.js';
 
 function fixture() {
   const workspace = createWorkspace('Calendars');
-  workspace.calendarPreferences.googleCalendar = { connectionId: 'connection', accountEmail: 'owner@example.com', calendars: [{ id: 'one', name: 'Work', selected: true, color: '#345678', areas: ['Office'], projects: ['Release'] }], syncTokens: {} };
+  workspace.calendarPreferences.googleCalendar = { connectionId: 'connection', accountEmail: 'owner@example.com', calendars: [{ id: 'one', name: 'Work', selected: true, color: '#345678', areas: ['Office'], projects: ['Release'], tags: ['Focus'] }], syncTokens: {} };
   ensureAreaDefinition(workspace, 'Office'); ensureProjectDefinition(workspace, 'Release');
   const item = createItem('Meeting');
   item.areas = ['Personal'];
@@ -30,25 +31,37 @@ describe('Calendar organization and durable local data', () => {
     const { workspace, item } = fixture(); reconcileCalendarOrganization(workspace);
     delete item.external;
     reconcileCalendarOrganization(workspace);
-    expect(item.tags).toEqual(['C.Work']);
+    expect(item.tags).toEqual(['Focus']);
   });
   it('updates colors and names without losing manual memberships, then removes only automatic assignments', () => {
     const { workspace, item, calendar } = fixture();
     reconcileCalendarOrganization(workspace);
-    expect(item.tags).toEqual(['C.Work']); expect(item.areas).toEqual(['Personal', 'Office']); expect(item.projects).toEqual(['Release']);
+    expect(item.tags).toEqual(['Focus']); expect(item.areas).toEqual(['Personal', 'Office']); expect(item.projects).toEqual(['Release']);
     calendar.name = 'Team'; calendar.color = '#abcdef'; reconcileCalendarOrganization(workspace);
-    expect(item.tags).toEqual(['C.Team']); expect(workspace.organizationPreferences.tagAccents['C.Team']).toBe('#abcdef');
-    calendar.areas = []; calendar.projects = []; reconcileCalendarOrganization(workspace);
+    expect(item.tags).toEqual(['Focus']); expect(workspace.organizationPreferences.tagAccents['Focus']).toBeUndefined();
+    calendar.areas = []; calendar.projects = []; calendar.tags = []; reconcileCalendarOrganization(workspace);
     expect(item.areas).toEqual(['Personal']); expect(item.projects).toEqual([]);
     const validation = validateWorkspace(migrateWorkspace(workspace).value); expect(validation.valid, JSON.stringify(validation)).toBe(true);
   });
-  it('keeps manual assignments that overlap the calendar and distinguishes colliding tags', () => {
-    const { workspace, item, calendar } = fixture(); item.areas.push('Office'); item.tags.push('C.Work');
-    workspace.calendarPreferences.googleCalendar!.calendars.push({ id: 'two', name: 'Work', selected: true });
-    reconcileCalendarOrganization(workspace); const tag = calendar.managedTag;
-    expect(tag).toBe('C.Work (2)'); expect(workspace.calendarPreferences.googleCalendar!.calendars[1]!.managedTag).toBe('C.Work (3)');
-    reconcileCalendarOrganization(workspace); expect(calendar.managedTag).toBe(tag);
-    calendar.areas = []; reconcileCalendarOrganization(workspace); expect(item.areas).toContain('Office');
+  it('preserves overlapping manual tags when the mapping is removed', () => {
+    const { workspace, item, calendar } = fixture();
+    item.tags = ['Focus', 'C.Manual'];
+    reconcileCalendarOrganization(workspace);
+    calendar.tags = [];
+    reconcileCalendarOrganization(workspace);
+    expect(item.tags).toEqual(['Focus', 'C.Manual']);
+    expect(calendar.managedTag).toBeUndefined();
+  });
+  it('retires recorded legacy tags even without an external cache', () => {
+    const { workspace, item, calendar } = fixture();
+    calendar.managedTag = 'C.Work'; item.tags = ['C.Work', 'C.Manual'];
+    workspace.organizationPreferences.tagOrder.push('C.Work');
+    item.extensions = { 'utm:calendarOrganization': { calendarId: 'one', tag: 'C.Work', areas: [], projects: [] } };
+    delete item.external;
+    reconcileCalendarOrganization(workspace);
+    expect(item.tags).toEqual(['C.Manual']);
+    expect(workspace.organizationPreferences.tagOrder).not.toContain('C.Work');
+    expect(calendar.managedTag).toBeUndefined();
   });
   it('does not rewrite every mirrored item when a sync changes nothing', () => {
     const { workspace, item } = fixture();
@@ -61,15 +74,34 @@ describe('Calendar organization and durable local data', () => {
     expect(item.extensions?.['utm:calendarOrganization']).toBe(before.source);
     expect(workspace.organizationPreferences.tagOrder).toBe(before.order);
   });
+  it('keeps tag mappings in sync with renaming and deletion', () => {
+    const { workspace, item, calendar } = fixture();
+    reconcileCalendarOrganization(workspace);
+    expect(renameTagDefinition(workspace, 'Focus', 'Deep work')).toBe(true);
+    expect(calendar.tags).toEqual(['Deep work']);
+    reconcileCalendarOrganization(workspace);
+    expect(item.tags).toEqual(['Deep work']);
+    deleteOrganizationDefinition(workspace, 'tag', 'Deep work');
+    reconcileCalendarOrganization(workspace);
+    expect(calendar.tags).toEqual([]);
+    expect(item.tags).toEqual([]);
+  });
+  it('cleans legacy generated tags on workspace opening', () => {
+    const { workspace, item, calendar } = fixture();
+    calendar.managedTag = 'C.Work'; item.tags = ['C.Work', 'Manual'];
+    const opened = migrateWorkspace(workspace).value;
+    expect(opened.items[item.id]!.tags).toEqual(['Manual']);
+    expect(opened.calendarPreferences.googleCalendar!.calendars[0]!.tags).toEqual(['Focus']);
+  });
   it('removes managed tags and automatic PARA assignments while a calendar is inactive', () => {
     const { workspace, item, calendar } = fixture(); reconcileCalendarOrganization(workspace);
     calendar.selected = false; reconcileCalendarOrganization(workspace);
-    expect(item.tags).not.toContain('C.Work'); expect(item.areas).toEqual(['Personal']); expect(item.projects).toEqual([]);
+    expect(item.tags).not.toContain('Focus'); expect(item.areas).toEqual(['Personal']); expect(item.projects).toEqual([]);
     expect(calendar.areas).toEqual(['Office']); expect(calendar.projects).toEqual(['Release']);
     expect(item.extensions?.['utm:calendarOrganization']).toBeUndefined();
-    expect(workspace.organizationPreferences.tagOrder).not.toContain('C.Work');
+    expect(workspace.organizationPreferences.tagOrder).toContain('Focus');
     calendar.selected = true; reconcileCalendarOrganization(workspace);
-    expect(item.tags).toContain('C.Work'); expect(item.areas).toEqual(['Personal', 'Office']); expect(item.projects).toEqual(['Release']);
+    expect(item.tags).toContain('Focus'); expect(item.areas).toEqual(['Personal', 'Office']); expect(item.projects).toEqual(['Release']);
   });
   it('counts only successful writes from the rolling 24-hour safety window', () => {
     const { workspace } = fixture(); const google = workspace.calendarPreferences.googleCalendar!;

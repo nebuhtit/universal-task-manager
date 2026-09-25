@@ -30,8 +30,8 @@ final class NativeSoundBridge: NSObject, WKScriptMessageHandler {
             word(UInt16(bitPattern: sample))
         }
         do {
-            // Explicitly enabled app sounds should be audible without stopping music.
-            try AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
+            // Ambient respects the iPhone silent switch while mixing with other audio.
+            try AVAudioSession.sharedInstance().setCategory(.ambient, options: .mixWithOthers)
             try AVAudioSession.sharedInstance().setActive(true)
             player = try AVAudioPlayer(data: data)
             player?.play()

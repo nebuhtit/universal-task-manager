@@ -46,22 +46,26 @@ struct AgendaWidgetView: View {
     let entry: AgendaEntry
     @Environment(\.widgetFamily) private var family
     private func statusText(_ value: String, font: Font) -> some View {
-        let parts = value.components(separatedBy: "⇥ ")
-        return HStack(alignment: .center, spacing: 3) {
+        let parts = value.replacingOccurrences(of: "[[travel-to]] ", with: "|A|")
+            .replacingOccurrences(of: "[[travel-road]] ", with: "|R|")
+            .replacingOccurrences(of: "[[travel-back-to]] ", with: "|B|")
+            .components(separatedBy: "|")
+        return HStack(alignment: .center, spacing: 1) {
             ForEach(parts.indices, id: \.self) { index in
-                if index > 0 {
-                    DepartureMark()
-                        .stroke(style: StrokeStyle(lineWidth: 1.35, lineCap: .round, lineJoin: .round))
-                        .frame(width: 28, height: 13)
-                        .fixedSize()
-                        .accessibilityHidden(true)
+                if parts[index] == "A" || parts[index] == "B" {
+                    LucideTravelIcon(kind: .arrow).frame(width: 13, height: 13).accessibilityHidden(true)
                 }
-                if !parts[index].isEmpty { Text(parts[index]).lineLimit(1) }
+                if parts[index] == "A" || parts[index] == "R" {
+                    LucideTravelIcon(kind: .road).frame(width: 13, height: 13).accessibilityHidden(true)
+                }
+                if !["A", "R", "B"].contains(parts[index]) && !parts[index].isEmpty { Text(parts[index]).lineLimit(1) }
             }
         }
         .font(font)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(value.replacingOccurrences(of: "⇥ ", with: Locale.current.language.languageCode?.identifier == "ru" ? "Выезд · " : "Departure · "))
+        .accessibilityLabel(value.replacingOccurrences(of: "[[travel-to]] ", with: "Departure · ")
+            .replacingOccurrences(of: "[[travel-road]] ", with: "Travel · ")
+            .replacingOccurrences(of: "[[travel-back-to]] ", with: "Return travel · "))
     }
     private func countdown(_ target: Date) -> some View {
         TimelineView(.periodic(from: entry.date, by: 60)) { context in
@@ -69,7 +73,8 @@ struct AgendaWidgetView: View {
             if remaining < 600 {
                 Text(timerInterval: context.date...target, countsDown: true).monospacedDigit()
             } else {
-                Text("\(Int(ceil(remaining / 60))) min").monospacedDigit()
+                let totalMinutes = Int(ceil(remaining / 60))
+                Text(totalMinutes >= 60 ? "\(totalMinutes / 60) h \(totalMinutes % 60) min" : "\(totalMinutes) min").monospacedDigit()
             }
         }
     }
@@ -118,29 +123,43 @@ struct AgendaWidgetView: View {
     }
 }
 
-/// One compact side-facing car + direction glyph, sharing the web geometry.
-private struct DepartureMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: x / 40 * rect.width, y: (y - 3) / 18 * rect.height)
+/// Lucide arrow-right-to-line / road paths from the referenced icon pages.
+private struct LucideTravelIcon: View {
+    enum Kind { case arrow, road }
+    let kind: Kind
+    var body: some View {
+        ShapeView(kind: kind).stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+    }
+    private struct ShapeView: Shape {
+        let kind: Kind
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * rect.width / 24, y: y * rect.height / 24) }
+            func line(_ points: [(CGFloat, CGFloat)]) {
+                guard let first = points.first else { return }
+                path.move(to: p(first.0, first.1))
+                for point in points.dropFirst() { path.addLine(to: p(point.0, point.1)) }
+            }
+            if kind == .arrow {
+                line([(17,12),(3,12)])
+                line([(11,18),(17,12),(11,6)])
+                line([(21,5),(21,19)])
+            } else {
+                line([(12,17),(12,21)])
+                line([(12,5),(12,3)])
+                line([(12,9),(12,12)])
+                path.move(to: p(2.077,18.449))
+                path.addCurve(to: p(4,21), control1: p(1.667,19.712), control2: p(2.61,21))
+                path.addLine(to: p(20,21))
+                path.addCurve(to: p(21.924,18.45), control1: p(21.39,21), control2: p(22.333,19.712))
+                path.addLine(to: p(17.924,4.45))
+                path.addCurve(to: p(16,3), control1: p(17.68,3.59), control2: p(16.9,3))
+                path.addLine(to: p(8,3))
+                path.addCurve(to: p(6.076,4.45), control1: p(7.1,3), control2: p(6.32,3.59))
+                path.closeSubpath()
+            }
+            return path
         }
-        func line(_ points: [(CGFloat, CGFloat)]) {
-            guard let first = points.first else { return }
-            path.move(to: point(first.0, first.1))
-            for value in points.dropFirst() { path.addLine(to: point(value.0, value.1)) }
-        }
-        line([(4,17),(2,17),(2,10),(5,10),(8,5),(15,5),(18,10),(23,12),(23,17),(20,17)])
-        line([(8,17),(16,17)])
-        line([(5,10),(18,10)])
-        line([(11,5),(11,10)])
-        for x in [CGFloat(6), CGFloat(18)] {
-            let origin = point(x - 2, 15)
-            path.addEllipse(in: CGRect(x: origin.x, y: origin.y, width: 4 / 40 * rect.width, height: 4 / 18 * rect.height))
-        }
-        line([(28,12),(38,12)])
-        line([(34,8),(38,12),(34,16)])
-        return path
     }
 }
 @main
