@@ -14,7 +14,8 @@ describe('ResponsiveDialog contract', () => {
     expect(css).toContain('z-index: var(--z-overlay)');
     expect(css).toContain('background: var(--color-overlay)');
     expect(css).toContain('@media (max-width: 620px)');
-    expect(css).toContain('max-height: 100dvh');
+    expect(css).toContain('max-height: calc(100dvh - env(safe-area-inset-top))');
+    expect(css).toContain('padding: env(safe-area-inset-top) 0 0');
     expect(css).not.toMatch(/#[0-9a-f]{3,8}/i);
   });
 });
