@@ -1,5 +1,30 @@
 # Universal Task Manager for iOS
 
+## Lock Screen widget (3.0.7)
+
+The `AgendaWidget` target is a real WidgetKit extension, not a Live Activity.
+Both targets use `group.dev.universal-task-manager.ios`. Select the same team
+and automatic signing for both. Xcode may need to register the App Group and
+refresh profiles. Apple's current iOS capability table lists App Groups for
+the free Apple Developer account too; actual device signing must still succeed.
+Do not purchase a membership just to work around a signing error.
+
+In Universal Settings, enable **Lock Screen widget** explicitly. This exports
+only displayed titles and event times to the local shared group, outside the
+encrypted workspace; never passwords, descriptions or Google tokens. Disable
+and clear removes that snapshot. Then hold the iPhone Lock Screen, choose
+Customize → Add Widgets → Universal. A rectangular Lock Screen widget and a
+small Home Screen widget are included.
+
+The app prepares up to 128 transitions over the next 48 hours using the header
+agenda model. The system draws the live countdown; WidgetKit controls refresh
+timing, so transitions are not guaranteed to the second. After the prepared
+range expires, the widget asks to reopen Universal instead of showing a stale
+countdown. Open the app to pick up edits, Google changes and fresh recurrences.
+After reboot, shared storage becomes readable after the first device unlock.
+Validate signing, adding/removing the widget, event transitions and countdown
+on a physical iPhone; unsigned compilation does not prove device provisioning.
+
 This target is a small native shell around the production web application. The
 web bundle is compiled locally and served only on the loopback interface, so it
 does not depend on GitHub Pages or an internet connection.

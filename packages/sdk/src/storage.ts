@@ -794,6 +794,8 @@ export async function enablePasswordRequirement(currentPassword: string): Promis
 }
 
 export async function clearLocalWorkspace(): Promise<void> {
+  const agenda = typeof window === 'undefined' ? undefined : (window as typeof window & { webkit?: { messageHandlers?: { utmNativeAgenda?: { postMessage: (value: unknown) => Promise<unknown> } } } }).webkit?.messageHandlers?.utmNativeAgenda;
+  if (agenda) await agenda.postMessage({ kind: 'disable' });
   if (hasNativeBiometrics()) await nativeBiometrics('remove');
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {

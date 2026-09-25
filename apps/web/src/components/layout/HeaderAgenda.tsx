@@ -1,10 +1,24 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { agendaWidgetRequest, agendaWidgetSnapshot, hasNativeAgendaWidget } from '../../services/nativeAgendaWidget';
 import { itemDeletionTime, type WorkspaceDocument } from '@utm/core';
 import { useWorkspaceNow } from '../../hooks/useClock';
 import { UserDataText } from '../../i18n-react';
 import { formatAgendaRemaining, selectHeaderAgenda, type HeaderAgenda as Agenda } from './headerAgendaModel';
 
 export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
+  useEffect(() => {
+    if (!workspace || !hasNativeAgendaWidget()) return;
+    let disposed = false;
+    const sync = () => { void agendaWidgetRequest('status').then(status => {
+      if (!disposed && status.enabled) return agendaWidgetRequest('sync', agendaWidgetSnapshot(workspace));
+    }).catch(() => undefined); };
+    const visible = () => { if (document.visibilityState === 'visible') sync(); };
+    sync();
+    const refresh = window.setInterval(visible, 30 * 60_000);
+    window.addEventListener('utm-agenda-widget-change', sync);
+    document.addEventListener('visibilitychange', visible);
+    return () => { disposed = true; window.clearInterval(refresh); window.removeEventListener('utm-agenda-widget-change', sync); document.removeEventListener('visibilitychange', visible); };
+  }, [workspace]);
   const now = useWorkspaceNow(workspace).getTime();
   const cache = useRef<{ workspace: WorkspaceDocument; at: number; agenda: Agenda } | undefined>(undefined);
   const deletedFromCache = workspace && [cache.current?.agenda.current, ...(cache.current?.agenda.concurrent ?? []), cache.current?.agenda.next].some(entry => {

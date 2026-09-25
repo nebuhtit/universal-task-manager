@@ -53,6 +53,7 @@ struct WebAppView: UIViewRepresentable {
         configuration.userContentController.add(context.coordinator.googleBridge, name: "utmNativeGoogleAuth")
         configuration.userContentController.addScriptMessageHandler(context.coordinator.biometricBridge, contentWorld: .page, name: "utmNativeBiometrics")
         configuration.userContentController.add(context.coordinator.soundBridge, name: "utmNativeSound")
+        configuration.userContentController.addScriptMessageHandler(context.coordinator.agendaBridge, contentWorld: .page, name: "utmNativeAgenda")
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.allowsInlineMediaPlayback = true
@@ -79,6 +80,7 @@ struct WebAppView: UIViewRepresentable {
         let googleBridge = NativeGoogleAuthBridge()
         let biometricBridge = NativeBiometricBridge()
         let soundBridge = NativeSoundBridge()
+        let agendaBridge = NativeAgendaBridge()
         private var downloads: [ObjectIdentifier: URL] = [:]
 
         private func presenter(_ webView: WKWebView) -> UIViewController? {
