@@ -219,7 +219,8 @@ const expectedBehaviorHashes: Record<number, string> = {
   // Includes portable byte length: Home deduplication and noon defaults add metadata.
   // Free capacity now uses interval union rather than double-counting overlaps.
   // Calendar Today includes unfinished past-Due items without moving schedules.
-  100: 'cc34d191',
+  // LiveText automatic reminder defaults are now part of workspace preferences.
+  100: '9c5800e7',
   1_000: '521047c6',
   10_000: '432ad274',
 };
