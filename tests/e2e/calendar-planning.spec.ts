@@ -6,7 +6,7 @@ import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wra
 const password = 'calendar-planning-fixture';
 test.use({ trace: 'retain-on-failure', screenshot: 'only-on-failure' });
 const now = new Date('2026-09-24T08:00:00Z');
-async function setup(page: Page, conflict = true, customize?: (workspace: WorkspaceDocument) => void) {
+async function setup(page: Page, conflict = true, customize?: (workspace: WorkspaceDocument) => void, initialPage = 'Calendar') {
   const w = createWorkspace('Planning', now); w.calendarPreferences.timezone = 'UTC';
   w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = 'true';
   w.calendarPreferences.dayView.sortSource = 'title asc'; w.calendarPreferences.dayView.sort = [{ expression: 'title', direction: 'asc', nulls: 'last' }];
@@ -25,7 +25,7 @@ async function setup(page: Page, conflict = true, customize?: (workspace: Worksp
     const db = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open('utm-secure-v1'); r.onsuccess = () => resolve(r.result); });
     await new Promise<void>((resolve, reject) => { const tx = db.transaction('encrypted-records', 'readwrite'), s = tx.objectStore('encrypted-records'); s.put(metadata, 'metadata'); s.put(block, 'workspace'); s.put(block, 'workspace-export-safe'); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
   }, { metadata, block });
-  await page.reload(); await unlock(page); await navigate(page, 'Calendar');
+  await page.reload(); await unlock(page); await navigate(page, initialPage);
   const read = async () => {
     const block = await page.evaluate(async () => {
       const db = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open('utm-secure-v1'); r.onsuccess = () => resolve(r.result); });
@@ -34,7 +34,7 @@ async function setup(page: Page, conflict = true, customize?: (workspace: Worksp
     const doc = Automerge.load<WorkspaceDocument>(await decryptWithKey(block, key, 'utm:local:workspace:v1'));
     const value = Automerge.toJS(doc); Automerge.free(doc); return value;
   };
-  await expect(page.locator('.calendar-page')).toBeVisible();
+  if (initialPage === 'Calendar') await expect(page.locator('.calendar-page')).toBeVisible();
   return { read };
 }
 async function unlock(page: Page) {
@@ -43,7 +43,7 @@ async function unlock(page: Page) {
 }
 async function navigate(page: Page, label: string) {
   if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: label, exact: true }).click(); }
-  else await page.locator('.sidebar').getByRole('button', { name: label, exact: true }).click();
+  else await page.locator('.sidebar').getByRole('button', { name: label === 'All items' ? /^All items(?: \d+)?$/ : label, exact: true }).click();
 }
 async function swipe(page: Page, id: string, right = true) {
   const card = page.locator(`[data-utm-item-id="${id}"]`).first(); await card.scrollIntoViewIfNeeded();
@@ -213,6 +213,29 @@ test('keyboard reorder shared with Timeline, two reset confirmations and off swi
   await expect.poll(async () => (await read()).calendarPreferences.planning?.enabled).toBe(false);
   await navigate(page, 'Calendar'); await swipe(page, 'event'); await expect(page.getByRole('dialog', { name: 'Calendar pin' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reset day order', exact: true })).toHaveCount(0);
+});
+
+test('glass notifications and calendar pin work before visiting Calendar', async ({ page }) => {
+  await setup(page, true, undefined, 'All items');
+  await page.getByRole('button', { name: 'Notifications', exact: true }).click();
+  const notices = page.locator('.notification-center');
+  await expect(notices).toBeVisible();
+  const glass = async (selector: string) => page.locator(selector).evaluate(element => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, blur: style.backdropFilter || style.getPropertyValue('-webkit-backdrop-filter') };
+  });
+  expect((await glass('.notification-center')).blur).toContain('blur(6px)');
+  expect((await glass('.notification-center')).background).toBe('rgba(255, 255, 255, 0.56)');
+  await page.getByRole('button', { name: 'Close notification center', exact: true }).last().click();
+  await swipe(page, 'event');
+  const pin = page.getByRole('dialog', { name: 'Calendar pin' });
+  await expect(pin).toBeVisible();
+  expect((await glass('.calendar-pin-dialog')).blur).toContain('blur(6px)');
+  expect((await glass('.calendar-pin-dialog')).background).toBe('rgba(255, 255, 255, 0.56)');
+  await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+  expect((await glass('.calendar-pin-dialog')).background).toBe('rgba(0, 0, 0, 0.62)');
+  await pin.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(pin).toHaveCount(0);
 });
 
 test('existing due swipe and keyboard pin shortcut coexist', async ({ page }) => {

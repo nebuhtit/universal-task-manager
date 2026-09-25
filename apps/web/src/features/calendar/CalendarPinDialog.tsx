@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import './calendar-pin-dialog.css';
 import { calendarDateKey, type CalendarSourceReference, type WorkspaceDocument } from '@utm/core';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { Button } from '../../components/ui/primitives';

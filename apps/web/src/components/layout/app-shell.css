@@ -184,6 +184,24 @@
 .notification-center h2 { margin: 0; font-size: var(--font-size-section); font-weight: var(--font-weight-semibold); }
 .notification-list { display: grid; gap: var(--space-2); }
 
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .notification-center {
+    background: var(--color-capture-active);
+    -webkit-backdrop-filter: blur(var(--blur-capture-idle));
+    backdrop-filter: blur(var(--blur-capture-idle));
+  }
+  .notification-center .notice-card { background: var(--color-capture-idle); }
+  .notification-center .notice-content.ui-button { background: transparent; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .notification-center {
+    background: var(--color-surface-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .notification-center .notice-card { background: var(--color-surface); }
+}
+
 .toast {
   position: fixed;
   z-index: calc(var(--z-overlay) + 100);

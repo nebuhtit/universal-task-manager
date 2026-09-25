@@ -1,0 +1,35 @@
+/* Loaded by the dialog itself, including before CalendarPage has been visited. */
+.calendar-pin-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.ui-dialog-popup.calendar-pin-dialog { background: var(--color-capture-active); }
+.calendar-pin-dialog .ui-dialog-header,
+.calendar-pin-dialog .ui-dialog-footer { background: transparent; }
+.calendar-pin-item {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  overflow-wrap: anywhere;
+  border: 1px solid var(--color-capture-border-idle);
+  border-radius: var(--radius-md);
+  background: var(--color-capture-idle);
+}
+.calendar-pin-glass-button {
+  border-color: var(--color-capture-border-idle);
+  background: var(--color-capture-idle);
+  color: var(--color-text);
+}
+.calendar-pin-glass-button:hover:not(:disabled) { background: var(--color-capture-active); }
+.calendar-pin-glass-button:disabled { background: var(--color-interactive-disabled); color: var(--color-text-disabled); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ui-dialog-popup.calendar-pin-dialog,
+  .calendar-pin-item,
+  .calendar-pin-glass-button {
+    -webkit-backdrop-filter: blur(var(--blur-capture-idle));
+    backdrop-filter: blur(var(--blur-capture-idle));
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ui-dialog-popup.calendar-pin-dialog,
+  .calendar-pin-item,
+  .calendar-pin-glass-button { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .ui-dialog-popup.calendar-pin-dialog { background: var(--color-surface-elevated); }
+  .calendar-pin-item { background: var(--color-surface); }
+}
