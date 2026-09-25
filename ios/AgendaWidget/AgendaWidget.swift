@@ -37,10 +37,23 @@ struct AgendaProvider: TimelineProvider {
 struct AgendaWidgetView: View {
     let entry: AgendaEntry
     @Environment(\.widgetFamily) private var family
+    private func statusText(_ value: String, font: Font) -> some View {
+        let departure = value.hasPrefix("⇥ ")
+        return HStack(alignment: .firstTextBaseline, spacing: 3) {
+            if departure {
+                Image(systemName: "car").imageScale(.small).accessibilityHidden(true)
+                Image(systemName: "arrow.right").imageScale(.small).accessibilityHidden(true)
+            }
+            Text(departure ? String(value.dropFirst(2)) : value).lineLimit(1)
+        }
+        .font(font)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(departure ? "\(Locale.current.language.languageCode?.identifier == "ru" ? "Выезд" : "Departure") · \(value.dropFirst(2))" : value)
+    }
     private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
-            if !entry.current.isEmpty { Text(entry.current).font(.caption).lineLimit(1) }
-            Text(entry.title).font(.headline).lineLimit(1)
+            if !entry.current.isEmpty { statusText(entry.current, font: .caption) }
+            statusText(entry.title, font: .headline)
             if let target = entry.target, target > entry.date {
                 HStack(spacing: 4) {
                     Text(entry.label)
