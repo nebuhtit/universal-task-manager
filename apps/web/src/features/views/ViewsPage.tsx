@@ -380,7 +380,8 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
       onOpenChange={(open) => { if (!open) { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'dialog-dismiss' }) }); closeEditor(); } }}
       title="Edit view"
       description="Saved view"
-      className="view-editor"
+      className="view-editor is-glass"
+      backdropClassName="is-glass"
       closeLabel="Close view editor"
       initialFocus={false}
       finalFocus={typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches ? false : undefined}

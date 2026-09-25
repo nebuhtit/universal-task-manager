@@ -8,7 +8,7 @@ import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
 import { CloseIcon } from './components/ui/icons';
 import { SectionGuide } from './components/ui/SectionGuide';
-import { initializeItemHistory, recordCompletionTransition, syncActualDuration, syncCompletionCounter } from '@utm/core';
+import { initializeItemHistory, recordCompletionTransition, recordExpiredItemTimer, syncActualDuration, syncCompletionCounter } from '@utm/core';
 import { itemDeletionIds, itemDeletionTime, softDeleteItemTree, restoreItemTree } from '@utm/core';
 import { googleHistoryKey } from './services/googleHistoryKey';
 import {
@@ -680,6 +680,28 @@ export default function App() {
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string; backupPreview?: boolean | undefined; isolatedPreview?: boolean } | null>(null);
   const { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey } = useWorkspaceController({ onToast: setToast, setNotices });
   const notices = workspace ? visibleItemNotices(workspace, rawNotices) : rawNotices;
+  useEffect(() => {
+    // The editor owns its pending timer journal. Never overwrite its unsaved state.
+    if (!workspace || recovery || editor || !isNativeReminderAvailable() || workspace.calendarPreferences.testClock?.enabled) return;
+    const reconcile = () => {
+      const current = getCurrentWorkspace();
+      const now = Date.now();
+      if (!current || !Object.values(current.items).some(item => !itemDeletionTime(current, item) && item.activeTimer?.mode === 'timer' && !item.activeTimer.stoppedAt && (item.activeTimer.targetSeconds ?? 0) > 0 && Date.parse(item.activeTimer.startedAt) + item.activeTimer.targetSeconds! * 1000 <= now)) return;
+      const saved = commit('Record completed iOS timers', draft => {
+        for (const item of Object.values(draft.items)) {
+          if (itemDeletionTime(draft, item) || !recordExpiredItemTimer(item, now)) continue;
+          syncCompletionCounter(item);
+          item.revision += 1; item.updatedAt = new Date(now).toISOString();
+        }
+      });
+      if (saved) void flushPersistence().catch(reason => setToast(String(reason)));
+    };
+    reconcile();
+    const visible = () => { if (!document.hidden) reconcile(); };
+    document.addEventListener('visibilitychange', visible);
+    const timer = window.setInterval(visible, 1000);
+    return () => { document.removeEventListener('visibilitychange', visible); window.clearInterval(timer); };
+  }, [workspace, recovery, editor, commit, flushPersistence, getCurrentWorkspace]);
   useEffect(() => workspace ? weatherService.start() : undefined, [Boolean(workspace)]);
   const saveServiceRef = useRef<ReturnType<typeof createWorkspaceSaveService> | null>(null);
   if (!saveServiceRef.current) saveServiceRef.current = createWorkspaceSaveService({

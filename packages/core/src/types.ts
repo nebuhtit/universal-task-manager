@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '3.0.7';
-export const APP_RELEASED_AT = '2026-09-25T06:14:36.608Z';
+export const APP_VERSION = '3.0.8';
+export const APP_RELEASED_AT = '2026-09-25T07:05:46.208Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -206,6 +206,7 @@ export interface ItemRelation { id: string; targetId: string; type: RelationType
 export interface LinkAttachment { id: string; url: string; title?: string; mimeType?: string }
 export interface ItemTimerSession {
   id: string;
+  automatic?: boolean;
   recurrenceId?: ISODateTime;
   mode: 'timer' | 'stopwatch';
   startedAt: ISODateTime;

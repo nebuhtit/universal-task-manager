@@ -86,10 +86,14 @@ export function QuickItemTimer({ soundEnabled = true, defaultDurationSeconds = 6
 
   useEffect(() => {
     if (!running || !finished) return;
-    const session = record(elapsed);
-    setElapsedBeforeStart(elapsed);
+    const session = record(duration, startedAt + duration);
+    setElapsedBeforeStart(duration);
     setRunning(false);
     persistActive(session ? { id: session.id, mode: session.mode, startedAt: session.startedAt, stoppedAt: session.endedAt, durationSeconds: session.durationSeconds, ...(session.targetSeconds ? { targetSeconds: session.targetSeconds } : {}) } : undefined);
+    if (session && isNativeReminderAvailable() && onSaveCompletion) {
+      setCounting(true);
+      void persistenceRef.current.then(() => onSaveCompletion({ ...session, automatic: true })).then(() => setCounted(true)).catch(reason => setCountError(String(reason))).finally(() => setCounting(false));
+    }
     stopAlarmRef.current();
     stopAlarmRef.current = startTimerAlarm(soundEnabled && !isNativeReminderAvailable());
     notifyFinished();

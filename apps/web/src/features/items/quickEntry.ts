@@ -117,14 +117,29 @@ export function formatQuickEntryForEditor(text: string): string {
     result += char;
     if (!quote && char === ',' && text[index + 1] && !/\s/.test(text[index + 1]!) && !(/\d/.test(text[index - 1] ?? '') && /\d/.test(text[index + 1]!))) result += ' ';
   }
-  return result;
+  return result.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(вс|пн|вт|ср|чт|пт|сб)\s+\d{2}\.\d{2}\.\d{4}(?=\s|$)/gi,
+    (match, leading: string | undefined, weekday: string | undefined) => weekday ? `${leading}${weekday}` : match);
 }
 
 const editorDefaultReminders = /\s+(?:напомнить|нап|н|remind|reminder|r)\s+(?:начало|start|выезд|leave)-120[мm],\s*(?:начало|start|выезд|leave)-1440[мm]\s*$/i;
 
 /** Hidden default reminder syntax remains part of the source, not the visible title. */
 export function applyQuickEntryEditorText(item: UniversalItem, text: string, now: Date) {
-  const hidden = quickEntrySource(item)?.text.match(editorDefaultReminders)?.[0];
+  const source = quickEntrySource(item)?.text ?? '';
+  // Numeric dates stay in the canonical source and properties. Resolve unchanged
+  // short weekday tokens against that source, never against a later opening day.
+  const dates = new Map<string, string[]>();
+  for (const match of source.replace(/"[^"\n]*"|«[^»\n]*»/g, value => ' '.repeat(value.length)).matchAll(/(?:^|\s)(вс|пн|вт|ср|чт|пт|сб)\s+(\d{2}\.\d{2}\.\d{4})(?=\s|$)/gi)) {
+    const key = match[1]!.toLowerCase();
+    dates.set(key, [...(dates.get(key) ?? []), match[2]!]);
+  }
+  text = text.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(вс|пн|вт|ср|чт|пт|сб)(?=\s|$)(\s+\d{1,2}\.\d{1,2}(?:\.\d{4})?)?/gi,
+    (match, leading: string | undefined, weekday: string | undefined, explicit: string | undefined) => {
+      if (!weekday) return match;
+      const date = dates.get(weekday.toLowerCase())?.shift();
+      return date && !explicit ? `${leading}${weekday} ${date}` : match;
+    });
+  const hidden = source.match(editorDefaultReminders)?.[0];
   const expanded = hidden && !editorDefaultReminders.test(text) && !parseEntry(text, now).noDefaultReminders ? text.trimEnd() + hidden : text;
   return applyQuickEntryText(item, expanded, now);
 }

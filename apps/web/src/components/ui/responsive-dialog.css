@@ -19,6 +19,17 @@
 /* Glass sheets already tint their surface. Keep the page behind them undimmed. */
 .ui-dialog-backdrop.is-glass { background: transparent; }
 
+.ui-dialog-popup.is-glass {
+  background: var(--color-capture-active);
+  -webkit-backdrop-filter: blur(var(--blur-capture-idle));
+  backdrop-filter: blur(var(--blur-capture-idle));
+}
+.ui-dialog-popup.is-glass .ui-dialog-header,
+.ui-dialog-popup.is-glass .ui-dialog-footer { background: transparent; }
+@media (prefers-reduced-transparency: reduce) {
+  .ui-dialog-popup.is-glass { background: var(--color-surface-elevated); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
 .ui-dialog-popup {
   width: min(100%, var(--layout-dialog-max));
   max-height: min(90dvh, 900px);

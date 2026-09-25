@@ -1,4 +1,4 @@
-import { buildRecurrenceRule, createOccurrence, itemDeletionTime, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { buildRecurrenceRule, createOccurrence, durationToMs, itemDeletionTime, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 export type AgendaEntry = { id: string; title: string; at: number; kind: 'event' | 'program' | 'due' };
 export type HeaderAgenda = { current?: AgendaEntry; concurrent: AgendaEntry[]; additional: number; next?: AgendaEntry; validUntil: number };
@@ -49,6 +49,15 @@ export function selectHeaderAgenda(workspace: WorkspaceDocument, now: number): H
     boundary(due);
     if (!timed) continue;
     boundary(start); boundary(end);
+    let travel = 0;
+    try { travel = durationToMs(item.schedule?.travelDuration ?? 'PT0S'); } catch { /* Invalid legacy duration is not an agenda boundary. */ }
+    if (Number.isFinite(start) && Number.isFinite(travel) && travel > 0) {
+      const departure = start - travel;
+      const entry: AgendaEntry = { ...event, at: departure, title: `${workspace.calendarPreferences.language === 'ru' ? 'Выезд' : 'Departure'} · ${item.title}` };
+      boundary(departure);
+      if (departure > now) future.push(entry);
+      else if (now < start) active.push({ entry, duration: travel, started: departure });
+    }
     if (start > now) future.push(event);
     const blocks = (item.eventProgram?.blocks ?? []).map(block => ({ id: `${item.id}/${block.id}`, title: block.title, at: start + block.startOffsetSeconds * 1000, end: start + block.endOffsetSeconds * 1000, kind: 'program' as const }));
     for (const block of blocks) {

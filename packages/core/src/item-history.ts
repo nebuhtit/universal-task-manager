@@ -79,8 +79,21 @@ export function addTimerActualTime(item: UniversalItem, session: ItemTimerSessio
   const recurrenceId = session.recurrenceId ?? item.occurrence?.recurrenceId;
   const entry = { id: `timer:${session.id}`, sourceSessionId: session.id, source: session.mode, at: session.startedAt, durationSeconds: session.durationSeconds, comment: '', ...(recurrenceId ? { recurrenceId } : {}) } as NonNullable<UniversalItem['actualTimeEntries']>[number];
   item.actualTimeEntries.push(entry);
-  ensureActualTimeCompletion(item, entry, session.endedAt);
+  const completion = ensureActualTimeCompletion(item, entry, session.endedAt);
+  if (completion && session.automatic) completion.kind = 'automatic';
   syncActualDuration(item);
+}
+
+/** Reconcile a finished countdown after unlock. The timer id makes retries idempotent. */
+export function recordExpiredItemTimer(item: UniversalItem, now: number): boolean {
+  const timer = item.activeTimer;
+  if (!timer || timer.mode !== 'timer' || timer.stoppedAt || item.deletedAt) return false;
+  const seconds = timer.targetSeconds ?? 0;
+  const end = Date.parse(timer.startedAt) + seconds * 1000;
+  if (!Number.isFinite(end) || !Number.isFinite(seconds) || seconds <= 0 || end > now) return false;
+  addTimerActualTime(item, { id: timer.id, mode: 'timer', startedAt: timer.startedAt, endedAt: new Date(end).toISOString(), durationSeconds: seconds, targetSeconds: seconds, automatic: true });
+  delete item.activeTimer;
+  return true;
 }
 
 /** Rolling recurrence rows keep previous-cycle journals, but totals use only the current cycle. */

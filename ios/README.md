@@ -1,5 +1,16 @@
 # Universal Task Manager for iOS
 
+## 3.0.8: travel status and timer history
+
+The shared app/widget agenda includes departure (event start minus travel time).
+The rectangular Lock Screen widget uses the system accessory background, clipped
+to rounded corners; iOS controls its final wallpaper tint and rendering.
+
+Finished native countdowns automatically record their target duration once,
+marked `A✎` in completion history. While the app is closed, the encrypted journal
+cannot be updated; reconciliation happens after reopening and unlocking. Manual
+stops still offer manual recording, and stopwatches are never auto-completed.
+
 ## Lock Screen widget (3.0.7)
 
 The `AgendaWidget` target is a real WidgetKit extension, not a Live Activity.

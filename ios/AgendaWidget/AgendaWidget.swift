@@ -36,6 +36,7 @@ struct AgendaProvider: TimelineProvider {
 }
 struct AgendaWidgetView: View {
     let entry: AgendaEntry
+    @Environment(\.widgetFamily) private var family
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if !entry.current.isEmpty { Text(entry.current).font(.caption).lineLimit(1) }
@@ -45,6 +46,13 @@ struct AgendaWidgetView: View {
                     Text(entry.label)
                     Text(timerInterval: entry.date...target, countsDown: true).monospacedDigit()
                 }.font(.caption)
+            }
+        }
+        .padding(family == .accessoryRectangular ? 4 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if family == .accessoryRectangular {
+                AccessoryWidgetBackground().clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
         .privacySensitive()

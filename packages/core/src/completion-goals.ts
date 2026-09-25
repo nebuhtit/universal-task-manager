@@ -4,6 +4,22 @@ export function completionCount(item: UniversalItem): number {
   return (item.completionEntries ?? []).filter((entry) => !entry.revokedAt).length;
 }
 
+/** Missing durations are unknown, not zero; revoked completions do not contribute. */
+export function completionStatistics(items: readonly UniversalItem[]) {
+  let count = 0, timedCount = 0, totalSeconds = 0;
+  for (const item of items) {
+    for (const completion of item.completionEntries ?? []) {
+      if (completion.revokedAt) continue;
+      count++;
+      const times = (item.actualTimeEntries ?? []).filter(entry => entry.completionId === completion.id && Number.isFinite(entry.durationSeconds) && entry.durationSeconds >= 0);
+      if (!times.length) continue;
+      timedCount++;
+      totalSeconds += times.reduce((sum, entry) => sum + entry.durationSeconds, 0);
+    }
+  }
+  return { count, timedCount, totalSeconds, averageSeconds: timedCount ? totalSeconds / timedCount : undefined };
+}
+
 export function countGoalResult(item: UniversalItem): { count: number; met: boolean; difference: number } | undefined {
   if (item.progress?.mode !== 'counter') return undefined;
   const count = completionCount(item);
