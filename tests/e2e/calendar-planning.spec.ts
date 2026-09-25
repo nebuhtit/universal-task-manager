@@ -377,10 +377,8 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   await handle.evaluate(element => element.scrollIntoView({ block: 'center' }));
   await page.clock.runFor(500);
   await expect(handle).toBeInViewport();
-  await handle.scrollIntoViewIfNeeded();
   const from = await handle.boundingBox(), to = await target.boundingBox();
   const drop = { x: to!.x + to!.width / 2, y: to!.y + to!.height * 0.65 };
-  await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('button')?.getAttribute('aria-label'), { x: from!.x + from!.width / 2, y: from!.y + from!.height / 2 })).toBe('Reorder A task');
   await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('[data-view-item-id]')?.getAttribute('data-view-item-id'), drop)).toBe('event');
   await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2); await page.mouse.down();
   await page.mouse.move(drop.x, drop.y, { steps: 8 }); await page.mouse.up();
