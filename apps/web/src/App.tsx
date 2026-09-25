@@ -1,4 +1,6 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
+import { PageErrorBoundary } from './components/layout/PageErrorBoundary';
+import { renderFailureDetails, safeRenderFailureDetails } from './services/renderFailure';
 import { NativeBackupGate } from './services/nativeBackupGate';
 import { planningEnabled } from './features/calendar/calendarPlanning';
 import { weatherService } from './features/weather/weatherService';
@@ -95,6 +97,10 @@ const downloadText = async (content: string, filename: string, type = 'applicati
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
 const exportSafeDiagnostics = () => [...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
+  if (entry.operation === 'Render page' || entry.operation === 'Render application') {
+    const safeDetails = safeRenderFailureDetails(details);
+    return { ...entry, ...(safeDetails ? { details: safeDetails } : {}) };
+  }
   if (/google|calendar/i.test(`${entry.operation} ${entry.message}`)) {
     const safeDetails = entry.outcome === 'failed' ? safeGoogleCalendarFailureDetails(details) : undefined;
     return { ...entry, message: 'External calendar operation details omitted from export', ...(safeDetails ? { details: safeDetails } : {}) };
@@ -510,7 +516,7 @@ function MigrationGate({ session, language, onUpdate, onRecovery }: { session: U
 export class AppErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state: { error: string | null } = { error: null };
   static getDerivedStateFromError(reason: unknown) { return { error: reason instanceof Error ? reason.message : String(reason) }; }
-  componentDidCatch(reason: unknown) { recordDiagnostic({ kind: 'error', message: 'Root render failed', operation: 'Render application', outcome: 'failed', details: diagnosticFailureCode(reason) }); }
+  componentDidCatch(reason: unknown) { recordDiagnostic({ kind: 'error', message: 'Root render failed', operation: 'Render application', outcome: 'failed', details: renderFailureDetails(reason) }); }
   render() { return this.state.error ? <RecoveryShell session={undefined} reason={`Application startup failed: ${this.state.error}`} onRetry={() => this.setState({ error: null })} /> : this.props.children; }
 }
 
@@ -1267,6 +1273,7 @@ export default function App() {
   const downloadDiagnostics = downloadDiagnosticsFile;
 
   return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onCompleteNotice={(notice) => { const item = notice.itemId ? workspace.items[notice.itemId] : undefined; if (item && item.state === 'open' && canManuallyComplete(item)) changeItemState(item, 'done'); }} onSnoozeNotice={snoozeNotice} onQuickPin={planningEnabled(workspace) ? setQuickPinTarget : undefined} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+      <PageErrorBoundary key={page} page={page} language={workspace.calendarPreferences.language} onDiagnostics={() => void downloadDiagnostics()}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       {(saveStatus === 'saving' || saveStatus === 'error') && <p className={`save-status-banner${saveStatus === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : 'Не сохранено. Последние изменения пока только в памяти.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>}
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
@@ -1282,6 +1289,7 @@ export default function App() {
         <details className="settings-disclosure"><summary>Device unlock</summary><section className="settings-card"><p className="eyebrow">DEVICE UNLOCK</p><h2>Face ID / Touch ID</h2>{faceId === 'unsupported' ? <p>Unavailable on this browser or device. Password unlock remains available.</p> : <><p>Optional quick unlock for this device only. Face ID never replaces your password, and exports still require the password.</p>{faceId === 'configured' ? <button className="secondary" onClick={() => void disableFaceIdUnlock().then(() => { setFaceId('available'); setToast('Face ID unlock disabled. Password unlock remains unchanged.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Disable Face ID</button> : <button className="secondary" onClick={() => void enableFaceIdUnlock(session.dataKey).then(() => { setFaceId('configured'); setToast('Face ID unlock is ready on this device.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Enable Face ID</button>}<p className="hint">If Face ID fails, is cancelled, or the device changes, use the password field on the lock screen. Removing this option never removes your workspace.</p></>}</section></details>
       </section>}
       </Suspense>
+      </PageErrorBoundary>
     </AppShell>
     {quickPinTarget && planningEnabled(workspace) && <CalendarPinDialog workspace={workspace} target={quickPinTarget} onClose={() => setQuickPinTarget(null)} commit={commit} onFlush={flushPersistence} />}
     {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={quickDueItem.schedule?.plannedDate ? (workspace.calendarPreferences.language === 'ru' ? 'Перепланировать' : 'Reschedule') : (workspace.calendarPreferences.language === 'ru' ? 'Перенести срок' : 'Move Due')} ariaLabel="Quick Due" className="quick-due-dialog" backdropClassName="is-glass" footer={<Button className="glass-action-button" disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><p className="glass-item-reference" translate="no" data-utm-user-data>{quickDueItem.title}</p><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}

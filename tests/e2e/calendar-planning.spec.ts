@@ -58,6 +58,21 @@ async function settledReload(page: Page) {
   await page.reload(); await unlock(page); await navigate(page, 'Calendar');
 }
 
+test('a failed menu section preserves workspace, navigation and diagnostics', async ({ page }) => {
+  const { read } = await setup(page, true, undefined, 'All items');
+  await page.route('**/SettingsPage-*.js', route => route.abort());
+  await navigate(page, 'Settings');
+  await expect(page.getByRole('heading', { name: 'Could not open this section' })).toBeVisible();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download diagnostics', exact: true })).toBeVisible();
+  const records = await page.evaluate(() => JSON.parse(localStorage.getItem('utm:diagnostics:v1') ?? '[]'));
+  expect(records.some((entry: { operation: string; page: string; details: string }) => entry.operation === 'Render page' && entry.page === 'settings' && JSON.parse(entry.details).category === 'chunk-load')).toBe(true);
+  await navigate(page, 'All items');
+  await expect(page.getByRole('heading', { name: 'Could not open this section' })).toHaveCount(0);
+  await expect(page.locator('[data-utm-item-id="task"]').first()).toBeVisible();
+  expect((await read()).items.task!.title).toBe('A task');
+});
+
 test('calendar period swipes, conditional Today, vertical scrolling and keyboard', async ({ page }) => {
   await setup(page);
   const panel = page.locator('.calendar-day-panel');
