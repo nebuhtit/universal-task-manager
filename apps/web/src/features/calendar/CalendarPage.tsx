@@ -21,6 +21,7 @@ import { buildCalendarPlan, calendarPlanMetricItems, calendarReorderIssue, creat
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { calendarProjectionPadding } from './calendarProjectionCache';
 import { MoonPhase } from './MoonPhase';
+import { useCalendarPeriodSwipe } from './useCalendarPeriodSwipe';
 import { calendarUndatedItems, showOverdueToday } from './calendarVisibility';
 import './calendar.css';
 
@@ -75,6 +76,8 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   useEffect(() => { onSelectedDateChange?.(selectedDate); }, [selectedDate, onSelectedDateChange]);
   useEffect(() => { if (requestedDate) setSelectedDate(requestedDate.key); }, [requestedDate]);
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
+  const movePeriod = (direction: -1 | 1) => setSelectedDate(current => navigatorMode === 'week' ? shiftDateKey(current, direction * 7) : shiftMonth(current, direction));
+  const periodSwipe = useCalendarPeriodSwipe(movePeriod);
   const [compactNavigator, setCompactNavigator] = useState(false);
   const calendarRoot = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLElement>(null);
@@ -282,12 +285,12 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
           {(['week', 'month'] as const).map((mode) => <Button size="compact" variant="ghost" aria-pressed={navigatorMode === mode} className={navigatorMode === mode ? 'active' : ''} key={mode} onClick={() => setNavigatorMode(mode)}>{mode === 'week' ? 'Week' : 'Month'}</Button>)}
         </div>
         <div className="calendar-period-actions">
-          <IconButton size="compact" variant="ghost" aria-label="Previous period" onClick={() => setSelectedDate(navigatorMode === 'week' ? shiftDateKey(selectedDate, -7) : shiftMonth(selectedDate, -1))}>‹</IconButton>
-          <Button size="compact" variant="ghost" onClick={() => setSelectedDate(todayKey)}>Today</Button>
-          <IconButton size="compact" variant="ghost" aria-label="Next period" onClick={() => setSelectedDate(navigatorMode === 'week' ? shiftDateKey(selectedDate, 7) : shiftMonth(selectedDate, 1))}>›</IconButton>
+          {selectedDate !== todayKey && <Button size="compact" variant="ghost" onClick={() => setSelectedDate(todayKey)}>Today</Button>}
+          <IconButton size="compact" variant="ghost" aria-label="Previous period" onClick={() => movePeriod(-1)}>‹</IconButton>
+          <IconButton size="compact" variant="ghost" aria-label="Next period" onClick={() => movePeriod(1)}>›</IconButton>
         </div>
       </div>
-      <div className={`calendar-day-panel is-${showWeek ? 'week' : 'month'}`} ref={dayPanelRef}>
+      <div className={`calendar-day-panel is-${showWeek ? 'week' : 'month'}`} ref={dayPanelRef} {...periodSwipe}>
         {!showWeek && Array.from({ length: 7 }, (_, index) => <span className="calendar-weekday-label" key={index}>{formatDate(shiftDateKey(labelWeek, index), { weekday: 'short' })}</span>)}
         {!showWeek && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
         {visibleDayKeys.map((key) => <button type="button" data-date={key} ref={key === todayKey ? todayChoiceRef : undefined} className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} aria-current={key === todayKey ? 'date' : undefined} onClick={() => setSelectedDate(key)} key={key}>

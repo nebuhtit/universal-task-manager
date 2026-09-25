@@ -58,6 +58,41 @@ async function settledReload(page: Page) {
   await page.reload(); await unlock(page); await navigate(page, 'Calendar');
 }
 
+test('calendar period swipes, conditional Today, vertical scrolling and keyboard', async ({ page }) => {
+  await setup(page);
+  const panel = page.locator('.calendar-day-panel');
+  const actions = page.locator('.calendar-period-actions');
+  const today = actions.getByRole('button', { name: 'Today', exact: true });
+  const selected = () => panel.locator('.selected').getAttribute('data-date');
+  const swipePanel = async (direction: -1 | 1) => {
+    await panel.dispatchEvent('touchstart', { touches: [{ identifier: 1, clientX: 180, clientY: 300 }] });
+    await panel.dispatchEvent('touchend', { changedTouches: [{ identifier: 1, clientX: direction === 1 ? 60 : 300, clientY: 302 }] });
+  };
+  await expect(today).toHaveCount(0);
+  await swipePanel(1);
+  await expect.poll(selected).toBe('2026-10-01');
+  await expect(actions.locator('button').first()).toHaveText('Today');
+  // A trailing touch click must not select a different day on the new page.
+  await panel.locator('[data-date="2026-09-28"]').dispatchEvent('click', { detail: 1 });
+  await expect.poll(selected).toBe('2026-10-01');
+  await swipePanel(-1);
+  await expect.poll(selected).toBe('2026-09-24');
+  await expect(today).toHaveCount(0);
+  await panel.dispatchEvent('touchstart', { touches: [{ identifier: 1, clientX: 180, clientY: 300 }] });
+  await panel.dispatchEvent('touchmove', { touches: [{ identifier: 1, clientX: 182, clientY: 360 }] });
+  await panel.dispatchEvent('touchend', { changedTouches: [{ identifier: 1, clientX: 60, clientY: 302 }] });
+  await expect.poll(selected).toBe('2026-09-24');
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  await swipePanel(1);
+  await expect.poll(selected).toBe('2026-10-24');
+  await today.click();
+  await expect.poll(selected).toBe('2026-09-24');
+  const another = panel.locator('[data-date="2026-09-25"]');
+  await another.focus(); await another.press('Enter');
+  await expect.poll(selected).toBe('2026-09-25');
+  await expect(today).toBeVisible();
+});
+
 test('overflow is placed automatically before Due without source changes', async ({ page }) => {
   const { read } = await setup(page, true, w => {
     w.items.task!.schedule!.dueAt = '2026-09-24T10:00:00Z';

@@ -6,7 +6,7 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.0.9** · workspace schema: **1.26.0**
+Current release: **v3.1.0** · workspace schema: **1.26.0**
 
 > [!IMPORTANT]
 > UTM is currently **beta software**. Your workspace is stored on your device, not in a hosted account. Create encrypted `.utmb` backups regularly. Clearing browser/PWA storage or removing an installed web app can erase its local workspace.
@@ -150,6 +150,7 @@ The query and formula language is parsed by UTM's allowlisted DSL. It does not u
 The calendar provides a responsive day List and Timeline over the same universal items.
 
 - Week and Month navigation with a compact sticky selected week while scrolling.
+- Swipe the day navigator left/right for the next/previous period. Today appears before the arrows only when another day is selected.
 - Shared manual day order for List and Timeline, respecting future deadlines and fixed event intervals.
 - Temporary Today/Tomorrow references point to originals, never duplicate items or rewrite their real dates. Queue and parallel placements account for calendar occupancy.
 - The in-app status and iOS widget include departure time before events with travel duration.

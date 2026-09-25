@@ -63,7 +63,7 @@
 .calendar-period-switch { padding: var(--space-1); border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .calendar-period-switch .ui-button.active { background: var(--color-surface); box-shadow: var(--shadow-surface); color: var(--color-text); font-weight: var(--font-weight-medium); }
 
-.calendar-day-panel { display: grid; gap: var(--space-1); }
+.calendar-day-panel { display: grid; gap: var(--space-1); touch-action: pan-y pinch-zoom; }
 .calendar-day-panel.is-week { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .calendar-day-panel.is-month { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 
