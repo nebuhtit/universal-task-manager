@@ -79,7 +79,10 @@ launches and application updates.
 
 The native shell fills the screen; web safe-area insets protect the status bar
 and home indicator. The app icon reuses the web mark; regenerate it with
-`node scripts/generate-ios-icon.mjs` after changing `apps/web/public/icon.svg`.
+`node scripts/generate-ios-icon.mjs` after changing `assets/branding/clock-glass-source.png`.
+This generates the transparent web icons and opaque native/Apple touch icons;
+iOS applies its own app-icon corner mask. Version 3.1.2 uses a flat white casing
+and a subtly colored glass dial, with a deterministic mask removing the exterior halo.
 
 On iOS 26 and later, item timers schedule a fixed system alarm with AlarmKit.
 Allow the separate alarm permission when starting a timer. Pause/reset cancels

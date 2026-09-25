@@ -61,7 +61,7 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      includeAssets: ['icon.svg'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
         id: base,
         name: 'Universal Task Manager',
@@ -71,7 +71,11 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         start_url: base,
-        icons: [{ src: `${base}icon.svg`, sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
+        icons: [
+          { src: `${base}icon-192.png`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: `${base}icon-512.png`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: `${base}icon-maskable.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
       },
       injectManifest: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
