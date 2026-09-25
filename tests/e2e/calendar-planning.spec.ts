@@ -377,13 +377,9 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   await handle.evaluate(element => element.scrollIntoView({ block: 'center' }));
   await page.clock.runFor(500);
   await expect(handle).toBeInViewport();
-  const to = await target.boundingBox();
-  const drop = { x: to!.x + to!.width / 2, y: to!.y + to!.height * 0.65 };
-  await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('[data-view-item-id]')?.getAttribute('data-view-item-id'), drop)).toBe('event');
-  // Let Playwright choose an actionable point inside the handle instead of
-  // reusing geometry that can become stale after Linux font/layout settling.
-  await handle.hover(); await page.mouse.down();
-  await page.mouse.move(drop.x, drop.y, { steps: 8 }); await page.mouse.up();
+  await handle.dragTo(target, {
+    targetPosition: { x: 24, y: Math.max(24, (await target.boundingBox())!.height * 0.65) },
+  });
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   expect((await read()).items).toEqual(before);
   await navigate(page, 'Settings');
