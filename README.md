@@ -2,11 +2,11 @@
 
 **One local-first system for tasks, events, habits, recurring work, and personal workflows.**
 
-Universal Task Manager (UTM) is an installable React PWA built around one flexible `UniversalItem` model. A task, calendar event, habit, reusable template, subtask, or recurring series is the same kind of item with different properties — not data locked inside separate applications or incompatible silos.
+Universal Task Manager (UTM) is a local-first web/PWA and native iOS application built around one flexible `UniversalItem` model. Tasks, calendar events, habits, notes, templates and recurring work share the same properties, calendar and history. The iOS app bundles the web interface locally: it does not load the application from GitHub Pages and works offline.
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v1.96.4** · workspace schema: **1.22.0**
+Current release: **v3.0.8** · workspace schema: **1.26.0**
 
 > [!IMPORTANT]
 > UTM is currently **beta software**. Your workspace is stored on your device, not in a hosted account. Create encrypted `.utmb` backups regularly. Clearing browser/PWA storage or removing an installed web app can erase its local workspace.
@@ -14,9 +14,13 @@ Current release: **v1.96.4** · workspace schema: **1.22.0**
 <details>
 <summary><strong>Кратко по-русски</strong></summary>
 
-UTM — локальный менеджер задач, событий, привычек и повторяющихся дел с единой моделью данных. Он устанавливается на iPhone, Android и desktop как PWA, работает офлайн, хранит workspace на устройстве и переносит данные через зашифрованный файл `.utmb`.
+UTM — локальный менеджер задач, событий, привычек и повторяющихся дел с единой моделью данных. Работает офлайн как веб-приложение/PWA и отдельное приложение iOS. Хранит workspace на устройстве и переносит данные через зашифрованный файл `.utmb`.
 
 В приложении есть настраиваемые Views, таблицы и списки, календарь, active range, повторения, напоминания, шаблоны, subtasks, пользовательские поля, безопасные формулы, импорт/экспорт JSON, CSV, Excel и iCalendar, корзина и ручное слияние workspace между устройствами.
+
+В календаре доступны List и Timeline, ручной порядок дня и временные ярлыки на сегодня/завтра без изменения исходных items. Статус учитывает дорогу до события. Live Text понимает короткие команды на русском и английском; точные даты и напоминания сохраняются в свойствах, даже когда скрыты из строки ввода.
+
+В iOS: Face ID, системные будильники таймера, локальные уведомления, экспорт бэкапов через «Файлы» и виджет экрана блокировки с отсчётом. Завершённый таймер записывает длительность с отметкой `A✎`; после закрытого приложения — при следующем открытии и разблокировке. Виджет включается отдельно: отображаемые названия и время сохраняются в общем локальном хранилище вне шифрования workspace.
 
 Это beta-версия без серверного аккаунта и автоматической облачной синхронизации. Не забывайте сохранять зашифрованные резервные копии.
 
@@ -143,9 +147,12 @@ The query and formula language is parsed by UTM's allowlisted DSL. It does not u
 
 ### Calendar
 
-The calendar is a responsive one-day list over the same universal items.
+The calendar provides a responsive day List and Timeline over the same universal items.
 
-- Week and Month navigator panels; only the selected day is rendered as a normal item list.
+- Week and Month navigation with a compact sticky selected week while scrolling.
+- Shared manual day order for List and Timeline, respecting future deadlines and fixed event intervals.
+- Temporary Today/Tomorrow references point to originals, never duplicate items or rewrite their real dates. Queue and parallel placements account for calendar occupancy.
+- The in-app status and iOS widget include departure time before events with travel duration.
 - Duration-weighted completion and free-time statistics for every day.
 - One persistent **Calendar Day View** controls additional visual filters, displayed fields, and sorting for every selected date.
 - The selected day is a mandatory one-day boundary. Additional filters are joined with it using `AND` and cannot bypass it.
@@ -159,9 +166,10 @@ The calendar is a responsive one-day list over the same universal items.
 
 ### Actual time and completion journals
 
-- **Edit item → History** contains editable actual-time entries (date, hours/minutes/seconds, comment) and completion entries. Plan and actual time remain separate.
-- Timer history is separate. **Count as actual time** explicitly imports elapsed session time once; stopwatch sessions must exceed 30 seconds.
-- Completing or automatically closing a UTM item records its outcome. Reopening marks the previous completion revoked. Editing journal entries never changes status or advances recurrence.
+- **Edit item → Progress & completions** contains editable actual-time entries (date, hours/minutes/seconds, comment) and completion entries. Plan and actual time remain separate.
+- Completion statistics show count, total recorded duration and average duration; unknown durations and revoked completions are excluded from the average.
+- Finished native iOS countdowns record their target duration once with `A✎`. If the app was closed, recording happens after reopening and unlocking. Manual stops and stopwatches remain manually recorded.
+- Completing or automatically closing a UTM item records its outcome. Reopening marks the previous completion revoked. Counter goals are recalculated from the completion journal.
 - Series history includes cycle-labelled entries; new cycles start with zero actual time. Legacy actual duration becomes an undated imported entry, and closure history is retained.
 - Enable **Actual time** in view statistics or PARA to display it separately. Expected duration still drives progress, remaining time and free time; actual totals use the same exclusions and deduplication.
 
@@ -250,6 +258,8 @@ UTM is local-first by default:
 - A password derives a wrapping key through Argon2id with a minimum of 19 MiB memory and two operations.
 - Workspace blocks use authenticated XChaCha20-Poly1305 encryption with unique nonces and associated data.
 - By default, the password and unwrapped data key stay in memory only. Locking the app clears the in-memory key; a full restart requires the password again.
+- Native iOS can optionally unlock with Face ID using a Keychain-protected wrapping key. The password is not saved; keep it for backups and recovery.
+- The optional iOS widget stores a minimal title/time snapshot outside the encrypted workspace so it can render while locked. Enabling this is explicit; disabling clears the shared snapshot.
 - Password protection can be disabled for one browser profile only after the current password is verified. The workspace block remains encrypted, but the local unlock key is then stored in that profile, so anyone with profile access can open it.
 - Changing the password rewraps the same random data key and updates current verified browser mirrors without rewriting workspace data. Previously downloaded backups and saved pre-migration versions retain their old passwords.
 - A valid old `.utmb` backup can be opened with its old password, re-encrypted with a new password, and verified before a new file is downloaded. The original file is never overwritten, and damaged input is rejected.
@@ -263,6 +273,10 @@ Optional background notifications are the only feature that may contact a push s
 ## Install on a phone
 
 ### iPhone or iPad
+
+**Native iOS app:** open the [Xcode project and setup guide](ios/README.md). The app includes its own offline bundle, Face ID unlock, native notifications, AlarmKit countdown alarms on supported iOS, and an optional WidgetKit Lock Screen widget. Install/update your local build with Xcode; updating the website does not update an installed native build. Widget timelines cover a bounded upcoming range and are refreshed by reopening the app; iOS controls background refresh timing. Automatic iCloud backups depend on signing entitlements; manual Files export is available without them.
+
+**PWA alternative:**
 
 1. Open [the web app](https://nebuhtit.github.io/universal-task-manager/) in Safari.
 2. Tap **Share**.
@@ -287,7 +301,7 @@ Each browser or installed PWA has its own local workspace. Moving to another dev
 - Browsers and iOS do not allow the PWA to silently write arbitrary backup files into a user-selected cloud folder. UTM can remind you to export a backup, but the final save remains a user-confirmed system action.
 - Deleting the PWA, clearing website data, or browser storage eviction may remove the local workspace.
 - Background Web Push is approximate and depends on browser, OS, and service availability.
-- Exact closed-app alarms are outside the current web platform implementation.
+- Exact closed-app alarms are outside the PWA implementation; the native iOS app uses AlarmKit on supported iOS versions.
 - Binary file attachments are not embedded in the workspace; attachments are links.
 - Calendar and Automations remain beta areas.
 - Google Calendar sync requires an OAuth web client ID and explicit reconnect after an access token expires. Closed-app background sync is not provided by the static PWA.
