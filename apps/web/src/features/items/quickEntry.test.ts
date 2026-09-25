@@ -13,6 +13,11 @@ describe('quick entry item integration', () => {
     expect(createQuickEntryItem('Простое название', now).reminders).toEqual([]);
     expect(applyQuickEntryText(item, 'Встреча завтра 16:00', now).item.reminders).toEqual([]);
   });
+  it('supports configurable or disabled defaults without changing explicit reminders', () => {
+    expect(createQuickEntryItem('Встреча завтра 15:00', now, undefined, []).reminders).toEqual([]);
+    expect(createQuickEntryItem('Встреча завтра 15:00', now, undefined, [30]).reminders.map(value => value.offset)).toEqual(['-PT30M']);
+    expect(createQuickEntryItem('Встреча завтра 15:00 напомнить 10м', now, undefined, []).reminders.map(value => value.offset)).toEqual(['-PT10M']);
+  });
   it('anchors default reminders to travel and recomputes them after travel edits', () => {
     const item = createQuickEntryItem('Встреча завтра 15:00 дорога 30м', now);
     expect(item.reminders.map(value => value.at)).toEqual([new Date(2026, 8, 22, 12, 30).toISOString(), new Date(2026, 8, 21, 14, 30).toISOString()]);

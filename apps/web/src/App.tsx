@@ -369,18 +369,10 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
       <p className="eyebrow">UNIVERSAL TASK MANAGER</p>
       <span className="auth-beta" aria-label="Beta version">BETA</span>
       <h1>{exists ? 'Unlock your workspace' : 'Build your own system'}</h1>
-      {exists && interrupted && <p role="status">Предыдущий запуск не подтвердил завершение. Это не обязательно означает повреждение данных и не запрещает обычный вход.</p>}
       {exists && unconfirmedSave && <p role="alert">Последнее сохранение не было подтверждено. На диске может быть предыдущая версия; не очищайте данные сайта. Сохраните резервную копию перед восстановлением.</p>}
-      {!online && <p className="offline-notice" role="status"><strong>No internet connection.</strong> Offline mode is active. You can still download the encrypted local database and troubleshooting log below; online hosting features are unavailable.</p>}
-      <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
       <label className="language-picker">Language<select value={language} onChange={(event) => setLanguage(event.target.value as WorkspaceLanguage)}>{interfaceLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <form onSubmit={submit}>
-        {exists && <><label className="check"><input type="checkbox" aria-describedby="workspace-opening-help" checked={safeEntry} onChange={(event) => setSafeEntry(event.target.checked)} disabled={busy} />Безопасное открытие — только просмотр, без записи в workspace</label>
-          <div id="workspace-opening-help">
-            <p><strong>Как войти как обычно:</strong> снимите галочку «Безопасное открытие», введите пароль, если он запрашивается, и нажмите Unlock. Приложение попробует открыть текущий workspace для обычной работы.</p>
-            <p className="muted">С галочкой доступен только просмотр: без сохранения изменений, синхронизации и фоновой обработки. Импортировать бэкап или очищать данные сайта для обычного входа не нужно.</p>
-            <p role="status">{safeEntry ? 'Сейчас выбран безопасный просмотр. Для обычного входа снимите галочку выше.' : 'Сейчас выбран обычный вход. Нажмите Unlock, чтобы попробовать открыть workspace.'}</p>
-          </div></>}
+        {exists && <label className="check"><input type="checkbox" aria-describedby="workspace-opening-help" checked={safeEntry} onChange={(event) => setSafeEntry(event.target.checked)} disabled={busy} />Безопасное открытие — только просмотр</label>}
         {!exists && <label>{selectedBackup ? 'Backup file' : 'Workspace name'}<input value={selectedBackup ? selectedBackup.name : name} readOnly={Boolean(selectedBackup)} onChange={(event) => setName(event.target.value)} required /></label>}
         {(selectedBackup || (!plaintext && !(!exists && unencryptedTestWorkspace))) && <label>{selectedBackup ? 'Backup password' : 'Password'}<input id="workspace-password" name="password" type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>}
         {!exists && !selectedBackup && !unencryptedTestWorkspace && <label>Confirm password<input name="confirm-password" autoComplete="new-password" type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
@@ -391,17 +383,22 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
         {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Working…' : safeEntry || exists ? 'Посмотреть бэкап без импорта' : 'Import selected backup'}</button>}
       </form>
       {exists && faceId === 'configured' && <button className="secondary wide" type="button" disabled={busy || safeEntry} onClick={() => void unlockWithFaceId()}>Unlock with Face ID</button>}
-      {exists && <p className="hint">Password unlock is always available, including if Face ID is unavailable, cancelled, or changes on this device.</p>}
       {<div className="import-lock">
-        <span>Already have an encrypted workspace?</span>
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
         <input ref={fileRef} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setUnencryptedTestWorkspace(false); setName(file.name); setConfirm(''); setError(''); }} />
-        <small>{exists ? 'Бэкап откроется только для просмотра. Текущее хранилище не будет заменено.' : 'Choose the file first, enter its password, then tap Import selected backup.'}</small>
         {selectedBackup && <button type="button" className="text-button" onClick={() => setSelectedBackup(null)} disabled={busy}>Отменить выбор файла</button>}
       </div>}
-      <details className="install-guide" open={!online}>
+      <details className="install-guide">
         <summary>Help</summary>
         <div>
+          <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
+          {exists && interrupted && <p>Предыдущий запуск не подтвердил завершение. Это не обязательно означает повреждение данных и не запрещает обычный вход.</p>}
+          {!online && <p className="offline-notice"><strong>No internet connection.</strong> Offline mode is active. You can still download the encrypted local database and troubleshooting log below; online hosting features are unavailable.</p>}
+          {exists && <div id="workspace-opening-help">
+            <p>Для обычного входа введите пароль или используйте Face ID. «Только просмотр» отключает сохранение, синхронизацию и фоновую обработку.</p>
+            <p>Password unlock is always available, including if Face ID is unavailable, cancelled, or changes on this device.</p>
+          </div>}
+          <p>{exists ? 'Бэкап откроется только для просмотра. Текущее хранилище не будет заменено.' : 'Choose the file first, enter its password, then tap Import selected backup.'}</p>
           <h3>Install on your phone</h3>
           <p><strong>iPhone or iPad:</strong> open this page in Safari, tap Share, then choose <em>Add to Home Screen</em>.</p>
           <p><strong>Android:</strong> open it in Chrome, tap the menu, then choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
@@ -1007,7 +1004,7 @@ export default function App() {
     document.documentElement.dataset.explanations = workspace?.calendarPreferences.showExplanations ? 'on' : 'off';
     return () => { delete document.documentElement.dataset.explanations; };
   }, [workspace?.calendarPreferences.showExplanations]);
-  useAppearance(workspace, boot === 'ready');
+  useAppearance(boot === 'ready' ? workspace : undefined, true);
   useUiSounds(workspace?.calendarPreferences.appearance.uiSound);
   useEffect(() => {
     const itemId = new URLSearchParams(window.location.search).get('item');
@@ -1268,7 +1265,12 @@ export default function App() {
   };
   const captureQuickItem = (text = quick) => {
     if (!text.trim()) return;
-    try { persistQuickItem(createQuickEntryItem(text.trim(), currentWorkspaceNow(), page === 'calendar' ? calendarCaptureDate : undefined)); setQuick(''); setQuickError(''); }
+    try {
+      const reminderDefaults = workspace.calendarPreferences.liveTextDefaultReminders;
+      persistQuickItem(createQuickEntryItem(text.trim(), currentWorkspaceNow(), page === 'calendar' ? calendarCaptureDate : undefined,
+        reminderDefaults?.enabled === false ? [] : reminderDefaults?.minutesBefore));
+      setQuick(''); setQuickError('');
+    }
     catch (reason) { setQuickError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const captureDate = page === 'calendar' ? calendarCaptureDate : undefined;

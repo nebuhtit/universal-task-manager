@@ -6,6 +6,7 @@ describe('native reminder scheduling', () => {
   it('resolves reminders, excludes unavailable entries and keeps the nearest future reminders', () => {
     const now = new Date('2026-09-03T10:00:00.000Z');
     const workspace = createWorkspace('Native reminders', now);
+    workspace.calendarPreferences.timezone = 'UTC';
     const active = createItem('Call', 'task', now);
     active.schedule = { timezone: 'UTC', startAt: '2026-09-03T12:00:00.000Z', availableFrom: '2026-09-03T11:30:00.000Z' };
     active.reminders = [
@@ -26,9 +27,25 @@ describe('native reminder scheduling', () => {
       title: 'Call',
       at: '2026-09-03T11:30:00.000Z',
       urgency: 'urgent',
+      body: 'Event opens · 12:00 · urgent',
     }));
     expect(scheduled.some((entry) => entry.id.endsWith(':ack'))).toBe(false);
     expect(scheduled.some((entry) => entry.id.endsWith(':template'))).toBe(false);
+  });
+  it('uses due and includes the date only outside today', () => {
+    const now = new Date('2026-09-03T10:00:00.000Z');
+    const workspace = createWorkspace('Due notifications', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    const today = createItem('Today', 'task', now);
+    today.schedule = { timezone: 'UTC', dueAt: '2026-09-03T18:00:00.000Z' };
+    today.reminders = [{ id: 'today', mode: 'absolute', at: '2026-09-03T11:00:00.000Z', urgency: 'normal', repeatUntilAcknowledged: false }];
+    const later = createItem('Later', 'task', now);
+    later.schedule = { timezone: 'UTC', dueAt: '2026-09-05T09:30:00.000Z' };
+    later.reminders = [{ id: 'later', mode: 'absolute', at: '2026-09-04T09:00:00.000Z', urgency: 'normal', repeatUntilAcknowledged: false }];
+    workspace.items[today.id] = today; workspace.items[later.id] = later;
+    const scheduled = nativeReminderSchedule(workspace, now);
+    expect(scheduled.find(value => value.itemId === today.id)?.body).toBe('Due · 18:00');
+    expect(scheduled.find(value => value.itemId === later.id)?.body).toBe('Due · 05/09/2026, 09:30');
   });
   it('cancels reminders of a deleted recurring parent and restores future reminders on undo', () => {
     const now = new Date('2026-09-03T10:00:00Z');

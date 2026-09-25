@@ -35,7 +35,13 @@ const base = process.env.VITE_GITHUB_PAGES === 'true'
 export default defineConfig({
   base,
   // Native packaging must not overwrite the website's service worker output.
-  build: { outDir: isNativeBuild ? 'dist-native' : 'dist' },
+  build: {
+    outDir: isNativeBuild ? 'dist-native' : 'dist',
+    // WKWebView can fail a deferred module fetch after the app resumes. Keep
+    // all UI modules in the installed native entry, so opening a menu page
+    // never depends on another loopback HTTP request. Web/PWA stays split.
+    ...(isNativeBuild ? { rollupOptions: { output: { inlineDynamicImports: true } } } : {}),
+  },
   // The separate lab build must not trigger full reloads of the main app.
   server: { watch: { ignored: ['**/quick-entry-lab/dist/**'] } },
   define: {

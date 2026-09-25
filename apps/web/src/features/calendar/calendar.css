@@ -65,7 +65,14 @@
 
 .calendar-day-panel { display: grid; gap: var(--space-1); touch-action: pan-y pinch-zoom; }
 .calendar-day-panel.is-week { grid-template-columns: repeat(7, minmax(0, 1fr)); }
-.calendar-day-panel.is-month { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.calendar-day-panel.is-month {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  /* Keep the final dates reachable above the fixed composer and quick nav.
+     Scroll the month itself, without collapsing the page navigator. */
+  max-height: max(calc(var(--control-height-touch) * 2), calc(100dvh - var(--layout-topbar-height) - var(--calendar-title-height, 0px) - var(--layout-capture-reserve) - var(--control-height-touch) * 2 - var(--space-8) * 2 - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
 
 .calendar-weekday-label {
   padding: 0 var(--space-1);

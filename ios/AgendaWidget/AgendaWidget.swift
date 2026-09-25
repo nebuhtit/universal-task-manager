@@ -29,6 +29,14 @@ struct AgendaProvider: TimelineProvider {
         var result = ([previous].compactMap { $0 } + future).map { value in
             AgendaEntry(date: Date(timeIntervalSince1970: max(now.timeIntervalSince1970, value.at)), current: value.current, title: value.title, target: value.target.map { Date(timeIntervalSince1970: $0) }, label: value.label)
         }
+        let secondThresholds = result.compactMap { entry -> AgendaEntry? in
+            guard let target = entry.target else { return nil }
+            let threshold = target.addingTimeInterval(-600)
+            guard threshold > entry.date, threshold > now else { return nil }
+            return AgendaEntry(date: threshold, current: entry.current, title: entry.title, target: target, label: entry.label)
+        }
+        result.append(contentsOf: secondThresholds)
+        result.sort { $0.date < $1.date }
         if result.isEmpty { result.append(fallback) }
         result.append(expired)
         return result
@@ -68,7 +76,11 @@ struct AgendaWidgetView: View {
             if let target = entry.target, target > entry.date {
                 HStack(spacing: 4) {
                     Text(entry.label)
-                    Text(timerInterval: entry.date...target, countsDown: true).monospacedDigit()
+                    if target.timeIntervalSince(entry.date) < 600 {
+                        Text(timerInterval: entry.date...target, countsDown: true).monospacedDigit()
+                    } else {
+                        Text(target, style: .relative).monospacedDigit()
+                    }
                 }.font(.caption).padding(.horizontal, outerInset)
             }
         }

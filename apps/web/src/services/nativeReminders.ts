@@ -1,4 +1,4 @@
-import { itemDeletionTime, reminderTime, type WorkspaceDocument } from '@utm/core';
+import { itemDeletionTime, reminderTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 export interface NativeReminderEntry {
   id: string;
@@ -51,6 +51,19 @@ function send(message: NativeReminderMessage): Promise<NativeReminderStatus> {
 
 export const isNativeReminderAvailable = () => Boolean(handler());
 
+export function notificationItemMomentBody(workspace: WorkspaceDocument, item: UniversalItem, now: Date, suffix = ''): string {
+  const locale = workspace.calendarPreferences.language === 'ru' ? 'ru-RU' : 'en-GB';
+  const zone = workspace.calendarPreferences.timezone;
+  const dateKey = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  const value = item.schedule?.startAt ?? item.schedule?.dueAt;
+  if (!value) return `Reminder${suffix}`;
+  const date = new Date(value);
+  const moment = new Intl.DateTimeFormat(locale, dateKey(date) === dateKey(now)
+    ? { timeZone: zone, hour: '2-digit', minute: '2-digit' }
+    : { timeZone: zone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+  return `${item.schedule?.startAt ? 'Event opens' : 'Due'} · ${moment}${suffix}`;
+}
+
 export function nativeReminderSchedule(workspace: WorkspaceDocument, now = new Date()): NativeReminderEntry[] {
   const nowTime = now.getTime();
   return Object.values(workspace.items).flatMap((item) => {
@@ -66,7 +79,7 @@ export function nativeReminderSchedule(workspace: WorkspaceDocument, now = new D
         id: `utm:${workspace.workspaceId}:${item.id}:${reminder.id}`,
         itemId: item.id,
         title: item.title || 'Universal reminder',
-        body: reminder.urgency === 'normal' ? 'Reminder' : `Reminder · ${reminder.urgency}`,
+        body: notificationItemMomentBody(workspace, item, now, reminder.urgency === 'normal' ? '' : ` · ${reminder.urgency}`),
         at: new Date(deliveryTime).toISOString(),
         urgency: reminder.urgency,
       } satisfies NativeReminderEntry];

@@ -9,9 +9,9 @@ const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ deviceScaleFactor: 1 });
   for (const theme of ['light', 'dark']) {
-    const source = await readFile(new URL(`assets/branding/clock-${theme}-source.png`, root));
+    const source = await readFile(new URL('assets/branding/clock-3.2.3-source.jpg', root));
     const suffix = theme === 'dark' ? '-dark' : '';
-    const background = theme === 'dark' ? '#141414' : '#ffffff';
+    const background = '#ffffff';
     const exports = [
       [`assets/branding/clock-cutout${suffix}.png`, 1024, false, 1],
       [`apps/web/public/icon-192${suffix}.png`, 192, false, 1],
@@ -26,23 +26,10 @@ try {
         const image = new Image();
         image.src = `data:image/png;base64,${data}`;
         await image.decode();
-        // Color-range background mask removes the generator's near-neutral
-        // paper grain without altering the colored glass hands or gray ticks.
         const flat = document.createElement('canvas');
         flat.width = image.width; flat.height = image.height;
         const flatContext = flat.getContext('2d');
         flatContext.drawImage(image, 0, 0);
-        const pixels = flatContext.getImageData(0, 0, flat.width, flat.height);
-        const dark = background !== '#ffffff';
-        for (let i = 0; i < pixels.data.length; i += 4) {
-          const low = Math.min(...pixels.data.subarray(i, i + 3));
-          const high = Math.max(...pixels.data.subarray(i, i + 3));
-          if (high - low <= 10 && (dark ? high <= 40 : low >= 235)) {
-            pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = dark ? 20 : 255;
-            pixels.data[i + 3] = 255;
-          }
-        }
-        flatContext.putImageData(pixels, 0, 0);
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = size;
         const context = canvas.getContext('2d');

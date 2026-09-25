@@ -109,6 +109,22 @@ test('glass quick navigation lifts capture only while the keyboard is closed', a
   await page.screenshot({ path: test.info().outputPath('quick-navigation.png') });
 });
 
+test('mobile navigation uses the shared glass surface in both themes', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) > 620, 'Mobile navigation');
+  await setup(page);
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  const menu = page.locator('.mobile-nav-menu');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => document.documentElement.dataset.theme = value, theme);
+    await expect(menu).toBeVisible();
+    const style = await menu.evaluate(el => ({ blur: getComputedStyle(el).backdropFilter, background: getComputedStyle(el).backgroundColor }));
+    expect(style.blur).toBe('blur(6px)');
+    expect(style.background).toBe(theme === 'light' ? 'rgba(255, 255, 255, 0.56)' : 'rgba(0, 0, 0, 0.62)');
+  }
+  await menu.getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(menu).toBeHidden();
+});
+
 test('a failed menu section preserves workspace, navigation and diagnostics', async ({ page }) => {
   const { read } = await setup(page, true, undefined, 'All items');
   await page.route('**/SettingsPage-*.js', route => route.abort());
@@ -358,7 +374,7 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   const target = page.locator('[data-view-item-id="event"]');
   // Keep the drop point away from the fixed quick-add composer. Font metrics on
   // Linux can leave the bottom edge of an otherwise visible card behind it.
-  await target.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await handle.evaluate(element => element.scrollIntoView({ block: 'center' }));
   await page.clock.runFor(500);
   await expect(handle).toBeInViewport();
   await handle.scrollIntoViewIfNeeded();

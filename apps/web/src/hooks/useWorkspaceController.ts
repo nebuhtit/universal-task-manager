@@ -20,7 +20,7 @@ import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDo
 import { LatestPersistenceQueue, persistWorkspace, type PersistenceOperation } from '../services/workspacePersistence';
 import { reconcileOffMainThread } from '../services/recurrenceWorker';
 import { scheduleWorkspaceTime } from '../services/workspaceTimers';
-import { nativeReminderSchedule } from '../services/nativeReminders';
+import { nativeReminderSchedule, notificationItemMomentBody } from '../services/nativeReminders';
 import { acknowledgeObsidianFlush, persistObsidianWorkspace, syncObsidianReminders } from '../services/obsidianBridge';
 
 const ACTIVATION_PERSISTENCE_WAIT_MS = 5_000;
@@ -188,7 +188,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     }
     const groups = new Map<string, { count: number; urgency: 'normal' | 'urgent' | 'critical'; reminderIds: string[] }>(); const rank = { normal: 0, urgent: 1, critical: 2 } as const;
     for (const item of Object.values(updated.items)) { if (itemDeletionTime(updated, item) || item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) { const at = reminderTime(item, reminder); if (at && new Date(at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, urgency: reminder.urgency, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); if (rank[reminder.urgency] > rank[group.urgency]) group.urgency = reminder.urgency; } } } }
-    groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: `Reminder${group.count > 1 ? `s · ${group.count}` : ''} · ${group.urgency}`, itemId, reminderIds: group.reminderIds }); } });
+    groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: notificationItemMomentBody(updated, item, now, `${group.count > 1 ? ` · ${group.count}` : ''}${group.urgency === 'normal' ? '' : ` · ${group.urgency}`}`), itemId, reminderIds: group.reminderIds }); } });
     activationStage = 'persistence';
     startupCheckpoint('preparation', 'completed');
     startupCheckpoint('persistence', 'started');
@@ -289,7 +289,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       }
       const due = [...dueByItem].flatMap(([itemId, reminderIds]) => {
         const item = workspace.items[itemId];
-        return item ? [{ id: createId(), title: item.title, body: `Reminder${reminderIds.length > 1 ? `s · ${reminderIds.length}` : ''}`, at: now.toISOString(), itemId, reminderIds } satisfies AppNotice] : [];
+        return item ? [{ id: createId(), title: item.title, body: notificationItemMomentBody(workspace, item, now, reminderIds.length > 1 ? ` · ${reminderIds.length}` : ''), at: now.toISOString(), itemId, reminderIds } satisfies AppNotice] : [];
       });
       if (due.length) {
         setNotices((current) => [...current, ...due]);

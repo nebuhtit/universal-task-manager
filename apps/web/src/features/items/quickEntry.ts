@@ -172,7 +172,7 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   };
 }
 
-export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate?: string): UniversalItem {
+export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate?: string, defaultReminderMinutes: number[] = [120, 1440]): UniversalItem {
   let original = text.trim();
   if (!original) throw new Error('Добавьте название.');
   const initial = parseEntry(original, now);
@@ -212,7 +212,7 @@ export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate
     }
     const anchor = created.draft.leave ?? created.draft.start;
     if (created.draft.noDefaultReminders) return created.item;
-    const defaults = [120, 1440].filter(minutes => !created.draft.reminders.some(reminder => reminder.at === new Date(Date.parse(anchor) - minutes * 60_000).toISOString()));
+    const defaults = defaultReminderMinutes.filter(minutes => Number.isInteger(minutes) && minutes > 0 && !created.draft.reminders.some(reminder => reminder.at === new Date(Date.parse(anchor) - minutes * 60_000).toISOString()));
     if (!defaults.length) return created.item;
     // Store defaults in Live text as well, so subsequent parsing and changes to
     // travel time preserve and recalculate them rather than silently dropping them.

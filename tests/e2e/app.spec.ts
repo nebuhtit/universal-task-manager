@@ -110,8 +110,29 @@ test('keeps recovery, decryption, installation and diagnostics inside one collap
   await expect(page.getByRole('button', { name: 'Choose encrypted file' })).toBeVisible();
 });
 
+test('entry screens follow system theme and keep explanations collapsed', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  const help = page.locator('details.install-guide');
+  await expect(help).not.toHaveAttribute('open', '');
+  await expect(page.getByText('Your data stays on this device, encrypted.', { exact: false })).toBeHidden();
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.getByLabel('Workspace name').fill('Theme check');
+  await page.getByLabel('Password', { exact: true }).fill('theme-check-password');
+  await page.getByLabel('Confirm password').fill('theme-check-password');
+  await page.getByRole('button', { name: 'Create encrypted workspace', exact: true }).click();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await lockWorkspace(page);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(help).not.toHaveAttribute('open', '');
+  await expect(page.locator('#workspace-password')).toBeVisible();
+});
+
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v3\.2\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v3\.2\.3 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -120,7 +141,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v3\.2\.0 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v3\.2\.3 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();

@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '3.2.0';
-export const APP_RELEASED_AT = '2026-09-25T09:33:01.376Z';
+export const APP_VERSION = '3.2.3';
+export const APP_RELEASED_AT = '2026-09-25T12:17:13.238Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -673,6 +673,8 @@ export interface CalendarPreferences {
   headerDateFormat?: 'ru-adaptive' | 'numeric' | 'interface';
   /** Contextual suggestions above live text inputs; errors stay visible. */
   liveTextSuggestions?: boolean;
+  /** Automatic reminders added only when a new LiveText event is created. */
+  liveTextDefaultReminders?: { enabled: boolean; minutesBefore: number[] };
   /** When enabled, an item is rendered only in the first expanded Home View that matches it. */
   hideDuplicateItemsAcrossHomeViews: boolean;
   /** Optional accelerated clock for local recurrence testing; never enabled by default. */
@@ -863,6 +865,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       hideDuplicateItemsAcrossHomeViews: true,
       testClock: { enabled: false, secondsPerDay: 86_400, dayDurationValue: 24, dayDurationUnit: 'hours', startedAt: now.toISOString(), virtualAt: now.toISOString() },
       backupPreferences: { reminderDays: 7 },
+      liveTextDefaultReminders: { enabled: true, minutesBefore: [120, 1440] },
     },
     pushPreferences: { enabled: false, contentMode: 'generic' },
   };

@@ -347,6 +347,7 @@ export const workspaceJsonSchema = {
         showExplanations: { type: 'boolean' },
         headerDateFormat: { enum: ['ru-adaptive', 'numeric', 'interface'] },
         liveTextSuggestions: { type: 'boolean' },
+        liveTextDefaultReminders: { type: 'object', additionalProperties: false, required: ['enabled', 'minutesBefore'], properties: { enabled: { type: 'boolean' }, minutesBefore: { type: 'array', maxItems: 8, items: { type: 'integer', minimum: 1, maximum: 525600 } } } },
         planning: { type: 'object', additionalProperties: false, properties: {
           enabled: { type: 'boolean' },
           parallel: { type: 'object', additionalProperties: { type: 'object', additionalProperties: { type: 'string', format: 'date-time' } } },
@@ -919,7 +920,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
     'timezone', 'lastMode', 'weekStartsOn', 'workingHours', 'weekends',
     'sleepSchedule', 'snapMinutes', 'defaultDurationMinutes', 'timeFormat',
     'dayView', 'timeline', 'selectedViewId', 'includeStates', 'language', 'appearance', 'testClock',
-    'planning', 'liveTextSuggestions', 'headerDateFormat', 'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
+    'planning', 'liveTextSuggestions', 'liveTextDefaultReminders', 'headerDateFormat', 'backupPreferences', 'diagnosticsEnabled', 'showExplanations', 'hideDuplicateItemsAcrossHomeViews', 'googleCalendar', 'localTimeJournals',
   ]);
   Object.keys(calendarPreferences).forEach((key) => {
     if (!allowedCalendarPreferenceKeys.has(key)) delete calendarPreferences[key];
@@ -992,6 +993,11 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   calendarPreferences.diagnosticsEnabled = calendarPreferences.diagnosticsEnabled !== false;
   calendarPreferences.showExplanations = calendarPreferences.showExplanations === true;
   calendarPreferences.liveTextSuggestions = calendarPreferences.liveTextSuggestions !== false;
+  calendarPreferences.liveTextDefaultReminders ??= { enabled: true, minutesBefore: [120, 1440] };
+  const liveTextDefaultReminders = calendarPreferences.liveTextDefaultReminders as Record<string, unknown>;
+  liveTextDefaultReminders.enabled = liveTextDefaultReminders.enabled !== false;
+  liveTextDefaultReminders.minutesBefore = Array.from(new Set((Array.isArray(liveTextDefaultReminders.minutesBefore) ? liveTextDefaultReminders.minutesBefore : [120, 1440])
+    .map(Number).filter(value => Number.isInteger(value) && value > 0 && value <= 525600))).slice(0, 8);
   calendarPreferences.headerDateFormat = ['ru-adaptive', 'numeric', 'interface'].includes(String(calendarPreferences.headerDateFormat)) ? calendarPreferences.headerDateFormat : 'ru-adaptive';
   calendarPreferences.hideDuplicateItemsAcrossHomeViews = calendarPreferences.hideDuplicateItemsAcrossHomeViews !== false;
   if (calendarPreferences.googleCalendar !== undefined) {
