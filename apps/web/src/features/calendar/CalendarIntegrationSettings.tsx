@@ -4,6 +4,7 @@ import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosu
 import { Button, Checkbox, Disclosure, Field, Input, Select } from '../../components/ui/primitives';
 import { googleCalendarFailureDetails, recordDiagnostic, type GoogleCalendarSyncStage } from '../../services/diagnostics';
 import { forgetGoogleCalendarAuthorization, GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from '../../services/googleCalendar';
+import { disconnectNativeGoogle } from '../../services/nativeGoogleAuth';
 import { isNativeGoogleAuthAvailable } from '../../services/nativeGoogleAuth';
 
 type GoogleSyncLogEntry = { at: string; level: 'info' | 'error'; message: string };
@@ -84,12 +85,16 @@ export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
     } else reconcileCalendarOrganization(draft);
   });
 
-  const disconnectGoogleCalendar = () => {
+  const disconnectGoogleCalendar = async () => {
     if (!preferences.googleCalendar) return;
     const warning = preferences.language === 'ru'
       ? 'Отключить Google Календарь и удалить его зеркальные события из этого workspace? События в самом Google Календаре не изменятся.'
       : 'Disconnect Google Calendar and remove its mirrored events from this workspace? Your events in Google Calendar will not be changed.';
     if (!window.confirm(warning)) return;
+    setGoogleBusy(true);
+    try { await disconnectNativeGoogle(); }
+    catch { setGoogleError('Could not remove Google authorization. Please retry.'); return; }
+    finally { setGoogleBusy(false); }
     const connectionId = preferences.googleCalendar.connectionId;
     forgetGoogleCalendarAuthorization();
     setGoogleToken(null); setGoogleError(''); setGoogleSyncStatus(''); setGoogleSyncLog([]);

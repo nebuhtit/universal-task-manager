@@ -266,49 +266,146 @@ final class NativeGoogleAuthBridge: NSObject, WKScriptMessageHandler, ASWebAuthe
     weak var webView: WKWebView?
     private var session: ASWebAuthenticationSession?
     private var activeRequestID: String?
+    private struct Credential: Codable {
+        let refreshToken: String
+        let scopes: String
+    }
+    private func keychainQuery(_ client: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: "dev.universal-task-manager.google-oauth.v1",
+         kSecAttrAccount as String: client]
+    }
+    private func credential(_ client: String) throws -> Credential? {
+        var query = keychainQuery(client)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = result as? Data else {
+            throw NSError(domain: "GoogleKeychain", code: Int(status))
+        }
+        return try JSONDecoder().decode(Credential.self, from: data)
+    }
+    private func saveCredential(_ value: Credential, client: String) throws {
+        let data = try JSONEncoder().encode(value)
+        let query = keychainQuery(client)
+        let attributes: [String: Any] = [kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            status = SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
+        }
+        guard status == errSecSuccess else { throw NSError(domain: "GoogleKeychain", code: Int(status)) }
+    }
+    private func deleteCredential(_ client: String) throws {
+        let status = SecItemDelete(keychainQuery(client) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw NSError(domain: "GoogleKeychain", code: Int(status))
+        }
+    }
+    private func tokenRequest(_ fields: [String: String], completion: @escaping (Int, [String: Any]?) -> Void) {
+        var form = URLComponents()
+        form.queryItems = fields.map { URLQueryItem(name: $0.key, value: $0.value) }
+        var request = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = form.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            DispatchQueue.main.async { completion(error == nil ? (response as? HTTPURLResponse)?.statusCode ?? 0 : 0, json) }
+        }.resume()
+    }
+    private func refresh(_ saved: Credential, client: String, scopes: [String], id: String, scheme: String) {
+        tokenRequest(["client_id": client, "grant_type": "refresh_token", "refresh_token": saved.refreshToken]) { [weak self] status, result in
+            guard let self, self.activeRequestID == id else { return }
+            if status == 400, result?["error"] as? String == "invalid_grant" {
+                do { try self.deleteCredential(client) }
+                catch { self.reply(id, error: "Could not clear expired Google credentials."); return }
+                self.authorize(client: client, scopes: scopes, id: id, scheme: scheme)
+                return
+            }
+            guard status == 200, let result, let token = result["access_token"] as? String else {
+                // Network/temporary failures must never discard credentials or open Safari.
+                self.reply(id, error: "Could not refresh Google access. Check the connection and retry."); return
+            }
+            let scope = result["scope"] as? String ?? saved.scopes
+            do { try self.saveCredential(Credential(refreshToken: result["refresh_token"] as? String ?? saved.refreshToken, scopes: scope), client: client) }
+            catch { self.reply(id, error: "Could not save Google authorization in Keychain."); return }
+            self.reply(id, values: ["accessToken": token, "expiresIn": result["expires_in"] ?? 3600, "scope": scope])
+        }
+    }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         webView?.window ?? ASPresentationAnchor()
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, let payload = message.body as? [String: Any], let id = payload["id"] as? String else { return }
-        guard session == nil else { reply(id, error: "Google sign-in is already open."); return }
+        let origin = message.frameInfo.securityOrigin
+        guard message.frameInfo.isMainFrame, origin.protocol == "http", origin.host == "127.0.0.1", origin.port == 49381,
+              let payload = message.body as? [String: Any], let id = payload["id"] as? String else { return }
         let client = (Bundle.main.object(forInfoDictionaryKey: "UTMGoogleIOSClientID") as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard client.hasSuffix(".apps.googleusercontent.com"), !client.contains("$(") else {
             reply(id, error: "Set GOOGLE_IOS_CLIENT_ID and GOOGLE_IOS_REVERSED_CLIENT_ID in Xcode using an OAuth client of type iOS for this Bundle ID. The website client cannot authorize the offline iOS app.")
             return
         }
+        if payload["kind"] as? String == "google.disconnect" {
+            let pending = activeRequestID
+            activeRequestID = nil
+            session?.cancel(); session = nil
+            if let pending { reply(pending, error: "Google Calendar disconnected.") }
+            do { try deleteCredential(client); reply(id) }
+            catch { reply(id, error: "Could not remove Google authorization from Keychain.") }
+            return
+        }
+        guard payload["kind"] as? String == "google.authorize" else { reply(id, error: "Unknown Google request."); return }
+        guard activeRequestID == nil else { reply(id, error: "Google authorization is already in progress."); return }
         let scheme = client.components(separatedBy: ".").reversed().joined(separator: ".")
         let registered = (Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []).flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
         guard registered.contains(scheme) else { reply(id, error: "GOOGLE_IOS_REVERSED_CLIENT_ID does not match the iOS OAuth client."); return }
         let allowed = Set(["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly"])
         guard let scopes = payload["scopes"] as? [String], !scopes.isEmpty, Set(scopes).isSubset(of: allowed) else { reply(id, error: "Invalid Calendar scopes."); return }
+        activeRequestID = id
+        do {
+            if let saved = try credential(client) {
+                let granted = Set(saved.scopes.split(separator: " ").map(String.init))
+                if Set(scopes).isSubset(of: granted) {
+                    refresh(saved, client: client, scopes: scopes, id: id, scheme: scheme)
+                    return
+                }
+                authorize(client: client, scopes: Array(granted.union(scopes).intersection(allowed)).sorted(), id: id, scheme: scheme)
+                return
+            }
+        } catch { reply(id, error: "Could not read Google authorization from Keychain. Unlock the device and retry."); return }
+        authorize(client: client, scopes: scopes, id: id, scheme: scheme)
+    }
+
+    private func authorize(client: String, scopes: [String], id: String, scheme: String) {
         let state = UUID().uuidString
         let verifier = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         let redirect = "\(scheme):/oauthredirect"
         var url = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
         url.queryItems = ["client_id": client, "redirect_uri": redirect, "response_type": "code", "scope": scopes.joined(separator: " "), "state": state, "code_challenge": challenge, "code_challenge_method": "S256"].map { URLQueryItem(name: $0.key, value: $0.value) }
+        // Consent is requested only when no usable stored grant exists (or scopes
+        // change), never during a normal restore/refresh after app termination.
+        url.queryItems?.append(contentsOf: [URLQueryItem(name: "access_type", value: "offline"), URLQueryItem(name: "prompt", value: "consent")])
         let auth = ASWebAuthenticationSession(url: url.url!, callbackURLScheme: scheme) { [weak self] callback, error in
-            guard let self else { return }
+            guard let self, self.activeRequestID == id else { return }
             guard let callback, error == nil, let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false), parts.queryItems?.first(where: { $0.name == "state" })?.value == state,
                   let code = parts.queryItems?.first(where: { $0.name == "code" })?.value else {
                 self.reply(id, error: "Google sign-in was cancelled or its response was invalid."); return
             }
-            var form = URLComponents()
-            form.queryItems = ["client_id": client, "redirect_uri": redirect, "code": code, "code_verifier": verifier, "grant_type": "authorization_code"].map { URLQueryItem(name: $0.key, value: $0.value) }
-            var request = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!, timeoutInterval: 30)
-            request.httpMethod = "POST"
-            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.httpBody = form.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200, let data,
-                      let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let token = result["access_token"] as? String else {
+            self.tokenRequest(["client_id": client, "redirect_uri": redirect, "code": code, "code_verifier": verifier, "grant_type": "authorization_code"]) { status, result in
+                guard self.activeRequestID == id else { return }
+                guard status == 200, let result, let token = result["access_token"] as? String,
+                      let refresh = result["refresh_token"] as? String, !refresh.isEmpty else {
                     self.reply(id, error: "Google token exchange failed. Check the iOS OAuth client configuration."); return
                 }
+                do { try self.saveCredential(Credential(refreshToken: refresh, scopes: result["scope"] as? String ?? scopes.joined(separator: " ")), client: client) }
+                catch { self.reply(id, error: "Could not save Google authorization in Keychain."); return }
                 self.reply(id, values: ["accessToken": token, "expiresIn": result["expires_in"] ?? 3600, "scope": result["scope"] ?? ""])
-            }.resume()
+            }
         }
         auth.presentationContextProvider = self
         activeRequestID = id
@@ -324,6 +421,7 @@ final class NativeGoogleAuthBridge: NSObject, WKScriptMessageHandler, ASWebAuthe
         guard let data = try? JSONSerialization.data(withJSONObject: result), let json = String(data: data, encoding: .utf8) else { return }
         DispatchQueue.main.async {
             if self.activeRequestID == id { self.session = nil; self.activeRequestID = nil }
+            guard let url = self.webView?.url, url.scheme == "http", url.host == "127.0.0.1", url.port == 49381 else { return }
             self.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('utm-native-google-status', {detail: \(json)}));")
         }
     }

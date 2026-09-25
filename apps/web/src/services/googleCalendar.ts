@@ -26,6 +26,7 @@ declare global {
 
 let scriptPromise: Promise<void> | null = null;
 let cachedGoogleCalendarToken: { accessToken: string; expiresAt: number } | null = null;
+let nativeAuthorization: Promise<{ accessToken: string; expiresAt: number }> | null = null;
 const GOOGLE_WRITE_SCOPES = [GOOGLE_SCOPE, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'];
 let cachedScopes = new Set<string>();
 export function hasGoogleWriteAuthorization(): boolean { return Boolean(cachedGoogleCalendarToken && cachedGoogleCalendarToken.expiresAt > Date.now() + 60_000 && GOOGLE_WRITE_SCOPES.every((scope) => cachedScopes.has(scope))); }
@@ -58,12 +59,20 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
   const scopes = access === 'create' ? GOOGLE_WRITE_SCOPES : [GOOGLE_SCOPE];
   if (cachedGoogleCalendarToken && cachedGoogleCalendarToken.expiresAt > Date.now() + 60_000 && scopes.every((scope) => cachedScopes.has(scope))) return cachedGoogleCalendarToken;
   if (native) {
-    const result = await authorizeNativeGoogle(scopes);
-    const granted = new Set(result.scope.split(/\s+/));
-    if (!scopes.every(scope => granted.has(scope))) throw new Error('Google Calendar permission was not granted.');
-    cachedScopes = granted;
-    cachedGoogleCalendarToken = { accessToken: result.accessToken, expiresAt: Date.now() + Math.max(60, result.expiresIn) * 1000 };
-    return cachedGoogleCalendarToken;
+    if (nativeAuthorization) {
+      await nativeAuthorization;
+      return requestGoogleCalendarToken(clientId, access);
+    }
+    const pending = authorizeNativeGoogle(scopes).then(result => {
+      const granted = new Set(result.scope.split(/\s+/));
+      if (!scopes.every(scope => granted.has(scope))) throw new Error('Google Calendar permission was not granted.');
+      cachedScopes = granted;
+      cachedGoogleCalendarToken = { accessToken: result.accessToken, expiresAt: Date.now() + Math.max(60, result.expiresIn) * 1000 };
+      return cachedGoogleCalendarToken;
+    });
+    nativeAuthorization = pending;
+    try { return await pending; }
+    finally { if (nativeAuthorization === pending) nativeAuthorization = null; }
   }
   await loadGoogleIdentityServices();
   return new Promise((resolve, reject) => {

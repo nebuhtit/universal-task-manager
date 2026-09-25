@@ -1,5 +1,21 @@
 # Universal Task Manager for iOS
 
+## 3.1.6: persistent Google authorization
+
+The native PKCE flow stores only its refresh token and granted scopes in a
+device-only, when-unlocked Keychain entry keyed by the iOS OAuth client ID.
+Restarting the app obtains a new access token silently. Refresh credentials never
+enter JavaScript, workspace exports or diagnostics. Network failures preserve the
+grant and do not open Safari. Only a missing/revoked grant or additional requested
+scopes trigger consent. Disconnect Google Calendar deletes the native grant before
+removing the connection from the workspace. The web-only OAuth flow is unchanged.
+
+After upgrading, complete consent once to enroll the persistent grant. Google may
+still expire or revoke refresh tokens (including testing-project limitations).
+Device acceptance: connect, force-quit/reopen/unlock and sync without Safari;
+repeat offline then online; disconnect and confirm the next Connect requests consent.
+Build and JS bridge tests do not replace this physical-device OAuth check.
+
 ## 3.0.9: compact Lock Screen presentation
 
 The Lock Screen background is a capsule with semicircular ends. Text uses
