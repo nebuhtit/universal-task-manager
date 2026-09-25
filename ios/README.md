@@ -5,8 +5,9 @@
 The Lock Screen background is a capsule with semicircular ends. Text uses
 height-aware horizontal insets, single-line truncation and limited scaling to
 stay inside the shape. The app and widget render departure as proportional
-compact side-view car/right-arrow mark (3.1.4). The capsule's middle title row
-uses wider space than the caption rows, which keep extra inset at the curved ends.
+compact side-view car/right-arrow mark (3.1.5), including inside concurrent
+status parentheses. All three capsule rows share the same left inset; the middle
+title row extends farther to the right.
 After installing, open and unlock the app to refresh the shared widget snapshot.
 
 ## 3.0.8: travel status and timer history
@@ -80,10 +81,11 @@ launches and application updates.
 
 The native shell fills the screen; web safe-area insets protect the status bar
 and home indicator. The app icon reuses the web mark; regenerate it with
-`node scripts/generate-ios-icon.mjs` after changing `assets/branding/clock-glass-source.png`.
+`node scripts/generate-ios-icon.mjs` after changing `assets/branding/clock-light-source.png`
+or `assets/branding/clock-dark-source.png`.
 This generates the transparent web icons and opaque native/Apple touch icons;
-iOS applies its own app-icon corner mask. Version 3.1.2 uses a flat white casing
-and a subtly colored glass dial, with a deterministic mask removing the exterior halo.
+iOS applies its own app-icon corner mask. Version 3.1.5 supplies Any and Dark
+appearances: a flat white/charcoal dial with subtly colored glass hands.
 
 On iOS 26 and later, item timers schedule a fixed system alarm with AlarmKit.
 Allow the separate alarm permission when starting a timer. Pause/reset cancels

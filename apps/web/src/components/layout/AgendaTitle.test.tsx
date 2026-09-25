@@ -9,3 +9,10 @@ it('renders departure as a side-view car with arrow, without changing the title'
   expect(html).not.toContain('⇥');
   expect(renderToStaticMarkup(<AgendaTitle text="Даша" />)).not.toContain('<svg');
 });
+
+it('replaces departure markers inside concurrent status parentheses too', () => {
+  const html = renderToStaticMarkup(<AgendaTitle text="Work (⇥ Задача)" ru />);
+  expect(html).not.toContain('⇥');
+  expect(html).toContain('header-agenda-departure-icon');
+  expect(html).toContain('Work (Выезд · Задача)');
+});

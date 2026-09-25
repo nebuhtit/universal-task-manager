@@ -1,5 +1,8 @@
 # App icon (3.1.2)
 
+Current sources and export behavior: [3.1.5](release-3.1.5.md). Below is the
+historical 3.1.2 generation record; the generator now uses separate light/dark sources.
+
 `clock-cutout.png` is the transparent master, edited with the built-in imagegen
 tool from the user's supplied clock image. The follow-up request changed the
 casing to white and made the dial more restrained, retaining subtle color and glass. Web/native exports are regenerated with

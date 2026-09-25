@@ -61,7 +61,7 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.png', 'favicon-dark.png', 'apple-touch-icon.png'],
       manifest: {
         id: base,
         name: 'Universal Task Manager',

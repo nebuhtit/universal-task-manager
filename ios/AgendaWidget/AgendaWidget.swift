@@ -38,20 +38,22 @@ struct AgendaWidgetView: View {
     let entry: AgendaEntry
     @Environment(\.widgetFamily) private var family
     private func statusText(_ value: String, font: Font) -> some View {
-        let departure = value.hasPrefix("⇥ ")
+        let parts = value.components(separatedBy: "⇥ ")
         return HStack(alignment: .center, spacing: 3) {
-            if departure {
-                DepartureMark()
-                    .stroke(style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
-                    .frame(width: 25, height: 12)
-                    .fixedSize()
-                    .accessibilityHidden(true)
+            ForEach(parts.indices, id: \.self) { index in
+                if index > 0 {
+                    DepartureMark()
+                        .stroke(style: StrokeStyle(lineWidth: 1.35, lineCap: .round, lineJoin: .round))
+                        .frame(width: 28, height: 13)
+                        .fixedSize()
+                        .accessibilityHidden(true)
+                }
+                if !parts[index].isEmpty { Text(parts[index]).lineLimit(1) }
             }
-            Text(departure ? String(value.dropFirst(2)) : value).lineLimit(1)
         }
         .font(font)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(departure ? "\(Locale.current.language.languageCode?.identifier == "ru" ? "Выезд" : "Departure") · \(value.dropFirst(2))" : value)
+        .accessibilityLabel(value.replacingOccurrences(of: "⇥ ", with: Locale.current.language.languageCode?.identifier == "ru" ? "Выезд · " : "Departure · "))
     }
     private func content(outerInset: CGFloat = 0, middleInset: CGFloat = 0) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -61,7 +63,8 @@ struct AgendaWidgetView: View {
             }
             statusText(entry.title, font: .headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, middleInset)
+                .padding(.leading, outerInset)
+                .padding(.trailing, middleInset)
             if let target = entry.target, target > entry.date {
                 HStack(spacing: 4) {
                     Text(entry.label)
