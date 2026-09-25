@@ -63,6 +63,16 @@ struct AgendaWidgetView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(value.replacingOccurrences(of: "⇥ ", with: Locale.current.language.languageCode?.identifier == "ru" ? "Выезд · " : "Departure · "))
     }
+    private func countdown(_ target: Date) -> some View {
+        TimelineView(.periodic(from: entry.date, by: 60)) { context in
+            let remaining = max(0, target.timeIntervalSince(context.date))
+            if remaining < 600 {
+                Text(timerInterval: context.date...target, countsDown: true).monospacedDigit()
+            } else {
+                Text("\(Int(ceil(remaining / 60))) min").monospacedDigit()
+            }
+        }
+    }
     private func content(outerInset: CGFloat = 0, middleInset: CGFloat = 0) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             if !entry.current.isEmpty {
@@ -76,11 +86,7 @@ struct AgendaWidgetView: View {
             if let target = entry.target, target > entry.date {
                 HStack(spacing: 4) {
                     Text(entry.label)
-                    if target.timeIntervalSince(entry.date) < 600 {
-                        Text(timerInterval: entry.date...target, countsDown: true).monospacedDigit()
-                    } else {
-                        Text(target, style: .relative).monospacedDigit()
-                    }
+                    countdown(target)
                 }.font(.caption).padding(.horizontal, outerInset)
             }
         }

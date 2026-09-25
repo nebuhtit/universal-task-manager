@@ -191,8 +191,8 @@
 		B70000000000000000000002 = {isa = PBXContainerItemProxy; containerPortal = A80000000000000000000001; proxyType = 1; remoteGlobalIDString = B50000000000000000000001; remoteInfo = AgendaWidget; };
 
 /* Begin XCBuildConfiguration section */
-		BA0000000000000000000001 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = AgendaWidget/AgendaWidget.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = 9686Z4Y482; INFOPLIST_FILE = AgendaWidget/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 3.2.3; PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios.agenda"; PRODUCT_NAME = "$(TARGET_NAME)"; REGISTER_APP_GROUPS = YES; SDKROOT = iphoneos; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; };
-		BA0000000000000000000002 = {isa = XCBuildConfiguration; name = Release; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = AgendaWidget/AgendaWidget.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = 9686Z4Y482; INFOPLIST_FILE = AgendaWidget/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 3.2.3; PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios.agenda"; PRODUCT_NAME = "$(TARGET_NAME)"; REGISTER_APP_GROUPS = YES; SDKROOT = iphoneos; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; };
+		BA0000000000000000000001 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = AgendaWidget/AgendaWidget.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = 9686Z4Y482; INFOPLIST_FILE = AgendaWidget/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 3.2.4; PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios.agenda"; PRODUCT_NAME = "$(TARGET_NAME)"; REGISTER_APP_GROUPS = YES; SDKROOT = iphoneos; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; };
+		BA0000000000000000000002 = {isa = XCBuildConfiguration; name = Release; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = AgendaWidget/AgendaWidget.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = 9686Z4Y482; INFOPLIST_FILE = AgendaWidget/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 3.2.4; PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios.agenda"; PRODUCT_NAME = "$(TARGET_NAME)"; REGISTER_APP_GROUPS = YES; SDKROOT = iphoneos; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; };
 		AA0000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -297,7 +297,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.2.3;
+				MARKETING_VERSION = 3.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios";
 				GOOGLE_IOS_CLIENT_ID = "862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00.apps.googleusercontent.com";
 				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00";
@@ -328,7 +328,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.2.3;
+				MARKETING_VERSION = 3.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios";
 				GOOGLE_IOS_CLIENT_ID = "862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00.apps.googleusercontent.com";
 				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00";
