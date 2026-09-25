@@ -58,6 +58,44 @@ async function settledReload(page: Page) {
   await page.reload(); await unlock(page); await navigate(page, 'Calendar');
 }
 
+test('glass quick navigation lifts capture only while the keyboard is closed', async ({ page }) => {
+  await setup(page);
+  const nav = page.getByRole('navigation', { name: 'Quick navigation' });
+  const capture = page.locator('.capture-dock');
+  await expect(nav.getByRole('button')).toHaveCount(2);
+  await expect(nav.getByRole('button', { name: 'Calendar', exact: true })).toHaveAttribute('aria-current', 'page');
+  const raised = await capture.boundingBox();
+  const navBox = await nav.boundingBox();
+  expect(raised!.y + raised!.height).toBeLessThan(navBox!.y);
+  expect(await nav.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  const home = nav.getByRole('button', { name: 'Home', exact: true });
+  await home.focus(); await home.press('Enter');
+  await expect(home).toHaveAttribute('aria-current', 'page');
+  await nav.getByRole('button', { name: 'Calendar', exact: true }).click();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => document.documentElement.dataset.theme = value, theme);
+    expect(await home.evaluate(el => getComputedStyle(el).backdropFilter || getComputedStyle(el).getPropertyValue('-webkit-backdrop-filter'))).toBe('blur(12px)');
+    await expect.poll(() => home.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(theme === 'light' ? 'rgba(255, 255, 255, 0.34)' : 'rgba(0, 0, 0, 0.34)');
+    expect(await home.evaluate(el => getComputedStyle(el).borderColor)).not.toBe('rgba(0, 0, 0, 0)');
+  }
+  // WebKit emulation has no system keyboard. Exercise the same VisualViewport
+  // resize signal the iPhone delivers, without claiming physical-device proof.
+  await page.locator('.capture-dock input').focus();
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: window.innerHeight - 300 });
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  });
+  await expect(nav).toBeHidden();
+  expect((await capture.boundingBox())!.y).toBeGreaterThan(raised!.y);
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: window.innerHeight });
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  });
+  await expect(nav).toBeVisible();
+  await page.locator('.capture-dock input').blur();
+  await page.screenshot({ path: test.info().outputPath('quick-navigation.png') });
+});
+
 test('a failed menu section preserves workspace, navigation and diagnostics', async ({ page }) => {
   const { read } = await setup(page, true, undefined, 'All items');
   await page.route('**/SettingsPage-*.js', route => route.abort());

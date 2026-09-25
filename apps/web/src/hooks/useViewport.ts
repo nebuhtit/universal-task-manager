@@ -10,10 +10,17 @@ export function useViewport(captureInputRef: RefObject<HTMLInputElement | null>,
   }, [ready]);
   useEffect(() => {
     const viewport = window.visualViewport; if (!viewport) return;
-    const update = () => { const focused = document.activeElement === captureInputRef.current; const height = focused ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0; document.documentElement.style.setProperty('--keyboard-offset', `${height}px`); document.documentElement.classList.toggle('capture-keyboard-open', focused && height > 80); };
-    const release = () => { document.documentElement.classList.remove('capture-keyboard-open'); document.documentElement.style.setProperty('--keyboard-offset', '0px'); };
-    const focusIn = (event: FocusEvent) => { if (event.target === captureInputRef.current) window.requestAnimationFrame(update); };
-    const focusOut = (event: FocusEvent) => { if (event.target === captureInputRef.current) release(); };
+    const update = () => {
+      const focused = document.activeElement === captureInputRef.current;
+      const occluded = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      const editable = document.activeElement?.matches('input, textarea, [contenteditable="true"]');
+      document.documentElement.classList.toggle('keyboard-open', Boolean(editable) && viewport.scale === 1 && occluded > 80);
+      document.documentElement.style.setProperty('--keyboard-offset', `${focused ? occluded : 0}px`);
+      document.documentElement.classList.toggle('capture-keyboard-open', focused && occluded > 80);
+    };
+    const release = () => { document.documentElement.classList.remove('capture-keyboard-open', 'keyboard-open'); document.documentElement.style.setProperty('--keyboard-offset', '0px'); };
+    const focusIn = () => { window.requestAnimationFrame(update); };
+    const focusOut = () => { window.requestAnimationFrame(update); };
     document.addEventListener('focusin', focusIn); document.addEventListener('focusout', focusOut); viewport.addEventListener('resize', update); viewport.addEventListener('scroll', update); update();
     return () => { document.removeEventListener('focusin', focusIn); document.removeEventListener('focusout', focusOut); viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); release(); document.documentElement.style.removeProperty('--keyboard-offset'); };
   }, [captureInputRef]);
