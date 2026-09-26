@@ -7,11 +7,12 @@ export interface NativeReminderEntry {
   body: string;
   at: string;
   urgency: 'normal' | 'urgent' | 'critical';
+  delivery?: 'notification' | 'alarm';
 }
 
 type NativeReminderMessage =
   | { id: string; kind: 'reminders.requestPermission' }
-  | { id: string; kind: 'reminders.sync'; workspaceId: string; items: NativeReminderEntry[] }
+  | { id: string; kind: 'reminders.sync'; workspaceId: string; items: NativeReminderEntry[]; retainedAlarmIds: string[] }
   | { id: string; kind: 'timer.schedule'; timerId: string; title: string; at: string }
   | { id: string; kind: 'timer.cancel'; timerId: string };
 
@@ -82,6 +83,7 @@ export function nativeReminderSchedule(workspace: WorkspaceDocument, now = new D
         body: notificationItemMomentBody(workspace, item, now, reminder.urgency === 'normal' ? '' : ` · ${reminder.urgency}`),
         at: new Date(deliveryTime).toISOString(),
         urgency: reminder.urgency,
+        ...(reminder.delivery ? { delivery: reminder.delivery } : {}),
       } satisfies NativeReminderEntry];
     });
   }).sort((left, right) => Date.parse(left.at) - Date.parse(right.at)).slice(0, maximumPendingReminders);
@@ -92,7 +94,13 @@ export function requestNativeReminderPermission(): Promise<NativeReminderStatus>
 }
 
 export function syncNativeReminders(workspace: WorkspaceDocument, now = new Date()): Promise<NativeReminderStatus> {
-  return send({ id: requestId(), kind: 'reminders.sync', workspaceId: workspace.workspaceId, items: nativeReminderSchedule(workspace, now) });
+  const items = nativeReminderSchedule(workspace, now);
+  const retainedAlarmIds = Object.values(workspace.items).filter(item => !itemDeletionTime(workspace, item) && item.state === 'open' && item.role !== 'series_template').flatMap(item => item.reminders.filter(reminder => {
+    const at = reminderTime(item, reminder);
+    return reminder.delivery === 'alarm' && at && Date.parse(at) <= now.getTime();
+  }).map(reminder => `utm:${workspace.workspaceId}:${item.id}:${reminder.id}`));
+  retainedAlarmIds.push(...items.filter(item => item.delivery === 'alarm').map(item => item.id));
+  return send({ id: requestId(), kind: 'reminders.sync', workspaceId: workspace.workspaceId, items, retainedAlarmIds });
 }
 
 export function scheduleNativeTimer(timerId: string, title: string, at: string): Promise<NativeReminderStatus> {

@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '3.2.5';
-export const APP_RELEASED_AT = '2026-09-25T21:04:43.974Z';
+export const APP_VERSION = '3.2.6';
+export const APP_RELEASED_AT = '2026-09-26T19:38:45.071Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -112,6 +112,7 @@ export interface Habit {
 
 export interface Reminder {
   id: string;
+  delivery?: 'notification' | 'alarm';
   mode: 'absolute' | 'relative';
   at?: ISODateTime;
   relativeTo?: 'available' | 'start' | 'due' | 'end';
@@ -176,6 +177,7 @@ function reminderMoment(value?: ISODateTime): string {
 export function reminderSignature(reminder: Reminder): string {
   return JSON.stringify({
     mode: reminder.mode,
+    delivery: reminder.delivery ?? 'notification',
     at: reminderMoment(reminder.at),
     relativeTo: reminder.relativeTo ?? '',
     offset: reminder.offset ?? '',
@@ -549,6 +551,7 @@ export interface MigrationIssue {
 }
 
 export interface WorkspaceDocument {
+  quickTimer?: { itemId?: string; active?: UniversalItem['activeTimer']; pending?: ItemTimerSession[] };
   schemaVersion: string;
   workspaceId: string;
   name: string;

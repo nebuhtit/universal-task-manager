@@ -120,6 +120,7 @@ export const itemJsonSchema = {
         type: 'object', additionalProperties: false, required: ['id', 'mode', 'urgency', 'repeatUntilAcknowledged'],
         properties: {
           id: { type: 'string', minLength: 1 }, mode: { enum: ['absolute', 'relative'] }, at: { type: 'string', format: 'date-time' },
+          delivery: { enum: ['notification', 'alarm'] },
           relativeTo: { enum: ['available', 'start', 'due', 'end'] }, offset: { type: 'string' }, urgency: { enum: ['normal', 'urgent', 'critical'] },
           repeatEvery: { type: 'string' }, repeatUntilAcknowledged: { type: 'boolean' }, acknowledgedAt: { type: 'string', format: 'date-time' }, snoozedUntil: { type: 'string', format: 'date-time' },
         },
@@ -151,7 +152,7 @@ export const itemJsonSchema = {
       type: 'array', items: {
         type: 'object', additionalProperties: false, required: ['id', 'mode', 'startedAt', 'endedAt', 'durationSeconds'],
         properties: {
-          id: { type: 'string', minLength: 1 }, recurrenceId: { type: 'string', format: 'date-time' }, mode: { enum: ['timer', 'stopwatch'] },
+          id: { type: 'string', minLength: 1 }, automatic: { type: 'boolean' }, recurrenceId: { type: 'string', format: 'date-time' }, mode: { enum: ['timer', 'stopwatch'] },
           startedAt: { type: 'string', format: 'date-time' }, endedAt: { type: 'string', format: 'date-time' },
           durationSeconds: { type: 'number', minimum: 0 }, targetSeconds: { type: 'number', exclusiveMinimum: 0 },
         },
@@ -295,6 +296,7 @@ export const workspaceJsonSchema = {
     schemaVersion: { const: SCHEMA_VERSION }, workspaceId: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 },
     createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
     items: { type: 'object', additionalProperties: itemJsonSchema },
+    quickTimer: { type: 'object', additionalProperties: false, properties: { itemId: { type: 'string' }, active: itemJsonSchema.properties.activeTimer, pending: itemJsonSchema.properties.timerHistory } },
     listDefinitions: { type: 'object', additionalProperties: listDefinitionSchema },
     areaDefinitions: { type: 'object', additionalProperties: areaDefinitionSchema },
     projectDefinitions: { type: 'object', additionalProperties: projectDefinitionSchema },

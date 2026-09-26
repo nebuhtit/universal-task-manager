@@ -6,7 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.2.5** · workspace schema: **1.26.0**
+Current release: **v3.2.6** · workspace schema: **1.26.0**
+
+3.2.6 adds bounded offline widget timelines with next-stage clock labels, AlarmKit reminders (`нн` / `alarm` / `rr`), complete relationship-ranked organization suggestions, and persistent quick timer/stopwatch commands (`т` / `timer`, `с` / `stopwatch`). The bilingual command reference is in Settings → Guide. New Google changes still require app synchronization; widget refresh timing remains controlled by iOS.
 
 > [!IMPORTANT]
 > UTM is currently **beta software**. Your workspace is stored on your device, not in a hosted account. Create encrypted `.utmb` backups regularly. Clearing browser/PWA storage or removing an installed web app can erase its local workspace.

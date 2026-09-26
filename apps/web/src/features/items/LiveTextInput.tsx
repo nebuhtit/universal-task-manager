@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { orderedOrganizationNames, type WorkspaceDocument } from '@utm/core';
+import { orderedOrganizationNames, orderedTagEntries, type WorkspaceDocument } from '@utm/core';
 import { organizationSuggestions } from '../../../quick-entry-lab/organization';
 import { dateValueExpression, parseLiveEntry as parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
 import { Button, Input, Textarea } from '../../components/ui/primitives';
@@ -24,6 +24,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const previewTouch = useRef<{ x: number; y: number } | null>(null);
   const control = () => multiline ? textarea.current : (inputRef ?? ownInput).current;
   const lastSubmit = useRef({ value: '', at: 0 });
+  useEffect(() => { if (!value) lastSubmit.current = { value: '', at: 0 }; }, [value]);
   const submitControl = (element: HTMLInputElement | HTMLTextAreaElement) => {
     const text = element.value;
     if (!text.trim() || (lastSubmit.current.value === text && performance.now() - lastSubmit.current.at < 500)) return;
@@ -87,8 +88,11 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const visiblePreview = dayPreview && calendarDate !== viewedTimelineDate;
   const dayPreviewEvents = useMemo(() => dayPreview?.events.filter(event => !event.tentative && !event.invalid && !event.travel)
     .sort((left, right) => left.start - right.start || left.item.id.localeCompare(right.item.id)) ?? [], [dayPreview]);
-  const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: [...new Set(Object.values(workspace.items).filter(item => !item.deletedAt).flatMap(item => item.tags))].sort() } : { area: [], project: [], tag: [] }, [workspace]);
+  const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: orderedTagEntries(workspace).filter((tag): tag is string => tag !== null), projectAreas: Object.fromEntries(orderedOrganizationNames(workspace, 'project').map(name => [name, [...new Set([...(workspace.projectDefinitions[name]?.areas ?? []), ...(workspace.projectDefinitions[name]?.area ? [workspace.projectDefinitions[name]!.area!] : []), ...Object.values(workspace.items).filter(item => !item.deletedAt && (item.projects?.includes(name) || item.project === name)).flatMap(item => [...(item.areas ?? []), ...(item.area ? [item.area] : [])])])]])) } : { area: [], project: [], tag: [] }, [workspace]);
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => organizationSuggestions(value, caret, catalog) ?? suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language, catalog]);
+  const [optionLimit, setOptionLimit] = useState(30);
+  useEffect(() => { setOptionLimit(30); }, [value, caret]);
+  useEffect(() => { if (selected >= optionLimit) setOptionLimit(selected + 30); }, [selected, optionLimit]);
   const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
   useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
   useEffect(() => { if (expanded && selected >= 0) document.getElementById(`${id}-option-${selected}`)?.scrollIntoView({ block: 'nearest' }); }, [expanded, selected, id]);
@@ -175,7 +179,8 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
       <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onClick={() => { setReport({ input: value, parsed, referenceTime: referenceTime.toISOString() }); setExpected(''); setReportError(''); }}>Сообщить о неточности</Button>
       {notice && <small role="status">{notice}</small>}
       {expanded && <div id={`${id}-options`} role="listbox" aria-label="Подсказки Live text" className="live-text-options">
-        {suggestions.options.map((option, index) => ({ option, index })).reverse().map(({ option, index }) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && endY !== undefined && Math.abs(endY - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); choose(index); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) choose(index); }}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
+        {suggestions.options.length > optionLimit && <Button type="button" onPointerDown={event => event.preventDefault()} onClick={() => setOptionLimit(limit => limit + 30)}>{language === 'ru' ? 'Ещё варианты' : 'More suggestions'}</Button>}
+        {suggestions.options.slice(0, optionLimit).map((option, index) => ({ option, index })).reverse().map(({ option, index }) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && endY !== undefined && Math.abs(endY - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); choose(index); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) choose(index); }}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
       </div>}
       </div>
     </div>;

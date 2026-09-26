@@ -89,7 +89,7 @@ const replacements: Array<{ start: number; end: number; value: string }> = [];
 
 function reminderItems(draft: Draft): UniversalItem['reminders'] {
   return draft.reminders.map(reminder => {
-    const common = { id: createId(), urgency: 'normal' as const, repeatUntilAcknowledged: false };
+    const common = { id: createId(), urgency: 'normal' as const, repeatUntilAcknowledged: false, ...(reminder.delivery ? { delivery: reminder.delivery } : {}) };
     if (reminder.anchor === 'due' || reminder.anchor === 'start') return { ...common, mode: 'relative' as const, relativeTo: reminder.anchor, offset: `${reminder.minutes < 0 ? '-' : ''}${minutesDuration(Math.abs(reminder.minutes))}` };
     return { ...common, mode: 'absolute' as const, ...(reminder.at ? { at: reminder.at } : {}) };
   });
@@ -323,15 +323,15 @@ export function syncQuickEntrySource(previous: UniversalItem, next: UniversalIte
     else if (amount) text += ` ${change.key} ${amount}м`;
   }
   if (JSON.stringify(previous.reminders) !== JSON.stringify(next.reminders)) {
-    const values = next.reminders.map(reminder => {
-      if (reminder.mode === 'absolute') return reminder.at ? `в ${localDateTime(reminder.at)}` : '';
+    const commands = next.reminders.map(reminder => {
+      const key = reminder.delivery === 'alarm' ? 'нн' : 'напомнить';
+      if (reminder.mode === 'absolute') return reminder.at ? `${key} в ${localDateTime(reminder.at)}` : '';
       const amount = reminder.offset ? Math.round(Math.abs(durationToMs(reminder.offset)) / 60_000) : 0;
       const anchor = reminder.relativeTo === 'due' ? 'срок' : 'начало';
-      return amount > 0 ? `${anchor}${reminder.offset?.startsWith('-') ? '-' : '+'}${amount}м` : '';
-    }).filter(Boolean).join(', ');
-    const command = /(^|\s)(напомнить|нап|напомни|напоминание|напоминания|напомянание|н|remind(?:\s+me)?|reminder|r)\s+.+?(?=\s+(?:срок|due|начало|start|конец|end|дорога|ехать|тт|tt|travel|drive|длительность|duration|event\s+opens|event\s+ends)\s+|$)/i.exec(text);
-    if (command) text = text.slice(0, command.index) + (values ? `${command[1]}${command[2]} ${values}` : '') + text.slice(command.index + command[0].length);
-    else if (values) text += ` напомнить ${values}`;
+      return `${key} ${anchor}${reminder.offset?.startsWith('-') ? '-' : '+'}${amount}м`;
+    }).filter(Boolean).join(' ');
+    text = text.replace(/(^|\s)(напомнить|нап|напомни|напоминание|напоминания|напомянание|нн|н|alarm|rr|remind(?:\s+me)?|reminder|r)(?::|\s|$).*?(?=\s+(?:нн|alarm|rr|н|remind|reminder|напомнить|срок|due|начало|start|конец|end|дорога|ехать|тт|tt|travel|drive|длительность|duration|event\s+opens|event\s+ends)(?::|\s)|$)/gi, ' ');
+    if (commands) text += ` ${commands}`;
   }
   text = text.replace(/\s+/g, ' ').trim();
   let reminders = next.reminders;

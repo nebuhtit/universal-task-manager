@@ -12,6 +12,7 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
     private let center = UNUserNotificationCenter.current()
     private let identifierPrefix = "utm:"
     private var cancelledTimers = Set<String>()
+    private var alarmSync: Task<Void, Never>?
 
     private func parseDate(_ value: String) -> Date? {
         let formatter = ISO8601DateFormatter()
@@ -46,6 +47,53 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
 
     private func sync(id: String, payload: [String: Any]) {
         let rawItems = payload["items"] as? [[String: Any]] ?? []
+        let previous = alarmSync
+        alarmSync = Task { @MainActor in
+            await previous?.value
+            var alarmError: String?
+            do { try await self.syncReminderAlarms(rawItems, retained: payload["retainedAlarmIds"] as? [String] ?? []) }
+            catch { alarmError = error.localizedDescription }
+            self.syncNotifications(id: id, rawItems: rawItems.filter { ($0["delivery"] as? String) != "alarm" }, alarmError: alarmError)
+        }
+    }
+
+    @MainActor private func syncReminderAlarms(_ items: [[String: Any]], retained: [String]) async throws {
+        let alarms = items.filter { ($0["delivery"] as? String) == "alarm" }
+        let key = "utm.reminder-alarm-registry"
+        var registry = UserDefaults.standard.dictionary(forKey: key) as? [String: [String: String]] ?? [:]
+        guard #available(iOS 26.0, *) else {
+            if !alarms.isEmpty { throw NSError(domain: "UTM", code: 1, userInfo: [NSLocalizedDescriptionKey: "System alarm not installed: AlarmKit requires iOS 26."]) }
+            return
+        }
+        let manager = AlarmManager.shared
+        // A fired alarm may still be ringing. Only cancel when its source is
+        // removed/acknowledged/completed, not merely because its date is past.
+        let ids = Set(retained)
+        for (identifier, saved) in registry where !ids.contains(identifier) {
+            if let raw = saved["uuid"], let uuid = UUID(uuidString: raw) { try? manager.cancel(id: uuid) }
+            registry.removeValue(forKey: identifier)
+        }
+        UserDefaults.standard.set(registry, forKey: key)
+        if !alarms.isEmpty {
+            let permission = try await manager.requestAuthorization()
+            guard permission == .authorized else { throw NSError(domain: "UTM", code: 2, userInfo: [NSLocalizedDescriptionKey: "System alarm not installed. Allow alarms for Universal in iOS Settings."]) }
+        }
+        for item in alarms {
+            guard let identifier = item["id"] as? String, let title = item["title"] as? String,
+                  let at = item["at"] as? String, let date = parseDate(at), date > Date() else { continue }
+            let signature = title + "|" + at
+            if registry[identifier]?["signature"] == signature { continue }
+            let uuid = registry[identifier]?["uuid"].flatMap(UUID.init(uuidString:)) ?? UUID()
+            if registry[identifier] != nil { try? manager.cancel(id: uuid) }
+            let alert = AlarmPresentation.Alert(title: LocalizedStringResource(stringLiteral: title), stopButton: AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.fill"))
+            let attributes = AlarmAttributes(presentation: AlarmPresentation(alert: alert), metadata: TimerAlarmMetadata(), tintColor: Color.accentColor)
+            _ = try await manager.schedule(id: uuid, configuration: .alarm(schedule: .fixed(date), attributes: attributes))
+            registry[identifier] = ["uuid": uuid.uuidString, "signature": signature]
+            UserDefaults.standard.set(registry, forKey: key)
+        }
+    }
+
+    private func syncNotifications(id: String, rawItems: [[String: Any]], alarmError: String?) {
         center.getPendingNotificationRequests { [weak self] requests in
             guard let self else { return }
             let oldIdentifiers = requests.map(\.identifier).filter { $0.hasPrefix(self.identifierPrefix) && !$0.hasPrefix("utm:timer:") }
@@ -78,7 +126,7 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
             }
             group.notify(queue: .main) {
                 if let firstError { self.sendStatus(id: id, error: firstError.localizedDescription) }
-                else { self.sendStatus(id: id, scheduled: scheduled) }
+                else { self.sendStatus(id: id, scheduled: scheduled, error: alarmError) }
             }
         }
     }

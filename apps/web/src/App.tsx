@@ -1,4 +1,6 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
+import { QuickTimerDialog } from './features/items/QuickTimerDialog';
+import { quickSessionCommand } from '../quick-entry-lab/commandGuide';
 import { PageErrorBoundary } from './components/layout/PageErrorBoundary';
 import { QuickPageNav } from './components/layout/QuickPageNav';
 import { renderFailureDetails, safeRenderFailureDetails } from './services/renderFailure';
@@ -663,6 +665,7 @@ export default function App() {
   const [backupReminder, setBackupReminder] = useState(false);
   const [faceId, setFaceId] = useState<'available' | 'unsupported' | 'configured'>('unsupported');
   const [quick, setQuick] = useState('');
+  const [quickTimerOpen, setQuickTimerOpen] = useState(false);
   const [celebrationColors, setCelebrationColors] = useState<Map<string, string>>(new Map());
   const [undoActions, setUndoActions] = useState<PendingUndoAction[]>([]);
   const [portableImportSource, setPortableImportSource] = useState<string | null>(null);
@@ -816,7 +819,7 @@ export default function App() {
       void syncNativeReminders(workspace).then((status) => {
         if (!cancelled) { nativeReminderSignature.current = signature; recordDiagnostic({ kind: 'result', operation: 'Native reminder sync', outcome: 'succeeded', message: `${status.scheduled ?? 0} iOS reminders scheduled` }); }
       }).catch((reason) => {
-        if (!cancelled) recordDiagnostic({ kind: 'error', operation: 'Native reminder sync', outcome: 'failed', message: reason instanceof Error ? reason.message : String(reason) });
+        if (!cancelled) { const message = reason instanceof Error ? reason.message : String(reason); recordDiagnostic({ kind: 'error', operation: 'Native reminder sync', outcome: 'failed', message }); setToast(message); }
       });
     }, 500);
     return () => { cancelled = true; window.clearTimeout(timer); };
@@ -1275,6 +1278,18 @@ export default function App() {
   };
   const captureQuickItem = (text = quick) => {
     if (!text.trim()) return;
+    const command = quickSessionCommand(text);
+    if (command) {
+      if (!workspace.quickTimer?.active || workspace.quickTimer.active.stoppedAt) {
+        const saved = commit('Open quick session', draft => {
+          draft.quickTimer ??= {};
+          if (command === 'stopwatch') draft.quickTimer.active = { id: createId(), mode: 'stopwatch', startedAt: new Date().toISOString() };
+          else delete draft.quickTimer.active;
+        });
+        if (!saved) { setQuickError('Could not save quick session'); return; }
+      }
+      setQuickTimerOpen(true); setQuick(''); setQuickError(''); return;
+    }
     try {
       const reminderDefaults = workspace.calendarPreferences.liveTextDefaultReminders;
       persistQuickItem(createQuickEntryItem(text.trim(), currentWorkspaceNow(), page === 'calendar' ? calendarCaptureDate : undefined,
@@ -1306,6 +1321,7 @@ export default function App() {
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={openWorkspaceItem} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onQuickAddItem={captureQuickViewItem} onExport={() => exportAfterFlush(() => exportParaStructure(workspace))} /></section>}
+      <QuickTimerDialog workspace={workspace} open={quickTimerOpen} onClose={() => setQuickTimerOpen(false)} commit={commit} />
       {page === 'settings' && <section className="page-section settings-page-shell">
         <SettingsReleaseInfo saveStatus={saveStatus} />
         <details className="settings-disclosure"><summary>Backup and recovery</summary><section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="text" inputMode="numeric" pattern="[0-9]*" value={backupReminderDraft} onChange={(event) => { const next = event.target.value; if (/^\d*$/.test(next)) setBackupReminderDraft(next); }} onBlur={applyBackupReminderDays} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button><button className="secondary" onClick={() => void downloadOfflineRecoveryKit().then(() => setToast('Offline recovery kit downloaded.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section></details>

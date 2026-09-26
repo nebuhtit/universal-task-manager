@@ -3,6 +3,18 @@ import { createItem, createWorkspace } from '@utm/core';
 import { agendaWidgetSnapshot } from './nativeAgendaWidget';
 
 describe('lock screen agenda projection', () => {
+  it('bounds seconds transitions by the current stage and never revives old stages', () => {
+    const now = Date.parse('2026-09-25T08:00:00Z');
+    const workspace = createWorkspace('Transitions'); workspace.items = {};
+    workspace.calendarPreferences.timezone = 'UTC';
+    for (const [title, start, end] of [['First', 20, 21], ['Second', 22, 30]] as const) {
+      const item = createItem(title); item.schedule = { timezone: 'UTC', startAt: new Date(now+start*60000).toISOString(), endAt: new Date(now+end*60000).toISOString() }; workspace.items[item.id] = item;
+    }
+    const snapshot = agendaWidgetSnapshot(workspace, now);
+    expect(new Set(snapshot.entries.map(entry => entry.at)).size).toBe(snapshot.entries.length);
+    expect(snapshot.entries.find(entry => Math.abs(entry.at - (now/1000 + 600.001)) < .001)?.title).toBe('First');
+    expect(snapshot.entries.filter(entry => entry.at >= now/1000 + 21*60).every(entry => !entry.current.includes('First') && !entry.title.includes('First'))).toBe(true);
+  });
   it.each(['en', 'ru'] as const)('uses the compact departure symbol in %s before and during travel', language => {
     const now = Date.parse('2026-09-25T08:00:00Z');
     const workspace = createWorkspace('Travel'); workspace.items = {};

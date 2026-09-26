@@ -7,8 +7,12 @@ struct AgendaWidgetRecord: Codable {
     let title: String
     let target: Double?
     let label: String
+    let moment: String?
+    let tomorrow: Bool?
 }
 struct AgendaWidgetSnapshot: Codable {
+    let version: Int?
+    let generatedAt: Double?
     let entries: [AgendaWidgetRecord]
     let expires: Double
     let refreshLabel: String

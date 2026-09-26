@@ -28,7 +28,7 @@ const formatClock = (milliseconds: number, includeMilliseconds = false) => {
     : [minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
 };
 
-export function QuickItemTimer({ soundEnabled = true, defaultDurationSeconds = 600, activeTimer, initialStopwatchStartedAt, timerTitle = 'Universal', onLegacyStop, onActiveTimerChange, onSaveCompletion }: { soundEnabled?: boolean; defaultDurationSeconds?: number; activeTimer?: RunningTimer | undefined; initialStopwatchStartedAt?: string | undefined; timerTitle?: string; onLegacyStop?: () => void | Promise<void>; onActiveTimerChange?: (timer: RunningTimer | undefined) => void | Promise<void>; onSaveCompletion?: (session: ItemTimerSession) => void | Promise<void> }) {
+export function QuickItemTimer({ expanded = false, soundEnabled = true, defaultDurationSeconds = 600, activeTimer, initialStopwatchStartedAt, timerTitle = 'Universal', onLegacyStop, onActiveTimerChange, onSaveCompletion }: { expanded?: boolean; soundEnabled?: boolean; defaultDurationSeconds?: number; activeTimer?: RunningTimer | undefined; initialStopwatchStartedAt?: string | undefined; timerTitle?: string; onLegacyStop?: () => void | Promise<void>; onActiveTimerChange?: (timer: RunningTimer | undefined) => void | Promise<void>; onSaveCompletion?: (session: ItemTimerSession) => void | Promise<void> }) {
   const savedStartedAt = activeTimer ? Date.parse(activeTimer.startedAt) : Number.NaN;
   const pendingSession = activeTimer?.stoppedAt && activeTimer.durationSeconds ? {
     id: activeTimer.id, mode: activeTimer.mode, startedAt: activeTimer.startedAt, endedAt: activeTimer.stoppedAt,
@@ -148,7 +148,7 @@ export function QuickItemTimer({ soundEnabled = true, defaultDurationSeconds = 6
     startFresh();
   };
 
-  return <details className="quick-item-timer" aria-label="Quick timer and stopwatch">
+  return <details open={expanded || undefined} className="quick-item-timer" aria-label="Quick timer and stopwatch">
     <summary>Quick timer &amp; stopwatch</summary>
     <div className="quick-item-timer-body">
     <div className="quick-item-timer-controls">

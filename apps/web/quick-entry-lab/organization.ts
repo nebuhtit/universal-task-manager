@@ -1,5 +1,5 @@
 export type OrganizationKind = 'area' | 'project' | 'tag';
-export type OrganizationCatalog = Record<OrganizationKind, string[]>;
+export type OrganizationCatalog = Record<OrganizationKind, string[]> & { projectAreas?: Record<string, string[]> };
 const kinds: Record<string, OrganizationKind> = { э: 'area', ar: 'area', п: 'project', p: 'project', area: 'area', эриа: 'area', область: 'area', project: 'project', проект: 'project', tag: 'tag', тег: 'tag', тэг: 'tag', '#': 'tag' };
 export function extractOrganization(input: string) {
   const values: OrganizationCatalog = { area: [], project: [], tag: [] };
@@ -25,7 +25,9 @@ export function extractOrganization(input: string) {
 
 export function organizationSuggestions(input: string, caret: number, catalog: OrganizationCatalog) {
   const before = input.slice(0, caret);
-  const match = /(?:^|\s)(area|эриа|область|project|проект|tag|тег|тэг|ar|э|п|p|#)(?:\s*:\s*|\s+|(?<=#))([^\n]*)$/iu.exec(before);
+  const commands = [...before.matchAll(/(?:^|\s)(area|эриа|область|project|проект|tag|тег|тэг|ar|э|п|p|#)(?:\s*:\s*|\s+|(?<=#))/giu)];
+  const command = commands.at(-1);
+  const match = command ? Object.assign([command[0] + before.slice(command.index! + command[0].length), command[1], before.slice(command.index! + command[0].length)], { index: command.index! }) : null;
   if (!match) {
     const prefix = /(?:^|\s)([\p{L}#]+)$/u.exec(before);
     if (!prefix) return null;
@@ -36,6 +38,13 @@ export function organizationSuggestions(input: string, caret: number, catalog: O
   const kind = kinds[match[1]!.toLowerCase()]!;
   const query = match[2]!.replace(/^["«]/, '').toLocaleLowerCase();
   if (/["»]$/.test(query.trimEnd()) || query.length > 100) return null;
-  const start = match.index + match[0].length - match[2]!.length;
-  return { start, end: caret, ordered: true, options: catalog[kind].filter(name => name.toLocaleLowerCase().includes(query)).slice(0, 30).map(name => ({ label: name, insert: `${JSON.stringify(name)} `, detail: kind === 'area' ? 'Area' : kind === 'project' ? 'Project' : 'Tag' })) };
+  const start = match.index + match[0]!.length - match[2]!.length;
+  const chosen = extractOrganization(input.slice(0, match.index) + ' ' + input.slice(caret));
+  const selected = kind === 'area' ? chosen.areas : kind === 'project' ? chosen.projects : chosen.tags;
+  const rank = (name: string) => {
+    const scopes = kind === 'project' ? chosen.areas : chosen.projects;
+    const index = scopes.findIndex(scope => kind === 'project' ? catalog.projectAreas?.[name]?.includes(scope) : catalog.projectAreas?.[scope]?.includes(name));
+    return index < 0 ? scopes.length : index;
+  };
+  return { start, end: caret, ordered: true, options: [...new Set(catalog[kind])].filter(name => !selected.includes(name) && name.toLocaleLowerCase().includes(query)).sort((a, b) => rank(a) - rank(b)).map(name => ({ label: name, insert: `${JSON.stringify(name)} `, detail: kind === 'area' ? 'Area' : kind === 'project' ? 'Project' : 'Tag' })) };
 }

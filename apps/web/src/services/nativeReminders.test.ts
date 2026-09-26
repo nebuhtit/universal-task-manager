@@ -3,6 +3,18 @@ import { createItem, createWorkspace, softDeleteItemTree } from '@utm/core';
 import { nativeReminderSchedule } from './nativeReminders';
 
 describe('native reminder scheduling', () => {
+  it('keeps alarm delivery through rescheduling and removes completed/acknowledged alarms', () => {
+    const now = new Date('2026-09-26T09:00:00Z');
+    const workspace = createWorkspace('Alarm', now); workspace.items = {};
+    const item = createItem('Alarm', 'task', now); workspace.items[item.id] = item;
+    item.reminders = [{ id: 'alarm', delivery: 'alarm', mode: 'absolute', at: '2026-09-26T10:00:00Z', urgency: 'normal', repeatUntilAcknowledged: false }];
+    expect(nativeReminderSchedule(workspace, now)[0]?.delivery).toBe('alarm');
+    item.reminders[0]!.snoozedUntil = '2026-09-26T11:00:00Z';
+    expect(nativeReminderSchedule(workspace, now)[0]?.at).toBe('2026-09-26T11:00:00.000Z');
+    item.state = 'done'; expect(nativeReminderSchedule(workspace, now)).toEqual([]);
+    item.state = 'open'; item.reminders[0]!.acknowledgedAt = now.toISOString();
+    expect(nativeReminderSchedule(workspace, now)).toEqual([]);
+  });
   it('resolves reminders, excludes unavailable entries and keeps the nearest future reminders', () => {
     const now = new Date('2026-09-03T10:00:00.000Z');
     const workspace = createWorkspace('Native reminders', now);

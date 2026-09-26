@@ -7,6 +7,8 @@ struct AgendaEntry: TimelineEntry {
     let title: String
     let target: Date?
     let label: String
+    var moment: String = ""
+    var tomorrow: Bool = false
 }
 struct AgendaProvider: TimelineProvider {
     func placeholder(in context: Context) -> AgendaEntry {
@@ -23,17 +25,20 @@ struct AgendaProvider: TimelineProvider {
         guard let snapshot = AgendaWidgetStore.snapshot() else { return [fallback] }
         let expired = AgendaEntry(date: Date(timeIntervalSince1970: max(now.timeIntervalSince1970, snapshot.expires)), current: "Universal", title: snapshot.refreshLabel, target: nil, label: "")
         guard snapshot.expires > now.timeIntervalSince1970 else { return [expired] }
-        let ordered = snapshot.entries.sorted { $0.at < $1.at }
+        // Last source entry wins at the same boundary; synthetic entries cannot revive it.
+        let unique = Dictionary(snapshot.entries.map { ($0.at, $0) }, uniquingKeysWith: { _, latest in latest })
+        let ordered = unique.values.sorted { $0.at < $1.at }
         let previous = ordered.last { $0.at <= now.timeIntervalSince1970 }
         let future = ordered.filter { $0.at > now.timeIntervalSince1970 && $0.at < snapshot.expires }
         var result = ([previous].compactMap { $0 } + future).map { value in
-            AgendaEntry(date: Date(timeIntervalSince1970: max(now.timeIntervalSince1970, value.at)), current: value.current, title: value.title, target: value.target.map { Date(timeIntervalSince1970: $0) }, label: value.label)
+            AgendaEntry(date: Date(timeIntervalSince1970: max(now.timeIntervalSince1970, value.at)), current: value.current, title: value.title, target: value.target.map { Date(timeIntervalSince1970: $0) }, label: value.label, moment: value.moment ?? "", tomorrow: value.tomorrow ?? false)
         }
-        let secondThresholds = result.compactMap { entry -> AgendaEntry? in
+        let secondThresholds = result.enumerated().compactMap { index, entry -> AgendaEntry? in
             guard let target = entry.target else { return nil }
-            let threshold = target.addingTimeInterval(-600)
-            guard threshold > entry.date, threshold > now else { return nil }
-            return AgendaEntry(date: threshold, current: entry.current, title: entry.title, target: target, label: entry.label)
+            let threshold = target.addingTimeInterval(-599.999)
+            let end = index + 1 < result.count ? result[index + 1].date : Date(timeIntervalSince1970: snapshot.expires)
+            guard snapshot.version != 2, threshold > entry.date, threshold > now, threshold < end else { return nil }
+            return AgendaEntry(date: threshold, current: entry.current, title: entry.title, target: target, label: entry.label, moment: entry.moment, tomorrow: entry.tomorrow)
         }
         result.append(contentsOf: secondThresholds)
         result.sort { $0.date < $1.date }
@@ -71,7 +76,7 @@ struct AgendaWidgetView: View {
         TimelineView(.periodic(from: entry.date, by: 60)) { context in
             let remaining = max(0, target.timeIntervalSince(context.date))
             if remaining < 600 {
-                Text(timerInterval: context.date...target, countsDown: true).monospacedDigit()
+                Text(timerInterval: context.date...max(context.date, target), countsDown: true).monospacedDigit()
             } else {
                 let totalMinutes = Int(ceil(remaining / 60))
                 Text(totalMinutes >= 60 ? "\(totalMinutes / 60) h \(totalMinutes % 60) min" : "\(totalMinutes) min").monospacedDigit()
@@ -84,7 +89,14 @@ struct AgendaWidgetView: View {
                 statusText(entry.current, font: .caption)
                     .padding(.horizontal, outerInset)
             }
-            statusText(entry.title, font: .headline)
+            HStack(spacing: 3) {
+                statusText(entry.title, font: .headline).layoutPriority(0)
+                if !entry.moment.isEmpty {
+                    Text("·").font(.caption)
+                    if entry.tomorrow { LucideTravelIcon(kind: .chevron).frame(width: 10, height: 10).accessibilityLabel("Tomorrow") }
+                    Text(entry.moment).font(.caption).fixedSize().layoutPriority(1)
+                }
+            }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, outerInset)
                 .padding(.trailing, middleInset)
@@ -125,7 +137,7 @@ struct AgendaWidgetView: View {
 
 /// Lucide arrow-right-to-line / road paths from the referenced icon pages.
 private struct LucideTravelIcon: View {
-    enum Kind { case arrow, road }
+    enum Kind { case arrow, road, chevron }
     let kind: Kind
     var body: some View {
         ShapeView(kind: kind).stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
@@ -140,7 +152,9 @@ private struct LucideTravelIcon: View {
                 path.move(to: p(first.0, first.1))
                 for point in points.dropFirst() { path.addLine(to: p(point.0, point.1)) }
             }
-            if kind == .arrow {
+            if kind == .chevron {
+                line([(9,18),(15,12),(9,6)])
+            } else if kind == .arrow {
                 line([(17,12),(3,12)])
                 line([(11,18),(17,12),(11,6)])
                 line([(21,5),(21,19)])

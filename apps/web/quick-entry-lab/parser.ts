@@ -1,8 +1,9 @@
 /** Standalone experiment. No UTM imports, storage, network or execution of input. */
 import { en, ru } from 'chrono-node';
 import { extractOrganization } from './organization';
+import { commandGuide, quickCommandAliases } from './commandGuide';
 export type Anchor = 'due' | 'start' | 'leave' | 'now';
-export interface ReminderDraft { anchor: Anchor; minutes: number; at: string | null; automatic?: boolean }
+export interface ReminderDraft { anchor: Anchor; minutes: number; at: string | null; automatic?: boolean; delivery?: 'notification' | 'alarm' }
 export interface Draft {
   noDateDefaults?: boolean;
   noDefaultReminders?: boolean;
@@ -130,10 +131,11 @@ function relaxedCommands(input: string): string {
     chars[at] = 'r';
     if (chars[at + 1] !== ':') chars[at + 1] = ':';
   }
-  const labels = /(^|\s)(туда\s+и\s+обратно(?:\s+по)?|travel\s+back|remind\s+me|event\s+(?:opens|ends)|travel\s+time|ттб|ttb|тб|tb|обратно|дл|dr|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|travel|drive|длительность|due|start|end|opens|ends|duration|tt|r)(?=\s)/gi;
+  const labels = /(^|\s)(туда\s+и\s+обратно(?:\s+по)?|travel\s+back|remind\s+me|event\s+(?:opens|ends)|travel\s+time|ттб|ttb|тб|tb|обратно|дл|dr|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|нн|alarm|rr|дорога|ехать|тт|travel|drive|длительность|due|start|end|opens|ends|duration|tt|r)(?=\s)/gi;
   for (const m of masked.matchAll(labels)) chars[m.index! + m[0].length] = ':';
   // “в срок” introduces a due command; the preposition must not become the
   // preceding command's value (e.g. “длительность 45м в срок ...”).
+  for (const m of masked.matchAll(/(^|\s)(нн|alarm|rr)(?=\s|$)/gi)) chars[m.index! + m[0].length] = ':';
   return chars.join('').replace(/(^|\s)в(?=\s+(?:срок|due):)/gi, match => ' '.repeat(match.length));
 }
 
@@ -141,7 +143,7 @@ function relaxedCommands(input: string): string {
 function normalizeSeparators(input: string): string {
   const masked = input.replace(/"([^"\n]*)"|«([^»\n]*)»/g, value => ' '.repeat(value.length));
   const chars = input.split('');
-  const nextCommand = /^(?:event\s+(?:opens|ends)|travel\s+time|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|travel|drive|длительность|due|start|end|opens|ends|duration|tt|r)(?=\s|:|$)/i;
+  const nextCommand = /^(?:event\s+(?:opens|ends)|travel\s+time|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|нн|alarm|rr|дорога|ехать|тт|travel|drive|длительность|due|start|end|opens|ends|duration|tt|r)(?=\s|:|$)/i;
   for (let index = 0; index < masked.length; index++) {
     const separator = masked[index]!;
     if (!/[;,—]/.test(separator)) continue;
@@ -175,9 +177,11 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
   const seen = new Set<string>();
   let clockRange: RegExpExecArray | null = null;
   function once(key: string) { if (seen.has(key)) result.errors.push(`Параметр «${key}» указан несколько раз.`); seen.add(key); }
-  const pending: Array<{ anchor: Anchor | 'auto'; minutes: number; preferDeparture?: boolean }> = [];
-  const absoluteReminders: string[] = [];
-  function reminders(value: string) {
+  const pending: Array<{ anchor: Anchor | 'auto'; minutes: number; preferDeparture?: boolean; delivery?: 'alarm' }> = [];
+  const absoluteReminders: Array<{ at: string; delivery?: 'alarm' }> = [];
+  function reminders(value: string, alarm = false) {
+    const delivery = alarm ? { delivery: 'alarm' as const } : {};
+    if (alarm && !value.trim()) { pending.push({ anchor: 'auto', minutes: 0, ...delivery }); return; }
     // Reminder commands are additive; unlike start/due they may repeat.
     const anchorPhrase = /\s+(?:до|before)\s+(выезда|начала|срока|departure|start|due)\s*$/i.exec(value);
     if (anchorPhrase) value = value.slice(0, anchorPhrase.index);
@@ -191,12 +195,12 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
       const absolute = /^(?:в|at)\s+(.+)$/.exec(part);
       const absoluteValue = absolute?.[1] ?? part;
       const fixed = parseDate(absoluteValue, now)?.iso ?? nextClock(absoluteValue, now);
-      if (fixed) { absoluteReminders.push(fixed); continue; }
+      if (fixed) { absoluteReminders.push({ at: fixed, ...delivery }); continue; }
       const m = /^(due|срок|start|начало|leave|выезд)([-+])(.+)$/.exec(part);
       const future = /^(?:через|in)\s*(.+)$/.exec(part);
-      const amount = duration(m?.[3] ?? future?.[1] ?? part.replace(/^(?:за\s*|-)/, ''));
+      const amount = m && /^0\s*(?:м|m|мин|min)$/i.test(m[3]!) ? 0 : duration(m?.[3] ?? future?.[1] ?? part.replace(/^(?:за\s*|-)/, ''));
       if (amount === null) result.errors.push(`Не разобрано напоминание «${part}». Пример: начало-30м или через45м.`);
-      else pending.push({ anchor: future ? 'now' : !m ? 'auto' : ['leave', 'выезд'].includes(m[1]!) ? 'leave' : ['due', 'срок'].includes(m[1]!) ? 'due' : 'start', minutes: future || m?.[2] === '+' ? amount : -amount, ...(preferDeparture ? { preferDeparture: true } : {}) });
+      else pending.push({ anchor: future ? 'now' : !m ? 'auto' : ['leave', 'выезд'].includes(m[1]!) ? 'leave' : ['due', 'срок'].includes(m[1]!) ? 'due' : 'start', minutes: future || m?.[2] === '+' ? amount : -amount, ...(preferDeparture ? { preferDeparture: true } : {}), ...delivery });
     }
   }
   // A command may precede the title: "начало завтра 15:00 стрижка".
@@ -210,6 +214,7 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
       const absoluteValue = absolute?.[1] ?? token;
       if (parseDate(absoluteValue, now) || nextClock(absoluteValue, now)) return true;
       const anchored = /^(?:due|срок|start|начало|leave|выезд)[-+](.+)$/i.exec(token);
+      if (anchored && /^0\s*(?:м|m|мин|min)$/i.test(anchored[1]!)) return true;
       const future = /^(?:через|in)\s*(.+)$/i.exec(token);
       return duration(anchored?.[1] ?? future?.[1] ?? token.replace(/^(?:за\s*|-)/i, '')) !== null;
     });
@@ -219,7 +224,7 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
       ? Boolean(parseDate(candidate, now) || nextClock(candidate, now))
       : ['дорога', 'ехать', 'тт', 'tt', 'travel', 'travel time', 'drive', 'длительность', 'duration', 'travel back', 'both travel'].includes(key)
         ? duration(candidate) !== null
-        : ['напомнить', 'нап', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r'].includes(key)
+        : ['напомнить', 'нап', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r', 'нн', 'alarm', 'rr'].includes(key)
           ? validReminderValue(candidate) : false;
     if (valid(value)) return value;
     for (let end = value.length - 1; end > 0; end--) {
@@ -350,7 +355,8 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
         if (back) result.travelBackMinutes = amount;
         if (travel || !back) result[travel ? 'travelMinutes' : 'durationMinutes'] = amount;
       }
-    } else if (['напомнить', 'нап', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r'].includes(key)) reminders(value);
+    } else if (quickCommandAliases.alarm.includes(key)) reminders(value, true);
+    else if (['напомнить', 'нап', 'напомни', 'напоминание', 'напоминания', 'напомянание', 'remind', 'reminder', 'r', 'нн', 'alarm', 'rr'].includes(key)) reminders(value);
     else result.errors.push(`Неизвестная команда «${key}:». Для буквального текста используйте кавычки.`);
     consume(start, consumedLength);
   }
@@ -443,7 +449,7 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
   result.commandSpans = [...input.matchAll(/[a-zа-яё]+/gi)].filter(match => {
     const word = match[0].toLowerCase();
     return consumed.slice(match.index!, match.index! + word.length).every(Boolean)
-      && (word in weekdays || word in relativeDays || word in dayPartHours || /^(event|opens|ends|travel|time|back|me|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|дорога|ехать|тт|drive|длительность|due|до|start|end|duration|tt|r|дл|dr|тб|tb|ттб|ttb|обратно|туда|по|за|через|in|before)$/.test(word));
+      && (word in weekdays || word in relativeDays || word in dayPartHours || /^(event|opens|ends|travel|time|back|me|начало|конец|срок|напомнить|нап|напомни|напоминание|напоминания|напомянание|reminder|remind|нн|alarm|rr|дорога|ехать|тт|drive|длительность|due|до|start|end|duration|tt|r|дл|dr|тб|tb|ттб|ttb|обратно|туда|по|за|через|in|before)$/.test(word));
   }).map(match => ({ start: match.index!, end: match.index! + match[0].length }));
   // Older generated quick-entry strings may contain bare departure offsets.
   // Interpret them as reminders instead of silently merging them into Title.
@@ -471,6 +477,7 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
   if (result.start && result.end && result.end <= result.start) result.errors.push('Event ends должен быть позже event opens.');
   if (result.due && result.due.includes('T') && new Date(result.due) < now) result.warnings.push('Due уже в прошлом. Дата не перенесена автоматически.');
   for (const reminder of pending) {
+    if (reminder.delivery === 'alarm' && reminder.anchor === 'auto' && reminder.minutes === 0 && !result.start && !result.due) { result.errors.push('Для будильника укажите Event opens или Due.'); continue; }
     const anchor = reminder.anchor === 'auto' ? result.start ? reminder.preferDeparture && result.leave ? 'leave' : 'start' : result.due ? 'due' : 'now' : reminder.anchor;
     const base = anchor === 'now' ? now.toISOString() : anchor === 'leave' ? result.leave : anchor === 'due' ? result.due?.includes('T') ? result.due : null : result.start;
     const minutes = reminder.anchor === 'auto' && anchor === 'now' ? Math.abs(reminder.minutes) : reminder.minutes;
@@ -480,9 +487,9 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
     const { preferDeparture: _preferDeparture, ...publicReminder } = reminder;
     result.reminders.push({ ...publicReminder, minutes, anchor, at, ...(reminder.anchor === 'auto' ? { automatic: true } : {}) });
   }
-  for (const at of absoluteReminders) {
+  for (const { at, ...delivery } of absoluteReminders) {
     if (new Date(at) < now) result.warnings.push('Есть напоминание в прошлом. Оно не будет перенесено автоматически.');
-    result.reminders.push({ anchor: 'now', minutes: 0, at });
+    result.reminders.push({ anchor: 'now', minutes: 0, at, ...delivery });
   }
   result.errors = [...new Set(result.errors)]; result.warnings = [...new Set(result.warnings)];
   return result;
@@ -497,6 +504,7 @@ const commandVariants: Record<string, string[]> = {
   срок: ['due'], длительность: ['duration'],
 };
 const commands: Suggestion[] = [
+  ...commandGuide.filter(row => ['Alarm', 'Open timer', 'Start stopwatch'].includes(row.en)).flatMap(row => row.aliases.map(label => ({ label, insert: `${label} `, detail: /[а-яё]/i.test(label) ? row.ru : row.en }))),
   { label: 'н', insert: 'н ', detail: 'Напоминание' },
   { label: 'r', insert: 'r ', detail: 'Reminder' },
   { label: 'remind me', insert: 'remind me ', detail: 'Reminder: in 30m, at 09:00' },
@@ -680,14 +688,14 @@ function suggestInternal(input: string, caret: number, now: Date, language: 'ru'
   for (let i = 0; i < commandMarkers.length; i++) {
     const marker = commandMarkers[i]!, commandStart = marker.index! + marker[1]!.length;
     const commandEnd = i + 1 < commandMarkers.length ? commandMarkers[i + 1]!.index! : input.length;
-    if (caret < commandStart || caret > commandEnd || !/^(напомнить|нап|напомни|напоминание|напоминания|напомянание|remind|reminder|r):$/i.test(marker[2]!)) continue;
+    if (caret < commandStart || caret > commandEnd || !/^(напомнить|нап|напомни|напоминание|напоминания|напомянание|remind|reminder|r|нн|alarm|rr):$/i.test(marker[2]!)) continue;
     start = commandStart; end = commandEnd;
     token = input.slice(start, Math.max(caret, start + marker[2]!.length));
     const comma = input.slice(caret, end).indexOf(',');
     if (comma >= 0) reminderTail = input.slice(caret + comma, end).trimEnd();
     break;
   }
-  const reminder = /^(напомнить|нап|напомни|напоминание|напоминания|напомянание|remind|reminder|r):([\s\S]*)$/i.exec(token);
+  const reminder = /^(напомнить|нап|напомни|напоминание|напоминания|напомянание|remind|reminder|r|нн|alarm|rr):([\s\S]*)$/i.exec(token);
   let options: Suggestion[];
   if (reminder) {
     const prefix = reminder[2]!.includes(',') ? reminder[2]!.slice(0, reminder[2]!.lastIndexOf(',') + 1) : '';
@@ -745,7 +753,7 @@ function stagedClockSuggestions(input: string, caret: number, now: Date, languag
   if ((input.slice(0, caret).match(/"/g)?.length ?? 0) % 2 || input.slice(0, caret).lastIndexOf('«') > input.slice(0, caret).lastIndexOf('»')) return null;
   const namedDate = `\\d{1,2}\\s+(?:${monthPattern})(?:\\s+(?:\\d{4}|\\d{2})(?![\\d:]))?`;
   const date = new RegExp(`(?:^|[\\s:@])(${namedDate}|${nextDayExpression}|${dayExpression})(?:\\s+(?:в\\s+)?(\\d{1,2})(?:(:|\\s)(\\d{0,2}))?)?\\s*$`, 'i').exec(before);
-  const command = /(?:^|\s)(?:event\s+(?:opens|ends)|начало|конец|срок|due|start|end|opens|ends|до|by|с|from|по|to|напомнить|нап|напомни|напоминание|напоминания|remind|reminder|r)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/i.exec(before);
+  const command = /(?:^|\s)(?:event\s+(?:opens|ends)|начало|конец|срок|due|start|end|opens|ends|до|by|с|from|по|to|напомнить|нап|напомни|напоминание|напоминания|remind|reminder|r|нн|alarm|rr)(?::|\s)\s*(?:(?:в|at)\s+)?(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/i.exec(before);
   const range = /(?:\d{1,2}(?:(?::|\s)\d{2})?)\s*[-–—]\s*(\d{1,2})?(?:(:|\s)(\d{0,2}))?\s*$/.exec(before);
   const rangePrefix = range ? before.replace(/[-–—]\s*\d{0,2}(?:(?::|\s)\d{0,2})?\s*$/, '') : command && /(?:по|to|конец|end|ends)\s*$/i.test(command[0]) ? before.slice(0, command.index) : '';
   const startMarker = /(?:^|\s)(?:с|from)\s+/i.exec(rangePrefix);
@@ -934,7 +942,7 @@ export function suggest(input: string, caret: number, now: Date = new Date(), in
     if (phrase && !/(?:^|\s)(?:след\S*|next)(?=\s|$)/i.test(phrase) && new RegExp(`\\s+(?:${dayPartPattern}|\\d{1,2}(?:(?::|\\s)\\d{2})?)$`, 'i').test(phrase) && parseDate(phrase, now)) {
       const labels = language === 'ru' ? ['напомнить', 'длительность', 'дорога', 'ттб', 'конец', 'срок'] : ['remind', 'duration', 'travel', 'ttb', 'event ends', 'due'];
       const used = [
-        /(?:^|\s)(?:напомнить|нап|напомни|напоминание|remind|reminder|r)(?=\s|:)/i,
+        /(?:^|\s)(?:напомнить|нап|напомни|напоминание|remind|reminder|r|нн|alarm|rr)(?=\s|:)/i,
         /(?:^|\s)(?:длительность|duration)(?=\s|:)/i,
         /(?:^|\s)(?:дорога|ехать|тт|travel|drive|ттб|ttb)(?=\s|:)/i,
         /(?:^|\s)(?:дорога|ехать|тт|travel|drive|ттб|ttb)(?=\s|:)/i,
