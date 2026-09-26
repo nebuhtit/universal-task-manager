@@ -116,6 +116,8 @@ test('week stays below the header while month and controls return at the top', a
   await expect(nav.locator('.calendar-day-choice')).toHaveCount(7);
   await expect(nav.locator('[data-date="2026-10-04"]')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Month', exact: true })).toBeHidden();
+  await page.waitForTimeout(350); // CSS motion runs on the real browser clock.
+  await page.clock.runFor(100);
   const title = (await page.locator('.calendar-title').boundingBox())!;
   const box = (await nav.boundingBox())!;
   expect(Math.abs(box.y - title.y - title.height)).toBeLessThan(3);
@@ -195,7 +197,8 @@ async function swipeTouch(page: Page, selector: string, fromX: number, toX: numb
 test('List shows clock-only metadata while Timeline shows reminders with separate field settings', async ({ page }) => {
   await setup(page);
   const sleepBlock = page.getByTestId('timeline-event').filter({ hasText: 'Sleep source' });
-  await expect(sleepBlock).toContainText('normal');
+  await expect(sleepBlock.locator('.timeline-property')).toContainText(/\d{2}:\d{2}/);
+  await expect(sleepBlock).not.toContainText('normal');
   await expect(sleepBlock).not.toContainText('00:00–07:00');
   await page.getByRole('button', { name: 'Edit calendar day view' }).click();
   await expect(page.getByText('List card fields', { exact: true })).toBeVisible();
@@ -233,6 +236,8 @@ test('active-range work is an unfilled outline on successive days and opens its 
   await expect(page.locator('.calendar-heading-date h1')).toContainText('September 23, 2026');
   await expect(cue).toHaveCount(1);
   await cue.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(350);
+  await page.clock.runFor(100);
   await cue.click();
   await expect(page.getByRole('dialog')).toContainText('Active preparation');
 });

@@ -105,7 +105,7 @@ test('glass quick navigation shares a bottom row and hides for the keyboard', as
     window.dispatchEvent(new Event('utm:native-keyboard'));
   });
   await expect(nav).toBeVisible();
-  expect((await nav.getByRole('button').first().boundingBox())!.x).toBeLessThan(navBox!.x + 40);
+  await expect.poll(async () => (await nav.getByRole('button').first().boundingBox())!.x).toBeLessThan(navBox!.x + 40);
   await page.locator('.capture-dock input').blur();
   await page.screenshot({ path: test.info().outputPath('quick-navigation.png') });
 });
@@ -397,6 +397,8 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   await handle.evaluate(element => element.scrollIntoView({ block: 'center' }));
   await page.clock.runFor(500);
   await expect(handle).toBeInViewport();
+  await page.waitForTimeout(350);
+  await page.clock.runFor(100);
   await handle.dragTo(target, {
     targetPosition: { x: 24, y: Math.max(24, (await target.boundingBox())!.height * 0.65) },
   });
@@ -415,6 +417,8 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   // visible. Center it and flush the fixture clock before reading drag geometry.
   await timelineHandle.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
   await page.clock.runFor(500);
+  await page.waitForTimeout(350); // Wait for CSS height/width motion before measuring pointer targets.
+  await page.clock.runFor(100);
   const sourceBox = await timelineHandle.boundingBox(), anchorBox = await anchor.boundingBox();
   await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('[data-calendar-handle-id]')?.getAttribute('data-calendar-handle-id'), { x: sourceBox!.x + sourceBox!.width / 2, y: sourceBox!.y + sourceBox!.height / 2 })).toBe('task');
   await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2); await page.mouse.down();
