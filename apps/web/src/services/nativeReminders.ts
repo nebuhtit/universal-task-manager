@@ -6,7 +6,6 @@ export interface NativeReminderEntry {
   title: string;
   body: string;
   at: string;
-  urgency: 'normal' | 'urgent' | 'critical';
   delivery?: 'notification' | 'alarm';
 }
 
@@ -80,9 +79,8 @@ export function nativeReminderSchedule(workspace: WorkspaceDocument, now = new D
         id: `utm:${workspace.workspaceId}:${item.id}:${reminder.id}`,
         itemId: item.id,
         title: item.title || 'Universal reminder',
-        body: notificationItemMomentBody(workspace, item, now, reminder.urgency === 'normal' ? '' : ` · ${reminder.urgency}`),
+        body: notificationItemMomentBody(workspace, item, now),
         at: new Date(deliveryTime).toISOString(),
-        urgency: reminder.urgency,
         ...(reminder.delivery ? { delivery: reminder.delivery } : {}),
       } satisfies NativeReminderEntry];
     });

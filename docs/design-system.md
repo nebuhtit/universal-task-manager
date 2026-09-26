@@ -42,6 +42,7 @@ The old `--ink`, `--paper`, `--card`, `--line`, `--muted`, and related variables
 
 The limited Base UI spike accepts `@base-ui/react` 1.7 for complex interaction primitives only. It supports the current React 19 and Vite setup while keeping styling in plain CSS and semantic tokens.
 
+- New modal workflows use the shared glass background by default (with the reduced-transparency fallback). Do not introduce opaque feature backgrounds without a specific readability need.
 - `ResponsiveDialog` is the first wrapper. It uses one Dialog contract with a centered desktop presentation and a narrow-screen bottom-sheet presentation; Drawer is not used because UTM does not currently require swipe gestures or snap points.
 - Dialog portals render under `body`, outside the application root. Overlay stacking is owned by `--z-overlay`, not feature-local z-index values.
 - Base UI owns modal focus trapping, Escape dismissal, outside interaction, and focus restoration. Touch opening focuses the popup rather than the first input by default, avoiding an unsolicited mobile keyboard.

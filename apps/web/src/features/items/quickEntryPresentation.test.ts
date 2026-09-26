@@ -53,7 +53,7 @@ describe('quick entry presentation', () => {
     expect(result.item.reminders.map(value => value.at)).toEqual(item.reminders.map(value => value.at));
   });
   it('spaces reminder separators without changing quoted text or decimal values', () => {
-    expect(formatQuickEntryForEditor('«Один,два» длительность 1,5ч н начало-30м,начало-60м')).toBe('«Один,два» длительность 1,5ч н начало-30м, начало-60м');
+    expect(formatQuickEntryForEditor('«Один,два» длительность 1,5ч н начало-30м,начало-60м')).toBe('«Один,два» дл 1,5ч н начало-30м, начало-60м');
     expect(formatQuickEntryForEditor('н начало-30м,\nначало-60м')).toBe('н начало-30м,\nначало-60м');
   });
   it.each([', ', ',\n'])('round-trips reminders separated by %j', separator => {

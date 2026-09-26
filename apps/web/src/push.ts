@@ -81,9 +81,8 @@ export async function syncBackgroundPush(workspace: WorkspaceDocument): Promise<
         id: `reminder:${item.id}:${reminder.id}:${at}`,
         at,
         title: detailed ? (item.title || 'Universal reminder') : 'Universal reminder',
-        body: detailed ? [`Reminder${reminder.urgency ? ` · ${reminder.urgency}` : ''}`, timing].filter(Boolean).join(' · ') : 'Open Universal to view your reminder.',
+        body: detailed ? ['Reminder', timing].filter(Boolean).join(' · ') : 'Open Universal to view your reminder.',
         url: `${location.origin}${import.meta.env.BASE_URL}?item=${encodeURIComponent(item.id)}`,
-        urgency: reminder.urgency,
       }];
     });
   });

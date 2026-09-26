@@ -117,7 +117,8 @@ export interface Reminder {
   at?: ISODateTime;
   relativeTo?: 'available' | 'start' | 'due' | 'end';
   offset?: ISODuration;
-  urgency: 'normal' | 'urgent' | 'critical';
+  /** Legacy import compatibility only; no longer affects delivery or identity. */
+  urgency?: 'normal' | 'urgent' | 'critical';
   repeatEvery?: ISODuration;
   repeatUntilAcknowledged: boolean;
   acknowledgedAt?: ISODateTime;
@@ -181,7 +182,6 @@ export function reminderSignature(reminder: Reminder): string {
     at: reminderMoment(reminder.at),
     relativeTo: reminder.relativeTo ?? '',
     offset: reminder.offset ?? '',
-    urgency: reminder.urgency,
     repeatEvery: reminder.repeatEvery ?? '',
     repeatUntilAcknowledged: reminder.repeatUntilAcknowledged,
     acknowledgedAt: reminderMoment(reminder.acknowledgedAt),

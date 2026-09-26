@@ -38,8 +38,7 @@ describe('native reminder scheduling', () => {
       itemId: active.id,
       title: 'Call',
       at: '2026-09-03T11:30:00.000Z',
-      urgency: 'urgent',
-      body: 'Event opens · 12:00 · urgent',
+      body: 'Event opens · 12:00',
     }));
     expect(scheduled.some((entry) => entry.id.endsWith(':ack'))).toBe(false);
     expect(scheduled.some((entry) => entry.id.endsWith(':template'))).toBe(false);

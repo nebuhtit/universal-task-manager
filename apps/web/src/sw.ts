@@ -22,7 +22,7 @@ self.addEventListener('fetch', (event) => {
   })());
 });
 
-type PushPayload = { title?: string; body?: string; url?: string; tag?: string; urgency?: 'normal' | 'urgent' | 'critical' };
+type PushPayload = { title?: string; body?: string; url?: string; tag?: string };
 
 self.addEventListener('push', (event) => {
   const payload = (() => { try { return event.data?.json() as PushPayload; } catch { return {}; } })();
@@ -32,7 +32,7 @@ self.addEventListener('push', (event) => {
     tag: payload.tag || 'universal-reminder',
     data: { url: payload.url || self.registration.scope },
     renotify: true,
-    requireInteraction: payload.urgency === 'critical',
+    requireInteraction: false,
   } as NotificationOptions));
 });
 

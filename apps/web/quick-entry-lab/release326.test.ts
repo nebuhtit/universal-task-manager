@@ -2,12 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { parseEntry } from './parser';
 import { organizationSuggestions } from './organization';
 import { quickSessionCommand } from './commandGuide';
-import { createQuickEntryItem, syncQuickEntrySource, quickEntrySource, applyQuickEntryText } from '../src/features/items/quickEntry';
+import { createQuickEntryItem, formatQuickEntryForEditor, syncQuickEntrySource, quickEntrySource, applyQuickEntryText } from '../src/features/items/quickEntry';
 import { createWorkspace, createItem, migrateWorkspace } from '@utm/core';
 import { attachQuickTimer, storeQuickTimer } from '../src/features/items/QuickTimerDialog';
 import { agendaMoment, nextAgendaMidnight } from '../src/components/layout/agendaMoment';
 const now = new Date('2026-09-26T09:00:00Z');
 describe('3.2.6', () => {
+  it('compacts mixed alarm and notification commands without changing delivery', () => {
+    const source = '26.09.2026 Test длительность 10м до сб 23:37 нн в сб 23:37 напомнить в вс 00:37 напомнить в вс 01:37';
+    const compact = formatQuickEntryForEditor(source);
+    expect(compact).not.toContain('длительность');
+    expect(compact).not.toContain('напомнить');
+    expect(compact).toContain('нн');
+    expect(parseEntry(compact, now).reminders.map(r => r.delivery ?? 'notification')).toEqual(['alarm', 'notification', 'notification']);
+  });
   it.each(['нн', 'alarm', 'rr'])('parses alarm %s and bare anchor', alias => {
     const alarm = parseEntry('Meeting tomorrow 15:00 ' + alias + ' 30m', now);
     expect(alarm.errors).toEqual([]);

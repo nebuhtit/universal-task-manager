@@ -56,9 +56,10 @@ describe('timeline time geometry', () => {
     reminderItem.reminders = [{ id: 'r', mode: 'absolute', at: iso(15), urgency: 'normal', repeatUntilAcknowledged: false }];
     const w = workspace(reminderItem);
     w.calendarPreferences.dayView.timelineFields = ['title', 'reminders'];
-    expect(displayViewValue(readItemField(reminderItem, 'reminders', w, now), 'reminders')).toContain('normal');
+    expect(displayViewValue(readItemField(reminderItem, 'reminders', w, now), 'reminders')).not.toContain('normal');
     const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
-    expect(html).toContain('normal');
+    expect(html).toContain('18:00');
+    expect(html).not.toContain('normal');
     expect(html).not.toContain('<small>14:00–16:00</small>');
   });
   it('renders a filtered reserved interval beneath normal events without making it interactive', () => {

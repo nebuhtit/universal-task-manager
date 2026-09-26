@@ -831,7 +831,7 @@ export function parseLiveEntry(input: string, now: Date): Draft {
   const day = new Date(result.start);
   result.plannedDate = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
   result.start = null; result.end = null; result.leave = null;
-  if (!/(?:длительность|duration)(?::|\s)/i.test(normalized)) result.durationMinutes = null;
+  if (!/(?:^|\s)(?:длительность|duration|дл|dr)(?::|\s)/i.test(normalized)) result.durationMinutes = null;
   result.warnings = result.warnings.filter(value => !value.startsWith('Начало уже'));
   if (result.travelMinutes !== null) result.errors.push('Для дороги нужно время начала.');
   if (result.reminders.some(value => value.anchor === 'start' || value.anchor === 'leave')) result.errors.push('Для напоминания до начала нужно указать время.');

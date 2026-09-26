@@ -117,7 +117,7 @@ export const itemJsonSchema = {
     contexts: stringArray, tags: stringArray,
     reminders: {
       type: 'array', items: {
-        type: 'object', additionalProperties: false, required: ['id', 'mode', 'urgency', 'repeatUntilAcknowledged'],
+        type: 'object', additionalProperties: false, required: ['id', 'mode', 'repeatUntilAcknowledged'],
         properties: {
           id: { type: 'string', minLength: 1 }, mode: { enum: ['absolute', 'relative'] }, at: { type: 'string', format: 'date-time' },
           delivery: { enum: ['notification', 'alarm'] },

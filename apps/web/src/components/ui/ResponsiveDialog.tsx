@@ -37,10 +37,10 @@ export function ResponsiveDialog({
 }: ResponsiveDialogProps) {
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
-      <Dialog.Backdrop className={['ui-dialog-backdrop', backdropClassName].filter(Boolean).join(' ')} />
+      <Dialog.Backdrop className={['ui-dialog-backdrop', 'is-glass', backdropClassName].filter(Boolean).join(' ')} />
       <Dialog.Viewport className="ui-dialog-viewport">
         <Dialog.Popup
-          className={['ui-dialog-popup', className].filter(Boolean).join(' ')}
+          className={['ui-dialog-popup', 'is-glass', className].filter(Boolean).join(' ')}
           aria-label={ariaLabel}
           initialFocus={initialFocus}
           finalFocus={finalFocus}

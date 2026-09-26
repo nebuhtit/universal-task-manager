@@ -94,10 +94,10 @@ describe('quick entry item integration', () => {
   });
   it('freezes a relative-to-now reminder and mirrors manual reminder edits', () => {
     const item = createQuickEntryItem('Позвонить напомнить через45м', now);
-    expect(quickEntrySource(item)?.text).toContain('напомнить в пн 21.09.2026 16:45');
+    expect(quickEntrySource(item)?.text).toContain('н в пн 21.09.2026 16:45');
     expect(parseEntry(quickEntrySource(item)!.text, new Date(2026, 8, 29)).reminders[0]?.at).toBe(new Date(2026, 8, 21, 16, 45).toISOString());
     const changed = syncQuickEntrySource(item, { ...item, reminders: [{ ...item.reminders[0]!, at: new Date(2026, 8, 21, 17).toISOString() }] });
-    expect(quickEntrySource(changed)?.text).toContain('напомнить в пн 21.09.2026 17:00');
+    expect(quickEntrySource(changed)?.text).toContain('н в пн 21.09.2026 17:00');
   });
   it('recomputes a departure reminder when travel changes', () => {
     const item = createQuickEntryItem('Стрижка начало завтра 15:00 дорога 45м напомнить выезд-2ч', now);

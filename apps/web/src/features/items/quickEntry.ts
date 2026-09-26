@@ -89,7 +89,7 @@ const replacements: Array<{ start: number; end: number; value: string }> = [];
 
 function reminderItems(draft: Draft): UniversalItem['reminders'] {
   return draft.reminders.map(reminder => {
-    const common = { id: createId(), urgency: 'normal' as const, repeatUntilAcknowledged: false, ...(reminder.delivery ? { delivery: reminder.delivery } : {}) };
+    const common = { id: createId(), repeatUntilAcknowledged: false, ...(reminder.delivery ? { delivery: reminder.delivery } : {}) };
     if (reminder.anchor === 'due' || reminder.anchor === 'start') return { ...common, mode: 'relative' as const, relativeTo: reminder.anchor, offset: `${reminder.minutes < 0 ? '-' : ''}${minutesDuration(Math.abs(reminder.minutes))}` };
     return { ...common, mode: 'absolute' as const, ...(reminder.at ? { at: reminder.at } : {}) };
   });
@@ -102,13 +102,13 @@ export function formatQuickEntryForEditor(text: string): string {
   // rewrite a title, quoted text, dates, or an ambiguous/unfinished command.
   const now = new Date(2026, 0, 15, 12);
   const parsed = parseEntry(text, now);
-  const aliases: Record<string, string> = { длительность: 'дл', duration: 'dr', дорога: 'тт', ехать: 'тт', обратно: 'тб', 'travel time': 'tt', travel: 'tt', drive: 'tt', 'travel back': 'tb', напомнить: 'н', напоминание: 'н', remind: 'r', reminder: 'r', 'remind me': 'r', 'event opens': 'start', 'event ends': 'end' };
-  const candidate = text.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(длительность|duration|дорога|ехать|обратно|travel time|travel back|travel|drive|напомнить|напоминание|remind me|reminder|remind|event opens|event ends)(?=\s|:)/gi, (match, leading: string | undefined, command: string | undefined, offset: number) => {
-    if (!command || !parsed.commandSpans?.some(span => span.start <= offset + leading!.length && span.end > offset + leading!.length)) return match;
+  const aliases: Record<string, string> = { длительность: 'дл', duration: 'dr', дорога: 'тт', ехать: 'тт', обратно: 'тб', 'travel time': 'tt', travel: 'tt', drive: 'tt', 'travel back': 'tb', напомнить: 'н', напоминание: 'н', remind: 'r', reminder: 'r', 'remind me': 'r', alarm: 'rr', 'event opens': 'start', 'event ends': 'end' };
+  const candidate = text.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(длительность|duration|дорога|ехать|обратно|travel time|travel back|travel|drive|напомнить|напоминание|remind me|reminder|remind|alarm|event opens|event ends)(?=\s|:)/gi, (match, leading: string | undefined, command: string | undefined, _offset: number) => {
+    if (!command || !parsed.title || parsed.title.toLowerCase().includes(command.toLowerCase())) return match;
     return leading + aliases[command.toLowerCase()]!;
   });
   const semantic = ({ commandSpans: _spans, ...draft }: Draft) => JSON.stringify(draft);
-  if (candidate !== text && !parsed.errors.length && semantic(parsed) === semantic(parseEntry(candidate, now))) text = candidate;
+  if (candidate !== text && semantic(parsed) === semantic(parseEntry(candidate, now))) text = candidate;
   let quote = '', result = '';
   for (let index = 0; index < text.length; index++) {
     const char = text[index]!;
@@ -196,7 +196,7 @@ export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate
       if (first) {
         const following = [1, 2].map(hours => new Date(Date.parse(first) + hours * 3_600_000).toISOString())
           .filter(at => !moments.includes(at))
-          .map(at => ({ id: createId(), mode: 'absolute' as const, at, urgency: 'normal' as const, repeatUntilAcknowledged: false }));
+          .map(at => ({ id: createId(), mode: 'absolute' as const, at, repeatUntilAcknowledged: false }));
         const next = { ...created.item, schedule: { ...created.item.schedule!, dueAt: first }, reminders: [...created.item.reminders, ...following], extensions: { ...created.item.extensions, [QUICK_REMINDER_FOLLOWUPS]: following.map(reminder => reminder.id) } };
         created.item = syncQuickEntrySource(created.item, next);
       }
@@ -302,9 +302,9 @@ export function syncQuickEntrySource(previous: UniversalItem, next: UniversalIte
     }
   }
   const durationChanges = [
-    { before: previous.schedule?.estimatedDuration, after: next.schedule?.estimatedDuration, key: 'длительность', aliases: '(?:длительность|duration|дл|dr)' },
-    { before: previous.schedule?.travelDuration, after: next.schedule?.travelDuration, key: 'дорога', aliases: '(?:дорога|ехать|тт|tt|travel(?!\\s+back)(?:\\s+time)?|drive)' },
-    { before: previous.schedule?.travelBackDuration, after: next.schedule?.travelBackDuration, key: 'обратно', aliases: '(?:обратно|тб|tb|travel\\s+back)' },
+    { before: previous.schedule?.estimatedDuration, after: next.schedule?.estimatedDuration, key: 'дл', aliases: '(?:длительность|duration|дл|dr)' },
+    { before: previous.schedule?.travelDuration, after: next.schedule?.travelDuration, key: 'тт', aliases: '(?:дорога|ехать|тт|tt|travel(?!\\s+back)(?:\\s+time)?|drive)' },
+    { before: previous.schedule?.travelBackDuration, after: next.schedule?.travelBackDuration, key: 'тб', aliases: '(?:обратно|тб|tb|travel\\s+back)' },
   ];
   for (const change of durationChanges) {
     if (change.before === change.after) continue;
@@ -324,7 +324,7 @@ export function syncQuickEntrySource(previous: UniversalItem, next: UniversalIte
   }
   if (JSON.stringify(previous.reminders) !== JSON.stringify(next.reminders)) {
     const commands = next.reminders.map(reminder => {
-      const key = reminder.delivery === 'alarm' ? 'нн' : 'напомнить';
+      const key = reminder.delivery === 'alarm' ? 'нн' : 'н';
       if (reminder.mode === 'absolute') return reminder.at ? `${key} в ${localDateTime(reminder.at)}` : '';
       const amount = reminder.offset ? Math.round(Math.abs(durationToMs(reminder.offset)) / 60_000) : 0;
       const anchor = reminder.relativeTo === 'due' ? 'срок' : 'начало';

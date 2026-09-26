@@ -12,17 +12,30 @@ export function useViewport(captureInputRef: RefObject<HTMLInputElement | null>,
     const viewport = window.visualViewport; if (!viewport) return;
     let restingHeight = window.innerHeight;
     let nativeOpen = document.documentElement.dataset.nativeKeyboardOpen === 'true';
+    let closingTimer: number | undefined;
+    let captureWasFocused = false;
     const update = () => {
       const focused = document.activeElement === captureInputRef.current;
       const occluded = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
       const editable = document.activeElement?.matches('input, textarea, [contenteditable="true"]');
       const keyboardOpen = nativeOpen || (Boolean(editable) && viewport.scale === 1 && Math.max(occluded, restingHeight - viewport.height) > 80);
       if (!editable && !nativeOpen) restingHeight = window.innerHeight;
-      document.documentElement.classList.toggle('keyboard-open', keyboardOpen);
+      window.clearTimeout(closingTimer);
+      if (keyboardOpen) {
+        captureWasFocused ||= focused;
+        document.documentElement.classList.add('keyboard-open');
+        document.documentElement.classList.toggle('capture-keyboard-open', captureWasFocused);
+      } else {
+        // iOS sends blur, native frame and visualViewport events at different
+        // points in its dismissal animation. Restore the row once it settles.
+        closingTimer = window.setTimeout(() => {
+          captureWasFocused = false;
+          document.documentElement.classList.remove('keyboard-open', 'capture-keyboard-open');
+        }, 180);
+      }
       document.documentElement.style.setProperty('--keyboard-offset', `${focused ? occluded : 0}px`);
-      document.documentElement.classList.toggle('capture-keyboard-open', focused && keyboardOpen);
     };
-    const release = () => { document.documentElement.classList.remove('capture-keyboard-open', 'keyboard-open'); document.documentElement.style.setProperty('--keyboard-offset', '0px'); };
+    const release = () => { window.clearTimeout(closingTimer); document.documentElement.classList.remove('capture-keyboard-open', 'keyboard-open'); document.documentElement.style.setProperty('--keyboard-offset', '0px'); };
     const focusIn = () => { window.requestAnimationFrame(update); };
     const focusOut = () => { window.requestAnimationFrame(update); };
     const nativeKeyboard = () => { nativeOpen = document.documentElement.dataset.nativeKeyboardOpen === 'true'; update(); };

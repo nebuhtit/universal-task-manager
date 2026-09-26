@@ -414,8 +414,8 @@ describe('safe expression language', () => {
       { id: 'duplicate', mode: 'absolute', at: '2026-08-13T09:00:55.000Z', urgency: 'urgent', repeatUntilAcknowledged: false },
       { id: 'different', mode: 'absolute', at: '2026-08-13T09:00:55.000Z', urgency: 'critical', repeatUntilAcknowledged: false },
     ];
-    expect(removeDuplicateReminders(item)).toBe(1);
-    expect(item.reminders.map((reminder) => reminder.id)).toEqual(['first', 'different']);
+    expect(removeDuplicateReminders(item)).toBe(2);
+    expect(item.reminders.map((reminder) => reminder.id)).toEqual(['first']);
   });
 });
 

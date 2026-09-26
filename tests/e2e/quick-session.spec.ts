@@ -17,9 +17,18 @@ for (const colorScheme of ['light', 'dark'] as const) test('quick session surviv
   await page.evaluate(() => document.documentElement.classList.add('keyboard-open'));
   await expect(nav).toBeHidden();
   await page.evaluate(() => document.documentElement.classList.remove('keyboard-open'));
+  await capture.focus();
+  await page.evaluate(() => { document.documentElement.dataset.nativeKeyboardOpen = 'true'; window.dispatchEvent(new Event('utm:native-keyboard')); });
+  await expect(nav).toBeHidden();
+  await capture.blur();
+  await expect(nav).toBeHidden();
+  await page.evaluate(() => { document.documentElement.dataset.nativeKeyboardOpen = 'false'; window.dispatchEvent(new Event('utm:native-keyboard')); });
+  await expect(nav).toBeVisible();
   await capture.fill('с'); await capture.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Timer and stopwatch', exact: true });
   await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveClass(/is-glass/);
+  expect(await dialog.evaluate(el => getComputedStyle(el).backdropFilter)).not.toBe('none');
   await expect(dialog.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
   await capture.fill('timer'); await capture.press('Enter');

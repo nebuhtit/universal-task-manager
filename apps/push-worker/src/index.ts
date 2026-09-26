@@ -8,7 +8,7 @@ export interface Env {
 }
 
 type Subscription = { endpoint: string; keys: { p256dh: string; auth: string } };
-type Job = { id: string; at: string; title: string; body: string; url: string; urgency?: 'normal' | 'urgent' | 'critical' };
+type Job = { id: string; at: string; title: string; body: string; url: string };
 type StoredJob = { job_id: string; device_id: string; fire_at: number; payload_json: string; attempts: number };
 
 const json = (value: unknown, init: ResponseInit = {}) => new Response(JSON.stringify(value), { ...init, headers: { 'content-type': 'application/json; charset=utf-8', ...(init.headers ?? {}) } });
@@ -79,8 +79,8 @@ async function encryptPush(subscription: Subscription, payload: unknown): Promis
   const body = new Uint8Array(header.length + ciphertext.length); body.set(header); body.set(ciphertext, header.length); return body;
 }
 async function deliver(subscription: Subscription, job: Job, env: Env): Promise<Response> {
-  const body = await encryptPush(subscription, { title: job.title, body: job.body, url: job.url, tag: job.id, urgency: job.urgency });
-  return fetch(subscription.endpoint, { method: 'POST', headers: { Authorization: await vapidAuthorization(subscription, env), 'Content-Encoding': 'aes128gcm', TTL: '3600', Urgency: job.urgency === 'critical' ? 'high' : job.urgency === 'urgent' ? 'normal' : 'low' }, body });
+  const body = await encryptPush(subscription, { title: job.title, body: job.body, url: job.url, tag: job.id });
+  return fetch(subscription.endpoint, { method: 'POST', headers: { Authorization: await vapidAuthorization(subscription, env), 'Content-Encoding': 'aes128gcm', TTL: '3600', Urgency: 'low' }, body });
 }
 
 async function sendDue(env: Env): Promise<void> {

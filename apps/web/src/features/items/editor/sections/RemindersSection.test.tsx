@@ -9,6 +9,8 @@ describe('RemindersSection snooze', () => {
     item.reminders = [{ id: 'reminder-1', mode: 'absolute', at: '2026-09-22T09:00:00Z', snoozedUntil: '2026-09-22T11:00:00Z', urgency: 'normal', repeatUntilAcknowledged: false }];
     expect(reminderTime(item, item.reminders[0]!)).toBe('2026-09-22T11:00:00.000Z');
     const markup = renderToStaticMarkup(<RemindersSection item={item} now={new Date('2026-09-22T10:00:00Z')} sectionMark={() => null} patchItem={vi.fn()} />);
+    expect(markup).not.toContain('urgency');
+    expect(markup).not.toContain('<option>critical</option>');
     expect(markup).toContain('Next alert:');
     expect(markup).toContain('original schedule shown above');
     expect(markup).toContain('Cancel snooze');

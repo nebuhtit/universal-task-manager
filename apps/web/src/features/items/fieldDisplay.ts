@@ -133,7 +133,7 @@ export const exampleViewFieldValue = (path: string): string => {
     'recurrence.closeAt': 'Next activation', 'recurrence.anchor': 'Scheduled time', 'recurrence.autoRenew': 'Yes',
     'progress.mode': 'Counter', 'progress.current': '2', 'progress.target': '4', 'progress.unit': 'chapters',
     'habit.target': '1', 'habit.unit': 'time', 'habit.streakMode': 'Manual only', 'habit.completedDates': 'Aug 18, Aug 19',
-    reminders: 'Mon 09:00 · normal, Thu 17:00 · urgent', reminderTiming: '09:00 · 2 h before start', hasActiveReminders: 'Yes', nextReminderAt: 'Mon 09:00', relations: 'Related: Project brief', attachments: 'Research link',
+    reminders: 'Mon 09:00, Thu 17:00', reminderTiming: '09:00 · 2 h before start', hasActiveReminders: 'Yes', nextReminderAt: 'Mon 09:00', relations: 'Related: Project brief', attachments: 'Research link',
     googleCalendarAllDay: 'Yes', 'external.provider': 'Google Calendar', 'external.calendarId': 'Primary calendar', 'external.connectionId': 'Google account', 'external.eventId': 'event_123',
     'external.transparency': 'Busy', 'external.sourceUrl': 'Open in Google Calendar', 'external.readOnly': 'Yes', 'external.syncedAt': 'Today, 09:45',
     'closure.at': 'Aug 28, 17:42', 'closure.actor': 'You', 'closure.reason': 'Completed', 'occurrence.seriesId': 'Weekly review',
@@ -210,8 +210,8 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
     const labels = reminderLabels(workspace?.calendarPreferences.language);
     const unitLabels = { seconds: 'sec', minutes: 'min', hours: 'h', days: 'd', weeks: 'wk', months: 'mo', years: 'y' } as const;
     return (index?.remindersFor(item) ?? []).map(({ reminder, resolvedAt: resolved }) => {
-      if (resolved) return { reminder, resolved, label: `${formatViewDate(resolved, true, workspace?.calendarPreferences.language)} · ${labels[reminder.urgency]}` };
-      if (reminder.mode === 'absolute') return { reminder, label: `${labels.unresolved} · ${labels[reminder.urgency]}` };
+      if (resolved) return { reminder, resolved, label: `${formatViewDate(resolved, true, workspace?.calendarPreferences.language)}` };
+      if (reminder.mode === 'absolute') return { reminder, label: `${labels.unresolved}` };
       const before = reminder.offset?.startsWith('-') === true;
       const normalized = reminder.offset?.replace(/^-/, '');
       const match = /^(?:P(\d+)([DWMY])|PT(\d+)([HMS]))$/.exec(normalized ?? '');
@@ -220,7 +220,7 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
       const unit = code === 'S' ? 'seconds' : code === 'M' ? (match?.[3] ? 'minutes' : 'months') : code === 'H' ? 'hours' : code === 'W' ? 'weeks' : code === 'Y' ? 'years' : 'days';
       const relation = reminder.relativeTo ?? 'due';
       const timing = amount ? `${amount}${unitLabels[unit]} ${before ? labels.before : labels.after} ${labels[relation]}` : `${labels.at} ${labels[relation]}`;
-      return { reminder, label: `${timing} · ${labels[reminder.urgency]}` };
+      return { reminder, label: `${timing}` };
     }).sort((left, right) => left.resolved && right.resolved ? Date.parse(left.resolved) - Date.parse(right.resolved) : left.resolved ? -1 : right.resolved ? 1 : 0).map((entry) => entry.label);
   }
   if (workspace && field === 'subtasks') return (index?.childIdsByItemId.get(item.id) ?? []).map((id) => workspace.items[id]?.title ?? id);
