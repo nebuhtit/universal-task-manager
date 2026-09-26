@@ -42,6 +42,7 @@ export function organizationSuggestions(input: string, caret: number, catalog: O
   const chosen = extractOrganization(input.slice(0, match.index) + ' ' + input.slice(caret));
   const selected = kind === 'area' ? chosen.areas : kind === 'project' ? chosen.projects : chosen.tags;
   const rank = (name: string) => {
+    if (kind === 'tag') return 0;
     const scopes = kind === 'project' ? chosen.areas : chosen.projects;
     const index = scopes.findIndex(scope => kind === 'project' ? catalog.projectAreas?.[name]?.includes(scope) : catalog.projectAreas?.[scope]?.includes(name));
     return index < 0 ? scopes.length : index;

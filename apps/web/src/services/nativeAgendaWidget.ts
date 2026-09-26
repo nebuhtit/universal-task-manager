@@ -32,5 +32,6 @@ export function agendaWidgetSnapshot(workspace: WorkspaceDocument, now = Date.no
   });
   // Real stage entries take precedence over presentation-only boundaries.
   const timeline = [...new Map([...thresholds, ...entries].map(entry => [entry.at, entry])).values()].sort((a, b) => a.at - b.at);
-  return { version: 2, generatedAt: now / 1000, entries: timeline.slice(0, 128), expires: Math.min(expires, timeline[128]?.at ?? expires), refreshLabel: ru ? 'Откройте Universal для обновления' : 'Open Universal to refresh' };
+  const nextStageAt = entries.find(entry => entry.at > now / 1000 && (entry.current !== entries[0]?.current || entry.title !== entries[0]?.title || entry.target !== entries[0]?.target))?.at ?? null;
+  return { version: 2, generatedAt: now / 1000, nextStageAt, entries: timeline.slice(0, 128), expires: Math.min(expires, timeline[128]?.at ?? expires), refreshLabel: ru ? 'Откройте Universal для обновления' : 'Open Universal to refresh' };
 }

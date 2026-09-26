@@ -20,7 +20,7 @@ export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
         if (signature === widgetSent.current) return;
         return agendaWidgetRequest('sync', snapshot).then(() => {
           widgetSent.current = signature;
-          recordDiagnostic({ kind: 'result', operation: 'Agenda widget', message: 'Widget snapshot updated', details: JSON.stringify({ version: snapshot.version, generatedAt: snapshot.generatedAt, nextTransition: snapshot.entries[1]?.at ?? null, expires: snapshot.expires }) });
+          recordDiagnostic({ kind: 'result', operation: 'Agenda widget', message: 'Widget snapshot updated', details: JSON.stringify({ version: snapshot.version, generatedAt: snapshot.generatedAt, nextTransition: snapshot.nextStageAt, expires: snapshot.expires }) });
         });
       }
     }).catch(() => undefined); };
