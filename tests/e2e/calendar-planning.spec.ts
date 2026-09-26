@@ -213,6 +213,29 @@ for (const theme of ['light', 'dark'] as const) test(`calendar header compacts w
   await expect(title).toBeVisible();
 });
 
+test('one editor completion closes the selected active-range occurrence, not its series', async ({ page }) => {
+  const { read } = await setup(page, false, w => {
+    w.items = {};
+    const series = createItem('Подготовка к вс', 'event', now);
+    series.id = 'preparation'; series.role = 'series_template'; series.canBeCompleted = true;
+    series.schedule = { startAt: '2026-09-03T18:15:00.000Z', endAt: '2026-09-03T19:00:00.000Z', dueAt: '2026-09-06T08:00:00.000Z', estimatedDuration: 'PT45M', timezone: 'Europe/Moscow' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', timezone: 'Europe/Moscow', rdates: [], exdates: [], activationOffset: 'PT0M', closeAt: 'due', anchor: 'schedule', autoRenew: true };
+    w.items[series.id] = series;
+  });
+  await page.clock.setSystemTime(new Date('2026-09-26T20:00:00Z'));
+  await page.clock.runFor(1000);
+  await page.locator('.calendar-day-panel [data-date="2026-09-26"]').click();
+  const card = page.locator('.calendar-day-list .item-card').filter({ hasText: 'Подготовка к вс' }).first();
+  await card.getByText('Подготовка к вс', { exact: true }).click();
+  await page.clock.runFor(1000);
+  await page.waitForTimeout(350);
+  await page.getByRole('button', { name: 'Complete item', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(card).toHaveClass(/state-done/);
+  await expect.poll(async () => Object.values((await read()).items).filter(item => item.occurrence?.seriesId === 'preparation' && item.state === 'done').length).toBe(1);
+  expect((await read()).items.preparation?.state).toBe('open');
+});
+
 test('overflow is placed automatically before Due without source changes', async ({ page }) => {
   const { read } = await setup(page, true, w => {
     w.items.task!.schedule!.dueAt = '2026-09-24T10:00:00Z';

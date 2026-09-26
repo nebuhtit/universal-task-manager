@@ -132,7 +132,7 @@ test('entry screens follow system theme and keep explanations collapsed', async 
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v3\.3\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v3\.3\.1 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -141,7 +141,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v3\.3\.0 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v3\.3\.1 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();

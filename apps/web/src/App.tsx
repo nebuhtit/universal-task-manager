@@ -649,6 +649,7 @@ export default function App() {
     return () => window.removeEventListener('utm:open-project', open);
   }, []);
   const [editor, setEditor] = useState<UniversalItem | null>(null);
+  const editorCompletionSelection = useRef<{ seriesId: string; occurrenceId: string } | null>(null);
   const [quickPinTarget, setQuickPinTarget] = useState<QuickDueTarget | null>(null);
   const [quickDueTarget, setQuickDueTarget] = useState<QuickDueTarget | null>(null);
   const [quickDueError, setQuickDueError] = useState('');
@@ -782,7 +783,7 @@ export default function App() {
       const item = itemId ? workspace?.items[itemId] : undefined;
       if (!workspace || !item) return;
       setEditorIsNew(false);
-      setEditor(itemEditorSource(workspace, item));
+      editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item));
     };
     window.addEventListener('utm-open-item', openHostItem);
     return () => window.removeEventListener('utm-open-item', openHostItem);
@@ -1024,7 +1025,7 @@ export default function App() {
     if (!itemId || !workspace?.items[itemId]) return;
     const item = workspace.items[itemId]!;
     setEditorIsNew(false);
-    setEditor(itemEditorSource(workspace, item));
+    editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item));
     window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
   }, [workspace]);
   useEffect(() => {
@@ -1065,7 +1066,7 @@ export default function App() {
 
   const applyItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)', completionAt?: string) => {
     if (state === 'done' && !canManuallyComplete(item)) return;
-    if (item.external?.readOnly) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); return; }
+    if (item.external?.readOnly) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item)); return; }
     const occurredAt = currentWorkspaceNow().toISOString();
     const completedAt = completionAt ?? occurredAt;
     const completionExpiresAt = Date.now() + UNDO_WINDOW_MS;
@@ -1232,7 +1233,7 @@ export default function App() {
   };
   const openNoticeItem = (notice: Notice) => {
     const item = notice.itemId ? workspace?.items[notice.itemId] : Object.values(workspace?.items ?? {}).find((candidate) => candidate.title === notice.title);
-    if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
+    if (item) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item)); }
   };
 
   if (recovery) return <RecoveryShell session={recovery.session} reason={recovery.reason} backupPreview={recovery.backupPreview} onRetry={() => { if (recovery.session && recovery.isolatedPreview) closeReadOnlyWorkspace(recovery.session); setRecovery(null); setPendingUpgrade(null); }} />;
@@ -1245,7 +1246,7 @@ export default function App() {
   const openWorkspaceItem = (item: UniversalItem) => {
     setFocusEditorId('');
     setEditorIsNew(false);
-    setEditor(itemEditorSource(workspace, item));
+    editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item));
   };
 
   const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
@@ -1351,10 +1352,10 @@ export default function App() {
       onEditItem={() => {
         const item = workspace.items[quickCompletion.itemId];
         setQuickCompletion(null);
-        if (item) { setEditorIsNew(false); setEditor(itemEditorSource(workspace, item)); }
+        if (item) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item)); }
       }}
     />}
-    <Suspense fallback={null}>{editor && <ItemEditor focusTitle={editor.id === focusEditorId} key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onDuplicate={(item) => { const duplicate = duplicateItemDraft(item, currentWorkspaceNow()); const saved = commit('Duplicate item', draft => { draft.items[duplicate.id] = clean(duplicate); }); if (saved) { setEditorIsNew(false); setEditor(duplicate); setToast('Item duplicated'); void flushPersistence(); } }} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
+    <Suspense fallback={null}>{editor && <ItemEditor completionOccurrenceId={editorCompletionSelection.current?.seriesId === editor.id ? editorCompletionSelection.current.occurrenceId : undefined} focusTitle={editor.id === focusEditorId} key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onDuplicate={(item) => { const duplicate = duplicateItemDraft(item, currentWorkspaceNow()); const saved = commit('Duplicate item', draft => { draft.items[duplicate.id] = clean(duplicate); }); if (saved) { setEditorIsNew(false); setEditor(duplicate); setToast('Item duplicated'); void flushPersistence(); } }} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
       onTimerStateSave={async (itemId, timer) => {
         const saved = commit('Update running timer', (draft) => {
           const target = draft.items[itemId]; if (!target || target.deletedAt) throw new Error('Item no longer exists.');
@@ -1396,15 +1397,16 @@ export default function App() {
       if (result.changed) void flushPersistence().then(() => setToast(result.rescheduled ? 'Completion time saved. Next cycle updated.' : 'Completion time saved.')).catch(() => setToast('Completion time is not saved yet. Retry local saving.'));
       return { series: result.series, rescheduled: result.rescheduled };
     }} onCreateSubtask={(title, parentId) => { const subtask = createUiItem(title, 'task', currentWorkspaceNow()); commit('Create subtask', (draft) => { draft.items[subtask.id] = clean(subtask); const parent = draft.items[parentId]; if (parent && !parent.relations.some((relation) => relation.type === 'parent' && relation.targetId === subtask.id)) parent.relations = [...parent.relations, { id: createId(), targetId: subtask.id, type: 'parent' }]; }); return subtask; }} onSave={async (item, options) => {
-      const beforeCompletion = options?.completedFromEditor && workspace.items[item.id] ? clean(workspace.items[item.id]!) : undefined;
-      const seriesId = item.occurrence?.seriesId;
+      const completionId = options?.completionOccurrenceId ?? item.id;
+      const beforeCompletion = options?.completedFromEditor && workspace.items[completionId] ? clean(workspace.items[completionId]!) : undefined;
+      const seriesId = beforeCompletion?.occurrence?.seriesId ?? item.occurrence?.seriesId;
       const beforeSeries = beforeCompletion && seriesId && workspace.items[seriesId] ? clean(workspace.items[seriesId]!) : undefined;
       const result = await saveService.saveItem(item, options, currentWorkspaceNow());
-      if (beforeCompletion && item.state === 'done') {
+      if (beforeCompletion && (item.state === 'done' || options?.completionOccurrenceId)) {
         const afterSeriesSchedule = seriesId ? clean(getCurrentWorkspace()?.items[seriesId]?.schedule ?? null) : null;
         queueUndo('Item completed', () => {
           commit('Undo editor completion', draft => {
-            const target = draft.items[item.id]; if (!target || target.deletedAt || target.state !== 'done') return;
+            const target = draft.items[completionId]; if (!target || target.deletedAt || target.state !== 'done') return;
             target.state = beforeCompletion.state;
             for (const key of ['closure', 'completionEntries', 'cycleHistory', 'habit', 'progress'] as const) {
               if (beforeCompletion[key] === undefined) delete target[key];
@@ -1418,7 +1420,7 @@ export default function App() {
             }
           });
           void flushPersistence();
-        }, undefined, item.id);
+        }, undefined, completionId);
       }
       recordDiagnostic({ kind: 'result', message: 'Item saved', operation: 'Save item', outcome: 'succeeded', details: JSON.stringify({ itemId: item.id, pendingGoogle: result.pendingGoogle }) });
       setEditorIsNew(false); setEditor(null);

@@ -5,6 +5,37 @@ import { createAutomergeDocument } from '@utm/sdk';
 import { saveItemInWorkspace } from './itemSaveCommand';
 import { commitWorkspaceDocument } from './workspaceLifecycle';
 import { saveGoogleItem, type GoogleSaveOperation } from './googleItemSave';
+import { createOccurrence } from '@utm/core';
+import { selectHeaderAgenda } from '../components/layout/headerAgendaModel';
+import { prepareTimelineData } from '../features/calendar/timelineData';
+
+it('completes the selected weekly active-range cycle once while keeping the edited series open', () => {
+  const now = new Date('2026-09-27T00:00:00Z');
+  const w = createWorkspace('Completion regression', now);
+  w.calendarPreferences.timezone = 'Europe/Moscow'; w.calendarPreferences.dayView.filter.source = 'true';
+  const series = createItem('Подготовка к вс', 'event', now);
+  series.role = 'series_template'; series.canBeCompleted = true;
+  series.schedule = { startAt: '2026-09-03T18:15:00.000Z', endAt: '2026-09-03T19:00:00.000Z', dueAt: '2026-09-06T08:00:00.000Z', estimatedDuration: 'PT45M', timezone: 'Europe/Moscow' };
+  series.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', timezone: 'Europe/Moscow', rdates: [], exdates: [], activationOffset: 'PT0M', closeAt: 'due', anchor: 'schedule', autoRenew: true };
+  const cycle = createOccurrence(series, new Date('2026-09-24T18:15:00.000Z'), 0);
+  w.items[series.id] = series; w.items[cycle.id] = cycle;
+  let doc = createAutomergeDocument(w);
+  const save = () => { doc = commitWorkspaceDocument(doc, 'Complete selected cycle', draft => {
+    saveItemInWorkspace(draft, { ...structuredClone(series), bodyMarkdown: 'Edited with completion' }, { completionOccurrenceId: cycle.id }, now);
+  }); };
+  save();
+  const saved = Automerge.toJS(doc);
+  expect(saved.items[series.id]?.state).toBe('open');
+  expect(saved.items[series.id]?.bodyMarkdown).toBe('Edited with completion');
+  expect(saved.items[cycle.id]?.state).toBe('done');
+  expect(prepareTimelineData(saved, '2026-09-27', now).displayRanges).toHaveLength(0);
+  expect(JSON.stringify(selectHeaderAgenda(saved, now.getTime()))).not.toContain(String(Date.parse('2026-09-27T08:00:00Z')));
+  const count = saved.items[cycle.id]?.completionEntries?.filter(entry => entry.kind === 'manual' && entry.at === now.toISOString()).length;
+  expect(count).toBe(1);
+  save();
+  expect(Automerge.toJS(doc).items[cycle.id]?.completionEntries?.filter(entry => entry.kind === 'manual' && entry.at === now.toISOString())).toHaveLength(count!);
+  Automerge.free(doc);
+});
 
 afterEach(() => vi.unstubAllGlobals());
 const fixture = () => {
