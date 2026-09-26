@@ -80,7 +80,7 @@ struct AgendaWidgetView: View {
         if target.timeIntervalSince(entry.date) < 600 {
             Text(timerInterval: entry.date...max(entry.date, target), countsDown: true).monospacedDigit()
         } else if #available(iOS 18.0, *) {
-            Text(.currentDate, format: .offset(to: target, allowedFields: [.hour, .minute], maxFieldCount: 2, sign: .never))
+            Text(.durationOffset(to: target), format: .units(allowed: [.hours, .minutes], width: .narrow, maximumUnitCount: 2).locale(Locale(identifier: "en_US")))
                 .monospacedDigit()
         } else {
             // iOS 17 has no configurable live date format. Prefer a live timer

@@ -58,15 +58,16 @@ async function settledReload(page: Page) {
   await page.reload(); await unlock(page); await navigate(page, 'Calendar');
 }
 
-test('glass quick navigation lifts capture only while the keyboard is closed', async ({ page }) => {
+test('glass quick navigation shares a bottom row and hides for the keyboard', async ({ page }) => {
   await setup(page);
   const nav = page.getByRole('navigation', { name: 'Quick navigation' });
-  const capture = page.locator('.capture-dock');
+  const capture = page.locator('.capture-dock .quick-capture');
   await expect(nav.getByRole('button')).toHaveCount(2);
   await expect(nav.getByRole('button', { name: 'Calendar', exact: true })).toHaveAttribute('aria-current', 'page');
   const raised = await capture.boundingBox();
   const navBox = await nav.boundingBox();
-  expect(raised!.y + raised!.height).toBeLessThan(navBox!.y);
+  expect(navBox!.x + navBox!.width).toBeLessThanOrEqual(raised!.x);
+  expect(Math.abs(navBox!.y + navBox!.height / 2 - raised!.y - raised!.height / 2)).toBeLessThan(12);
   expect(await nav.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
   const home = nav.getByRole('button', { name: 'Home', exact: true });
   await home.focus(); await home.press('Enter');
@@ -86,7 +87,7 @@ test('glass quick navigation lifts capture only while the keyboard is closed', a
     window.visualViewport!.dispatchEvent(new Event('resize'));
   });
   await expect(nav).toBeHidden();
-  expect((await capture.boundingBox())!.y).toBeGreaterThan(raised!.y);
+  expect((await capture.boundingBox())!.width).toBeGreaterThanOrEqual(raised!.width);
   await page.evaluate(() => {
     Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: window.innerHeight });
     window.visualViewport!.dispatchEvent(new Event('resize'));

@@ -3,7 +3,7 @@ import { CalendarOrderHandle } from './CalendarOrderHandle';
 import { WeatherTimeline } from '../weather/WeatherTimeline';
 import { calendarTimelineFields } from './calendarCardFields';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type TouchEvent } from 'react';
-import { activeRangeDailyDuration, calendarDateKey, effectiveWorkspaceNow, occupiedIntervals, viewPeriodBoundsForDates, zonedDateTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { activeRangeBounds, activeRangeDailyDuration, calendarDateKey, effectiveWorkspaceNow, occupiedIntervals, viewPeriodBoundsForDates, zonedDateTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
@@ -40,11 +40,12 @@ export function TimelineNow({ workspace, segments, suppliedNow }: { workspace: W
   return <div className={`timeline-now${segment.hidden ? ' is-hidden-time' : ''}`} style={{ top }} data-testid="timeline-now" aria-label={`Current time ${timeLabel(at, workspace.calendarPreferences.timezone)}`}><span>{timeLabel(at, workspace.calendarPreferences.timezone)}</span></div>;
 }
 
-export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
+export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
   plan?: ReturnType<typeof buildCalendarPlan> | undefined; onReorder?: ((ids: string[], movedId: string) => void) | undefined;
   workspace: WorkspaceDocument; dateKey: string; now: Date; suppliedNow?: Date | undefined;
   capacityLabel?: string; allDayOpen?: boolean; onAllDayChange?: (open: boolean) => void;
   reservedItems?: UniversalItem[];
+  listItems?: UniversalItem[];
   projectionCache?: CalendarProjectionCache;
   planningNow?: Date;
   onEdit: (item: UniversalItem) => void;
@@ -102,14 +103,20 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
       return { id: `${item.id}:${start}`, title: item.title, top: positionAt(start, segments), height: Math.max(2, positionAt(end, segments) - positionAt(start, segments)) };
     })));
   }, [reservedItems, dateKey, zone, segments]);
+  // Reconcile with the actual day List, so its flexible tasks cannot disappear
+  // due to a difference in projection/filtering between the two presentations.
+  const visibleRanges = useMemo(() => [...new Map([...data.activeRange, ...listItems.filter(item => {
+    const range = activeRangeBounds(item);
+    return item.state === 'open' && range && range.start < data.day.end && range.end > data.day.start;
+  })].map(item => [item.id, item])).values()], [data.activeRange, listItems, data.day]);
   const rangeCues = useMemo(() => {
-    const placed = new Set(plan?.events.map(event => event.item.id) ?? []);
-    const ranges = data.activeRange.filter(item => !placed.has(item.id));
+    const placed = new Set(layout.events.map(event => event.item.id));
+    const ranges = visibleRanges.filter(item => !placed.has(item.id));
     const morning = zonedDateTime(dateKey, 9, 0, zone).getTime();
     const preferred = dateKey === calendarDateKey(planningNow, zone) ? Math.max(morning, Math.floor(planningNow.getTime() / 3_600_000) * 3_600_000) : morning;
     return placeActiveRangeCues(ranges, segments, [...layout.events, ...layout.more, ...hiddenReserve], positionAt(preferred, segments));
-  }, [plan, data.activeRange, segments, layout, hiddenReserve, dateKey, zone, planningNow]);
-  const rangeFallback = data.activeRange.filter(item => !plan?.events.some(event => event.item.id === item.id) && !rangeCues.some(cue => cue.item.id === item.id));
+  }, [plan, visibleRanges, segments, layout, hiddenReserve, dateKey, zone, planningNow]);
+  const rangeFallback = visibleRanges.filter(item => !layout.events.some(event => event.item.id === item.id) && !rangeCues.some(cue => cue.item.id === item.id));
   const height = Math.max((segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0), ...layout.events.map(v => v.top + v.height), ...layout.more.map(v => v.top + v.height));
   const ticks: number[] = [];
   for (let at = data.day.start; at < data.day.end; at += 60_000) if (timeLabel(at, zone).endsWith(':00') && !hidden.some(v => at >= v.start && at < v.end)) ticks.push(at);
@@ -129,7 +136,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
       {workspace.calendarPreferences.showExplanations && <small>{ru ? 'За выбранные сутки. Точечные блоки — предложение, даты задач не меняются.' : 'For the selected day. Dotted blocks are proposals; task dates stay unchanged.'}</small>}
       {workspace.calendarPreferences.showExplanations && data.planning.warnings.map(({ item, reason }) => <small key={item.id}>{item.title}: {reason === 'deadline' ? (ru ? 'Не помещается до Due' : 'Does not fit before Due') : reason === 'fragmented' ? (ru ? 'Времени суммарно хватает, но нет непрерывного окна' : 'Enough total time, but no continuous slot') : (ru ? 'Недостаточно свободного времени' : 'Not enough available time')}</small>)}
     </div>}
-    {rangeFallback.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(rangeFallback)}</div>}
+    {rangeFallback.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(rangeFallback)}</div>}
     {data.plannedTasks.some(item => !plan?.activeRanges.has(item.id)) && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks.filter(item => !plan?.activeRanges.has(item.id)))}</div>}
     {data.allDay.length > 0 && allDayOpen && <div className="timeline-top-items timeline-all-day-items">{cards(data.allDay)}</div>}
     {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}

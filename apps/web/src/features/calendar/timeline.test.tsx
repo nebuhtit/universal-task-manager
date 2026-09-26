@@ -21,6 +21,18 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it.each(['2026-09-22', '2026-09-23'])('reconciles list ranges on %s and falls back to Day tasks without a free row', key => {
+    const range = item('Preparation from List', { startAt: iso(21, 15), dueAt: '2026-09-23T11:00:00Z', estimatedDuration: 'PT45M' });
+    const reserve = item('Full day reserve', { startAt: iso(0), endAt: iso(48) });
+    const w = workspace(range);
+    // Deliberately make the two projections disagree: the list remains authoritative
+    // for visibility, while this must not mutate filters or scheduled dates.
+    w.calendarPreferences.dayView.filter.source = 'false';
+    const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey={key} now={now} suppliedNow={now} listItems={[range]} reservedItems={[reserve]} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(html).toContain('Day tasks');
+    expect(html).toContain('Preparation from List');
+    expect(html).not.toContain('data-testid="timeline-active-range"');
+  });
   it('shows an unplaced active range as a free-row cue even with the shared plan', () => {
     const range = item('Preparation', { startAt: iso(21, 15), dueAt: '2026-09-23T11:00:00Z', estimatedDuration: 'PT45M' });
     const w = workspace(range);
