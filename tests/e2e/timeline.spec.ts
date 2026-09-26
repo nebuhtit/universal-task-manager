@@ -139,6 +139,10 @@ test('holding an empty hour opens an unsaved one-hour draft with focused title',
   await setup(page);
   const tick = page.locator('.timeline-tick').filter({ hasText: '18:00' });
   await tick.scrollIntoViewIfNeeded();
+  // Finish the sticky-header scroll transition before starting a long press:
+  // the real gesture correctly cancels when the viewport is still scrolling.
+  await page.clock.runFor(100);
+  await page.waitForTimeout(350);
   const box = await tick.boundingBox();
   const axis = page.locator('.timeline-axis');
   const saved = await primary(page);
