@@ -274,8 +274,8 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   };
 
   return <section className={`calendar-page page-section${compactNavigator ? ' is-compact' : ''}`} ref={calendarRoot}>
-    <header className="calendar-title" ref={titleRef}>
-      <div><div className="calendar-heading-date"><h1><span className="calendar-date-full">{selectedLabel}</span><span className="calendar-date-short">{formatDate(selectedDate, { weekday: 'short', day: 'numeric', month: 'short' })}</span></h1><MoonPhase dateKey={selectedDate} zone={preferences.timezone} ru={preferences.language === 'ru'} /></div>{selected.view.statistics?.showTime !== false && <span className="view-metrics-summary" data-testid="calendar-header-capacity">{capacityLabel(selectedDate)}</span>}</div>
+    <header className="calendar-title" ref={titleRef} inert={compactNavigator}>
+      <div><div className="calendar-heading-date"><h1>{selectedLabel}</h1><MoonPhase dateKey={selectedDate} zone={preferences.timezone} ru={preferences.language === 'ru'} /></div>{selected.view.statistics?.showTime !== false && <span className="view-metrics-summary" data-testid="calendar-header-capacity">{capacityLabel(selectedDate)}</span>}</div>
       <IconButton size="compact" variant="ghost" onClick={() => setEditorOpen(true)} aria-label="Edit calendar day view"><LineIcon name="settings" /></IconButton>
     </header>
 

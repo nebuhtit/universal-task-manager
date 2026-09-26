@@ -204,14 +204,13 @@ for (const theme of ['light', 'dark'] as const) test(`calendar header compacts w
   await page.evaluate(() => window.scrollTo(0, 650));
   await page.clock.runFor(700);
   await expect(root).toHaveClass(/is-compact/);
-  await expect(page.locator('.calendar-date-short')).toBeVisible();
-  await expect(page.locator('.calendar-date-full')).toBeHidden();
+  await expect.poll(() => title.evaluate(el => el.getBoundingClientRect().height)).toBe(0);
   await expect.poll(() => page.getByTestId('calendar-header-capacity').evaluate(el => el.getBoundingClientRect().height)).toBe(0);
   expect((await title.boundingBox())!.height + (await panel.boundingBox())!.height).toBeLessThan(expanded);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.clock.runFor(700);
   await expect(root).not.toHaveClass(/is-compact/);
-  await expect(page.locator('.calendar-date-full')).toBeVisible();
+  await expect(title).toBeVisible();
 });
 
 test('overflow is placed automatically before Due without source changes', async ({ page }) => {

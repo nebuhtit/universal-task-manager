@@ -21,6 +21,14 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it('dims completed travel and return borders together with past events without Due', () => {
+    const event = item('Past trip', { startAt: iso(8), endAt: iso(9), travelDuration: 'PT30M', travelBackDuration: 'PT30M' });
+    const html = renderToStaticMarkup(<CalendarTimeline workspace={workspace(event)} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(html.match(/timeline-past-event timeline-travel/g)).toHaveLength(2);
+    event.schedule!.dueAt = iso(10);
+    const withDue = renderToStaticMarkup(<CalendarTimeline workspace={workspace(event)} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(withDue).not.toContain('timeline-past-event');
+  });
   it.each(['2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27'])('retains the reported weekly Event ends + Due active range on %s', key => {
     const series = item('00386ef6-d7f4-4c9c-80a5-d2bc66edaa8f', {
       startAt: '2026-09-03T18:15:00.000Z', endAt: '2026-09-03T19:00:00.000Z',
@@ -108,7 +116,7 @@ describe('timeline time geometry', () => {
     expect(data.events.find(value => value.travel)).toMatchObject({ start: at(9, 30), end: at(10) });
     expect(data.hidden).toEqual([{ start: at(0), end: at(9, 30) }]);
     const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
-    expect(html).toContain('timeline-event timeline-travel');
+    expect(html).toContain('timeline-past-event timeline-travel');
     expect(html).toContain('30 min');
     expect(html).toContain('data-testid="timeline-event"');
     expect(JSON.stringify(w)).toBe(before);

@@ -56,7 +56,10 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready(let url):
                 WebAppView(startURL: url)
-                    .ignoresSafeArea(.container)
+                    // WebKit handles the keyboard/visual viewport itself. Letting
+                    // SwiftUI also resize WKWebView stretches its snapshot during
+                    // dismissal and causes a second layout jump at the end.
+                    .ignoresSafeArea(.all)
             case .failed(let message):
                 ContentUnavailableView {
                     Label("Cannot open the app", systemImage: "exclamationmark.triangle")
