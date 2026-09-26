@@ -18,12 +18,15 @@ for (const colorScheme of ['light', 'dark'] as const) test('quick session surviv
   await expect(nav).toBeHidden();
   await page.evaluate(() => document.documentElement.classList.remove('keyboard-open'));
   await capture.focus();
+  const dockBottom = await page.locator('.capture-dock').evaluate(el => getComputedStyle(el).bottom);
   await page.evaluate(() => { document.documentElement.dataset.nativeKeyboardOpen = 'true'; window.dispatchEvent(new Event('utm:native-keyboard')); });
   await expect(nav).toBeHidden();
   await capture.blur();
+  expect(await page.locator('.capture-dock').evaluate(el => getComputedStyle(el).bottom)).toBe(dockBottom);
   await expect(nav).toBeHidden();
   await page.evaluate(() => { document.documentElement.dataset.nativeKeyboardOpen = 'false'; window.dispatchEvent(new Event('utm:native-keyboard')); });
   await expect(nav).toBeVisible();
+  expect(await page.locator('.capture-dock').evaluate(el => getComputedStyle(el).bottom)).toBe(dockBottom);
   await capture.fill('с'); await capture.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Timer and stopwatch', exact: true });
   await expect(dialog).toBeVisible();

@@ -5,9 +5,13 @@
   gap: var(--space-2);
   pointer-events: none;
   background: transparent;
+  max-width: calc(var(--control-height-touch) * 2 + var(--space-2));
+  overflow: hidden;
+  transition: max-width var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard), opacity var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard);
 }
 .quick-page-nav .ui-icon-button[data-variant] {
   pointer-events: auto;
+  flex-shrink: 0;
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-capture-border-idle);
   background: var(--color-surface);
@@ -22,9 +26,13 @@
     backdrop-filter: blur(calc(var(--blur-capture-idle) * 2));
   }
 }
-.capture-dock { align-items: center; gap: var(--space-2); }
+.capture-dock { align-items: center; gap: var(--space-2); transition: gap var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard); }
 .capture-dock .quick-capture { min-width: 0; }
-.keyboard-open .quick-page-nav { display: none; }
+.keyboard-open .quick-page-nav { max-width: 0; opacity: 0; visibility: hidden; }
+.keyboard-open .capture-dock { gap: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .capture-dock, .quick-page-nav { transition: none; }
+}
 @media (prefers-reduced-transparency: reduce) {
   .quick-page-nav .ui-icon-button[data-variant] { background: var(--color-surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }

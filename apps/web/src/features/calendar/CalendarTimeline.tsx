@@ -3,7 +3,7 @@ import { CalendarOrderHandle } from './CalendarOrderHandle';
 import { WeatherTimeline } from '../weather/WeatherTimeline';
 import { calendarTimelineFields } from './calendarCardFields';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type TouchEvent } from 'react';
-import { activeRangeBounds, activeRangeDailyDuration, calendarDateKey, effectiveWorkspaceNow, occupiedIntervals, viewPeriodBoundsForDates, zonedDateTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { activeRangeDailyDuration, calendarDateKey, effectiveWorkspaceNow, occupiedIntervals, viewPeriodBoundsForDates, zonedDateTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
@@ -12,7 +12,7 @@ import { ItemCard } from '../items/ItemCard';
 import { clockService } from '../../services/clockService';
 import { displayViewValue, readItemField, viewFieldLabel } from '../items/fieldDisplay';
 import { FieldIcon } from '../items/FieldIcon';
-import { prepareTimelineData, applyTimelinePlanning } from './timelineData';
+import { prepareTimelineData, applyTimelinePlanning, timelineActiveRangeBounds } from './timelineData';
 import type { CalendarProjectionCache } from './calendarProjectionCache';
 import { calendarUndatedItems } from './calendarVisibility';
 import { buildSegments, hiddenIntervals, layoutEvents, placeActiveRangeCues, positionAt, type Segment } from './timelineLayout';
@@ -105,10 +105,10 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
   }, [reservedItems, dateKey, zone, segments]);
   // Reconcile with the actual day List, so its flexible tasks cannot disappear
   // due to a difference in projection/filtering between the two presentations.
-  const visibleRanges = useMemo(() => [...new Map([...data.activeRange, ...listItems.filter(item => {
-    const range = activeRangeBounds(item);
+  const visibleRanges = useMemo(() => [...new Map([...data.displayRanges, ...listItems.filter(item => {
+    const range = timelineActiveRangeBounds(item);
     return item.state === 'open' && range && range.start < data.day.end && range.end > data.day.start;
-  })].map(item => [item.id, item])).values()], [data.activeRange, listItems, data.day]);
+  })].map(item => [item.id, item])).values()], [data.displayRanges, listItems, data.day]);
   const rangeCues = useMemo(() => {
     const placed = new Set(layout.events.map(event => event.item.id));
     const ranges = visibleRanges.filter(item => !placed.has(item.id));

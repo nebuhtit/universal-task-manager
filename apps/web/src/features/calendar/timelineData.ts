@@ -8,6 +8,16 @@ import { planUndatedTasks } from './timelinePlanning';
 import { isCompletelyUndated, showUndatedItem, showOverdueToday } from './calendarVisibility';
 import { calendarProjectionPadding, type CalendarProjectionCache } from './calendarProjectionCache';
 
+/** Visibility until Due is distinct from fixed occupancy ending at Event ends. */
+export function timelineActiveRangeBounds(item: UniversalItem) {
+  const flexible = activeRangeBounds(item);
+  if (flexible) return flexible;
+  if (!item.canBeCompleted || item.external || item.schedule?.allDay) return null;
+  const start = Date.parse(item.schedule?.startAt ?? '');
+  const end = Date.parse(item.schedule?.dueAt ?? '');
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
+}
+
 export function prepareTimelineData(workspace: WorkspaceDocument, key: string, now: Date, cache?: CalendarProjectionCache) {
   const preferences = workspace.calendarPreferences;
   const day = dayBounds(key, preferences.timezone);
@@ -61,6 +71,7 @@ export function prepareTimelineData(workspace: WorkspaceDocument, key: string, n
     return filter(index.queryItemFor(viewItemForEvaluation(item)), now);
   };
   const events: TimelineEvent[] = [], allDay: UniversalItem[] = [], undated: UniversalItem[] = [], activeRange: UniversalItem[] = [];
+  const displayRanges: UniversalItem[] = [];
   const sleep: TimelineEvent[] = [];
   const overdue: UniversalItem[] = [];
   const dateOnlyTasks: UniversalItem[] = [];
@@ -79,12 +90,17 @@ export function prepareTimelineData(workspace: WorkspaceDocument, key: string, n
     const overdueToday = showOverdueToday(item, key, now, preferences.timezone, item.occurrence ? mapped.items[item.occurrence.seriesId] : undefined);
     if (overdueToday && ((!schedule?.startAt && !schedule?.endAt) || !interval || !intersects(interval, day))) { overdue.push(item); continue; }
     const series = item.occurrence ? mapped.items[item.occurrence.seriesId] : item;
-    const range = activeRangeBounds(item);
+    const range = timelineActiveRangeBounds(item);
     if (range) {
       const completed = closedCycles.has(cycleKey) || (item.completionEntries ?? []).some(entry => !entry.revokedAt && entry.recurrenceId === item.occurrence?.recurrenceId)
         || (series?.cycleHistory ?? []).some(entry => entry.recurrenceId === item.occurrence?.recurrenceId);
-      if (!completed && item.state === 'open' && intersects(range, day)) activeRange.push(item);
-      continue;
+      if (!completed && item.state === 'open' && intersects(range, day)) {
+        displayRanges.push(item);
+        if (activeRangeBounds(item)) activeRange.push(item);
+      }
+      // Keep its real Event opens/ends booking on the original day. On the
+      // remaining active days the renderer supplies a dotted cue or Day tasks.
+      if (!schedule?.endAt) continue;
     }
     if (item.schedule?.plannedDate && plannedDateForDisplay(item, now, preferences.timezone) !== key) {
       if (overdueToday) overdue.push(item);
@@ -108,19 +124,19 @@ export function prepareTimelineData(workspace: WorkspaceDocument, key: string, n
   const withoutSleep = events.filter(event => !isSleep(event.item));
   const visible = hiding ? withoutSleep : events;
   const sleepGaps = hiddenIntervals(sleep, withoutSleep, day);
-  return { day, events, visible, allDay, undated, activeRange, overdue, dateOnlyTasks, sleep, sleepGaps, hiding,
+  return { day, events, visible, allDay, undated, activeRange, displayRanges, overdue, dateOnlyTasks, sleep, sleepGaps, hiding,
     showOverdue: preferences.timeline?.showOverdue !== false,
     sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)), projectionLimited: desiredPadding > padding };
 }
 
 /** Minute changes move tentative proposals without rebuilding projections or filters. */
 export function applyTimelinePlanning(prepared: ReturnType<typeof prepareTimelineData>, now: Date) {
-  const { day, events, visible, allDay, undated, activeRange, overdue, sleep, sleepGaps, hiding, showOverdue, sleepMissing, projectionLimited } = prepared;
+  const { day, events, visible, allDay, undated, activeRange, displayRanges, overdue, sleep, sleepGaps, hiding, showOverdue, sleepMissing, projectionLimited } = prepared;
   const planning = planUndatedTasks(undated, events, sleep, day, now, showOverdue ? overdue : []);
   const placedIds = new Set(planning.proposals.map(event => event.item.id));
   return {
     day, events: [...visible, ...planning.proposals.filter(event => !event.tentativeOverdue || showOverdue)], allDay, undated: undated.filter(item => !placedIds.has(item.id) && !item.schedule?.plannedDate),
-    plannedTasks: undated.filter(item => !placedIds.has(item.id) && item.schedule?.plannedDate), activeRange, overdue, planning,
+    plannedTasks: undated.filter(item => !placedIds.has(item.id) && item.schedule?.plannedDate), activeRange, displayRanges, overdue, planning,
     hidden: hiding ? sleepGaps : [], sleepGaps,
     sleepMissing, projectionLimited,
   };

@@ -21,6 +21,33 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it.each(['2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27'])('retains the reported weekly Event ends + Due active range on %s', key => {
+    const series = item('00386ef6-d7f4-4c9c-80a5-d2bc66edaa8f', {
+      startAt: '2026-09-03T18:15:00.000Z', endAt: '2026-09-03T19:00:00.000Z',
+      dueAt: '2026-09-06T08:00:00.000Z', estimatedDuration: 'PT45M', timezone: 'Europe/Moscow',
+    });
+    series.title = 'Подготовка к вс'; series.role = 'series_template'; series.preset = 'event'; series.canBeCompleted = true;
+    series.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', timezone: 'Europe/Moscow', rdates: [], exdates: [], activationOffset: 'PT0M', closeAt: 'due', anchor: 'schedule', autoRenew: true };
+    const w = workspace(series); w.calendarPreferences.timezone = 'Europe/Moscow';
+    const clock = new Date('2026-09-26T20:58:00Z');
+    const before = JSON.stringify(w);
+    const prepared = prepareTimelineData(w, key, clock);
+    expect(prepared.displayRanges).toHaveLength(1);
+    expect(prepared.activeRange).toHaveLength(0);
+    expect(prepared.displayRanges[0]?.schedule?.dueAt).toBe('2026-09-27T08:00:00.000Z');
+    const plan = buildCalendarPlan(w, key, prepared, clock);
+    const html = renderToStaticMarkup(<CalendarTimeline plan={plan} workspace={w} dateKey={key} now={clock} suppliedNow={clock} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(html).toContain('Подготовка к вс');
+    expect(html).toContain(key === '2026-09-24' ? 'data-testid="timeline-event"' : 'data-testid="timeline-active-range"');
+    if (key === '2026-09-26') {
+      const reserve = item('Full day reserve', { startAt: '2026-09-25T21:00:00Z', endAt: '2026-09-26T21:00:00Z' });
+      const fallback = renderToStaticMarkup(<CalendarTimeline plan={plan} workspace={w} dateKey={key} now={clock} suppliedNow={clock} reservedItems={[reserve]} onEdit={() => {}} onPreferences={() => {}} />);
+      expect(fallback).toContain('Day tasks');
+      expect(fallback).toContain('Подготовка к вс');
+      expect(fallback).not.toContain('data-testid="timeline-active-range"');
+    }
+    expect(JSON.stringify(w)).toBe(before);
+  });
   it.each(['2026-09-22', '2026-09-23'])('reconciles list ranges on %s and falls back to Day tasks without a free row', key => {
     const range = item('Preparation from List', { startAt: iso(21, 15), dueAt: '2026-09-23T11:00:00Z', estimatedDuration: 'PT45M' });
     const reserve = item('Full day reserve', { startAt: iso(0), endAt: iso(48) });

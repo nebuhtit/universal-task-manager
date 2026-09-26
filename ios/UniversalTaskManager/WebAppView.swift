@@ -89,6 +89,7 @@ struct WebAppView: UIViewRepresentable {
             keyboardWebView = webView
             NotificationCenter.default.addObserver(self, selector: #selector(openCalendarToday), name: Notification.Name("utm.openCalendarToday"), object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
         }
 
@@ -96,10 +97,9 @@ struct WebAppView: UIViewRepresentable {
             guard let webView = keyboardWebView, webView.url?.host == localOrigin.host, webView.url?.port == localOrigin.port else { return }
             let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect ?? .zero
             let screenHeight = webView.window?.screen.bounds.height ?? 0
-            let open = notification.name != UIResponder.keyboardDidHideNotification && frame.height > 0 && frame.minY < screenHeight
-            // Keep the compact dock throughout the dismissal animation.
-            if !open && notification.name != UIResponder.keyboardDidHideNotification { return }
-            webView.evaluateJavaScript("document.documentElement.dataset.nativeKeyboardOpen = '\(open)'; window.dispatchEvent(new Event('utm:native-keyboard'))", completionHandler: nil)
+            let open = notification.name != UIResponder.keyboardDidHideNotification && notification.name != UIResponder.keyboardWillHideNotification && frame.height > 0 && frame.minY < screenHeight
+            let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+            webView.evaluateJavaScript("document.documentElement.style.setProperty('--keyboard-motion-duration', '\(duration)s'); document.documentElement.dataset.nativeKeyboardOpen = '\(open)'; window.dispatchEvent(new Event('utm:native-keyboard'))", completionHandler: nil)
         }
 
         deinit { NotificationCenter.default.removeObserver(self) }

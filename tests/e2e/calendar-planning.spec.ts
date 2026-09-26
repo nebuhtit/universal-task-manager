@@ -195,6 +195,25 @@ test('calendar period swipes, conditional Today, vertical scrolling and keyboard
   await expect(today).toBeVisible();
 });
 
+for (const theme of ['light', 'dark'] as const) test(`calendar header compacts with scroll in ${theme}`, async ({ page }) => {
+  await setup(page, false, w => { w.calendarPreferences.appearance.mode = theme; w.calendarPreferences.timeline!.mode = 'timeline'; });
+  const root = page.locator('.calendar-page');
+  const title = page.locator('.calendar-title');
+  const panel = page.locator('.calendar-day-panel');
+  const expanded = (await title.boundingBox())!.height + (await panel.boundingBox())!.height;
+  await page.evaluate(() => window.scrollTo(0, 650));
+  await page.clock.runFor(700);
+  await expect(root).toHaveClass(/is-compact/);
+  await expect(page.locator('.calendar-date-short')).toBeVisible();
+  await expect(page.locator('.calendar-date-full')).toBeHidden();
+  await expect.poll(() => page.getByTestId('calendar-header-capacity').evaluate(el => el.getBoundingClientRect().height)).toBe(0);
+  expect((await title.boundingBox())!.height + (await panel.boundingBox())!.height).toBeLessThan(expanded);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.clock.runFor(700);
+  await expect(root).not.toHaveClass(/is-compact/);
+  await expect(page.locator('.calendar-date-full')).toBeVisible();
+});
+
 test('overflow is placed automatically before Due without source changes', async ({ page }) => {
   const { read } = await setup(page, true, w => {
     w.items.task!.schedule!.dueAt = '2026-09-24T10:00:00Z';

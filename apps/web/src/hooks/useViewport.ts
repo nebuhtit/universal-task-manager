@@ -4,6 +4,8 @@ export function useViewport(captureInputRef: RefObject<HTMLInputElement | null>,
   useEffect(() => { if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual'; }, []);
   useEffect(() => {
     if (!ready) return;
+    const dock = document.querySelector('.capture-dock');
+    if (dock) document.documentElement.style.setProperty('--capture-dock-bottom', getComputedStyle(dock).bottom);
     const reset = () => { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; };
     reset(); const frame = window.requestAnimationFrame(reset); const timer = window.setTimeout(reset, 120);
     return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
@@ -18,7 +20,8 @@ export function useViewport(captureInputRef: RefObject<HTMLInputElement | null>,
       const focused = document.activeElement === captureInputRef.current;
       const occluded = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
       const editable = document.activeElement?.matches('input, textarea, [contenteditable="true"]');
-      const keyboardOpen = nativeOpen || (Boolean(editable) && viewport.scale === 1 && Math.max(occluded, restingHeight - viewport.height) > 80);
+      const nativeKnown = document.documentElement.dataset.nativeKeyboardOpen !== undefined;
+      const keyboardOpen = nativeKnown ? nativeOpen : (Boolean(editable) && viewport.scale === 1 && Math.max(occluded, restingHeight - viewport.height) > 80);
       if (!editable && !nativeOpen) restingHeight = window.innerHeight;
       window.clearTimeout(closingTimer);
       if (keyboardOpen) {
@@ -28,15 +31,24 @@ export function useViewport(captureInputRef: RefObject<HTMLInputElement | null>,
       } else {
         // iOS sends blur, native frame and visualViewport events at different
         // points in its dismissal animation. Restore the row once it settles.
-        closingTimer = window.setTimeout(() => {
+        const close = () => {
           captureWasFocused = false;
           document.documentElement.classList.remove('keyboard-open', 'capture-keyboard-open');
-        }, 180);
+        };
+        if (nativeKnown) close();
+        else closingTimer = window.setTimeout(close, 180);
       }
       document.documentElement.style.setProperty('--keyboard-offset', `${focused ? occluded : 0}px`);
     };
     const release = () => { window.clearTimeout(closingTimer); document.documentElement.classList.remove('capture-keyboard-open', 'keyboard-open'); document.documentElement.style.setProperty('--keyboard-offset', '0px'); };
-    const focusIn = () => { window.requestAnimationFrame(update); };
+    const focusIn = () => {
+      const dock = document.querySelector('.capture-dock');
+      if (dock && !document.documentElement.classList.contains('keyboard-open')) {
+        // Freeze the resting inset before iOS changes its viewport/safe area.
+        document.documentElement.style.setProperty('--capture-dock-bottom', getComputedStyle(dock).bottom);
+      }
+      window.requestAnimationFrame(update);
+    };
     const focusOut = () => { window.requestAnimationFrame(update); };
     const nativeKeyboard = () => { nativeOpen = document.documentElement.dataset.nativeKeyboardOpen === 'true'; update(); };
     window.addEventListener('utm:native-keyboard', nativeKeyboard);

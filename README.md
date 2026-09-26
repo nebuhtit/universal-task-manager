@@ -6,7 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.2.8** · workspace schema: **1.26.0**
+Current release: **v3.2.9** · workspace schema: **1.26.0**
+
+3.2.9 restores recurring Active range visibility when Event ends and a later Due coexist, preserving fixed occupancy. Scrolling compacts the calendar date and day statistics with reduced-motion support. The capture row keeps a stable bottom inset and animates navigation width in both keyboard directions using native iOS keyboard duration.
 
 3.2.8 adds compact live `h/m` widget formatting and reconciles Active range visibility with the day List, retaining a Day tasks fallback. Dialogs use the shared glass surface by default; keyboard dismissal restores the capture row after settling. Reminder delivery is Notification or Alarm, without urgency levels, and compact LiveText keeps alarm commands distinct.
 

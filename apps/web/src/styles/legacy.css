@@ -719,10 +719,9 @@ tbody tr:hover { background: var(--soft); }
   .app-shell { display: block; }
   .content { --layout-capture-reserve: 96px; padding-bottom: var(--layout-capture-reserve); }
   .top-summary { font-size: 11px; gap: 5px; }
-  .capture-dock { left: 0; bottom: calc(12px + env(safe-area-inset-bottom)); padding: 0 12px; }
+  .capture-dock { left: 0; bottom: var(--capture-dock-bottom, calc(12px + env(safe-area-inset-bottom))); padding: 0 12px; }
   /* On iOS a fixed element is already positioned against the visual viewport.
      Adding the keyboard height again made the capture bar fly far above it. */
-  .capture-keyboard-open .capture-dock { bottom: 10px; }
   .page-section { padding-left: 22px; padding-right: 22px; }
 }
 
