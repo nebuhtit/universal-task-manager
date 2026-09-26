@@ -3,6 +3,24 @@ import { createItem, createWorkspace } from '@utm/core';
 import { agendaWidgetSnapshot } from './nativeAgendaWidget';
 
 describe('lock screen agenda projection', () => {
+  it('keeps an absolute overnight Due target, not a cached remaining duration', () => {
+    const now = Date.parse('2026-09-26T20:04:00Z');
+    const workspace = createWorkspace('Overnight Due'); workspace.items = {};
+    workspace.calendarPreferences.timezone = 'Europe/Moscow';
+    const item = createItem('Подготовка к вс');
+    const target = Date.parse('2026-09-27T08:00:00Z');
+    item.schedule = { timezone: 'Europe/Moscow', dueAt: new Date(target).toISOString() };
+    workspace.items[item.id] = item;
+    const snapshot = agendaWidgetSnapshot(workspace, now);
+    const entry = snapshot.entries[0]!;
+    expect(entry).toMatchObject({ target: target / 1000, moment: '11:00', tomorrow: true });
+    // The host's dynamic Date text must continue counting between stage entries.
+    expect((entry.target! * 1000 - (now + 11 * 60000)) / 60000).toBe(705);
+    const midnight = snapshot.entries.find(row => row.at === Date.parse('2026-09-26T21:00:00Z') / 1000);
+    expect(midnight).toMatchObject({ target: target / 1000, moment: '11:00', tomorrow: false });
+    const threshold = snapshot.entries.find(row => Math.abs(row.at - (target / 1000 - 599.999)) < .001);
+    expect(threshold?.target).toBe(target / 1000);
+  });
   it('bounds seconds transitions by the current stage and never revives old stages', () => {
     const now = Date.parse('2026-09-25T08:00:00Z');
     const workspace = createWorkspace('Transitions'); workspace.items = {};

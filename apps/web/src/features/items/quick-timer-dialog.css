@@ -1,0 +1,16 @@
+.quick-timer-search {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  max-height: 30dvh;
+  overflow-y: auto;
+}
+.quick-timer-search .ui-button {
+  justify-content: flex-start;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  height: auto;
+  min-height: var(--control-height-touch);
+}

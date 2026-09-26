@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { applyGoogleCalendarSync, createItem, createOccurrence, createWorkspace, migrateWorkspace, validateWorkspace, type UniversalItem } from '@utm/core';
 import { dayBounds, itemInterval, hiddenIntervals, buildSegments, layoutEvents, placeActiveRangeCues, positionAt } from './timelineLayout';
-import { timelineData } from './timelineData';
+import { timelineData, prepareTimelineData } from './timelineData';
+import { buildCalendarPlan } from './calendarPlanning';
 import { CalendarTimeline, TimelineNow } from './CalendarTimeline';
 import { displayViewValue, readItemField } from '../items/fieldDisplay';
 
@@ -20,6 +21,18 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it('shows an unplaced active range as a free-row cue even with the shared plan', () => {
+    const range = item('Preparation', { startAt: iso(21, 15), dueAt: '2026-09-23T11:00:00Z', estimatedDuration: 'PT45M' });
+    const w = workspace(range);
+    const late = new Date(iso(23, 50));
+    const plan = buildCalendarPlan(w, '2026-09-22', prepareTimelineData(w, '2026-09-22', late), late);
+    expect(plan.unplaced.map(entry => entry.id)).toContain(range.id);
+    const before = JSON.stringify(w);
+    const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={late} suppliedNow={late} plan={plan} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(html).toContain('data-testid="timeline-active-range"');
+    expect(html).toContain('Preparation');
+    expect(JSON.stringify(w)).toBe(before);
+  });
   it('places active-range outlines outside events, hidden reserves, and collapsed sleep', () => {
     const segments = buildSegments(day, [{ start: at(0), end: at(8) }]);
     const cues = placeActiveRangeCues(['a', 'b'], segments, [{ top: 36, height: 60 }, { top: 132, height: 60 }]);

@@ -1,13 +1,8 @@
 .quick-page-nav {
-  position: fixed;
-  z-index: 40;
-  left: var(--layout-sidebar-width);
-  right: 0;
-  bottom: var(--space-4);
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-start;
-  padding-inline: var(--space-6);
-  gap: var(--space-3);
+  gap: var(--space-2);
   pointer-events: none;
   background: transparent;
 }
@@ -27,13 +22,9 @@
     backdrop-filter: blur(calc(var(--blur-capture-idle) * 2));
   }
 }
-:root:has(.quick-page-nav):not(.keyboard-open) .capture-dock { bottom: calc(var(--space-4) + var(--control-height-touch) + var(--space-2)); }
-:root:has(.quick-page-nav):not(.keyboard-open) .content { padding-bottom: calc(var(--layout-capture-reserve) + var(--control-height-touch) + var(--space-2)); }
+.capture-dock { align-items: center; gap: var(--space-2); }
+.capture-dock .quick-capture { min-width: 0; }
 .keyboard-open .quick-page-nav { display: none; }
-@media (max-width: 950px) {
-  .quick-page-nav { left: 0; padding-inline: var(--space-3); bottom: calc(var(--space-3) + env(safe-area-inset-bottom)); }
-  :root:has(.quick-page-nav):not(.keyboard-open) .capture-dock { bottom: calc(var(--space-3) + env(safe-area-inset-bottom) + var(--control-height-touch) + var(--space-2)); }
-}
 @media (prefers-reduced-transparency: reduce) {
   .quick-page-nav .ui-icon-button[data-variant] { background: var(--color-surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }

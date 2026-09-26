@@ -103,12 +103,13 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
     })));
   }, [reservedItems, dateKey, zone, segments]);
   const rangeCues = useMemo(() => {
-    if (plan) return [];
+    const placed = new Set(plan?.events.map(event => event.item.id) ?? []);
+    const ranges = data.activeRange.filter(item => !placed.has(item.id));
     const morning = zonedDateTime(dateKey, 9, 0, zone).getTime();
     const preferred = dateKey === calendarDateKey(planningNow, zone) ? Math.max(morning, Math.floor(planningNow.getTime() / 3_600_000) * 3_600_000) : morning;
-    return placeActiveRangeCues(data.activeRange, segments, [...layout.events, ...layout.more, ...hiddenReserve], positionAt(preferred, segments));
+    return placeActiveRangeCues(ranges, segments, [...layout.events, ...layout.more, ...hiddenReserve], positionAt(preferred, segments));
   }, [plan, data.activeRange, segments, layout, hiddenReserve, dateKey, zone, planningNow]);
-  const rangeFallback = plan ? [] : data.activeRange.filter(item => !rangeCues.some(cue => cue.item.id === item.id));
+  const rangeFallback = data.activeRange.filter(item => !plan?.events.some(event => event.item.id === item.id) && !rangeCues.some(cue => cue.item.id === item.id));
   const height = Math.max((segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0), ...layout.events.map(v => v.top + v.height), ...layout.more.map(v => v.top + v.height));
   const ticks: number[] = [];
   for (let at = data.day.start; at < data.day.end; at += 60_000) if (timeLabel(at, zone).endsWith(':00') && !hidden.some(v => at >= v.start && at < v.end)) ticks.push(at);
@@ -129,7 +130,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
       {workspace.calendarPreferences.showExplanations && data.planning.warnings.map(({ item, reason }) => <small key={item.id}>{item.title}: {reason === 'deadline' ? (ru ? 'Не помещается до Due' : 'Does not fit before Due') : reason === 'fragmented' ? (ru ? 'Времени суммарно хватает, но нет непрерывного окна' : 'Enough total time, but no continuous slot') : (ru ? 'Недостаточно свободного времени' : 'Not enough available time')}</small>)}
     </div>}
     {rangeFallback.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Активный диапазон' : 'Active range'}</h2>{cards(rangeFallback)}</div>}
-    {data.plannedTasks.length > 0 && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks)}</div>}
+    {data.plannedTasks.some(item => !plan?.activeRanges.has(item.id)) && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks.filter(item => !plan?.activeRanges.has(item.id)))}</div>}
     {data.allDay.length > 0 && allDayOpen && <div className="timeline-top-items timeline-all-day-items">{cards(data.allDay)}</div>}
     {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}
     <div className="timeline-axis" style={{ height: height + 12 }} onTouchStart={beginBackgroundSwipe} onTouchEnd={endBackgroundSwipe} onTouchCancel={() => { swipeStart.current = null; cancelHold(); }}

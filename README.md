@@ -6,7 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.2.6** · workspace schema: **1.26.0**
+Current release: **v3.2.7** · workspace schema: **1.26.0**
+
+3.2.7 fixes the native widget's frozen minute countdown, keeps unplaced Active range cues visible on Timeline, uses vertical-only travel borders, combines bottom navigation and capture into one row, and organizes the collapsed Guide. Timer item search now shows matching results directly.
 
 3.2.6 adds bounded offline widget timelines with next-stage clock labels, AlarmKit reminders (`нн` / `alarm` / `rr`), complete relationship-ranked organization suggestions, and persistent quick timer/stopwatch commands (`т` / `timer`, `с` / `stopwatch`). The bilingual command reference is in Settings → Guide. New Google changes still require app synchronization; widget refresh timing remains controlled by iOS.
 

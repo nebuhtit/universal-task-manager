@@ -1,0 +1,17 @@
+.settings-guide,
+.settings-guide-section,
+.settings-guide-section > div {
+  min-width: 0;
+  max-width: 100%;
+}
+.settings-guide .settings-guide-section p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-guide .settings-guide-section code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: 100%;
+}

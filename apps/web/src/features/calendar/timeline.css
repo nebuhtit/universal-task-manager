@@ -16,7 +16,7 @@
 .timeline-hidden-reserve { position: absolute; inset-inline: 0; overflow: hidden; border: 1.5px dotted color-mix(in srgb, var(--color-border-strong) 55%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-text-secondary) 7%, transparent); color: color-mix(in srgb, var(--color-text-secondary) 55%, transparent); font-size: var(--font-size-caption); }
 .timeline-hidden-reserve span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-inline: var(--space-2); }
 .timeline-active-ranges { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-.timeline-active-range { position: absolute; inset-inline: 0; display: flex; align-items: center; gap: var(--space-2); overflow: hidden; box-sizing: border-box; padding-inline: var(--space-2); border: 1.5px dashed color-mix(in srgb, var(--color-border-strong) 65%, transparent); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font-size: var(--font-size-caption); text-align: start; cursor: pointer; pointer-events: auto; }
+.timeline-active-range { position: absolute; inset-inline: 0; display: flex; align-items: center; gap: var(--space-2); overflow: hidden; box-sizing: border-box; padding-inline: var(--space-2); border: 2px dotted color-mix(in srgb, var(--color-border-strong) 65%, transparent); border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font-size: var(--font-size-caption); text-align: start; cursor: pointer; pointer-events: auto; }
 .timeline-active-range span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-active-range small { margin-inline-start: auto; white-space: nowrap; }
 .timeline-active-range:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
@@ -30,7 +30,7 @@
 .timeline-event .timeline-property { display: flex; align-items: center; gap: var(--space-1); }
 .timeline-event .timeline-property .property-icon { flex: none; }
 .timeline-event:focus-visible { z-index: 3; }
-.timeline-travel { border-style: dashed; }
+.timeline-travel { border-style: dashed; border-top-width: 0; border-bottom-width: 0; border-radius: 0; }
 .timeline-tentative { border: 2px dotted var(--color-border-strong); background: color-mix(in srgb, var(--color-surface-muted) var(--opacity-tentative-surface), transparent); }
 .timeline-tentative-overdue { border-color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); }
 .timeline-planning-summary { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-4); row-gap: var(--space-1); margin-block: var(--space-2); font-size: var(--font-size-secondary); }

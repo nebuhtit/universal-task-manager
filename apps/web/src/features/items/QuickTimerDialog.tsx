@@ -3,6 +3,7 @@ import { addTimerActualTime, createItem, durationToMs, type WorkspaceDocument, t
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { Button, Input, Select } from '../../components/ui/primitives';
 import { QuickItemTimer } from './editor/QuickItemTimer';
+import './quick-timer-dialog.css';
 
 type Commit = (message: string, change: (draft: WorkspaceDocument) => void) => unknown;
 export function storeQuickTimer(draft: WorkspaceDocument, active: UniversalItem['activeTimer']) {
@@ -24,6 +25,8 @@ export function attachQuickTimer(draft: WorkspaceDocument) {
 }
 export function QuickTimerDialog({ workspace, open, onClose, commit }: { workspace: WorkspaceDocument; open: boolean; onClose: () => void; commit: Commit }) {
   const [query, setQuery] = useState('');
+  const [resultLimit, setResultLimit] = useState(20);
+  const matches = Object.values(workspace.items).filter(entry => !entry.deletedAt && entry.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const ru = workspace.calendarPreferences.language === 'ru';
   const state = workspace.quickTimer;
   const item = state?.itemId ? workspace.items[state.itemId] : undefined;
@@ -45,7 +48,12 @@ export function QuickTimerDialog({ workspace, open, onClose, commit }: { workspa
     attachQuickTimer(draft);
   });
   return <ResponsiveDialog open={open} onOpenChange={value => { if (!value) onClose(); }} title={ru ? 'Таймер и секундомер' : 'Timer and stopwatch'}>
-    <Input aria-label={ru ? 'Поиск item' : 'Search item'} placeholder={ru ? 'Найти или создать item' : 'Find or create item'} value={query} onChange={event => setQuery(event.target.value)} />
+    <Input aria-label={ru ? 'Поиск item' : 'Search item'} placeholder={ru ? 'Найти или создать item' : 'Find or create item'} value={query} onChange={event => { setQuery(event.target.value); setResultLimit(20); }} />
+    {query.trim() && <section className="quick-timer-search" aria-label={ru ? 'Результаты поиска' : 'Search results'}>
+      <small role="status">{ru ? `Найдено: ${matches.length}` : `Found: ${matches.length}`}</small>
+      {matches.slice(0, resultLimit).map(entry => <Button key={entry.id} variant="secondary" onClick={() => { choose(entry.id); setQuery(''); }}>{entry.title}</Button>)}
+      {matches.length > resultLimit && <Button variant="ghost" onClick={() => setResultLimit(value => value + 20)}>{ru ? 'Показать ещё' : 'Show more'}</Button>}
+    </section>}
     <Select aria-label={ru ? 'Привязать к item' : 'Attach to item'} value={item?.id ?? ''} onChange={event => choose(event.target.value)}>
       <option value="">{ru ? 'Без привязки' : 'Unattached'}</option>
       {Object.values(workspace.items).filter(entry => !entry.deletedAt && (entry.id === item?.id || entry.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()))).map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}

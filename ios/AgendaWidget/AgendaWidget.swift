@@ -72,15 +72,20 @@ struct AgendaWidgetView: View {
             .replacingOccurrences(of: "[[travel-road]] ", with: "Travel · ")
             .replacingOccurrences(of: "[[travel-back-to]] ", with: "Return travel · "))
     }
+    @ViewBuilder
     private func countdown(_ target: Date) -> some View {
-        TimelineView(.periodic(from: entry.date, by: 60)) { context in
-            let remaining = max(0, target.timeIntervalSince(context.date))
-            if remaining < 600 {
-                Text(timerInterval: context.date...max(context.date, target), countsDown: true).monospacedDigit()
-            } else {
-                let totalMinutes = Int(ceil(remaining / 60))
-                Text(totalMinutes >= 60 ? "\(totalMinutes / 60) h \(totalMinutes % 60) min" : "\(totalMinutes) min").monospacedDigit()
-            }
+        // WidgetKit archives the view: a periodic TimelineView around a computed
+        // String can freeze until the next timeline entry. System date Text is
+        // updated by the host even while our extension is not running.
+        if target.timeIntervalSince(entry.date) < 600 {
+            Text(timerInterval: entry.date...max(entry.date, target), countsDown: true).monospacedDigit()
+        } else if #available(iOS 18.0, *) {
+            Text(.currentDate, format: .offset(to: target, allowedFields: [.hour, .minute], maxFieldCount: 2, sign: .never))
+                .monospacedDigit()
+        } else {
+            // iOS 17 has no configurable live date format. Prefer a live timer
+            // (including seconds) over a misleading frozen minute count.
+            Text(timerInterval: entry.date...max(entry.date, target), countsDown: true).monospacedDigit()
         }
     }
     private func content(outerInset: CGFloat = 0, middleInset: CGFloat = 0) -> some View {
