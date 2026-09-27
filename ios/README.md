@@ -207,6 +207,8 @@ On macOS 15+ with Xcode, run from the repository root:
 ```sh
 xcrun swiftc ios/AgendaWidget/RemainingDurationFormatStyle.swift ios/Tests/RemainingDurationFormatStyleTests.swift -o /private/tmp/utm-widget-format-tests
 /private/tmp/utm-widget-format-tests
+xcrun swiftc -D WIDGET_EXTENSION ios/UniversalTaskManager/AgendaWidgetStore.swift ios/Tests/AgendaWidgetStoreTests.swift -o /private/tmp/utm-widget-store-tests
+/private/tmp/utm-widget-store-tests
 ```
 
 This checks the production formatter's sign, compact units, zero clamp, and

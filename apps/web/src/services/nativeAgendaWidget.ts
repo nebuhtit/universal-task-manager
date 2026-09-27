@@ -2,13 +2,17 @@ import type { WorkspaceDocument } from '@utm/core';
 import { selectHeaderAgenda } from '../components/layout/headerAgendaModel';
 import { agendaMoment, nextAgendaMidnight } from '../components/layout/agendaMoment';
 
-type Reply = { enabled: boolean };
+type Reply = { enabled: boolean; snapshotReady?: boolean; snapshotGeneratedAt?: number; snapshotExpires?: number };
 const bridge = () => typeof window === 'undefined' ? undefined : (window as typeof window & { webkit?: { messageHandlers?: { utmNativeAgenda?: { postMessage: (value: unknown) => Promise<Reply> } } } }).webkit?.messageHandlers?.utmNativeAgenda;
 export const hasNativeAgendaWidget = () => Boolean(bridge());
 export async function agendaWidgetRequest(kind: 'status' | 'enable' | 'disable' | 'sync', payload?: unknown) {
   const handler = bridge();
   if (!handler) throw new Error('Widget unavailable');
-  return handler.postMessage({ kind, payload });
+  return handler.postMessage(payload === undefined ? { kind } : { kind, payload });
+}
+
+export function needsAgendaWidgetSync(status: Reply, signature: string, sent: string, force = false) {
+  return status.enabled && (force || status.snapshotReady === false || signature !== sent);
 }
 
 /** Minimal read-only projection. No passwords, item objects, or Google tokens. */

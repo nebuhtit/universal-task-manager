@@ -1,8 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace } from '@utm/core';
-import { agendaWidgetSnapshot } from './nativeAgendaWidget';
+import { agendaWidgetRequest, agendaWidgetSnapshot, needsAgendaWidgetSync } from './nativeAgendaWidget';
 
 describe('lock screen agenda projection', () => {
+  it('sends bridge control messages without unsupported undefined values', async () => {
+    const postMessage = vi.fn(async (_value: unknown) => ({ enabled: true, snapshotReady: false }));
+    vi.stubGlobal('window', { webkit: { messageHandlers: { utmNativeAgenda: { postMessage } } } });
+    try {
+      await agendaWidgetRequest('status');
+      expect(postMessage).toHaveBeenCalledWith({ kind: 'status' });
+      expect(Object.keys(postMessage.mock.calls[0]![0] ?? {})).toEqual(['kind']);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('repairs a missing native snapshot and refreshes on foreground without duplicate background writes', () => {
+    expect(needsAgendaWidgetSync({ enabled: true, snapshotReady: false }, 'same', 'same')).toBe(true);
+    expect(needsAgendaWidgetSync({ enabled: true, snapshotReady: true }, 'same', 'same', true)).toBe(true);
+    expect(needsAgendaWidgetSync({ enabled: true, snapshotReady: true }, 'same', 'same')).toBe(false);
+    expect(needsAgendaWidgetSync({ enabled: false, snapshotReady: false }, 'new', 'old', true)).toBe(false);
+  });
   it('keeps an absolute overnight Due target, not a cached remaining duration', () => {
     const now = Date.parse('2026-09-26T20:04:00Z');
     const workspace = createWorkspace('Overnight Due'); workspace.items = {};

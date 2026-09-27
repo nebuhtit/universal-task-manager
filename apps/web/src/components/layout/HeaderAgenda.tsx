@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { agendaWidgetRequest, agendaWidgetSnapshot, hasNativeAgendaWidget } from '../../services/nativeAgendaWidget';
+import { agendaWidgetRequest, agendaWidgetSnapshot, hasNativeAgendaWidget, needsAgendaWidgetSync } from '../../services/nativeAgendaWidget';
 import { itemDeletionTime, type WorkspaceDocument } from '@utm/core';
 import { useWorkspaceNow } from '../../hooks/useClock';
 import { AgendaTitle, agendaPlainText } from './AgendaTitle';
@@ -12,24 +12,26 @@ export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
   useEffect(() => {
     if (!workspace || !hasNativeAgendaWidget()) return;
     let disposed = false;
-    const sync = () => { void agendaWidgetRequest('status').then(status => {
+    const sync = (force = false) => { void agendaWidgetRequest('status').then(status => {
       if (!disposed && status.enabled) {
         const snapshot = agendaWidgetSnapshot(workspace);
         const { at: _at, ...firstStage } = snapshot.entries[0] ?? {};
         const signature = JSON.stringify([workspace.workspaceId, firstStage, snapshot.entries.slice(1), Math.floor(snapshot.generatedAt / 1800)]);
-        if (signature === widgetSent.current) return;
-        return agendaWidgetRequest('sync', snapshot).then(() => {
+        if (!needsAgendaWidgetSync(status, signature, widgetSent.current, force)) return;
+        return agendaWidgetRequest('sync', snapshot).then(reply => {
+          if (!reply.enabled || reply.snapshotReady === false) throw new Error('Widget snapshot was not accepted');
           widgetSent.current = signature;
           recordDiagnostic({ kind: 'result', operation: 'Agenda widget', message: 'Widget snapshot updated', details: JSON.stringify({ version: snapshot.version, generatedAt: snapshot.generatedAt, nextTransition: snapshot.nextStageAt, expires: snapshot.expires }) });
         });
       }
-    }).catch(() => undefined); };
-    const visible = () => { if (document.visibilityState === 'visible') sync(); };
+    }).catch(reason => recordDiagnostic({ kind: 'error', operation: 'Agenda widget', message: 'Widget snapshot transfer failed', details: reason instanceof Error ? reason.message : 'Native bridge failure' })); };
+    const visible = () => { if (document.visibilityState === 'visible') sync(true); };
+    const changed = () => { widgetSent.current = ''; sync(true); };
     sync();
     const refresh = window.setInterval(visible, 30 * 60_000);
-    window.addEventListener('utm-agenda-widget-change', sync);
+    window.addEventListener('utm-agenda-widget-change', changed);
     document.addEventListener('visibilitychange', visible);
-    return () => { disposed = true; window.clearInterval(refresh); window.removeEventListener('utm-agenda-widget-change', sync); document.removeEventListener('visibilitychange', visible); };
+    return () => { disposed = true; window.clearInterval(refresh); window.removeEventListener('utm-agenda-widget-change', changed); document.removeEventListener('visibilitychange', visible); };
   }, [workspace]);
   const now = useWorkspaceNow(workspace).getTime();
   const cache = useRef<{ workspace: WorkspaceDocument; at: number; agenda: Agenda } | undefined>(undefined);
