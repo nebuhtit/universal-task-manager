@@ -18,7 +18,7 @@ export interface GoogleSaveOperation {
   attempted?: boolean;
   blocked?: string;
   instance?: { calendarId: string; masterId: string; originalStart: string; baseline?: GoogleCalendarEvent };
-  split?: { seriesId: string; calendarId: string; eventId: string; baseline: GoogleCalendarEvent; recurrence: string[]; completedEvent?: GoogleCalendarEvent };
+  split?: { seriesId: string; calendarId: string; eventId: string; baseline: GoogleCalendarEvent; recurrence: string[]; completedEvent?: GoogleCalendarEvent; createdEvent?: GoogleCalendarEvent };
 }
 export interface GoogleSaveOptions { calendarId: string; busy: boolean; baseline: UniversalItem; rebased?: boolean }
 const eventUrl = (calendar: string, id: string) => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(id)}`;
@@ -127,19 +127,32 @@ export async function saveGoogleItem(args: {
     const writable = await writableGoogleCalendars(token, args.accountEmail);
     if (![split.calendarId, operation.calendarId].every(id => writable.some(calendar => calendar.id === id))) throw new Error('Both calendars must be writable.');
     await persist(operation);
-    const current = await googleJson<GoogleCalendarEvent>(eventUrl(split.calendarId, split.eventId), token);
-    if (current.status === 'cancelled') throw new Error('The original Google series was deleted.');
+    // Establish the replacement first. Cutting the old series before this write
+    // succeeded left all future repeats absent when creation failed/offline.
+    if (operation.kind !== 'create' || !operation.draft.recurrence?.length) throw new Error('The replacement recurring series is missing. Your UTM item is kept.');
+    if (!split.createdEvent) {
+      const createdEvent = await createSingleGoogleEvent(token, operation);
+      if (createdEvent.status === 'cancelled' || !createdEvent.recurrence?.length) throw new Error('Google did not confirm the replacement repeats. The original series was not shortened.');
+      operation = { ...operation, split: { ...split, createdEvent } };
+      await persist(operation);
+    }
+    let current: GoogleCalendarEvent;
+    try { current = await googleJson<GoogleCalendarEvent>(eventUrl(split.calendarId, split.eventId), token); }
+    catch (reason) {
+      if (![404, 410].includes((reason as { status?: number }).status ?? 0)) throw reason;
+      current = { id: split.eventId, status: 'cancelled' };
+    }
     let trimmed = current;
-    if (JSON.stringify(current.recurrence ?? []) !== JSON.stringify(split.recurrence)) {
+    if (current.status !== 'cancelled' && JSON.stringify(current.recurrence ?? []) !== JSON.stringify(split.recurrence)) {
       if (!current.etag) throw new GoogleEditConflict();
       trimmed = await googleJson<GoogleCalendarEvent>(`${eventUrl(split.calendarId, split.eventId)}?sendUpdates=all`, token, { recurrence: split.recurrence }, { method: 'PATCH', etag: current.etag });
     }
-    operation = { ...operation, split: { ...split, completedEvent: trimmed } };
+    operation = { ...operation, split: { ...operation.split!, completedEvent: trimmed } };
     await persist(operation);
   }
   if (operation.kind === 'create') {
     await persist(operation);
-    const event = await createSingleGoogleEvent(token, operation as GoogleCreateOperation);
+    const event = operation.split?.createdEvent ?? await createSingleGoogleEvent(token, operation as GoogleCreateOperation);
     await finish(operation.calendarId, event); return;
   }
   if (operation.kind === 'edit') {

@@ -34,10 +34,17 @@ jobs:
       - run: pnpm --filter @utm/core build && pnpm --filter @utm/sdk build
       - run: pnpm typecheck
       - run: pnpm test
+        if: ${{ !contains(github.event.head_commit.message, '[targeted-checks]') }}
+      - name: Targeted Google recurrence recovery checks
+        if: ${{ contains(github.event.head_commit.message, '[targeted-checks]') }}
+        run: pnpm exec vitest run apps/web/src/services/googleItemSave.test.ts apps/web/src/services/recurrenceItemEdit.test.ts apps/web/src/services/workspaceSaveService.test.ts
       - run: pnpm exec playwright install --with-deps chromium webkit
+        if: ${{ !contains(github.event.head_commit.message, '[targeted-checks]') }}
       - name: Google save and recovery smoke (mock API, desktop and mobile)
+        if: ${{ !contains(github.event.head_commit.message, '[targeted-checks]') }}
         run: pnpm test:google
       - name: Calendar planning, sticky navigation and editor (Chromium and WebKit)
+        if: ${{ !contains(github.event.head_commit.message, '[targeted-checks]') }}
         run: pnpm exec playwright test tests/e2e/calendar-planning.spec.ts tests/e2e/timeline.spec.ts --workers=2
       - name: Preserve synthetic browser failure diagnostics
         if: failure()

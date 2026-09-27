@@ -79,9 +79,37 @@ describe('unified Google item save', () => {
     }));
     const args = { token: 'test', workspaceId: 'w', accountEmail: 'source', item, options, persist: async (op: GoogleSaveOperation) => { item.extensions![GOOGLE_SAVE_EXTENSION] = structuredClone(op); }, apply: vi.fn(async () => {}) };
     await expect(saveGoogleItem(args)).rejects.toThrow('Lost response');
-    expect(creates).toBe(0);
+    expect(creates).toBe(1);
     await saveGoogleItem(args);
     expect(trims).toBe(1); expect(creates).toBe(1); expect(args.apply).toHaveBeenCalledOnce();
+  });
+  it('never truncates old repeats when replacement creation fails', async () => {
+    const item = fixture(); item.role = 'series_template';
+    item.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+    item.extensions = { 'utm:googleSplit': { seriesId: 'old', calendarId: 'source', eventId: 'master', baseline: { id: 'master', etag: 'v1' }, recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20300919T235959Z'] } };
+    const methods: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      methods.push(init?.method ?? 'GET');
+      throw new TypeError('Offline');
+    }));
+    await expect(saveGoogleItem({ token: 'test', workspaceId: 'w', accountEmail: 'source', item, options: { calendarId: 'source', busy: true, baseline: item }, persist: async () => {}, apply: async () => {} })).rejects.toThrow('Offline');
+    expect(methods).toEqual(['POST']);
+  });
+  it('finishes a pending future split even when the old Google series is cancelled', async () => {
+    const item = fixture(); item.role = 'series_template';
+    item.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+    item.extensions = { 'utm:googleSplit': { seriesId: 'old', calendarId: 'source', eventId: 'master', baseline: { id: 'master', etag: 'v1' }, recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20300919T235959Z'] } };
+    const writes: string[] = []; const apply = vi.fn(async () => {});
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      if (init?.method === 'POST') { writes.push('create'); return reply({ ...JSON.parse(String(init.body)), etag: 'new' }); }
+      if (init?.method === 'PATCH') throw new Error('Must not patch a deleted series');
+      return reply({ id: 'master', status: 'cancelled' });
+    }));
+    await saveGoogleItem({ token: 'test', workspaceId: 'w', accountEmail: 'source', item, options: { calendarId: 'source', busy: true, baseline: item }, persist: async () => {}, apply });
+    expect(writes).toEqual(['create']);
+    expect(apply).toHaveBeenCalledWith('source', expect.objectContaining({ recurrence: ['RRULE:FREQ=WEEKLY'] }), true);
   });
   it('deletes a linked event after the local end was cleared, and treats an already deleted event as success', async () => {
     const item = fixture(); delete item.schedule!.endAt;
