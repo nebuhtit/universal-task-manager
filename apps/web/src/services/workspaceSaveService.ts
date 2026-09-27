@@ -7,6 +7,7 @@ import { cachedGoogleWriteToken, requestGoogleCalendarToken, synchronizeGoogleCa
 import { googleActionItem } from '../features/items/editor/itemEditorSource';
 import { saveItemInWorkspace, type ItemSaveIntent } from './itemSaveCommand';
 import { recurrenceEditPendingIds } from './recurrenceItemEdit';
+import { adoptGoogleUniversalItem } from './googleUniversalItem';
 import { GOOGLE_DELETION_RECEIPTS_EXTENSION, type GoogleDeletionReceipt } from '@utm/core';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -468,5 +469,20 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     })) throw new Error('Could not save recurring completion.');
     return { series, ...result };
   };
-  return { saveItem, updateSeriesCompletion, synchronize, retryGoogleQueue, persistGoogleEditDraft, saveGoogleEdit, prepareGoogleCreate, applyGoogleCreated, isWriting: (id: string) => googleWrites.has(id) || localSaves.has(id) };
+  const prepareItemEditor = async (itemId: string) => {
+    const { assertCurrent, commit, flushPersistence } = guard();
+    const item = requireWorkspace().items[itemId];
+    if (!item?.external?.readOnly) return item;
+    const link = item.external;
+    const token = await requestGoogleCalendarToken(undefined, 'create');
+    assertCurrent();
+    const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(link.calendarId)}/events/`;
+    const event = await googleJson<GoogleCalendarEvent>(base + encodeURIComponent(link.eventId), token.accessToken);
+    const master = event.recurringEventId ? await googleJson<GoogleCalendarEvent>(base + encodeURIComponent(event.recurringEventId), token.accessToken) : undefined;
+    assertCurrent();
+    if (!commit('Use universal Google item editor', draft => { adoptGoogleUniversalItem(draft, itemId, event, master); })) throw new Error('Could not persist the Google item association.');
+    await flushPersistence();
+    return requireWorkspace().items[itemId];
+  };
+  return { prepareItemEditor, saveItem, updateSeriesCompletion, synchronize, retryGoogleQueue, persistGoogleEditDraft, saveGoogleEdit, prepareGoogleCreate, applyGoogleCreated, isWriting: (id: string) => googleWrites.has(id) || localSaves.has(id) };
 }

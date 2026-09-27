@@ -49,7 +49,7 @@ import { reminderSnoozedUntil, type ReminderSnoozeOption } from './services/remi
 import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, googleCalendarFailureDetails, readDiagnostics, recordDiagnostic, safeGoogleCalendarFailureDetails, setDiagnosticsEnabled, type DiagnosticEntry, type GoogleCalendarSyncStage } from './services/diagnostics';
 import { applyViewCreationDefaults } from './features/views/applyCreationDefaults';
 import { SettingsReleaseInfo } from './features/settings/SettingsReleaseInfo';
-import { googleActionItem, itemEditorSource } from './features/items/editor/itemEditorSource';
+import { itemEditorSource } from './features/items/editor/itemEditorSource';
 import { QuickCompletionInput } from './features/items/QuickCompletionInput';
 import { usesCompletionAnchoredRecurrence } from './features/items/quickCompletion';
 import { COMPLETION_EXIT_MS, selectViewItems, setCompletionHold } from './features/views/viewSelectors';
@@ -649,6 +649,7 @@ export default function App() {
     return () => window.removeEventListener('utm:open-project', open);
   }, []);
   const [editor, setEditor] = useState<UniversalItem | null>(null);
+  const itemOpenRequest = useRef(0);
   const editorCompletionSelection = useRef<{ seriesId: string; occurrenceId: string } | null>(null);
   const [quickPinTarget, setQuickPinTarget] = useState<QuickDueTarget | null>(null);
   const [quickDueTarget, setQuickDueTarget] = useState<QuickDueTarget | null>(null);
@@ -1244,8 +1245,19 @@ export default function App() {
   const quickDueItem = quickDueTarget ? resolveQuickDueItem(workspace, quickDueTarget) : null;
   const allItemsView = allItemsViewFor(workspace);
   const openWorkspaceItem = (item: UniversalItem) => {
+    const request = ++itemOpenRequest.current;
     setFocusEditorId('');
     setEditorIsNew(false);
+    if (item.external?.readOnly) {
+      void saveService.prepareItemEditor(item.id).then(prepared => {
+        if (request !== itemOpenRequest.current) return;
+        const latest = getCurrentWorkspace();
+        if (!prepared || !latest) return;
+        editorCompletionSelection.current = prepared.occurrence ? { seriesId: prepared.occurrence.seriesId, occurrenceId: prepared.id } : null;
+        setEditor(itemEditorSource(latest, prepared));
+      }).catch(reason => { if (request === itemOpenRequest.current) { setToast(String(reason)); editorCompletionSelection.current = null; setEditor(item); } });
+      return;
+    }
     editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item));
   };
 
@@ -1388,10 +1400,6 @@ export default function App() {
         if (!saved) throw new Error('Could not save item history.');
         await flushPersistence();
       }}
-      onGoogleEditDraft={operation => saveService.persistGoogleEditDraft(googleActionItem(workspace, editor).id, operation)}
-      onGoogleSave={operation => saveService.saveGoogleEdit(googleActionItem(workspace, editor).id, operation)}
-      onPrepareGoogleCreate={operation => saveService.prepareGoogleCreate(googleActionItem(workspace, editor).id, operation)}
-      onGoogleCreated={(operation, event) => saveService.applyGoogleCreated(googleActionItem(workspace, editor).id, operation, event)}
       onReadPortableFile={async (file) => (await portableFromFile(file, workspace)).source} onExportItem={(item, format, metadata) => exportAfterFlush(() => exportPortable(workspace, packageForItems(workspace, [item], { type: 'single_item', itemId: item.id }), `${safeFilename(item.title)}.utm-items`, format, metadata))} onClose={() => { setEditorIsNew(false); setEditor(null); }} onToggleSubtask={(id) => { const subtask = workspace.items[id]; if (subtask) changeItemState(subtask, subtask.state === 'done' ? 'open' : 'done'); }} onUpdateRecurrenceCompletion={(record: RecurrenceCompletionRecord, completedAt) => {
       const result = saveService.updateSeriesCompletion(record, completedAt, currentWorkspaceNow());
       if (result.changed) void flushPersistence().then(() => setToast(result.rescheduled ? 'Completion time saved. Next cycle updated.' : 'Completion time saved.')).catch(() => setToast('Completion time is not saved yet. Retry local saving.'));

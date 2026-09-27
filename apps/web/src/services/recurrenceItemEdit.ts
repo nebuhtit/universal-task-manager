@@ -79,7 +79,7 @@ export function editRecurringItem(workspace: WorkspaceDocument, edited: Universa
     }
     if (!onRule && cycle.recurrenceOverride) next.recurrence.rdates = [...new Set([...next.recurrence.rdates, newAnchor.toISOString()])];
     const fresh = createOccurrence(next, newAnchor, Math.max(0, cycle.occurrence.sequence - beforeCount));
-    if (cycle.state === 'open' && !cycle.recurrenceOverride) applyFields(cycle, fresh);
+    if (cycle.state === 'open' && (!cycle.recurrenceOverride || cycle.id === selected.id)) applyFields(cycle, fresh);
     cycle.occurrence = fresh.occurrence!;
     if (cycle.recurrenceOverride) cycle.recurrenceOverride = { ...cycle.recurrenceOverride, sourceSeriesId: next.id, recurrenceId: fresh.occurrence!.recurrenceId };
     if (splitting && cycle.state === 'open') {

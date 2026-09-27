@@ -6,7 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.4.0** · workspace schema: **1.26.0**
+Current release: **v3.4.1** · workspace schema: **1.26.0**
+
+3.4.1 uses the universal Edit item dialog for Google imports too. Opening an imported recurrence adopts its verified master and selected occurrence into the existing linked-item save path, preserving local IDs, history and UTM-only fields. The separate Google properties/editor dialog is removed; first-time series loading needs connectivity, and Google write permissions remain enforced.
 
 3.4.0 reconciles stored Google recurrence mirrors after a calendar move using the exact master ID and original occurrence date. Unlinked future splits can recover their association through the verified deterministic creation ID and Google operation marker, without remote writes. A targeted refresh repairs older mirrors lacking identity metadata; unrelated same-title events are never merged.
 

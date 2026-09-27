@@ -37,7 +37,7 @@ jobs:
         if: ${{ !contains(github.event.head_commit.message, '[targeted-checks]') }}
       - name: Targeted Google recurrence recovery checks
         if: ${{ contains(github.event.head_commit.message, '[targeted-checks]') }}
-        run: pnpm exec vitest run apps/web/src/services/googleItemSave.test.ts apps/web/src/services/recurrenceItemEdit.test.ts apps/web/src/services/workspaceSaveService.test.ts packages/core/src/google-linked.test.ts packages/core/src/google-calendar.test.ts
+        run: pnpm exec vitest run apps/web/src/services/googleUniversalItem.test.ts apps/web/src/services/itemSaveCommand.test.ts apps/web/src/services/googleItemSave.test.ts apps/web/src/services/recurrenceItemEdit.test.ts apps/web/src/services/workspaceSaveService.test.ts packages/core/src/google-linked.test.ts packages/core/src/google-calendar.test.ts
       - run: pnpm exec playwright install --with-deps chromium webkit
         if: ${{ !contains(github.event.head_commit.message, '[targeted-checks]') }}
       - name: Google save and recovery smoke (mock API, desktop and mobile)

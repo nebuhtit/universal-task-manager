@@ -46,6 +46,9 @@ export function saveItemInWorkspace(draft: WorkspaceDocument, item: UniversalIte
   const before = draft.items[item.id];
   draft.items[item.id] = clean(item);
   const target = draft.items[item.id]!;
+  // Imported events use the same durable local item after the first Save,
+  // including offline/local-only edits. Google permissions are checked at write.
+  if (target.external?.readOnly) target.external.readOnly = false;
   const completion = options?.completionOccurrenceId ? target : undefined;
   // A draft opened before acknowledgement must not erase sync tombstones.
   if (before?.extensions?.['utm:googleDeletionReceipts']) {
