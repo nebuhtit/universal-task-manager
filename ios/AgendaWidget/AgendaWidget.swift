@@ -9,6 +9,8 @@ struct AgendaEntry: TimelineEntry {
     let label: String
     var moment: String = ""
     var tomorrow: Bool = false
+    /// h/m values are timeline data; below ten minutes the native timer takes over.
+    var compactRemaining: String? = nil
 }
 struct AgendaProvider: TimelineProvider {
     func placeholder(in context: Context) -> AgendaEntry {
@@ -41,6 +43,21 @@ struct AgendaProvider: TimelineProvider {
             return AgendaEntry(date: threshold, current: entry.current, title: entry.title, target: target, label: entry.label, moment: entry.moment, tomorrow: entry.tomorrow)
         }
         result.append(contentsOf: secondThresholds)
+        result.sort { $0.date < $1.date }
+        // WidgetKit archives views outside our extension process. Give it a
+        // compact, static h/m value at five-minute boundaries, then hand off to
+        // the supported native live timer for the final ten minutes.
+        var minuteEntries: [AgendaEntry] = []
+        let fiveMinutes: TimeInterval = 5 * 60
+        var minute = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / fiveMinutes) * fiveMinutes + fiveMinutes)
+        let expiry = Date(timeIntervalSince1970: snapshot.expires)
+        while minute < expiry {
+            if let source = result.last(where: { $0.date <= minute }), let target = source.target, target.timeIntervalSince(minute) >= 600 {
+                minuteEntries.append(AgendaEntry(date: minute, current: source.current, title: source.title, target: target, label: source.label, moment: source.moment, tomorrow: source.tomorrow, compactRemaining: AgendaCountdown.compact(remaining: target.timeIntervalSince(minute))))
+            }
+            minute = minute.addingTimeInterval(fiveMinutes)
+        }
+        result.append(contentsOf: minuteEntries)
         result.sort { $0.date < $1.date }
         if result.isEmpty { result.append(fallback) }
         result.append(expired)
@@ -77,15 +94,10 @@ struct AgendaWidgetView: View {
         // WidgetKit archives the view: a periodic TimelineView around a computed
         // String can freeze until the next timeline entry. System date Text is
         // updated by the host even while our extension is not running.
-        if target.timeIntervalSince(entry.date) < 600 {
+        if AgendaCountdown.showsSeconds(remaining: target.timeIntervalSince(entry.date)) {
             Text(timerInterval: entry.date...max(entry.date, target), countsDown: true).monospacedDigit()
-        } else if #available(iOS 18.0, *) {
-            Text(.durationOffset(to: target), format: RemainingDurationFormatStyle())
-                .monospacedDigit()
         } else {
-            // iOS 17 has no configurable live date format. Prefer a live timer
-            // (including seconds) over a misleading frozen minute count.
-            Text(timerInterval: entry.date...max(entry.date, target), countsDown: true).monospacedDigit()
+            Text(AgendaCountdown.compact(remaining: target.timeIntervalSince(entry.date))).monospacedDigit()
         }
     }
     private func content(outerInset: CGFloat = 0, middleInset: CGFloat = 0) -> some View {
@@ -108,7 +120,8 @@ struct AgendaWidgetView: View {
             if let target = entry.target, target > entry.date {
                 HStack(spacing: 4) {
                     Text(entry.label)
-                    countdown(target)
+                    if let compactRemaining = entry.compactRemaining { Text(compactRemaining).monospacedDigit() }
+                    else { countdown(target) }
                 }.font(.caption).padding(.horizontal, outerInset)
             }
         }

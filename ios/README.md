@@ -205,15 +205,17 @@ select an existing credential manually from Passwords when needed.
 On macOS 15+ with Xcode, run from the repository root:
 
 ```sh
-xcrun swiftc ios/AgendaWidget/RemainingDurationFormatStyle.swift ios/Tests/RemainingDurationFormatStyleTests.swift -o /private/tmp/utm-widget-format-tests
+xcrun swiftc ios/AgendaWidget/AgendaCountdown.swift ios/Tests/AgendaCountdownTests.swift -o /private/tmp/utm-widget-format-tests
 /private/tmp/utm-widget-format-tests
 xcrun swiftc -D WIDGET_EXTENSION ios/UniversalTaskManager/AgendaWidgetStore.swift ios/Tests/AgendaWidgetStoreTests.swift -o /private/tmp/utm-widget-store-tests
 /private/tmp/utm-widget-store-tests
 ```
 
-This checks the production formatter's sign, compact units, zero clamp, and
-discrete update boundaries. It does not simulate WidgetKit's refresh scheduling.
+This checks the plain h/m timeline values, zero clamp, and seconds boundary.
+It does not simulate WidgetKit's renderer or scheduling. Do not pass
+extension-defined DiscreteFormatStyle types to live Text: the system widget
+renderer may fail to decode the archived view and show a blank placeholder.
 On an iPhone, verify a future event more than ten minutes away shows positive
-`h`/`m`, continues decreasing while locked, and switches to seconds below ten
+hours/minutes, continues decreasing while locked, and switches to seconds below ten
 minutes. The native widget fix requires installing the updated iOS app; a website
 update alone does not replace the installed widget extension.

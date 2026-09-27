@@ -6,9 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.3.4** · workspace schema: **1.26.0**
+Current release: **v3.3.5** · workspace schema: **1.26.0**
 
-3.3.4 repairs widget snapshot delivery after returning to the app or losing the shared snapshot. Widget reads no longer depend on a stale cross-process preferences flag; disabling still clears the shared file. Native refresh requests cannot be indefinitely postponed by frequent saves, and transfer failures are recorded in diagnostics. The native iOS app/extension must be rebuilt for the storage fix; updating the website alone does not replace an installed widget.
+3.3.5 restores compact `h` / `m` countdown labels without returning to the custom SwiftUI formatter that could make a Lock Screen widget blank. The widget uses safe scheduled compact values until the final ten minutes, then switches to the native live seconds timer. The native iOS app/extension must be rebuilt; updating the website alone does not replace an installed widget.
 
 3.2.8 adds compact live `h/m` widget formatting and reconciles Active range visibility with the day List, retaining a Day tasks fallback. Dialogs use the shared glass surface by default; keyboard dismissal restores the capture row after settling. Reminder delivery is Notification or Alarm, without urgency levels, and compact LiveText keeps alarm commands distinct.
 
