@@ -112,9 +112,9 @@ describe('Calendar organization and durable local data', () => {
   });
   it('exports the local item and pending operation, but no injected access token', () => {
     const { workspace, item } = fixture();
-    item.extensions = { 'utm:googleSave': { kind: 'create', calendarId: 'one', destination: 'one', accountEmail: 'owner@example.com', eventId: 'stable-id', accessToken: 'SECRET', draft: { title: 'Meeting', start: '2030-01-01T12:00:00Z', end: '2030-01-01T13:00:00Z', allDay: false, timeZone: 'UTC', busy: true, description: '', location: '' } } };
+    item.extensions = { 'utm:googleSave': { kind: 'create', calendarId: 'one', destination: 'one', desiredDestination: 'two', desiredBusy: false, accountEmail: 'owner@example.com', eventId: 'stable-id', accessToken: 'SECRET', draft: { title: 'Meeting', start: '2030-01-01T12:00:00Z', end: '2030-01-01T13:00:00Z', allDay: false, timeZone: 'UTC', busy: true, description: '', location: '' } } };
     const backup = workspaceForExport(workspace);
-    expect(backup.items[item.id]!.extensions!['utm:googleSave']).toMatchObject({ eventId: 'stable-id' });
+    expect(backup.items[item.id]!.extensions!['utm:googleSave']).toMatchObject({ eventId: 'stable-id', desiredDestination: 'two', desiredBusy: false });
     expect(JSON.stringify(backup)).not.toContain('SECRET'); expect(backup.items[item.id]!.external).toBeUndefined();
   });
   it('links actual time to completion without changing expected duration', () => {

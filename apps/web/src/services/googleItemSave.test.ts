@@ -11,6 +11,24 @@ const calendars = { items: [{ id: 'source', primary: true, accessRole: 'owner', 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 describe('unified Google item save', () => {
+  it('moves a recurring master without a request body, retaining its recurrence', async () => {
+    const item = fixture(); item.role = 'series_template';
+    item.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+    item.external = { provider: 'google_calendar', connectionId: 'connection', eventId: 'master', calendarId: 'source', sourceUrl: '', readOnly: false, syncedAt: '', etag: 'v1' };
+    const event = { id: 'master', etag: 'v1', summary: item.title, recurrence: ['RRULE:FREQ=WEEKLY'], start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' } };
+    item.extensions = { 'utm:googleSeriesEvent': event };
+    const requests: RequestInit[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      if (url.includes('/move?')) { requests.push(init!); return reply({ ...event, etag: 'moved' }); }
+      return reply(event);
+    }));
+    const apply = vi.fn(async () => {});
+    await saveGoogleItem({ token: 'test', workspaceId: 'w', accountEmail: 'source', item, options: { calendarId: 'destination', busy: true, baseline: item }, persist: async () => {}, apply });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.method).toBe('POST'); expect(requests[0]!.body).toBeUndefined();
+    expect(apply).toHaveBeenLastCalledWith('destination', expect.objectContaining({ id: 'master', recurrence: event.recurrence }), true);
+  });
   it('resolves a single recurrence by original start and patches its instance id', async () => {
     const baseline = fixture(); const item = structuredClone(baseline); item.title = 'Only this';
     item.extensions = { 'utm:googleInstance': { calendarId: 'source', masterId: 'master', originalStart: item.schedule!.startAt! } };

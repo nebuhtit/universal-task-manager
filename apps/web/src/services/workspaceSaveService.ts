@@ -6,6 +6,7 @@ import { googleHistoryKey } from './googleHistoryKey';
 import { cachedGoogleWriteToken, requestGoogleCalendarToken, synchronizeGoogleCalendars } from './googleCalendar';
 import { googleActionItem } from '../features/items/editor/itemEditorSource';
 import { saveItemInWorkspace, type ItemSaveIntent } from './itemSaveCommand';
+import { recurrenceEditPendingIds } from './recurrenceItemEdit';
 import { GOOGLE_DELETION_RECEIPTS_EXTENSION, type GoogleDeletionReceipt } from '@utm/core';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -26,6 +27,13 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
   const setToast = (message: string) => ports.notify(message);
   const requireWorkspace = () => { const current = getWorkspace(); if (!current) throw new Error('Workspace is locked.'); return current; };
   const googleWrites = new Set<string>();
+  const googleWriteCompletions = new Map<string, Promise<void>>();
+  const beginGoogleWrite = (id: string) => {
+    let resolve!: () => void;
+    googleWrites.add(id);
+    googleWriteCompletions.set(id, new Promise<void>(done => { resolve = done; }));
+    return () => { googleWrites.delete(id); googleWriteCompletions.delete(id); resolve(); };
+  };
   const localSaves = new Set<string>();
   const guard = () => {
     const workspace = requireWorkspace();
@@ -54,7 +62,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
       if (!target || target.deletedAt || target.occurrence?.recurrenceId !== occurrenceId || fingerprint(target.extensions?.[GOOGLE_SAVE_EXTENSION]) !== expectedOperation) throw new Error('Pending Google operation changed. Retry from the latest item.');
     };
     if (googleWriteLimitReached(google)) throw new Error(`Google write safety limit reached (${google.writeDailyLimit ?? 25} changes in 24 hours). The item remains saved in UTM.`);
-    googleWrites.add(candidate.id);
+    const finishWrite = beginGoogleWrite(candidate.id);
     try {
       await saveGoogleItem({ token, workspaceId: workspace.workspaceId, accountEmail: google.accountEmail ?? '', item: candidate, options: selection, allowPast: google.allowPastEventEditing === true,
         persist: async (operation) => {
@@ -146,7 +154,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
         await flushPersistence();
       }
       throw reason;
-    } finally { googleWrites.delete(candidate.id); }
+    } finally { finishWrite(); }
   };
   const retryGoogleQueue = async (interactive = false, excludeId?: string, suppliedToken?: string) => {
     const { assertCurrent } = guard();
@@ -175,7 +183,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
       }
       const op = latest.extensions![GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation;
       if (op.blocked || op.accountEmail !== current.calendarPreferences.googleCalendar.accountEmail) continue;
-      try { await sendQueuedGoogleItem(latest, { calendarId: op.destination, busy: op.draft.busy, baseline: latest }, token); }
+      try { await sendQueuedGoogleItem(latest, { calendarId: op.desiredDestination ?? op.destination, busy: op.desiredBusy ?? op.draft.busy, baseline: latest }, token); }
       catch { /* The durable operation remains visible in the editor; no background popup. */ }
     }
     return Object.values(requireWorkspace().items).filter(item => item.id !== excludeId && queued(item)).length;
@@ -324,7 +332,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     if (!google || google.accountEmail !== operation.accountEmail) throw new Error('Google connection changed.');
     if (googleWriteLimitReached(google)) throw new Error('Google write safety limit reached.');
     googleEventChanges(operation);
-    googleWrites.add(itemId);
+    const finishWrite = beginGoogleWrite(itemId);
     try {
       const attempted = { ...operation, attempted: true };
       await persistGoogleEditDraft(itemId, attempted);
@@ -341,14 +349,40 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
         assertCurrent();
         await applyGoogleUpdated(itemId, moved.event, moved.calendarId, attempted);
       }
-    } finally { googleWrites.delete(itemId); }
+    } finally { finishWrite(); }
   };
   const saveItem = async (item: UniversalItem, options: ItemSaveIntent | undefined, now: Date) => {
-    if (googleWrites.has(item.id) || localSaves.has(item.id)) throw new Error('This item is already being saved. Your draft is kept here.');
     const { commit, flushPersistence, assertCurrent } = guard();
-    const workspace = requireWorkspace();
-    localSaves.add(item.id);
+    let workspace = requireWorkspace();
+    const intent = options?.recurrenceEdit ?? (options?.completionOccurrenceId ? { occurrenceId: options.completionOccurrenceId, scope: 'this_occurrence' as const } : undefined);
+    const reservedIds = new Set([item.id, ...(intent ? [intent.occurrenceId, ...recurrenceEditPendingIds(workspace, intent)] : [])]);
+    if ([...reservedIds].some(id => localSaves.has(id))) throw new Error('This item is already being saved. Your draft is kept here.');
+    for (const id of reservedIds) localSaves.add(id);
     try {
+      // A background response must not overwrite the edit currently being saved.
+      for (const id of new Set([item.id, ...(intent ? [intent.occurrenceId] : [])])) {
+        const writing = googleWriteCompletions.get(id);
+        if (writing) { await writing; assertCurrent(); }
+      }
+      workspace = requireWorkspace();
+      if (intent) {
+        const dependencies = recurrenceEditPendingIds(workspace, intent);
+        if (dependencies.length) {
+          const token = await requestGoogleCalendarToken(undefined, 'create');
+          assertCurrent();
+          for (const id of dependencies) {
+            const writing = googleWriteCompletions.get(id);
+            if (writing) { await writing; assertCurrent(); }
+            const latest = requireWorkspace().items[id];
+            const op = latest?.extensions?.[GOOGLE_SAVE_EXTENSION] as GoogleSaveOperation | undefined;
+            if (!latest || !op) continue;
+            // Explicit Save retries even a previously blocked write. Its persisted
+            // stage still performs read-back before any uncertain remote effect.
+            if (!await sendQueuedGoogleItem(latest, { calendarId: op.desiredDestination ?? op.destination, busy: op.desiredBusy ?? op.draft.busy, baseline: latest }, token.accessToken)) throw new Error('Google is still saving this series. Your draft is kept; retry Save shortly.');
+          }
+          workspace = requireWorkspace();
+        }
+      }
       let result: ReturnType<typeof saveItemInWorkspace> | undefined;
       let saveError: unknown;
       if (!commit(workspace.items[item.id] ? 'Update item' : 'Create item', draft => {
@@ -387,7 +421,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
       }
       return { recurrenceError, pendingGoogle: false };
     } finally {
-      localSaves.delete(item.id);
+      for (const id of reservedIds) localSaves.delete(id);
       if (!options?.google && ports.getSessionKey()) void retryGoogleQueue(false, options?.deleteGoogleEvent ? undefined : item.id).catch(() => undefined);
     }
   };

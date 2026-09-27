@@ -83,9 +83,10 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   const [googleBaseline, setGoogleBaseline] = useState(() => clean(initial));
   const [googleConflict, setGoogleConflict] = useState(() => /changed in Google/.test(String((initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { blocked?: string } | undefined)?.blocked ?? '')));
   const [googleRebased, setGoogleRebased] = useState(false);
-  const [googleBusyValue, setGoogleBusyValue] = useState((initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { draft?: { busy: boolean } } | undefined)?.draft?.busy ?? initial.external?.transparency !== 'transparent');
+  const pendingGoogleSave = initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { desiredDestination?: string; destination?: string; desiredBusy?: boolean; draft?: { busy: boolean } } | undefined;
+  const [googleBusyValue, setGoogleBusyValue] = useState(pendingGoogleSave?.desiredBusy ?? pendingGoogleSave?.draft?.busy ?? initial.external?.transparency !== 'transparent');
   const googlePreferences = workspace.calendarPreferences.googleCalendar;
-  const [googleCalendarId, setGoogleCalendarId] = useState((initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { destination?: string } | undefined)?.destination || initial.external?.calendarId || googlePreferences?.defaultCalendarId || googlePreferences?.calendars.find((c) => c.primary)?.id || '');
+  const [googleCalendarId, setGoogleCalendarId] = useState(pendingGoogleSave?.desiredDestination || pendingGoogleSave?.destination || initial.external?.calendarId || googlePreferences?.defaultCalendarId || googlePreferences?.calendars.find((c) => c.primary)?.id || '');
   const [timezoneDraft, setTimezoneDraft] = useState(initial.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [calendarChoices, setCalendarChoices] = useState((googlePreferences?.calendars ?? []).filter((c) => !c.accessRole || c.accessRole === 'owner' || c.accessRole === 'writer').map((c) => ({ id: c.id, summary: c.name })));
   const refreshCalendars = async () => {

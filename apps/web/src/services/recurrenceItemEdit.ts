@@ -1,6 +1,17 @@
 import { createId, createOccurrence, buildRecurrenceRule, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 export interface RecurrenceItemEdit { occurrenceId: string; scope: 'this_occurrence' | 'this_and_future' }
+/** Parent writes must finish before an instance edit; splits must also settle
+ * affected exceptions so their durable remote identities are not discarded. */
+export function recurrenceEditPendingIds(workspace: WorkspaceDocument, intent: RecurrenceItemEdit): string[] {
+  const selected = workspace.items[intent.occurrenceId];
+  if (!selected?.occurrence) return [];
+  const { seriesId, recurrenceId } = selected.occurrence;
+  return Object.values(workspace.items).filter(item => !item.deletedAt && item.extensions?.['utm:googleSave'] && (
+    item.id === seriesId || (intent.scope === 'this_and_future' && item.occurrence?.seriesId === seriesId && item.occurrence.recurrenceId >= recurrenceId)
+    || (item.id === selected.id && (item.extensions['utm:googleSave'] as { kind?: string }).kind === 'delete')
+  )).map(item => item.id);
+}
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 function ruleKey(value: UniversalItem['recurrence']) {
   if (!value) return '';
@@ -21,7 +32,7 @@ export function editRecurringItem(workspace: WorkspaceDocument, edited: Universa
   const selected = workspace.items[intent.occurrenceId];
   const series = selected?.occurrence ? workspace.items[selected.occurrence.seriesId] : undefined;
   if (!selected?.occurrence || !series?.recurrence || series.id !== edited.id || selected.deletedAt) throw new Error('The selected recurrence is unavailable. Reopen the item.');
-  if (series.extensions?.['utm:googleSave'] || selected.extensions?.['utm:googleSave']) throw new Error('Finish the pending Google save before changing recurrence scope. Your edit has not been discarded.');
+  if (recurrenceEditPendingIds(workspace, intent).length) throw new Error('A related Google save is still pending. Retry saving when connected; your draft is kept in the editor.');
   const anchor = selected.occurrence.recurrenceId;
   if (intent.scope === 'this_occurrence') {
     if (ruleKey(edited.recurrence) !== ruleKey(series.recurrence)) throw new Error('Choose “This and future” to change the recurrence rule.');

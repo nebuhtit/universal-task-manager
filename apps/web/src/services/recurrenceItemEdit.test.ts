@@ -17,6 +17,23 @@ function fixture() {
   return { w, series, first, second, third, edited };
 }
 describe('recurrence editor scope', () => {
+  it('keeps a pending instance write while accepting a newer title for the same occurrence', () => {
+    const { w, series, second, edited } = fixture();
+    const pending = { kind: 'edit', eventId: 'instance', draft: { title: second.title }, attempted: true };
+    second.extensions = { 'utm:googleSave': pending };
+    edited.title = 'Renamed occurrence';
+    editRecurringItem(w, edited, { occurrenceId: second.id, scope: 'this_occurrence' }, new Date());
+    expect(second.title).toBe('Renamed occurrence');
+    expect(second.extensions?.['utm:googleSave']).toEqual(pending);
+    expect(series.title).toBe('Weekly');
+  });
+  it('does not split away a future exception with an uncertain remote write', () => {
+    const { w, second, third, edited } = fixture();
+    third.extensions = { 'utm:googleSave': { kind: 'edit', attempted: true } };
+    const before = JSON.stringify(w);
+    expect(() => editRecurringItem(w, edited, { occurrenceId: second.id, scope: 'this_and_future' }, new Date())).toThrow('pending');
+    expect(JSON.stringify(w)).toBe(before);
+  });
   it('updates from the first cycle without creating an empty old series', () => {
     const { w, series, first } = fixture();
     const edited = structuredClone(itemEditorSource(w, first)); edited.title = 'All future';

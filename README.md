@@ -6,7 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.3.6** · workspace schema: **1.26.0**
+Current release: **v3.3.7** · workspace schema: **1.26.0**
+
+3.3.7 retries prerequisite Google writes before recurring edits, preserves newer titles and calendar selections across queued saves, and fixes moving recurring masters. Startup synchronization keeps progress in the sync control; informational toasts let taps through to the app.
 
 3.3.6 moves the recurring item's Apply changes selector to the bottom of Edit item and removes its explanatory text.
 

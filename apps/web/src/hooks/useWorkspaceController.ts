@@ -92,7 +92,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     catch (reason) {
       const details = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
       recordDiagnostic({ kind: 'error', message: 'Workspace operation failed before persistence', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: message === 'Sync Google Calendar' ? googleCalendarFailureDetails('save', reason) : details });
-      onToast(`Save failed; nothing was changed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
+      onToast(`Save failed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
     }
     const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);
     markPendingSave(); setSaveStatus('saving');

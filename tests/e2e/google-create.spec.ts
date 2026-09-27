@@ -4,6 +4,43 @@ const expand = async (summary: Locator) => {
   await expect(summary.locator('..')).toHaveAttribute('open', '');
 };
 
+test('startup Google sync leaves navigation usable and progress toasts do not capture taps', async ({ page }) => {
+  test.setTimeout(120_000);
+  let hold = false; let waiting = false; let release = () => {};
+  let gate = Promise.resolve();
+  const pause = () => { waiting = false; hold = true; gate = new Promise<void>(resolve => { release = () => { hold = false; resolve(); }; }); };
+  await page.addInitScript(() => { (window as any).google = { accounts: { oauth2: { initTokenClient: (options: any) => ({ requestAccessToken: () => options.callback({ access_token: 'test', expires_in: 3600, scope: options.scope }) }) } } }; });
+  await page.route('https://www.googleapis.com/calendar/v3/**', async route => {
+    if (route.request().url().includes('calendarList')) return route.fulfill({ json: { items: [{ id: 'test@example.com', primary: true, summary: 'Test', accessRole: 'owner', timeZone: 'UTC' }] } });
+    if (hold) { waiting = true; await gate; }
+    await route.fulfill({ json: { items: [], nextSyncToken: 'test-sync' } });
+  });
+  const navigate = async (name: string) => {
+    if (page.viewportSize()!.width <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); }
+    else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click();
+  };
+  await page.goto('/'); await page.getByLabel('Workspace name').fill('Sync navigation');
+  await page.getByLabel('Password', { exact: true }).fill('test-only-sync-password'); await page.getByLabel('Confirm password').fill('test-only-sync-password');
+  await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
+  await navigate('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click();
+  await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('utm:pending-save:v1'))).toBeNull();
+  pause(); await page.reload(); await page.getByLabel('Password', { exact: true }).fill('test-only-sync-password'); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  try {
+    await expect.poll(() => waiting).toBe(true);
+    await expect(page.locator('.toast').filter({ hasText: /Google Calendar:/ })).toHaveCount(0);
+    await navigate('Calendar'); await expect(page.locator('.calendar-page')).toBeVisible();
+  } finally { release(); }
+  await expect(page.getByRole('button', { name: 'Google Calendar sync', exact: true })).toBeEnabled();
+  pause(); await page.getByRole('button', { name: 'Google Calendar sync', exact: true }).click();
+  try {
+    await expect.poll(() => waiting).toBe(true);
+    const toast = page.locator('.toast').filter({ hasText: /Google Calendar:/ }); await expect(toast).toBeVisible();
+    expect(await toast.evaluate(element => { const r = element.getBoundingClientRect(); return Boolean(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('.toast')); })).toBe(false);
+    await navigate('Home'); await expect(page.getByPlaceholder('Add new item')).toBeVisible();
+  } finally { release(); }
+});
+
 test('queues offline saves, retries silently, colors calendars and applies PARA bindings', async ({ page }) => {
   test.setTimeout(120_000);
   let inserts = 0; let name = 'Work calendar'; let color = '#345678'; let remote: any;

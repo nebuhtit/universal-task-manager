@@ -8,6 +8,9 @@ export interface GoogleSaveOperation {
   kind: 'create' | 'edit' | 'move' | 'delete';
   calendarId: string;
   destination: string;
+  /** Latest user selection survives retrying an older, possibly accepted write. */
+  desiredDestination?: string;
+  desiredBusy?: boolean;
   eventId: string;
   accountEmail: string;
   draft: GoogleEventDraft;
@@ -55,7 +58,7 @@ export function needsGoogleSave(item: UniversalItem, options: GoogleSaveOptions)
 export async function prepareGoogleSave(args: { workspaceId: string; accountEmail: string; item: UniversalItem; options: GoogleSaveOptions }): Promise<GoogleSaveOperation> {
   const { item, options } = args;
   const pending = item.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
-  if (pending) return pending;
+  if (pending) return { ...pending, desiredDestination: options.calendarId, desiredBusy: options.busy };
   const link = options.baseline.external;
   const operation: GoogleSaveOperation = {
     kind: link ? 'edit' : 'create', calendarId: link?.calendarId ?? options.calendarId, destination: options.calendarId,
@@ -161,12 +164,12 @@ export async function saveGoogleItem(args: {
   }
   const current = await googleJson<GoogleCalendarEvent>(eventUrl(operation.calendarId, operation.eventId), token);
   if (current.eventType && current.eventType !== 'default') throw new Error('Google only allows moving ordinary calendar events.');
-  if (!canEditGoogleEvent(current, item.schedule?.timezone ?? 'UTC', Date.now(), args.allowPast)) throw new Error('Editing is available until 3 hours after the event ends.');
+  if (!(current.recurrence?.length && current.status !== 'cancelled') && !canEditGoogleEvent(current, item.schedule?.timezone ?? 'UTC', Date.now(), args.allowPast)) throw new Error('Editing is available until 3 hours after the event ends.');
   if (!operation.baseline?.etag || current.etag !== operation.baseline.etag) throw new GoogleEditConflict();
   operation = { ...operation, baseline: current, attempted: true };
   await persist(operation);
   let moved: GoogleCalendarEvent;
-  try { moved = await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}/move?destination=${encodeURIComponent(operation.destination)}&sendUpdates=all`, token, {}, { method: 'POST', etag: current.etag }); }
+  try { moved = await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}/move?destination=${encodeURIComponent(operation.destination)}&sendUpdates=all`, token, undefined, { method: 'POST', etag: current.etag }); }
   catch (reason) { if ((reason as { status?: number }).status === 412) throw new GoogleEditConflict(); throw reason; }
   await finish(operation.destination, moved);
 }

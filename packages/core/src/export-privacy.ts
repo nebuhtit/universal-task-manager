@@ -58,7 +58,7 @@ export function workspaceForExport(workspace: WorkspaceDocument): WorkspaceDocum
       if (pending && typeof pending === 'object' && !Array.isArray(pending)) {
         // Explicit whitelist: retain the user's durable outbox, never OAuth state.
         const source = pending as Record<string, unknown>;
-        const safeOperation = Object.fromEntries(['kind', 'calendarId', 'destination', 'eventId', 'accountEmail', 'attempted', 'blocked'].filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
+        const safeOperation = Object.fromEntries(['kind', 'calendarId', 'destination', 'desiredDestination', 'desiredBusy', 'eventId', 'accountEmail', 'attempted', 'blocked'].filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
         for (const key of ['draft', 'baseline']) {
           const value = source[key];
           if (value && typeof value === 'object' && !Array.isArray(value)) {

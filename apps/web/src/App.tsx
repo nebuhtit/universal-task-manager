@@ -736,7 +736,7 @@ export default function App() {
 
   const googleSyncInFlight = useRef(false);
   const startupGoogleSync = useRef<string | null>(null);
-  const syncGoogleCalendarFromHome = async () => {
+  const syncGoogleCalendarFromHome = async (interactive = true) => {
     const google = workspace?.calendarPreferences.googleCalendar;
     if (!workspace || !google || recovery || googleSyncInFlight.current) return;
     if (!GOOGLE_CALENDAR_CLIENT_ID) { setToast('This build needs a Google OAuth client ID before sync is available.'); return; }
@@ -747,7 +747,7 @@ export default function App() {
     setGoogleCalendarSyncing(true);
     setGoogleCalendarSyncStatus('Authorizing Google Calendar…');
     try {
-      setToast('Google Calendar: authorizing…');
+      if (interactive) setToast('Google Calendar: authorizing…');
       const token = await requestGoogleCalendarToken(undefined, 'create');
       if (getCurrentSessionKey() !== syncSessionKey || getCurrentWorkspace()?.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Workspace or Google connection changed.');
       diagnosticStage = 'outgoing-changes';
@@ -755,15 +755,15 @@ export default function App() {
       const { result, queuedGoogleWrites } = await saveService.synchronize(token.accessToken, progress => {
         diagnosticStage = progress.stage;
         setGoogleCalendarSyncStatus(progress.message);
-        setToast(`Google Calendar: ${progress.message}`);
+        if (interactive) setToast(`Google Calendar: ${progress.message}`);
       });
       const events = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);
-      setToast(queuedGoogleWrites ? `Google Calendar synced: ${events} events. ${queuedGoogleWrites} outgoing change${queuedGoogleWrites === 1 ? '' : 's'} remain safely queued.` : `Google Calendar synced: ${events} events.`);
+      if (interactive) setToast(queuedGoogleWrites ? `Google Calendar synced: ${events} events. ${queuedGoogleWrites} outgoing change${queuedGoogleWrites === 1 ? '' : 's'} remain safely queued.` : `Google Calendar synced: ${events} events.`);
       recordDiagnostic({ kind: 'result', message: 'Google Calendar sync completed', operation: 'Google Calendar sync', outcome: 'succeeded', durationMs, details: JSON.stringify({ calendars: result.batches.length, events }) });
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
-      setToast(`Google Calendar sync failed: ${message}`);
+      if (interactive) setToast(`Google Calendar sync failed: ${message}`);
       recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: googleCalendarFailureDetails(diagnosticStage, reason) });
     } finally { googleSyncInFlight.current = false; setGoogleCalendarSyncing(false); setGoogleCalendarSyncStatus(''); }
   };
@@ -775,7 +775,7 @@ export default function App() {
     // One attempt per opened workspace, never a retry loop after a failed login.
     startupGoogleSync.current = key;
     if (!workspace.calendarPreferences.googleCalendar || !GOOGLE_CALENDAR_CLIENT_ID) return;
-    void syncGoogleCalendarFromHome();
+    void syncGoogleCalendarFromHome(false);
   }, [workspace?.workspaceId, workspace?.calendarPreferences.googleCalendar?.connectionId, session, recovery]);
   useEffect(() => {
     const openHostItem = (event: Event) => {

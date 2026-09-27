@@ -1,6 +1,8 @@
 import * as Automerge from '@automerge/automerge';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyGoogleCalendarSync, createItem, createWorkspace, reconcileCalendarOrganization, type GoogleCalendarEvent, type WorkspaceDocument } from '@utm/core';
+import { applyGoogleCalendarSync, createItem, createOccurrence, createWorkspace, reconcileCalendarOrganization, type GoogleCalendarEvent, type WorkspaceDocument } from '@utm/core';
+import { itemEditorSource } from '../features/items/editor/itemEditorSource';
+import { prepareGoogleSave } from './googleItemSave';
 import { createAutomergeDocument } from '@utm/sdk';
 import { createWorkspaceSaveService } from './workspaceSaveService';
 import { commitWorkspaceDocument } from './workspaceLifecycle';
@@ -77,6 +79,85 @@ function remote(initial?: GoogleCalendarEvent) {
 }
 
 describe('workspace save coordinator crash recovery', () => {
+  it('waits for an in-flight occurrence write before applying the newer editor title', async () => {
+    const { workspace, item: series } = fixture();
+    series.role = 'series_template';
+    series.recurrence = { rrule: 'FREQ=WEEKLY;COUNT=3', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, activationOffset: 'PT0M', rdates: [], exdates: [] };
+    const occurrence = createOccurrence(series, new Date(series.schedule!.startAt!), 0);
+    occurrence.external = { provider: 'google_calendar', connectionId: 'connection', calendarId: account, eventId: 'instance', etag: 'v1', readOnly: false, sourceUrl: '', syncedAt: '' };
+    const baseline = copy(occurrence); occurrence.title = 'Queued title';
+    occurrence.extensions = { 'utm:googleSave': await prepareGoogleSave({ workspaceId: workspace.workspaceId, accountEmail: account, item: occurrence, options: { calendarId: account, busy: true, baseline } }) };
+    workspace.items[occurrence.id] = occurrence;
+    const google = remote({ id: 'instance', etag: 'v1', summary: baseline.title, start: { dateTime: occurrence.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: occurrence.schedule!.endAt!, timeZone: 'UTC' } });
+    const fetchRemote = fetch; let release!: () => void; const wait = new Promise<void>(resolve => { release = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const response = await fetchRemote(url, init);
+      if (init?.method === 'PATCH') await wait;
+      return response;
+    }));
+    const runtime = app(workspace);
+    const background = runtime.service.retryGoogleQueue(false, undefined, 'test');
+    await vi.waitFor(() => expect(google.effects.patches).toBe(1));
+    const edited = copy(itemEditorSource(workspace, occurrence)); edited.title = 'Latest title';
+    const saving = runtime.service.saveItem(edited, { recurrenceEdit: { occurrenceId: occurrence.id, scope: 'this_occurrence' }, google: { calendarId: account, busy: true, baseline: edited } }, new Date());
+    expect(runtime.workspace.items[occurrence.id]!.title).toBe('Queued title');
+    release(); await background; await saving; runtime.reload();
+    expect(runtime.workspace.items[occurrence.id]!.title).toBe('Latest title');
+    expect(google.event?.summary).toBe('Latest title'); expect(google.effects.patches).toBe(2);
+  });
+  it('finishes a pending master before saving a renamed occurrence in one Save', async () => {
+    const { workspace, item: series } = fixture();
+    series.role = 'series_template';
+    series.recurrence = { rrule: 'FREQ=WEEKLY;COUNT=3', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, activationOffset: 'PT0M', rdates: [], exdates: [] };
+    const occurrence = createOccurrence(series, new Date(series.schedule!.startAt!), 0);
+    workspace.items[occurrence.id] = occurrence;
+    series.extensions = { 'utm:googleSave': await prepareGoogleSave({ workspaceId: workspace.workspaceId, accountEmail: account, item: series, options: { calendarId: account, busy: true, baseline: series } }) };
+    let master: GoogleCalendarEvent | undefined;
+    let instance: GoogleCalendarEvent = { id: 'instance', etag: 'v1', summary: series.title, start: { dateTime: occurrence.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: occurrence.schedule!.endAt!, timeZone: 'UTC' }, originalStartTime: { dateTime: occurrence.schedule!.startAt! } };
+    let creates = 0; let patches = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return Response.json({ items: [{ id: account, primary: true, accessRole: 'owner', timeZone: 'UTC' }] });
+      if (url.includes('/instances?')) return Response.json({ items: [instance] });
+      if (init?.method === 'POST') { creates++; master = { ...JSON.parse(String(init.body)), etag: 'master-v1' }; return Response.json(master); }
+      if (init?.method === 'PATCH') { patches++; instance = { ...instance, ...JSON.parse(String(init.body)), etag: 'v2' }; return Response.json(instance); }
+      return Response.json(url.endsWith('/instance') ? instance : master);
+    }));
+    const runtime = app(workspace);
+    const edited = copy(itemEditorSource(workspace, occurrence)); edited.title = 'Renamed once';
+    await runtime.service.saveItem(edited, { recurrenceEdit: { occurrenceId: occurrence.id, scope: 'this_occurrence' }, google: { calendarId: account, busy: true, baseline: itemEditorSource(workspace, occurrence) } }, new Date());
+    runtime.reload();
+    expect(runtime.workspace.items[occurrence.id]!.title).toBe('Renamed once');
+    expect(instance.summary).toBe('Renamed once');
+    expect(runtime.workspace.items[series.id]!.title).toBe(series.title);
+    expect(runtime.workspace.items[series.id]!.extensions?.['utm:googleSave']).toBeUndefined();
+    expect(creates).toBe(1); expect(patches).toBe(1);
+  });
+
+  it('retains a newer calendar selection through an offline save and restart', async () => {
+    const { workspace, item } = fixture();
+    item.extensions = { 'utm:googleSave': await prepareGoogleSave({ workspaceId: workspace.workspaceId, accountEmail: account, item, options: { calendarId: account, busy: true, baseline: item } }) };
+    const runtime = app(workspace);
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Offline'); }));
+    const edited = copy(item); edited.title = 'New title';
+    const result = await runtime.service.saveItem(edited, { google: { calendarId: 'destination', busy: false, baseline: item } }, new Date());
+    expect(result.pendingGoogle).toBe(true);
+    runtime.reload();
+    expect(runtime.workspace.items[item.id]!.extensions?.['utm:googleSave']).toMatchObject({ desiredDestination: 'destination', desiredBusy: false });
+    let event: GoogleCalendarEvent | undefined; let creates = 0; let moves = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return Response.json({ items: [{ id: account, primary: true, accessRole: 'owner', timeZone: 'UTC' }, { id: 'destination', accessRole: 'writer', timeZone: 'UTC' }] });
+      if (url.includes('/move?')) { moves++; expect(init?.body).toBeUndefined(); return Response.json(event); }
+      if (init?.method === 'POST') { creates++; event = { ...JSON.parse(String(init.body)), etag: 'v1' }; return Response.json(event); }
+      if (init?.method === 'PATCH') { event = { ...event!, ...JSON.parse(String(init.body)), etag: 'v2' }; return Response.json(event); }
+      return event ? Response.json(event) : Response.json({}, { status: 404 });
+    }));
+    await runtime.service.retryGoogleQueue(false, undefined, 'test'); runtime.reload();
+    expect(runtime.workspace.items[item.id]!.external?.calendarId).toBe('destination');
+    expect(runtime.workspace.items[item.id]!.title).toBe('New title');
+    expect(event?.transparency).toBe('transparent');
+    expect(runtime.workspace.items[item.id]!.extensions?.['utm:googleSave']).toBeUndefined();
+    expect(creates).toBe(1); expect(moves).toBe(1);
+  });
   it('recovers a remotely created event after losing the local acknowledgement', async () => {
     const { workspace, item } = fixture(); const runtime = app(workspace); const google = remote();
     runtime.crashBeforeAck('Save linked Google event');
