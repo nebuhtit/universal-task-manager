@@ -6,7 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.3.5** · workspace schema: **1.26.0**
+Current release: **v3.3.6** · workspace schema: **1.26.0**
+
+3.3.6 moves the recurring item's Apply changes selector to the bottom of Edit item and removes its explanatory text.
 
 3.3.5 restores compact `h` / `m` countdown labels without returning to the custom SwiftUI formatter that could make a Lock Screen widget blank. The widget uses safe scheduled compact values until the final ten minutes, then switches to the native live seconds timer. The native iOS app/extension must be rebuilt; updating the website alone does not replace an installed widget.
 

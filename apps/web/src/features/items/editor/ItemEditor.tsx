@@ -513,7 +513,6 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
       quickTitleSaveAllowed.current = false;
       save({ dismissKeyboard: true });
     }}>
-        {completionOccurrenceId && <Field label={workspace.calendarPreferences.language === 'ru' ? 'Применить изменения' : 'Apply changes'}><Select aria-label="Recurrence edit scope" value={recurrenceScope} onChange={event => setRecurrenceScope(event.target.value as typeof recurrenceScope)}><option value="this_occurrence">{workspace.calendarPreferences.language === 'ru' ? 'Только это повторение' : 'Only this occurrence'}</option><option value="this_and_future">{workspace.calendarPreferences.language === 'ru' ? 'Это и все будущие' : 'This and all future occurrences'}</option></Select><p className="hint">{workspace.calendarPreferences.language === 'ru' ? 'Включая время, дорогу и напоминания. Выполнение всегда относится только к выбранному повторению.' : 'Includes times, travel and reminders. Completion always affects only the selected occurrence.'}</p></Field>}
         <div className="item-title-field">
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && !googleEvent && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
             if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? titleText)); setSourceEditing(true); setError(''); return; }
@@ -642,6 +641,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
           setGoogleBusyValue(merged.busy); setGoogleRebased(true); setGoogleConflict(false); setError('');
         } catch (reason) { setError(String(reason)); }
       }}>Load current event; keep my draft</Button>}
+        {completionOccurrenceId && <Field label={workspace.calendarPreferences.language === 'ru' ? 'Применить изменения' : 'Apply changes'}><Select aria-label="Recurrence edit scope" value={recurrenceScope} onChange={event => setRecurrenceScope(event.target.value as typeof recurrenceScope)}><option value="this_occurrence">{workspace.calendarPreferences.language === 'ru' ? 'Только это повторение' : 'Only this occurrence'}</option><option value="this_and_future">{workspace.calendarPreferences.language === 'ru' ? 'Это и все будущие' : 'This and all future occurrences'}</option></Select></Field>}
     </div>
   </ResponsiveDialog>;
 }
