@@ -73,6 +73,7 @@ export function googleEventChanges(operation: GoogleEditOperation): Record<strin
   if (before.description !== operation.draft.description) changes.description = body.description;
   if (before.location !== operation.draft.location) changes.location = body.location;
   if (before.busy !== operation.draft.busy) changes.transparency = body.transparency;
+  if (operation.draft.recurrence !== undefined && JSON.stringify(operation.baseline.recurrence ?? []) !== JSON.stringify(operation.draft.recurrence)) changes.recurrence = operation.draft.recurrence;
   if ((before.travelDuration ?? '') !== (operation.draft.travelDuration ?? '')) changes.extendedProperties = { private: { ...(operation.baseline.extendedProperties?.private ?? {}), [GOOGLE_TRAVEL_DURATION_PROPERTY]: operation.draft.travelDuration ?? '' } };
   const sameTime = (a: string, b: string) => before.allDay ? a === b : Date.parse(a) === Date.parse(b);
   for (const key of ['start', 'end'] as const) {
@@ -87,6 +88,7 @@ export function rebaseGoogleEdit(operation: GoogleEditOperation, event: GoogleCa
   if ('description' in changes) next.description = operation.draft.description;
   if ('location' in changes) next.location = operation.draft.location;
   if ('transparency' in changes) next.busy = operation.draft.busy;
+  if ('extendedProperties' in changes) next.travelDuration = operation.draft.travelDuration ?? '';
   if ('start' in changes) next.start = operation.draft.start;
   if ('end' in changes) next.end = operation.draft.end;
   if ('start' in changes || 'end' in changes) { next.allDay = operation.draft.allDay; next.timeZone = operation.draft.timeZone; }
@@ -107,7 +109,7 @@ export async function updateSingleGoogleEvent(token: string, operation: GoogleEd
   // After an uncertain response, read back exactly the fields we attempted before sending again.
   const remaining = googleEventChanges({ ...operation, baseline: event });
   if (operation.attempted && Object.keys(changes).every((key) => !(key in remaining))) return event;
-  if (!canEditGoogleEvent(event, timeZone, now(), allowPast)) throw new Error('Editing is available until 3 hours after the event ends.');
+  if (!(operation.draft.recurrence?.length && event.status !== 'cancelled') && !canEditGoogleEvent(event, timeZone, now(), allowPast)) throw new Error('Editing is available until 3 hours after the event ends.');
   if (!operation.baseline.etag || event.etag !== operation.baseline.etag) throw new GoogleEditConflict();
   if (!Object.keys(changes).length) return event;
   try { return await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}?sendUpdates=all`, token, changes, { method: 'PATCH', etag: event.etag }); }

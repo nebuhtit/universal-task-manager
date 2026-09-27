@@ -2,8 +2,11 @@ import { advanceCompletionAnchoredSeries, createId, ensureAreaDefinition, ensure
 import { GOOGLE_SAVE_EXTENSION, type GoogleSaveOptions } from './googleItemSave';
 import { googleActionItem } from '../features/items/editor/itemEditorSource';
 import { recordCompletionTransition, syncCompletionCounter } from '@utm/core';
+import { editRecurringItem, type RecurrenceItemEdit } from './recurrenceItemEdit';
+import { itemGoogleDraft, itemGoogleBaseline } from './googleItemSave';
 
 export interface ItemSaveIntent {
+  recurrenceEdit?: RecurrenceItemEdit;
   /** Exact cycle selected before the editor resolved to its series settings. */
   completionOccurrenceId?: string;
   convertedProject?: string;
@@ -15,13 +18,35 @@ const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 /** Apply inside one workspace transaction. Network I/O follows durable persistence. */
 export function saveItemInWorkspace(draft: WorkspaceDocument, item: UniversalItem, options: ItemSaveIntent | undefined, actionNow: Date) {
-  const completion = options?.completionOccurrenceId ? draft.items[options.completionOccurrenceId] : undefined;
-  if (options?.completionOccurrenceId && (!completion || completion.occurrence?.seriesId !== item.id || completion.deletedAt)) throw new Error('The selected recurrence is no longer available. Reopen the item.');
+  const editIntent = options?.recurrenceEdit ?? (options?.completionOccurrenceId ? { occurrenceId: options.completionOccurrenceId, scope: 'this_occurrence' as const } : undefined);
+  if (editIntent) {
+    const selected = draft.items[editIntent.occurrenceId];
+    const source = selected?.occurrence ? draft.items[selected.occurrence.seriesId] : undefined;
+    const linkedSource = source ? clean(googleActionItem(draft, source)) : undefined;
+    const original = selected ? clean(selected) : undefined;
+    const edited = editRecurringItem(draft, item, editIntent, actionNow);
+    item = clean(edited.item);
+    if (linkedSource?.external) {
+      item.extensions ??= {};
+      if (edited.previousSeries) {
+        const prior = draft.items[linkedSource.id]!;
+        prior.external = clean(linkedSource.external);
+        for (const child of Object.values(draft.items)) if (child.id !== prior.id && child.external?.calendarId === prior.external.calendarId && child.external.eventId === prior.external.eventId) {
+          delete child.external;
+          for (const field of ['utm:googleCreate', 'utm:googleLinkKey']) delete child.extensions?.[field];
+        }
+        item.extensions['utm:googleSplit'] = { seriesId: linkedSource.id, calendarId: linkedSource.external.calendarId, eventId: linkedSource.external.eventId, baseline: itemGoogleBaseline(linkedSource), recurrence: itemGoogleDraft(draft.items[linkedSource.id]!, true).recurrence };
+      } else if (item.role === 'occurrence' && !original?.external && original?.occurrence) {
+        item.extensions['utm:googleInstance'] = { calendarId: linkedSource.external.calendarId, masterId: linkedSource.external.eventId, originalStart: original.occurrence.recurrenceId };
+      }
+    }
+  }
   const isNew = !draft.items[item.id];
   let recurrenceError = '';
   const before = draft.items[item.id];
   draft.items[item.id] = clean(item);
   const target = draft.items[item.id]!;
+  const completion = options?.completionOccurrenceId ? target : undefined;
   // A draft opened before acknowledgement must not erase sync tombstones.
   if (before?.extensions?.['utm:googleDeletionReceipts']) {
     target.extensions ??= {};

@@ -21,12 +21,12 @@ it('completes the selected weekly active-range cycle once while keeping the edit
   w.items[series.id] = series; w.items[cycle.id] = cycle;
   let doc = createAutomergeDocument(w);
   const save = () => { doc = commitWorkspaceDocument(doc, 'Complete selected cycle', draft => {
-    saveItemInWorkspace(draft, { ...structuredClone(series), bodyMarkdown: 'Edited with completion' }, { completionOccurrenceId: cycle.id }, now);
+    saveItemInWorkspace(draft, { ...structuredClone(series), schedule: structuredClone(cycle.schedule!), bodyMarkdown: 'Edited with completion' }, { completionOccurrenceId: cycle.id }, now);
   }); };
   save();
   const saved = Automerge.toJS(doc);
   expect(saved.items[series.id]?.state).toBe('open');
-  expect(saved.items[series.id]?.bodyMarkdown).toBe('Edited with completion');
+  expect(saved.items[cycle.id]?.bodyMarkdown).toBe('Edited with completion');
   expect(saved.items[cycle.id]?.state).toBe('done');
   expect(prepareTimelineData(saved, '2026-09-27', now).displayRanges).toHaveLength(0);
   expect(JSON.stringify(selectHeaderAgenda(saved, now.getTime()))).not.toContain(String(Date.parse('2026-09-27T08:00:00Z')));

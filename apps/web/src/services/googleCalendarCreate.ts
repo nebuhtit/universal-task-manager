@@ -12,6 +12,7 @@ export interface GoogleEventDraft {
   busy: boolean;
   timeZone: string;
   travelDuration?: string;
+  recurrence?: string[];
 }
 export interface GoogleCreateOperation {
   eventId: string;
@@ -38,7 +39,8 @@ export function googleEventBody(operation: GoogleCreateOperation) {
     id: operation.eventId, summary: draft.title.trim(), description: draft.description, location: draft.location,
     start: draft.allDay ? { date: draft.start } : { dateTime: new Date(start).toISOString(), timeZone: draft.timeZone },
     end: draft.allDay ? { date: draft.end } : { dateTime: new Date(end).toISOString(), timeZone: draft.timeZone },
-    transparency: draft.busy ? 'opaque' : 'transparent',
+    transparency: draft.busy ? 'opaque' as const : 'transparent' as const,
+    ...(draft.recurrence !== undefined ? { recurrence: draft.recurrence } : {}),
     extendedProperties: { private: { utmCreateOperation: operation.eventId, ...(draft.travelDuration !== undefined ? { [GOOGLE_TRAVEL_DURATION_PROPERTY]: draft.travelDuration } : {}) } },
   };
 }

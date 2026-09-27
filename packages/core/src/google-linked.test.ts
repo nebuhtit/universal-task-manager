@@ -7,6 +7,27 @@ import { workspaceForExport } from './export-privacy.js';
 import { makeSeries, reconcileRecurrences } from './recurrence.js';
 
 const event = { id: 'remote', summary: 'Google title', start: { dateTime: '2026-09-20T12:00:00Z' }, end: { dateTime: '2026-09-20T13:00:00Z' }, etag: 'v1' };
+it('keeps a Google master on its UTM series and merges remote instances by original start', () => {
+  const w = createWorkspace(); w.items = {};
+  const series = createItem('Weekly'); series.role = 'series_template';
+  series.schedule = { timezone: 'UTC', startAt: '2026-09-20T12:00:00Z', endAt: '2026-09-20T13:00:00Z' };
+  series.recurrence = { rrule: 'FREQ=WEEKLY;COUNT=3', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+  series.external = { provider: 'google_calendar', connectionId: 'c', calendarId: 'cal', eventId: 'remote', readOnly: false, sourceUrl: '', syncedAt: '' };
+  w.items[series.id] = series;
+  const batch = { connectionId: 'c', calendarId: 'cal', syncedAt: '2026-09-21T00:00:00Z', fullSync: false, events: [{ ...event, recurrence: ['RRULE:FREQ=WEEKLY;COUNT=3'] }] };
+  applyGoogleCalendarSync(w, batch);
+  expect(series.external?.eventId).toBe('remote');
+  expect(series.extensions?.['utm:googleSeriesEvent']).toBeDefined();
+  const instance = { ...event, id: 'remote_20260927T120000Z', recurringEventId: 'remote', originalStartTime: { dateTime: '2026-09-27T12:00:00Z' }, start: { dateTime: '2026-09-27T12:00:00Z' }, end: { dateTime: '2026-09-27T13:00:00Z' } };
+  applyGoogleCalendarSync(w, { ...batch, events: [instance] });
+  applyGoogleCalendarSync(w, { ...batch, events: [instance] });
+  const cycles = Object.values(w.items).filter(item => item.occurrence?.seriesId === series.id);
+  expect(cycles).toHaveLength(1);
+  expect(cycles[0]?.external?.eventId).toBe(instance.id);
+  expect(Date.parse(cycles[0]!.schedule!.startAt!)).toBe(Date.parse(instance.start.dateTime));
+  expect(Object.values(w.items).filter(item => item.external?.readOnly)).toHaveLength(0);
+  expect(Date.parse(series.schedule!.startAt!)).toBe(Date.parse('2026-09-20T12:00:00Z'));
+});
 function fixture() {
   const workspace = createWorkspace('Linked'); const item = createItem('UTM title');
   item.schedule = { timezone: 'UTC', dueAt: '2026-09-21T10:00:00Z', estimatedDuration: 'PT20M' };

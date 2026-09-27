@@ -213,6 +213,30 @@ for (const theme of ['light', 'dark'] as const) test(`calendar header compacts w
   await expect(title).toBeVisible();
 });
 
+for (const scope of ['this_occurrence', 'this_and_future'] as const) test(`editor saves recurrence scope ${scope}`, async ({ page }) => {
+  const { read } = await setup(page, false, w => {
+    w.items = {};
+    const series = createItem('Scoped weekly', 'event', now); series.id = 'scoped'; series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2026-09-17T10:00:00Z', endAt: '2026-09-17T11:00:00Z', travelDuration: 'PT10M' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY;COUNT=4', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, activationOffset: 'PT0M', rdates: [], exdates: [] };
+    w.items[series.id] = series;
+  });
+  await page.locator('.calendar-day-list .item-card').filter({ hasText: 'Scoped weekly' }).getByText('Scoped weekly', { exact: true }).click();
+  await page.clock.runFor(1000); await page.waitForTimeout(350);
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await editor.getByLabel('Recurrence edit scope', { exact: true }).selectOption(scope);
+  await editor.getByRole('combobox', { name: 'Title', exact: true }).fill('Changed weekly');
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect.poll(async () => Object.values((await read()).items).some(item => item.title === 'Changed weekly')).toBe(true);
+  const saved = await read();
+  expect(saved.items.scoped?.title).toBe('Scoped weekly');
+  const changed = Object.values(saved.items).find(item => item.title === 'Changed weekly' && item.role === (scope === 'this_occurrence' ? 'occurrence' : 'series_template'));
+  expect(changed).toBeDefined();
+  expect(changed!.schedule!.startAt).toContain('2026-09-24');
+  if (scope === 'this_and_future') expect(saved.items.scoped?.recurrence?.rrule).toContain('UNTIL=');
+});
+
 test('one editor completion closes the selected active-range occurrence, not its series', async ({ page }) => {
   const { read } = await setup(page, false, w => {
     w.items = {};

@@ -73,7 +73,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
   onDuplicate?: (item: UniversalItem) => void;
   onTimerStateSave?: (itemId: string, timer: UniversalItem['activeTimer']) => void | Promise<void>;
-  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { completionOccurrenceId?: string; completedFromEditor?: boolean; convertedProject?: string; google?: GoogleSaveOptions; deleteGoogleEvent?: boolean }) => void | Promise<void>; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
+  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { recurrenceEdit?: { occurrenceId: string; scope: "this_occurrence" | "this_and_future" }; completionOccurrenceId?: string; completedFromEditor?: boolean; convertedProject?: string; google?: GoogleSaveOptions; deleteGoogleEvent?: boolean }) => void | Promise<void>; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
@@ -102,6 +102,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   const [convertedProject, setConvertedProject] = useState<string>();
   const [contexts, setContexts] = useState(item.contexts.join(', '));
   const [recurring, setRecurring] = useState(item.role === 'series_template');
+  const [recurrenceScope, setRecurrenceScope] = useState<'this_occurrence' | 'this_and_future'>('this_occurrence');
   const [repeatIntervalDraft, setRepeatIntervalDraft] = useState('1');
   const [error, setError] = useState('');
   const [sourceEditing, setSourceEditing] = useState(false);
@@ -449,7 +450,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
       syncCompletionCounter(normalized, now.toISOString());
       if (normalized.closure?.reason !== 'rule') recordCompletionTransition(normalized, initial.state, now.toISOString());
       syncCompletionCounter(normalized, now.toISOString());
-      await onSave(normalized, { ...(complete ? { completedFromEditor: true, ...(completionOccurrenceId ? { completionOccurrenceId } : {}) } : {}), ...(convertedProject ? { convertedProject } : {}), ...(deleteGoogleEvent ? { deleteGoogleEvent: true } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
+      await onSave(normalized, { ...(!complete && completionOccurrenceId ? { recurrenceEdit: { occurrenceId: completionOccurrenceId, scope: recurrenceScope } } : {}), ...(complete ? { completedFromEditor: true, ...(completionOccurrenceId ? { completionOccurrenceId } : {}) } : {}), ...(convertedProject ? { convertedProject } : {}), ...(deleteGoogleEvent ? { deleteGoogleEvent: true } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
     } catch (reason) { setGoogleConflict(reason instanceof GoogleEditConflict); setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { savingRef.current = false; setSaving(false); }
   };
@@ -512,6 +513,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
       quickTitleSaveAllowed.current = false;
       save({ dismissKeyboard: true });
     }}>
+        {completionOccurrenceId && <Field label={workspace.calendarPreferences.language === 'ru' ? 'Применить изменения' : 'Apply changes'}><Select aria-label="Recurrence edit scope" value={recurrenceScope} onChange={event => setRecurrenceScope(event.target.value as typeof recurrenceScope)}><option value="this_occurrence">{workspace.calendarPreferences.language === 'ru' ? 'Только это повторение' : 'Only this occurrence'}</option><option value="this_and_future">{workspace.calendarPreferences.language === 'ru' ? 'Это и все будущие' : 'This and all future occurrences'}</option></Select><p className="hint">{workspace.calendarPreferences.language === 'ru' ? 'Включая время, дорогу и напоминания. Выполнение всегда относится только к выбранному повторению.' : 'Includes times, travel and reminders. Completion always affects only the selected occurrence.'}</p></Field>}
         <div className="item-title-field">
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && !googleEvent && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
             if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? titleText)); setSourceEditing(true); setError(''); return; }

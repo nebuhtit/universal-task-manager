@@ -11,6 +11,59 @@ const calendars = { items: [{ id: 'source', primary: true, accessRole: 'owner', 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 describe('unified Google item save', () => {
+  it('resolves a single recurrence by original start and patches its instance id', async () => {
+    const baseline = fixture(); const item = structuredClone(baseline); item.title = 'Only this';
+    item.extensions = { 'utm:googleInstance': { calendarId: 'source', masterId: 'master', originalStart: item.schedule!.startAt! } };
+    const options = { calendarId: 'source', busy: true, baseline };
+    item.extensions[GOOGLE_SAVE_EXTENSION] = await prepareGoogleSave({ workspaceId: 'w', accountEmail: 'source', item, options });
+    const remote = { id: 'master_20300920T120000Z', etag: 'v1', summary: 'Meeting', description: '', location: '', start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' }, originalStartTime: { dateTime: item.schedule!.startAt! }, recurringEventId: 'master' };
+    const patches: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      if (url.includes('/instances?')) return reply({ items: [remote] });
+      if (init?.method === 'PATCH') { patches.push(url); return reply({ ...remote, ...JSON.parse(String(init.body)), etag: 'v2' }); }
+      return reply(remote);
+    }));
+    const apply = vi.fn(async () => {});
+    await saveGoogleItem({ token: 'test', workspaceId: 'w', accountEmail: 'source', item, options, persist: async () => {}, apply });
+    expect(patches).toHaveLength(1); expect(patches[0]).toContain('/events/master_20300920T120000Z');
+    expect(apply).toHaveBeenCalledWith('source', expect.objectContaining({ summary: 'Only this' }), true);
+  });
+  it('exports a weekly master RRULE and exceptions instead of only its first instance', async () => {
+    const item = fixture(); item.role = 'series_template';
+    item.recurrence = { rrule: 'FREQ=WEEKLY;COUNT=4', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: ['2030-09-27T12:00:00Z'] };
+    const options = { calendarId: 'source', busy: true, baseline: fixture() };
+    const op = await prepareGoogleSave({ workspaceId: 'w', accountEmail: 'source', item, options });
+    expect(op.draft.recurrence).toEqual(['RRULE:FREQ=WEEKLY;COUNT=4', 'EXDATE:20300927T120000Z']);
+    item.extensions = { [GOOGLE_SAVE_EXTENSION]: structuredClone(op) };
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      const body = JSON.parse(String(init?.body)); bodies.push(body); return reply({ ...body, etag: 'v1' });
+    }));
+    await saveGoogleItem({ token: 'test', workspaceId: 'w', accountEmail: 'source', item, options, persist: async () => {}, apply: async () => {} });
+    expect(bodies).toHaveLength(1); expect(bodies[0]!.recurrence).toEqual(op.draft.recurrence);
+  });
+  it('recovers a lost series trim response before creating future repeats', async () => {
+    const item = fixture(); item.role = 'series_template';
+    item.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+    let remote = { id: 'master', etag: 'old', recurrence: ['RRULE:FREQ=WEEKLY'], summary: 'Meeting', start: { dateTime: item.schedule!.startAt! }, end: { dateTime: item.schedule!.endAt! } };
+    item.extensions = { 'utm:googleSplit': { seriesId: 'old-series', calendarId: 'source', eventId: 'master', baseline: remote, recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20300919T235959Z'] } };
+    const options = { calendarId: 'source', busy: true, baseline: item };
+    item.extensions[GOOGLE_SAVE_EXTENSION] = await prepareGoogleSave({ workspaceId: 'w', accountEmail: 'source', item, options });
+    let trims = 0; let creates = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      if (init?.method === 'PATCH') { trims++; remote = { ...remote, ...JSON.parse(String(init.body)), etag: 'trimmed' }; throw new TypeError('Lost response'); }
+      if (init?.method === 'POST') { creates++; return reply({ ...JSON.parse(String(init.body)), etag: 'new' }); }
+      return reply(remote);
+    }));
+    const args = { token: 'test', workspaceId: 'w', accountEmail: 'source', item, options, persist: async (op: GoogleSaveOperation) => { item.extensions![GOOGLE_SAVE_EXTENSION] = structuredClone(op); }, apply: vi.fn(async () => {}) };
+    await expect(saveGoogleItem(args)).rejects.toThrow('Lost response');
+    expect(creates).toBe(0);
+    await saveGoogleItem(args);
+    expect(trims).toBe(1); expect(creates).toBe(1); expect(args.apply).toHaveBeenCalledOnce();
+  });
   it('deletes a linked event after the local end was cleared, and treats an already deleted event as success', async () => {
     const item = fixture(); delete item.schedule!.endAt;
     const operation: GoogleSaveOperation = { kind: 'delete', calendarId: 'source', destination: 'source', eventId: 'event', accountEmail: 'source', draft: { title: '', description: '', location: '', start: '', end: '', allDay: false, timeZone: 'UTC', busy: true } };

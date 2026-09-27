@@ -1,7 +1,7 @@
-import type { GoogleCalendarEvent, UniversalItem } from '@utm/core';
+import { zonedDateStart, type GoogleCalendarEvent, type UniversalItem } from '@utm/core';
 import { googleJson } from './googleCalendar';
 import { createSingleGoogleEvent, googleCreationId, googleEventBody, writableGoogleCalendars, type GoogleCreateOperation, type GoogleEventDraft } from './googleCalendarCreate';
-import { canEditGoogleEvent, googleEventChanges, GoogleEditConflict, updateSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
+import { canEditGoogleEvent, googleEventChanges, googleEventDraft, rebaseGoogleEdit, GoogleEditConflict, updateSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
 
 export const GOOGLE_SAVE_EXTENSION = 'utm:googleSave';
 export interface GoogleSaveOperation {
@@ -14,6 +14,8 @@ export interface GoogleSaveOperation {
   baseline?: GoogleCalendarEvent;
   attempted?: boolean;
   blocked?: string;
+  instance?: { calendarId: string; masterId: string; originalStart: string; baseline?: GoogleCalendarEvent };
+  split?: { seriesId: string; calendarId: string; eventId: string; baseline: GoogleCalendarEvent; recurrence: string[]; completedEvent?: GoogleCalendarEvent };
 }
 export interface GoogleSaveOptions { calendarId: string; busy: boolean; baseline: UniversalItem; rebased?: boolean }
 const eventUrl = (calendar: string, id: string) => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(id)}`;
@@ -26,12 +28,19 @@ export function itemGoogleDraft(item: UniversalItem, busy: boolean): GoogleEvent
     return `${parts.year}-${parts.month}-${parts.day}`;
   };
   if (!schedule?.startAt || !schedule.endAt) throw new Error('Event opens and Event ends are required.');
-  return { title: item.title, description: item.bodyMarkdown, location: item.location ?? '', start: schedule.allDay ? date(schedule.startAt) : schedule.startAt, end: schedule.allDay ? date(schedule.endAt) : schedule.endAt, allDay: schedule.allDay === true, timeZone: zone, busy, travelDuration: schedule.travelDuration ?? '' };
+  if (item.role === 'series_template' && item.recurrence?.anchor === 'completion') throw new Error('Google Calendar cannot represent completion-anchored repeats. Use schedule-anchored recurrence.');
+  const recurrence = item.role === 'series_template' && item.recurrence ? [
+    `RRULE:${item.recurrence.rrule.replace(/^RRULE:/i, '')}`,
+    ...(['rdates', 'exdates'] as const).flatMap(key => item.recurrence![key].length ? [`${key === 'rdates' ? 'RDATE' : 'EXDATE'}${schedule.allDay ? ';VALUE=DATE' : ''}:${item.recurrence![key].map(value => schedule.allDay ? date(value).replace(/-/g, '') : new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')).join(',')}`] : []),
+  ] : undefined;
+  return { title: item.title, description: item.bodyMarkdown, location: item.location ?? '', start: schedule.allDay ? date(schedule.startAt) : schedule.startAt, end: schedule.allDay ? date(schedule.endAt) : schedule.endAt, allDay: schedule.allDay === true, timeZone: zone, busy, travelDuration: schedule.travelDuration ?? '', ...(recurrence ? { recurrence } : {}) };
 }
 export function itemGoogleBaseline(item: UniversalItem): GoogleCalendarEvent {
+  const seriesEvent = item.extensions?.['utm:googleSeriesEvent'] as GoogleCalendarEvent | undefined;
+  if (seriesEvent && seriesEvent.id === item.external?.eventId) return seriesEvent;
   const link = item.external!;
   const projected = { ...item, schedule: { ...item.schedule, startAt: link.startAt ?? item.schedule?.startAt ?? '', endAt: link.endAt ?? item.schedule?.endAt ?? '', allDay: link.allDay ?? item.schedule?.allDay ?? false, timezone: link.timezone ?? item.schedule?.timezone ?? 'UTC' } };
-  const body = googleEventBody({ eventId: 'utm00000', calendarId: link.calendarId, accountEmail: '', draft: itemGoogleDraft(projected, link.transparency !== 'transparent') });
+  const body = googleEventBody({ eventId: 'utm00000', calendarId: link.calendarId, accountEmail: '', draft: itemGoogleDraft({ ...projected, role: 'standalone' }, link.transparency !== 'transparent') });
   return { ...body, transparency: link.transparency ?? 'opaque', id: link.eventId, ...(link.etag ? { etag: link.etag } : {}) };
 }
 export function needsGoogleSave(item: UniversalItem, options: GoogleSaveOptions): boolean {
@@ -53,7 +62,9 @@ export async function prepareGoogleSave(args: { workspaceId: string; accountEmai
     eventId: link?.eventId ?? await googleCreationId(args.workspaceId, item.occurrence ? `${item.id}:${item.occurrence.recurrenceId}` : item.id),
     accountEmail: args.accountEmail, draft: itemGoogleDraft(item, options.busy), ...(link ? { baseline: itemGoogleBaseline(options.baseline) } : {}),
   };
-  googleEventBody(operation);
+  if (item.extensions?.['utm:googleSplit']) operation.split = item.extensions['utm:googleSplit'] as NonNullable<GoogleSaveOperation['split']>;
+  if (item.extensions?.['utm:googleInstance']) operation.instance = { ...item.extensions['utm:googleInstance'] as NonNullable<GoogleSaveOperation['instance']>, baseline: googleEventBody({ eventId: 'utm00000', calendarId: options.calendarId, accountEmail: args.accountEmail, draft: itemGoogleDraft(options.baseline, options.busy) }) };
+  googleEventBody(operation.kind === 'create' && !operation.instance ? operation : { ...operation, eventId: 'utm00000' });
   return operation;
 }
 
@@ -75,7 +86,7 @@ export async function saveGoogleItem(args: {
   }
   const draft = itemGoogleDraft(item, options.busy);
   if (pending && options.rebased && pending.kind !== 'create' && pending.baseline?.etag !== options.baseline.external?.etag) pending = { ...pending, draft, baseline: itemGoogleBaseline(options.baseline), attempted: false };
-  const newerDraft = Boolean(pending && ((Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => key === 'travelDuration' ? (pending!.draft[key] ?? '') !== (draft[key] ?? '') : pending!.draft[key] !== draft[key]) || pending.destination !== options.calendarId));
+  const newerDraft = Boolean(pending && ((Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => key === 'travelDuration' ? (pending!.draft[key] ?? '') !== (draft[key] ?? '') : JSON.stringify(pending!.draft[key]) !== JSON.stringify(draft[key])) || pending.destination !== options.calendarId));
   const finish = async (calendarId: string, event: GoogleCalendarEvent) => {
     if (!newerDraft || !pending) { await apply(calendarId, event, true); return; }
     // Atomically link the completed operation and queue the newer draft. A crash
@@ -84,14 +95,47 @@ export async function saveGoogleItem(args: {
     await apply(calendarId, event, true, next);
     await saveGoogleItem({ ...args, item: { ...item, extensions: { ...item.extensions, [GOOGLE_SAVE_EXTENSION]: next } }, options: { ...options, rebased: false } });
   };
-  const link = options.baseline.external;
-  let operation: GoogleSaveOperation = pending ?? {
-    kind: link ? 'edit' : 'create', calendarId: link?.calendarId ?? options.calendarId, destination: options.calendarId,
-    eventId: link?.eventId ?? await googleCreationId(args.workspaceId, item.occurrence ? `${item.id}:${item.occurrence.recurrenceId}` : item.id),
-    accountEmail: args.accountEmail, draft, ...(link ? { baseline: itemGoogleBaseline(options.baseline) } : {}),
-  };
-  googleEventBody(operation);
+  let operation: GoogleSaveOperation = pending ?? await prepareGoogleSave(args);
+  googleEventBody(operation.kind === 'create' && !operation.instance ? operation : { ...operation, eventId: 'utm00000' });
   if (operation.accountEmail !== args.accountEmail) throw new Error('Reconnect the original Google account to finish this save.');
+  if (operation.instance) {
+    const instance = operation.instance;
+    let pageToken: string | undefined;
+    let found: GoogleCalendarEvent | undefined;
+    do {
+      const query = new URLSearchParams({ originalStart: instance.originalStart, maxResults: '2500', ...(pageToken ? { pageToken } : {}) });
+      const page = await googleJson<{ items?: GoogleCalendarEvent[]; nextPageToken?: string }>(`${eventUrl(instance.calendarId, instance.masterId)}/instances?${query}`, token);
+      found = page.items?.find(event => (event.originalStartTime?.dateTime ? Date.parse(event.originalStartTime.dateTime) : event.originalStartTime?.date ? zonedDateStart(event.originalStartTime.date, operation.draft.timeZone).getTime() : NaN) === Date.parse(instance.originalStart));
+      pageToken = page.nextPageToken;
+    } while (!found && pageToken);
+    if (!found || found.status === 'cancelled') throw new Error('The Google recurrence instance is unavailable. Sync and reopen it.');
+    if (instance.baseline) {
+      const intended = { ...operation, baseline: instance.baseline };
+      const wanted = googleEventChanges(intended);
+      const remote = googleEventChanges({ ...intended, draft: googleEventDraft(found, operation.draft.timeZone) });
+      const remaining = googleEventChanges({ ...intended, baseline: found });
+      if (Object.keys(wanted).some(key => key in remote && key in remaining)) throw new GoogleEditConflict();
+      operation.draft = rebaseGoogleEdit(intended, found, operation.draft.timeZone);
+    }
+    operation = { ...operation, kind: 'edit', calendarId: instance.calendarId, eventId: found.id, baseline: found };
+    delete operation.instance;
+    await persist(operation);
+  }
+  if (operation.split && !operation.split.completedEvent) {
+    const split = operation.split;
+    const writable = await writableGoogleCalendars(token, args.accountEmail);
+    if (![split.calendarId, operation.calendarId].every(id => writable.some(calendar => calendar.id === id))) throw new Error('Both calendars must be writable.');
+    await persist(operation);
+    const current = await googleJson<GoogleCalendarEvent>(eventUrl(split.calendarId, split.eventId), token);
+    if (current.status === 'cancelled') throw new Error('The original Google series was deleted.');
+    let trimmed = current;
+    if (JSON.stringify(current.recurrence ?? []) !== JSON.stringify(split.recurrence)) {
+      if (!split.baseline.etag || current.etag !== split.baseline.etag) throw new GoogleEditConflict();
+      trimmed = await googleJson<GoogleCalendarEvent>(`${eventUrl(split.calendarId, split.eventId)}?sendUpdates=all`, token, { recurrence: split.recurrence }, { method: 'PATCH', etag: current.etag });
+    }
+    operation = { ...operation, split: { ...split, completedEvent: trimmed } };
+    await persist(operation);
+  }
   if (operation.kind === 'create') {
     await persist(operation);
     const event = await createSingleGoogleEvent(token, operation as GoogleCreateOperation);

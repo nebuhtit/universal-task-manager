@@ -6,9 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.3.2** · workspace schema: **1.26.0**
+Current release: **v3.3.3** · workspace schema: **1.26.0**
 
-3.3.2 fixes negative remaining time in the iOS widget. The native live duration source is converted to a nonnegative countdown, preserving compact h/m units, system-driven updates and the existing seconds threshold. Native regression checks cover formatting and update boundaries.
+3.3.3 exports scheduled UTM recurrences to Google as native recurring series. Editing a UTM occurrence offers “Only this occurrence” or “This and all future occurrences”, including travel time and reminders. Future changes split the series while preserving past cycles; Google writes use durable, retryable operations. Completion remains scoped to the selected cycle. Completion-anchored recurrence cannot be represented as a Google RRULE and is not exported as a misleading fixed schedule.
 
 3.2.8 adds compact live `h/m` widget formatting and reconciles Active range visibility with the day List, retaining a Day tasks fallback. Dialogs use the shared glass surface by default; keyboard dismissal restores the capture row after settling. Reminder delivery is Notification or Alarm, without urgency levels, and compact LiveText keeps alarm commands distinct.
 

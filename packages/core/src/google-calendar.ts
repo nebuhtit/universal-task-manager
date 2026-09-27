@@ -1,6 +1,8 @@
 import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, durationToMs, type UniversalItem, type WorkspaceDocument } from './types.js';
 import { retainedItemHistory, syncActualDuration } from './item-history.js';
 import { reconcileCalendarOrganization } from './calendar-organization.js';
+import { createOccurrence } from './recurrence.js';
+import { zonedDateStart } from './view-statistics.js';
 
 export const GOOGLE_DELETION_RECEIPTS_EXTENSION = 'utm:googleDeletionReceipts';
 export interface GoogleDeletionReceipt { calendarId: string; eventId: string; accountEmail: string; deletedAt: string }
@@ -27,6 +29,7 @@ export interface GoogleCalendarEvent {
   updated?: string;
   transparency?: 'opaque' | 'transparent';
   recurringEventId?: string;
+  originalStartTime?: GoogleCalendarEventDate;
   recurrence?: string[];
   extendedProperties?: { private?: Record<string, string>; shared?: Record<string, string> };
   /** Duration of the recurring series source, populated by the browser sync. */
@@ -134,6 +137,7 @@ export function googleCalendarEventToItem(event: GoogleCalendarEvent, calendarId
       ...(event.etag ? { etag: event.etag } : {}), syncedAt,
     },
   };
+  if (event.recurrence?.length) { item.extensions ??= {}; item.extensions['utm:googleSeriesEvent'] = JSON.parse(JSON.stringify(event)); }
   return item;
 }
 
@@ -145,7 +149,7 @@ export function detachGoogleCalendar(item: UniversalItem): void {
 
 function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mirror: UniversalItem): void {
   if (!mirror.external) return;
-  if (target.role === 'series_template') {
+  if (target.role === 'series_template' && !mirror.extensions?.['utm:googleSeriesEvent']) {
     const occurrence = Object.values(workspace.items).find((item) => !item.deletedAt && item.occurrence?.seriesId === target.id);
     if (occurrence) {
       occurrence.extensions ??= {};
@@ -159,6 +163,10 @@ function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mir
     ...(mirror.schedule?.startAt ? { startAt: mirror.schedule.startAt } : {}),
     ...(mirror.schedule?.endAt ? { endAt: mirror.schedule.endAt } : {}),
     ...(mirror.schedule?.timezone ? { timezone: mirror.schedule.timezone } : {}), allDay: mirror.schedule?.allDay === true };
+  if (mirror.extensions?.['utm:googleSeriesEvent']) {
+    target.extensions ??= {}; target.extensions['utm:googleSeriesEvent'] = JSON.parse(JSON.stringify(mirror.extensions['utm:googleSeriesEvent']));
+    for (const child of Object.values(workspace.items)) if (child.occurrence?.seriesId === target.id && child.external?.eventId === target.external.eventId) detachGoogleCalendar(child);
+  }
   target.title = mirror.title;
   target.revision += 1;
   target.updatedAt = mirror.updatedAt;
@@ -238,9 +246,17 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
       continue;
     }
     seen.add(id);
-    const linked = linkedByEvent.get(id);
+    let linked = linkedByEvent.get(id);
+    const master = event.recurringEventId ? linkedByEvent.get(externalId(batch.calendarId, event.recurringEventId)) : undefined;
+    const original = event.originalStartTime?.dateTime ?? (event.originalStartTime?.date ? zonedDateStart(event.originalStartTime.date, master?.schedule?.timezone ?? workspace.calendarPreferences.timezone).toISOString() : undefined);
+    if (!linked && master?.role === 'series_template' && original && Number.isFinite(Date.parse(original))) {
+      const anchor = new Date(original).toISOString();
+      linked = Object.values(workspace.items).find(item => item.occurrence?.seriesId === master.id && item.occurrence.recurrenceId === anchor);
+      if (!linked) { linked = createOccurrence(master, new Date(anchor), 0); workspace.items[linked.id] = linked; }
+    }
     if (linked) seen.add(linked.id);
     if (event.status === 'cancelled') {
+      if (master && linked?.occurrence) { linked.deletedAt = batch.syncedAt; workspace.tombstones[linked.id] = batch.syncedAt; }
       if (linked) detachGoogleCalendar(linked);
       const existing = workspace.items[id];
       if (existing) { delete workspace.items[id]; delete workspace.tombstones[id]; removed += 1; }

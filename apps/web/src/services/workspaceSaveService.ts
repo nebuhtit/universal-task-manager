@@ -1,5 +1,5 @@
 import { applyGoogleCalendarSync, googleCalendarEventToItem, GOOGLE_WRITE_BATCH_LIMIT, googleWriteLimitReached, recentGoogleWriteTimestamps, recordGoogleWrite, reconcileCalendarOrganization, reconcileRecurrences, updateRecurrenceCompletionTime, type GoogleCalendarEvent, type UniversalItem, type WorkspaceDocument, type RecurrenceCompletionRecord } from '@utm/core';
-import { GOOGLE_SAVE_EXTENSION, saveGoogleItem, prepareGoogleSave, needsGoogleSave, type GoogleSaveOperation, type GoogleSaveOptions } from './googleItemSave';
+import { GOOGLE_SAVE_EXTENSION, saveGoogleItem, prepareGoogleSave, needsGoogleSave, itemGoogleDraft, type GoogleSaveOperation, type GoogleSaveOptions } from './googleItemSave';
 import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict, googleEventChanges, updateGoogleSeriesEvent, updateSingleGoogleEvent, moveSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
 import { GOOGLE_CREATE_EXTENSION, type GoogleCreateOperation } from './googleCalendarCreate';
 import { googleHistoryKey } from './googleHistoryKey';
@@ -98,9 +98,28 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
             const mirror = googleCalendarEventToItem(event, calendarId, google.connectionId, new Date().toISOString(), candidate.schedule?.timezone);
             if (!mirror?.external) throw new Error('Google returned an invalid event.');
             target.external = { ...mirror.external, readOnly: false }; target.extensions ??= {};
+            if (event.recurrence?.length && target.role === 'series_template') {
+              target.extensions['utm:googleSeriesEvent'] = clean(event);
+              for (const child of Object.values(draft.items)) if (child.occurrence?.seriesId === target.id && child.external?.eventId === event.id && child.external.calendarId === calendarId) {
+                delete child.external;
+                for (const field of ['utm:googleCreate', 'utm:googleLinkKey']) delete child.extensions?.[field];
+              }
+            }
             target.extensions['utm:googleLinkKey'] = key;
             target.extensions[GOOGLE_CREATE_EXTENSION] = { eventId: event.id, calendarId, accountEmail: google.accountEmail ?? '' };
             const pending = target.extensions[GOOGLE_SAVE_EXTENSION] ? clean(target.extensions[GOOGLE_SAVE_EXTENSION]) : undefined;
+            const split = (pending as GoogleSaveOperation | undefined)?.split;
+            if (split?.completedEvent) {
+              const prior = draft.items[split.seriesId];
+              if (prior) { prior.extensions ??= {}; prior.extensions['utm:googleSeriesEvent'] = clean(split.completedEvent); if (prior.external && split.completedEvent.etag) prior.external.etag = split.completedEvent.etag; }
+              // Google resets future exceptions when a master is split. Reapply
+              // known individual overrides through the durable instance queue.
+              for (const child of Object.values(draft.items)) if (child.occurrence?.seriesId === target.id && child.state === 'open' && child.recurrenceOverride?.kind === 'this_occurrence' && child.schedule?.startAt && child.schedule.endAt) {
+                child.extensions ??= {};
+                child.extensions[GOOGLE_SAVE_EXTENSION] = { kind: 'edit', calendarId, destination: calendarId, eventId: event.id, accountEmail: google.accountEmail ?? '', draft: itemGoogleDraft(child, true), instance: { calendarId, masterId: event.id, originalStart: child.occurrence.recurrenceId } } satisfies GoogleSaveOperation;
+              }
+            }
+            delete target.extensions['utm:googleSplit']; delete target.extensions['utm:googleInstance'];
             if (nextOperation) target.extensions[GOOGLE_SAVE_EXTENSION] = clean(nextOperation);
             else delete target.extensions[GOOGLE_SAVE_EXTENSION];
             applyGoogleCalendarSync(draft, { connectionId: google.connectionId, calendarId, events: [{ ...event, localHistoryKey: key }], syncedAt: new Date().toISOString(), fullSync: false });
@@ -331,12 +350,20 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     localSaves.add(item.id);
     try {
       let result: ReturnType<typeof saveItemInWorkspace> | undefined;
-      if (!commit(workspace.items[item.id] ? 'Update item' : 'Create item', draft => { result = saveItemInWorkspace(draft, item, options, now); }) || !result) throw new Error('Could not save item.');
+      let saveError: unknown;
+      if (!commit(workspace.items[item.id] ? 'Update item' : 'Create item', draft => {
+        try { result = saveItemInWorkspace(draft, item, options, now); }
+        catch (reason) { saveError = reason; throw reason; }
+      }) || !result) throw saveError ?? new Error('Could not save item.');
       const { googleCandidate: candidate, recurrenceError } = result;
       const google = workspace.calendarPreferences.googleCalendar;
       let selection: GoogleSaveOptions | undefined;
-      if (options?.google && google && candidate.role !== 'series_template' && !item.extensions?.['utm:template']) {
-        selection = { ...options.google, baseline: item.role === 'series_template' ? clean(googleActionItem(workspace, options.google.baseline)) : options.google.baseline };
+      if (options?.google && google && !item.extensions?.['utm:template']) {
+        const baseline = options.recurrenceEdit?.scope === 'this_occurrence'
+          ? workspace.items[options.recurrenceEdit.occurrenceId] ?? candidate
+          : options.recurrenceEdit && candidate.id !== item.id ? candidate
+          : item.role === 'series_template' ? googleActionItem(workspace, options.google.baseline) : options.google.baseline;
+        selection = { ...options.google, baseline: clean(baseline) };
         if (needsGoogleSave(candidate, selection)) {
           if (!selection.calendarId) throw new Error('Choose a Google calendar.');
           const operation = await prepareGoogleSave({ workspaceId: workspace.workspaceId, accountEmail: google.accountEmail ?? '', item: candidate, options: selection });
