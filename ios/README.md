@@ -199,3 +199,19 @@ with credentials saved for the website additionally requires Apple's Associated
 Domains entitlement and a matching apple-app-site-association file on a controlled
 HTTPS domain. HTML hints alone do not associate localhost with GitHub Pages;
 select an existing credential manually from Passwords when needed.
+
+## Widget countdown regression check
+
+On macOS 15+ with Xcode, run from the repository root:
+
+```sh
+xcrun swiftc ios/AgendaWidget/RemainingDurationFormatStyle.swift ios/Tests/RemainingDurationFormatStyleTests.swift -o /private/tmp/utm-widget-format-tests
+/private/tmp/utm-widget-format-tests
+```
+
+This checks the production formatter's sign, compact units, zero clamp, and
+discrete update boundaries. It does not simulate WidgetKit's refresh scheduling.
+On an iPhone, verify a future event more than ten minutes away shows positive
+`h`/`m`, continues decreasing while locked, and switches to seconds below ten
+minutes. The native widget fix requires installing the updated iOS app; a website
+update alone does not replace the installed widget extension.
