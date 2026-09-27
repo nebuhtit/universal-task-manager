@@ -7,6 +7,29 @@ import { workspaceForExport } from './export-privacy.js';
 import { makeSeries, reconcileRecurrences } from './recurrence.js';
 
 const event = { id: 'remote', summary: 'Google title', start: { dateTime: '2026-09-20T12:00:00Z' }, end: { dateTime: '2026-09-20T13:00:00Z' }, etag: 'v1' };
+it('merges stored destination instances after a master move, without title matching or losing history', () => {
+  const w = createWorkspace(); w.items = {};
+  const series = createItem('Weekly'); series.role = 'series_template';
+  series.schedule = { timezone: 'UTC', startAt: event.start.dateTime, endAt: event.end.dateTime };
+  series.recurrence = { rrule: 'FREQ=WEEKLY;COUNT=3', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+  series.external = { provider: 'google_calendar', connectionId: 'c', calendarId: 'primary', eventId: 'remote', readOnly: false, sourceUrl: '', syncedAt: '' };
+  w.items[series.id] = series;
+  const instance = { ...event, id: 'remote_20260927T120000Z', recurringEventId: 'remote', originalStartTime: { dateTime: '2026-09-27T12:00:00Z' }, start: { dateTime: '2026-09-27T12:00:00Z' }, end: { dateTime: '2026-09-27T13:00:00Z' } };
+  const batch = { connectionId: 'c', calendarId: 'M', syncedAt: '2026-09-21T00:00:00Z', fullSync: false, events: [instance] };
+  applyGoogleCalendarSync(w, batch);
+  expect(Object.values(w.items).filter(item => item.external?.readOnly)).toHaveLength(1);
+  series.external.calendarId = 'M';
+  applyGoogleCalendarSync(w, { ...batch, events: [] });
+  const cycle = Object.values(w.items).find(item => item.occurrence?.seriesId === series.id)!;
+  cycle.actualTimeEntries = [{ id: 'history', durationSeconds: 300, source: 'manual', comment: 'Keep history' }];
+  applyGoogleCalendarSync(w, batch);
+  expect(Object.values(w.items).filter(item => item.external?.readOnly)).toHaveLength(0);
+  expect(Object.values(w.items).filter(item => item.occurrence?.seriesId === series.id)).toHaveLength(1);
+  expect(cycle.actualTimeEntries).toHaveLength(1);
+  // Same title/time but different Google identity must remain independent.
+  applyGoogleCalendarSync(w, { ...batch, events: [{ ...instance, id: 'unrelated', recurringEventId: 'another-master' }] });
+  expect(Object.values(w.items).filter(item => item.external?.readOnly)).toHaveLength(1);
+});
 it('keeps a Google master on its UTM series and merges remote instances by original start', () => {
   const w = createWorkspace(); w.items = {};
   const series = createItem('Weekly'); series.role = 'series_template';

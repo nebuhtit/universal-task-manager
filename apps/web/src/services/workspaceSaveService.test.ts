@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { applyGoogleCalendarSync, createItem, createOccurrence, createWorkspace, reconcileCalendarOrganization, type GoogleCalendarEvent, type WorkspaceDocument } from '@utm/core';
 import { itemEditorSource } from '../features/items/editor/itemEditorSource';
 import { prepareGoogleSave } from './googleItemSave';
+import { googleCreationId } from './googleCalendarCreate';
 import { createAutomergeDocument } from '@utm/sdk';
 import { createWorkspaceSaveService } from './workspaceSaveService';
 import { commitWorkspaceDocument } from './workspaceLifecycle';
@@ -77,6 +78,33 @@ function remote(initial?: GoogleCalendarEvent) {
   }));
   return { get event() { return event; }, get effects() { return { creates, deletes, patches }; } };
 }
+
+it('recovers an unlinked future split by its verified creation ID after manual sync, retaining UTM history', async () => {
+  const { workspace, item } = fixture();
+  item.role = 'series_template';
+  item.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+  item.recurrenceOverride = { kind: 'future_split', sourceSeriesId: 'old', recurrenceId: item.schedule!.startAt! };
+  const cycle = createOccurrence(item, new Date(item.schedule!.startAt!), 0);
+  cycle.actualTimeEntries = [{ id: 'keep', durationSeconds: 300, source: 'manual', comment: 'Keep history' }];
+  workspace.items[cycle.id] = cycle;
+  const id = await googleCreationId(workspace.workspaceId, item.id);
+  const master: GoogleCalendarEvent = { id, summary: 'Updated Google title', etag: 'v2', recurrence: ['RRULE:FREQ=WEEKLY'], start: { dateTime: item.schedule!.startAt! }, end: { dateTime: item.schedule!.endAt! }, extendedProperties: { private: { utmCreateOperation: id } } };
+  const instance = { ...master, id: `${id}_20990920T120000Z`, recurringEventId: id, originalStartTime: master.start! };
+  delete instance.recurrence;
+  const batch = { connectionId: 'connection', calendarId: 'M', syncedAt: '2099-09-20T00:00:00Z', fullSync: false, events: [instance] };
+  workspace.calendarPreferences.googleCalendar!.calendars.push({ id: 'M', name: 'M', selected: true });
+  applyGoogleCalendarSync(workspace, batch);
+  const mirror = Object.values(workspace.items).find(entry => entry.external?.readOnly)!;
+  delete mirror.extensions!['utm:googleOccurrenceIdentity']; delete mirror.extensions!['utm:googleIdentityVersion'];
+  refresh.mockResolvedValue({ calendars: workspace.calendarPreferences.googleCalendar!.calendars, syncTokens: {}, syncWindow: { timeMin: '2099-09-01T00:00:00Z', timeMax: '2099-10-01T00:00:00Z', refreshedAt: batch.syncedAt }, syncedAt: batch.syncedAt, batches: [batch] });
+  const api = remote(master); const runtime = app(workspace);
+  await runtime.service.synchronize('test'); runtime.reload();
+  expect(runtime.workspace.items[item.id]!.external?.calendarId).toBe('M');
+  expect(runtime.workspace.items[cycle.id]!.title).toBe(master.summary);
+  expect(runtime.workspace.items[cycle.id]!.actualTimeEntries).toHaveLength(1);
+  expect(Object.values(runtime.workspace.items).filter(entry => entry.external?.readOnly)).toHaveLength(0);
+  expect(api.effects).toEqual({ creates: 0, deletes: 0, patches: 0 });
+});
 
 describe('workspace save coordinator crash recovery', () => {
   it('waits for an in-flight occurrence write before applying the newer editor title', async () => {

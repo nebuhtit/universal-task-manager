@@ -1,9 +1,9 @@
 import { applyGoogleCalendarSync, googleCalendarEventToItem, GOOGLE_WRITE_BATCH_LIMIT, googleWriteLimitReached, recentGoogleWriteTimestamps, recordGoogleWrite, reconcileCalendarOrganization, reconcileRecurrences, updateRecurrenceCompletionTime, type GoogleCalendarEvent, type UniversalItem, type WorkspaceDocument, type RecurrenceCompletionRecord } from '@utm/core';
 import { GOOGLE_SAVE_EXTENSION, saveGoogleItem, prepareGoogleSave, needsGoogleSave, itemGoogleDraft, type GoogleSaveOperation, type GoogleSaveOptions } from './googleItemSave';
 import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict, googleEventChanges, updateGoogleSeriesEvent, updateSingleGoogleEvent, moveSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
-import { GOOGLE_CREATE_EXTENSION, type GoogleCreateOperation } from './googleCalendarCreate';
+import { GOOGLE_CREATE_EXTENSION, googleCreationId, type GoogleCreateOperation } from './googleCalendarCreate';
 import { googleHistoryKey } from './googleHistoryKey';
-import { cachedGoogleWriteToken, requestGoogleCalendarToken, synchronizeGoogleCalendars } from './googleCalendar';
+import { cachedGoogleWriteToken, requestGoogleCalendarToken, synchronizeGoogleCalendars, googleJson } from './googleCalendar';
 import { googleActionItem } from '../features/items/editor/itemEditorSource';
 import { saveItemInWorkspace, type ItemSaveIntent } from './itemSaveCommand';
 import { recurrenceEditPendingIds } from './recurrenceItemEdit';
@@ -293,13 +293,45 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
   };
 
   const refreshGoogle = async (suppliedToken: string, progress?: Parameters<typeof synchronizeGoogleCalendars>[2]) => {
-    const { commit, flushPersistence } = guard();
+    const { commit, flushPersistence, assertCurrent } = guard();
     const current = requireWorkspace();
     const google = current.calendarPreferences.googleCalendar;
     if (!google) throw new Error('Google connection changed.');
-    const result = await synchronizeGoogleCalendars(suppliedToken, google, progress);
+    const linkedCalendars = new Set(Object.values(current.items).filter(item => !item.deletedAt && item.role === 'series_template' && item.external?.readOnly === false).map(item => item.external!.calendarId));
+    const repairLegacyMirrors = Object.values(current.items).some(item => item.external?.readOnly && linkedCalendars.has(item.external.calendarId) && item.extensions?.['utm:googleIdentityVersion'] !== 1 && google.calendars.some(calendar => calendar.id === item.external!.calendarId && calendar.selected));
+    let result = await synchronizeGoogleCalendars(suppliedToken, google, progress, repairLegacyMirrors ? { fullSync: true } : {});
+    const recovered: Array<{ itemId: string; calendarId: string; event: GoogleCalendarEvent }> = [];
+    for (const item of Object.values(current.items)) {
+      if (item.deletedAt || item.external || item.role !== 'series_template' || item.recurrenceOverride?.kind !== 'future_split' || item.extensions?.[GOOGLE_SAVE_EXTENSION] || item.extensions?.[GOOGLE_DELETION_RECEIPTS_EXTENSION]) continue;
+      const eventId = await googleCreationId(current.workspaceId, item.id);
+      const calendars = new Set(result.batches.filter(batch => batch.events.some(event => event.id === eventId || event.recurringEventId === eventId)).map(batch => batch.calendarId));
+      // Legacy mirrors did not retain recurringEventId. Their ID only narrows
+      // the read-only lookup; the master and creation marker must verify it.
+      for (const mirror of Object.values(current.items)) if (mirror.external?.readOnly && (mirror.external.eventId === eventId || mirror.external.eventId.startsWith(`${eventId}_`)) && result.calendars.some(calendar => calendar.id === mirror.external!.calendarId && calendar.selected)) calendars.add(mirror.external.calendarId);
+      for (const calendarId of calendars) {
+        let event: GoogleCalendarEvent;
+        try { event = await googleJson<GoogleCalendarEvent>(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`, suppliedToken); }
+        catch (reason) { if ([404, 410].includes((reason as { status?: number }).status ?? 0)) continue; throw reason; }
+        if (event.id === eventId && event.status !== 'cancelled' && event.recurrence?.length && event.extendedProperties?.private?.utmCreateOperation === eventId) recovered.push({ itemId: item.id, calendarId, event });
+      }
+    }
+    if (recovered.length && !repairLegacyMirrors) result = await synchronizeGoogleCalendars(suppliedToken, google, progress, { fullSync: true });
+    assertCurrent();
     if (!commit('Sync Google Calendar', draft => {
       if (draft.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Google connection changed.');
+      for (const recovery of recovered) {
+        // Never choose between multiple remote identities or overwrite a new edit.
+        if (recovered.filter(entry => entry.itemId === recovery.itemId).length !== 1) continue;
+        const target = draft.items[recovery.itemId];
+        if (!target || target.deletedAt || target.external || target.extensions?.[GOOGLE_SAVE_EXTENSION]) continue;
+        const mirror = googleCalendarEventToItem(recovery.event, recovery.calendarId, google.connectionId, result.syncedAt);
+        if (!mirror?.external) continue;
+        target.external = { ...mirror.external, readOnly: false };
+        target.extensions ??= {};
+        target.extensions['utm:googleSeriesEvent'] = clean(recovery.event);
+        target.extensions[GOOGLE_CREATE_EXTENSION] = { calendarId: recovery.calendarId, eventId: recovery.event.id, accountEmail: google.accountEmail ?? '' };
+        applyGoogleCalendarSync(draft, { connectionId: google.connectionId, calendarId: recovery.calendarId, events: [recovery.event], syncedAt: result.syncedAt, fullSync: false });
+      }
       for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
       draft.calendarPreferences.googleCalendar = { ...clean(draft.calendarPreferences.googleCalendar), calendars: clean(result.calendars), syncTokens: clean(result.syncTokens), syncWindow: clean(result.syncWindow), lastSyncedAt: result.syncedAt, ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}) };
       delete draft.calendarPreferences.googleCalendar.lastError;

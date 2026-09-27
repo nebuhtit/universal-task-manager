@@ -6,7 +6,9 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.3.9** · workspace schema: **1.26.0**
+Current release: **v3.4.0** · workspace schema: **1.26.0**
+
+3.4.0 reconciles stored Google recurrence mirrors after a calendar move using the exact master ID and original occurrence date. Unlinked future splits can recover their association through the verified deterministic creation ID and Google operation marker, without remote writes. A targeted refresh repairs older mirrors lacking identity metadata; unrelated same-title events are never merged.
 
 3.3.9 confirms creation of future Google repeats before truncating the old series, persists both stages for retry, and resumes pending splits whose original series is already cancelled. Temporary overlap is preferred over losing all future events during a failed write.
 

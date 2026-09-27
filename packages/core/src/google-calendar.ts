@@ -138,6 +138,12 @@ export function googleCalendarEventToItem(event: GoogleCalendarEvent, calendarId
     },
   };
   if (event.recurrence?.length) { item.extensions ??= {}; item.extensions['utm:googleSeriesEvent'] = JSON.parse(JSON.stringify(event)); }
+  item.extensions ??= {};
+  item.extensions['utm:googleIdentityVersion'] = 1;
+  if (event.recurringEventId && event.originalStartTime) {
+    const original = event.originalStartTime.dateTime ?? (event.originalStartTime.date ? zonedDateStart(event.originalStartTime.date, timezone).toISOString() : undefined);
+    if (original && Number.isFinite(Date.parse(original))) item.extensions['utm:googleOccurrenceIdentity'] = { masterId: event.recurringEventId, originalStart: new Date(original).toISOString() };
+  }
   return item;
 }
 
@@ -204,6 +210,20 @@ export function mergeGoogleCalendarCopies(workspace: WorkspaceDocument): void {
     if (account && operation.accountEmail?.toLowerCase() !== account.toLowerCase()) continue;
     const mirror = workspace.items[externalId(operation.calendarId, operation.eventId)];
     if (mirror?.external?.readOnly) linkGoogleCopy(workspace, target, mirror);
+  }
+  // Instances may arrive before the move/create acknowledgement links their
+  // master. Reconcile stored mirrors too, not only events in the next delta.
+  const masters = new Map(Object.values(workspace.items).filter(item => !item.deletedAt && item.role === 'series_template' && item.external?.readOnly === false).map(item => [externalId(item.external!.calendarId, item.external!.eventId), item]));
+  for (const mirror of Object.values(workspace.items)) {
+    if (!mirror.external?.readOnly) continue;
+    const identity = mirror.extensions?.['utm:googleOccurrenceIdentity'] as { masterId?: string; originalStart?: string } | undefined;
+    if (!identity?.masterId || !identity.originalStart || !Number.isFinite(Date.parse(identity.originalStart))) continue;
+    const master = masters.get(externalId(mirror.external.calendarId, identity.masterId));
+    if (!master) continue;
+    let target = Object.values(workspace.items).find(item => item.occurrence?.seriesId === master.id && item.occurrence.recurrenceId === identity.originalStart);
+    if (target?.deletedAt || target?.extensions?.['utm:googleSave']) continue;
+    if (!target) { target = createOccurrence(master, new Date(identity.originalStart), 0); workspace.items[target.id] = target; }
+    linkGoogleCopy(workspace, target, mirror);
   }
 }
 
@@ -273,7 +293,7 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
       syncActualDuration(next);
     }
     const nextSchedule = next.schedule;
-    if (existing && event.etag && existing.external?.etag === event.etag
+    if (existing && existing.extensions?.['utm:googleIdentityVersion'] === 1 && event.etag && existing.external?.etag === event.etag
       && existing.schedule?.startAt === nextSchedule?.startAt
       && existing.schedule?.endAt === nextSchedule?.endAt
       && existing.schedule?.estimatedDuration === nextSchedule?.estimatedDuration) continue;
@@ -283,7 +303,7 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
       if (existing.scripts) next.scripts = JSON.parse(JSON.stringify(existing.scripts));
       if (!Object.prototype.hasOwnProperty.call(next.extensions ?? {}, 'utm:googleTravelDuration') && existing.schedule?.travelDuration) next.schedule!.travelDuration = existing.schedule.travelDuration;
       next.areas = [...existing.areas]; next.projects = [...existing.projects]; next.tags = [...existing.tags];
-      next.extensions = JSON.parse(JSON.stringify(existing.extensions ?? {}));
+      next.extensions = JSON.parse(JSON.stringify({ ...existing.extensions, ...next.extensions }));
       Object.assign(next, retainedItemHistory(existing)); syncActualDuration(next);
       next.createdAt = existing.createdAt; next.revision = existing.revision + 1; updated += 1;
     }
