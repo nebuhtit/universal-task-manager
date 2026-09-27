@@ -34,7 +34,7 @@ describe('unified Google item save', () => {
     item.extensions = { 'utm:googleInstance': { calendarId: 'source', masterId: 'master', originalStart: item.schedule!.startAt! } };
     const options = { calendarId: 'source', busy: true, baseline };
     item.extensions[GOOGLE_SAVE_EXTENSION] = await prepareGoogleSave({ workspaceId: 'w', accountEmail: 'source', item, options });
-    const remote = { id: 'master_20300920T120000Z', etag: 'v1', summary: 'Meeting', description: '', location: '', start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' }, originalStartTime: { dateTime: item.schedule!.startAt! }, recurringEventId: 'master' };
+    const remote = { id: 'master_20300920T120000Z', etag: 'v1', summary: 'Earlier UTM title', description: 'Keep Google notes', location: '', start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' }, originalStartTime: { dateTime: item.schedule!.startAt! }, recurringEventId: 'master' };
     const patches: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes('calendarList')) return reply(calendars);
@@ -45,7 +45,7 @@ describe('unified Google item save', () => {
     const apply = vi.fn(async () => {});
     await saveGoogleItem({ token: 'test', workspaceId: 'w', accountEmail: 'source', item, options, persist: async () => {}, apply });
     expect(patches).toHaveLength(1); expect(patches[0]).toContain('/events/master_20300920T120000Z');
-    expect(apply).toHaveBeenCalledWith('source', expect.objectContaining({ summary: 'Only this' }), true);
+    expect(apply).toHaveBeenCalledWith('source', expect.objectContaining({ summary: 'Only this', description: remote.description }), true);
   });
   it('exports a weekly master RRULE and exceptions instead of only its first instance', async () => {
     const item = fixture(); item.role = 'series_template';
@@ -70,6 +70,7 @@ describe('unified Google item save', () => {
     const options = { calendarId: 'source', busy: true, baseline: item };
     item.extensions[GOOGLE_SAVE_EXTENSION] = await prepareGoogleSave({ workspaceId: 'w', accountEmail: 'source', item, options });
     let trims = 0; let creates = 0;
+    remote = { ...remote, etag: 'newer-google-version' };
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes('calendarList')) return reply(calendars);
       if (init?.method === 'PATCH') { trims++; remote = { ...remote, ...JSON.parse(String(init.body)), etag: 'trimmed' }; throw new TypeError('Lost response'); }

@@ -13,6 +13,8 @@ export interface GoogleEditOperation {
   draft: GoogleEventDraft;
   attempted?: boolean;
   scope?: 'occurrence' | 'series';
+  /** A linked UTM item's explicit Save owns the fields changed in its draft. */
+  preferLocalChanges?: boolean;
 }
 
 /** Patch the recurring source, leaving its RRULE, EXDATEs and exceptions to Google. */
@@ -22,9 +24,9 @@ export async function updateGoogleSeriesEvent(token: string, operation: GoogleEd
   const changes = googleEventChanges(operation);
   const remaining = googleEventChanges({ ...operation, baseline: event });
   if (operation.attempted && Object.keys(changes).every((key) => !(key in remaining))) return event;
-  if (!operation.baseline.etag || event.etag !== operation.baseline.etag) throw new GoogleEditConflict();
-  if (!Object.keys(changes).length) return event;
-  try { return await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}?sendUpdates=all`, token, changes, { method: 'PATCH', etag: event.etag }); }
+  const patch = googleEventChangesAgainstCurrent(operation, event);
+  if (!Object.keys(patch).length) return event;
+  try { return await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}?sendUpdates=all`, token, patch, { method: 'PATCH', etag: event.etag! }); }
   catch (reason) { if ((reason as { status?: number }).status === 412) throw new GoogleEditConflict(); throw reason; }
 }
 export class GoogleEditConflict extends Error { constructor() { super('The event changed in Google. Load the current event and review your changes again.'); } }
@@ -89,12 +91,27 @@ export function rebaseGoogleEdit(operation: GoogleEditOperation, event: GoogleCa
   if ('location' in changes) next.location = operation.draft.location;
   if ('transparency' in changes) next.busy = operation.draft.busy;
   if ('extendedProperties' in changes) next.travelDuration = operation.draft.travelDuration ?? '';
+  if ('recurrence' in changes && operation.draft.recurrence) next.recurrence = operation.draft.recurrence;
   if ('start' in changes) next.start = operation.draft.start;
   if ('end' in changes) next.end = operation.draft.end;
   if ('start' in changes || 'end' in changes) { next.allDay = operation.draft.allDay; next.timeZone = operation.draft.timeZone; }
   return next;
 }
-export async function updateSingleGoogleEvent(token: string, operation: GoogleEditOperation, now: () => number = Date.now, allowPast = false): Promise<GoogleCalendarEvent> {
+/** Three-way comparison: metadata-only ETag changes and unrelated remote edits
+ * do not conflict. Only patch the user's fields, against the fresh ETag. */
+export function googleEventChangesAgainstCurrent(operation: GoogleEditOperation, event: GoogleCalendarEvent): Record<string, unknown> {
+  if ((!operation.preferLocalChanges && !operation.baseline.etag) || !event.etag) throw new GoogleEditConflict();
+  const wanted = googleEventChanges(operation);
+  const remaining = googleEventChanges({ ...operation, baseline: event });
+  if (!operation.preferLocalChanges && event.etag !== operation.baseline.etag) {
+    const remote = googleEventChanges({ ...operation, draft: { ...googleEventDraft(event, operation.draft.timeZone), ...(operation.draft.recurrence !== undefined ? { recurrence: event.recurrence ?? [] } : {}) } });
+    if (Object.keys(wanted).some(key => key in remote && key in remaining)) throw new GoogleEditConflict();
+    const timing = ['start', 'end', 'recurrence'];
+    if (timing.some(key => key in wanted && key in remaining) && timing.some(key => key in remote)) throw new GoogleEditConflict();
+  }
+  return Object.fromEntries(Object.keys(wanted).filter(key => key in remaining).map(key => [key, remaining[key]]));
+}
+export async function updateSingleGoogleEvent(token: string, operation: GoogleEditOperation, now: () => number = Date.now, allowPast = false, conflictRetries = 1): Promise<GoogleCalendarEvent> {
   const changes = googleEventChanges(operation);
   let loaded: Awaited<ReturnType<typeof loadEditableGoogleEvent>>;
   try { loaded = await loadEditableGoogleEvent(token, operation.calendarId, operation.eventId, operation.accountEmail); }
@@ -110,8 +127,14 @@ export async function updateSingleGoogleEvent(token: string, operation: GoogleEd
   const remaining = googleEventChanges({ ...operation, baseline: event });
   if (operation.attempted && Object.keys(changes).every((key) => !(key in remaining))) return event;
   if (!(operation.draft.recurrence?.length && event.status !== 'cancelled') && !canEditGoogleEvent(event, timeZone, now(), allowPast)) throw new Error('Editing is available until 3 hours after the event ends.');
-  if (!operation.baseline.etag || event.etag !== operation.baseline.etag) throw new GoogleEditConflict();
-  if (!Object.keys(changes).length) return event;
-  try { return await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}?sendUpdates=all`, token, changes, { method: 'PATCH', etag: event.etag }); }
-  catch (reason) { if ((reason as { status?: number }).status === 412) throw new GoogleEditConflict(); throw reason; }
+  const patch = googleEventChangesAgainstCurrent(operation, event);
+  if (!Object.keys(patch).length) return event;
+  try { return await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}?sendUpdates=all`, token, patch, { method: 'PATCH', etag: event.etag! }); }
+  catch (reason) {
+    if ((reason as { status?: number }).status === 412) {
+      if (operation.preferLocalChanges && conflictRetries > 0) return updateSingleGoogleEvent(token, operation, now, allowPast, conflictRetries - 1);
+      throw new GoogleEditConflict();
+    }
+    throw reason;
+  }
 }

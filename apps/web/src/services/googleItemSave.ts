@@ -1,7 +1,7 @@
 import { zonedDateStart, type GoogleCalendarEvent, type UniversalItem } from '@utm/core';
 import { googleJson } from './googleCalendar';
 import { createSingleGoogleEvent, googleCreationId, googleEventBody, writableGoogleCalendars, type GoogleCreateOperation, type GoogleEventDraft } from './googleCalendarCreate';
-import { canEditGoogleEvent, googleEventChanges, googleEventDraft, rebaseGoogleEdit, GoogleEditConflict, updateSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
+import { canEditGoogleEvent, googleEventChanges, rebaseGoogleEdit, GoogleEditConflict, updateSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
 
 export const GOOGLE_SAVE_EXTENSION = 'utm:googleSave';
 export interface GoogleSaveOperation {
@@ -114,10 +114,8 @@ export async function saveGoogleItem(args: {
     if (!found || found.status === 'cancelled') throw new Error('The Google recurrence instance is unavailable. Sync and reopen it.');
     if (instance.baseline) {
       const intended = { ...operation, baseline: instance.baseline };
-      const wanted = googleEventChanges(intended);
-      const remote = googleEventChanges({ ...intended, draft: googleEventDraft(found, operation.draft.timeZone) });
-      const remaining = googleEventChanges({ ...intended, baseline: found });
-      if (Object.keys(wanted).some(key => key in remote && key in remaining)) throw new GoogleEditConflict();
+      // The explicit UTM edit owns its changed fields; retain unrelated Google
+      // fields while applying the selected occurrence's draft to the fresh ID.
       operation.draft = rebaseGoogleEdit(intended, found, operation.draft.timeZone);
     }
     operation = { ...operation, kind: 'edit', calendarId: instance.calendarId, eventId: found.id, baseline: found };
@@ -133,7 +131,7 @@ export async function saveGoogleItem(args: {
     if (current.status === 'cancelled') throw new Error('The original Google series was deleted.');
     let trimmed = current;
     if (JSON.stringify(current.recurrence ?? []) !== JSON.stringify(split.recurrence)) {
-      if (!split.baseline.etag || current.etag !== split.baseline.etag) throw new GoogleEditConflict();
+      if (!current.etag) throw new GoogleEditConflict();
       trimmed = await googleJson<GoogleCalendarEvent>(`${eventUrl(split.calendarId, split.eventId)}?sendUpdates=all`, token, { recurrence: split.recurrence }, { method: 'PATCH', etag: current.etag });
     }
     operation = { ...operation, split: { ...split, completedEvent: trimmed } };
@@ -148,7 +146,7 @@ export async function saveGoogleItem(args: {
     const edit = operation as GoogleEditOperation;
     const retrying = operation.attempted === true;
     await persist({ ...operation, attempted: true });
-    const event = await updateSingleGoogleEvent(token, { ...edit, attempted: retrying }, Date.now, args.allowPast);
+    const event = await updateSingleGoogleEvent(token, { ...edit, attempted: retrying, preferLocalChanges: true }, Date.now, args.allowPast);
     if (operation.destination === operation.calendarId) { await finish(operation.calendarId, event); return; }
     operation = { ...operation, kind: 'move', baseline: event, attempted: false };
     await persist(operation);
@@ -165,7 +163,7 @@ export async function saveGoogleItem(args: {
   const current = await googleJson<GoogleCalendarEvent>(eventUrl(operation.calendarId, operation.eventId), token);
   if (current.eventType && current.eventType !== 'default') throw new Error('Google only allows moving ordinary calendar events.');
   if (!(current.recurrence?.length && current.status !== 'cancelled') && !canEditGoogleEvent(current, item.schedule?.timezone ?? 'UTC', Date.now(), args.allowPast)) throw new Error('Editing is available until 3 hours after the event ends.');
-  if (!operation.baseline?.etag || current.etag !== operation.baseline.etag) throw new GoogleEditConflict();
+  if (!current.etag) throw new GoogleEditConflict();
   operation = { ...operation, baseline: current, attempted: true };
   await persist(operation);
   let moved: GoogleCalendarEvent;

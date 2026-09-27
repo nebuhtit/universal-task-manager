@@ -83,9 +83,65 @@ describe('Google event editing', () => {
     const requests = mockRemote(); const op = operation(); op.draft.end = '2027-01-01T00:00:00Z';
     await expect(updateSingleGoogleEvent('token', op, () => Date.parse('2026-09-21T00:00:00Z'))).rejects.toThrow('3 hours'); expect(requests.some((request) => request.init?.method === 'PATCH')).toBe(false);
   });
-  it('blocks stale ETags and permission errors without writing', async () => {
-    let requests = mockRemote({ ...event, etag: 'changed' }); await expect(updateSingleGoogleEvent('token', operation(), now)).rejects.toBeInstanceOf(GoogleEditConflict); expect(requests.some((request) => request.init?.method === 'PATCH')).toBe(false);
+  it('blocks overlapping edits and permission errors without writing', async () => {
+    let requests = mockRemote({ ...event, etag: 'changed', summary: 'Another title' }); await expect(updateSingleGoogleEvent('token', operation(), now)).rejects.toBeInstanceOf(GoogleEditConflict); expect(requests.some((request) => request.init?.method === 'PATCH')).toBe(false);
     requests = mockRemote(event, 'reader'); await expect(updateSingleGoogleEvent('token', operation(), now)).rejects.toThrow('not writable'); expect(requests.some((request) => request.init?.method === 'PATCH')).toBe(false);
+  });
+  it('accepts metadata-only version changes using the current ETag', async () => {
+    const requests = mockRemote({ ...event, etag: 'metadata-v2' });
+    await updateSingleGoogleEvent('token', operation(), now);
+    const patch = requests.find(request => request.init?.method === 'PATCH')!;
+    expect(patch.init?.headers).toMatchObject({ 'If-Match': 'metadata-v2' });
+    expect(JSON.parse(String(patch.init?.body))).toEqual({ summary: 'Updated' });
+  });
+  it('lets explicit linked UTM edits own changed fields without overwriting unrelated Google fields', async () => {
+    const requests = mockRemote({ ...event, etag: 'new-version', summary: 'Earlier UTM edit', description: 'Keep remote notes' });
+    await updateSingleGoogleEvent('token', { ...operation(), preferLocalChanges: true }, now);
+    const patch = requests.find(request => request.init?.method === 'PATCH')!;
+    expect(patch.init?.headers).toMatchObject({ 'If-Match': 'new-version' });
+    expect(JSON.parse(String(patch.init?.body))).toEqual({ summary: 'Updated' });
+  });
+  it('retries a racing linked UTM edit once against a fresh Google revision', async () => {
+    let patches = 0;
+    const versions: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return new Response(JSON.stringify({ items: [{ id: 'me@example.com', primary: true }, { id: 'calendar', accessRole: 'owner' }] }));
+      if (init?.method === 'PATCH') {
+        versions.push((init.headers as Record<string, string>)['If-Match']);
+        patches++;
+        return new Response(JSON.stringify({ ...event, summary: 'Updated' }), { status: patches === 1 ? 412 : 200 });
+      }
+      return new Response(JSON.stringify({ ...event, etag: patches ? 'v3' : 'v2' }));
+    }));
+    await expect(updateSingleGoogleEvent('token', { ...operation(), preferLocalChanges: true }, now)).resolves.toMatchObject({ summary: 'Updated' });
+    expect(versions).toEqual(['v2', 'v3']);
+    mockRemote(event, 'owner', 412);
+    await expect(updateSingleGoogleEvent('token', { ...operation(), preferLocalChanges: true }, now)).rejects.toBeInstanceOf(GoogleEditConflict);
+  });
+  it('keeps remote time changes when only the local title changed', async () => {
+    const requests = mockRemote({ ...event, etag: 'time-v2', start: { ...event.start, dateTime: '2026-09-20T14:00:00Z' }, end: { ...event.end, dateTime: '2026-09-20T15:00:00Z' } });
+    await updateSingleGoogleEvent('token', operation(), now);
+    const patch = requests.find(request => request.init?.method === 'PATCH')!;
+    expect(JSON.parse(String(patch.init?.body))).toEqual({ summary: 'Updated' });
+  });
+  it('does not overwrite a remotely changed end when the user moves the start', async () => {
+    const requests = mockRemote({ ...event, etag: 'time-v2', end: { ...event.end, dateTime: '2026-09-20T14:00:00Z' } });
+    const op = operation(); op.draft = { ...googleEventDraft(event, 'UTC'), start: '2026-09-20T12:30:00Z' };
+    await expect(updateSingleGoogleEvent('token', op, now)).rejects.toBeInstanceOf(GoogleEditConflict);
+    expect(requests.some(request => request.init?.method === 'PATCH')).toBe(false);
+  });
+  it('recognizes the intended result even without the old attempted flag', async () => {
+    const requests = mockRemote({ ...event, etag: 'already-v2', summary: 'Updated' });
+    await updateSingleGoogleEvent('token', operation(), now);
+    expect(requests.some(request => request.init?.method === 'PATCH')).toBe(false);
+  });
+  it('accepts a master metadata update while retaining the entire recurrence', async () => {
+    const master = { ...event, recurrence: ['RRULE:FREQ=WEEKLY', 'EXDATE:20260927T120000Z'] };
+    const requests = mockRemote({ ...master, etag: 'master-v2' });
+    await updateGoogleSeriesEvent('token', { ...operation(), baseline: master, scope: 'series' });
+    const patch = requests.find(request => request.init?.method === 'PATCH')!;
+    expect(JSON.parse(String(patch.init?.body))).toEqual({ summary: 'Updated' });
+    expect(patch.init?.headers).toMatchObject({ 'If-Match': 'master-v2' });
   });
   it('recovers a lost response by reading back, including after the edit window', async () => {
     const requests = mockRemote({ ...event, etag: 'v2', summary: 'Updated' }); const op = { ...operation(), attempted: true };

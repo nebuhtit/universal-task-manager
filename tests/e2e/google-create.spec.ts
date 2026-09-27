@@ -78,7 +78,10 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
 test('edits one Google occurrence with conflict recovery and keeps local journals', async ({ page }) => {
   test.setTimeout(120_000);
   let patches = 0;
-  const start = new Date(Date.now() + 30 * 60000).toISOString();
+  // Keep the fixture on the selected day even when the suite runs near midnight.
+  const testNow = new Date(); testNow.setHours(12, 0, 0, 0);
+  await page.clock.setFixedTime(testNow);
+  const start = new Date(testNow.getTime() + 30 * 60000).toISOString();
   let remote = { id: 'instance', recurringEventId: 'master', summary: 'Editable meeting', etag: 'v1', start: { dateTime: start, timeZone: 'UTC' }, end: { dateTime: new Date(Date.parse(start) + 3600000).toISOString(), timeZone: 'UTC' }, htmlLink: 'https://calendar.google.com/event?eid=test', description: '' };
   await page.addInitScript(() => { (window as any).google = { accounts: { oauth2: { initTokenClient: (options: any) => ({ requestAccessToken: () => options.callback({ access_token: 'test', expires_in: 3600, scope: options.scope }) }) } } }; });
   await page.route('https://www.googleapis.com/calendar/v3/**', async (route) => {
@@ -111,7 +114,7 @@ test('edits one Google occurrence with conflict recovery and keeps local journal
   const edit = page.getByRole('dialog', { name: 'Edit Google event', exact: true });
   await edit.getByRole('button', { name: 'Load event for editing' }).click();
   await edit.getByLabel('Title', { exact: true }).fill('Changed in UTM');
-  remote = { ...remote, etag: 'v2', description: 'Edited on another device' };
+  remote = { ...remote, etag: 'v2', summary: 'Conflicting remote title', description: 'Edited on another device' };
   await edit.getByRole('button', { name: 'Save in Google', exact: true }).click();
   await expect(edit.getByRole('alert')).toContainText('changed in Google'); expect(patches).toBe(0);
   await edit.getByRole('button', { name: 'Load current event; keep my draft' }).click();

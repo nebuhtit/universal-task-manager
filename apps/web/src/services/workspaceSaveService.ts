@@ -378,7 +378,8 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
             if (!latest || !op) continue;
             // Explicit Save retries even a previously blocked write. Its persisted
             // stage still performs read-back before any uncertain remote effect.
-            if (!await sendQueuedGoogleItem(latest, { calendarId: op.desiredDestination ?? op.destination, busy: op.desiredBusy ?? op.draft.busy, baseline: latest }, token.accessToken)) throw new Error('Google is still saving this series. Your draft is kept; retry Save shortly.');
+            const reviewed = options?.google?.rebased && options.google.baseline.external?.eventId === op.eventId && options.google.baseline.external.calendarId === op.calendarId;
+            if (!await sendQueuedGoogleItem(latest, { calendarId: op.desiredDestination ?? op.destination, busy: op.desiredBusy ?? op.draft.busy, baseline: reviewed ? options.google!.baseline : latest, ...(reviewed ? { rebased: true } : {}) }, token.accessToken)) throw new Error('Google is still saving this series. Your draft is kept; retry Save shortly.');
           }
           workspace = requireWorkspace();
         }
