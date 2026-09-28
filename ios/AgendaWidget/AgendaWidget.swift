@@ -147,7 +147,6 @@ struct AgendaWidgetView: View {
                 content().frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .privacySensitive()
         .widgetURL(URL(string: "utm://calendar/today"))
         .containerBackground(.fill.tertiary, for: .widget)
     }
