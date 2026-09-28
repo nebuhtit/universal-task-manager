@@ -4,6 +4,7 @@
   max-width: 920px;
   padding-top: var(--space-5);
 }
+.calendar-page::after { content: ''; display: block; height: var(--calendar-collapse-reserve, 0px); pointer-events: none; }
 
 .calendar-title {
   position: sticky;

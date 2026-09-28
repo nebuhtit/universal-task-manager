@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Automerge from '@automerge/automerge';
 import { applyGoogleCalendarSync, createWorkspace, type GoogleCalendarPreferences } from '@utm/core';
-import { GOOGLE_CALENDAR_SYNC_CONCURRENCY, synchronizeGoogleCalendars } from './googleCalendar';
+import { GOOGLE_CALENDAR_SYNC_CONCURRENCY, synchronizeGoogleCalendars, googleJson } from './googleCalendar';
 
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const preferences = (): GoogleCalendarPreferences => ({ connectionId: 'connection-1', calendars: [], syncTokens: {} });
@@ -9,6 +9,26 @@ const preferences = (): GoogleCalendarPreferences => ({ connectionId: 'connectio
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('Google Calendar browser synchronization', () => {
+  it('stops a repeated pagination token rather than looping forever', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ id: 'primary', primary: true }] }))
+      .mockImplementation(async () => jsonResponse({ items: [], nextPageToken: 'same' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(synchronizeGoogleCalendars('test', preferences())).rejects.toThrow('pagination');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+  it('times out a stalled body after successful response headers', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: () => new Promise(() => {}) })));
+    const result = expect(googleJson('https://example.invalid', 'test')).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(30_000); await result;
+  });
+  it('releases a request even when fetch ignores abort', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+    const result = expect(googleJson('https://example.invalid', 'test')).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(30_000); await result;
+  });
   it('can persist an incremental response without reusing Automerge objects', async () => {
     const workspace = createWorkspace('Sync regression');
     const now = new Date();

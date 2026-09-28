@@ -7,12 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		B10000000000000000000005 = {isa = PBXBuildFile; fileRef = B20000000000000000000004; };
-		B10000000000000000000001 = {isa = PBXBuildFile; fileRef = B20000000000000000000001; };
-		B10000000000000000000002 = {isa = PBXBuildFile; fileRef = B20000000000000000000001; };
-		B10000000000000000000003 = {isa = PBXBuildFile; fileRef = B20000000000000000000002; };
-		B10000000000000000000004 = {isa = PBXBuildFile; fileRef = B20000000000000000000003; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		A10000000000000000000011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* Assets.xcassets */; };
 		A10000000000000000000001 /* UniversalTaskManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* UniversalTaskManagerApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ContentView.swift */; };
 		A10000000000000000000003 /* WebAppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* WebAppView.swift */; };
@@ -20,14 +14,39 @@
 		A10000000000000000000005 /* ICloudBackupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* ICloudBackupStore.swift */; };
 		A10000000000000000000006 /* NativeBackupBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* NativeBackupBridge.swift */; };
 		A10000000000000000000007 /* NativeReminderBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* NativeReminderBridge.swift */; };
+		A10000000000000000000011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* Assets.xcassets */; };
+		B10000000000000000000001 /* UniversalTaskManager/AgendaWidgetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* UniversalTaskManager/AgendaWidgetStore.swift */; };
+		B10000000000000000000002 /* UniversalTaskManager/AgendaWidgetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* UniversalTaskManager/AgendaWidgetStore.swift */; };
+		B10000000000000000000003 /* AgendaWidget/AgendaWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* AgendaWidget/AgendaWidget.swift */; };
+		B10000000000000000000004 /* AgendaWidget.appex in Embed widget */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* AgendaWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B10000000000000000000005 /* AgendaWidget/AgendaCountdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* AgendaWidget/AgendaCountdown.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		B70000000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A80000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B50000000000000000000001;
+			remoteInfo = AgendaWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B60000000000000000000002 /* Embed widget */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B10000000000000000000004 /* AgendaWidget.appex in Embed widget */,
+			);
+			name = "Embed widget";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
-		B20000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgendaWidget/AgendaCountdown.swift; sourceTree = SOURCE_ROOT; };
-		B20000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalTaskManager/AgendaWidgetStore.swift; sourceTree = SOURCE_ROOT; };
-		B20000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgendaWidget/AgendaWidget.swift; sourceTree = SOURCE_ROOT; };
-		B20000000000000000000003 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = AgendaWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		A20000000000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000001 /* UniversalTaskManagerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalTaskManagerApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* WebAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppView.swift; sourceTree = "<group>"; };
@@ -38,6 +57,11 @@
 		A20000000000000000000008 /* NativeBackupBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBackupBridge.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 /* UniversalTaskManager.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = UniversalTaskManager.entitlements; sourceTree = "<group>"; };
 		A20000000000000000000010 /* NativeReminderBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeReminderBridge.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B20000000000000000000001 /* UniversalTaskManager/AgendaWidgetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalTaskManager/AgendaWidgetStore.swift; sourceTree = SOURCE_ROOT; };
+		B20000000000000000000002 /* AgendaWidget/AgendaWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgendaWidget/AgendaWidget.swift; sourceTree = SOURCE_ROOT; };
+		B20000000000000000000003 /* AgendaWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = AgendaWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20000000000000000000004 /* AgendaWidget/AgendaCountdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgendaWidget/AgendaCountdown.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,9 +80,9 @@
 			children = (
 				A40000000000000000000002 /* UniversalTaskManager */,
 				A40000000000000000000003 /* Products */,
-				B20000000000000000000001,
-				B20000000000000000000002,
-				B20000000000000000000004,
+				B20000000000000000000001 /* UniversalTaskManager/AgendaWidgetStore.swift */,
+				B20000000000000000000002 /* AgendaWidget/AgendaWidget.swift */,
+				B20000000000000000000004 /* AgendaWidget/AgendaCountdown.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -83,7 +107,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000006 /* UniversalTaskManager.app */,
-				B20000000000000000000003,
+				B20000000000000000000003 /* AgendaWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -91,7 +115,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		B50000000000000000000001 = {isa = PBXNativeTarget; buildConfigurationList = B90000000000000000000001; buildPhases = (B60000000000000000000001, ); buildRules = (); dependencies = (); name = AgendaWidget; productName = AgendaWidget; productReference = B20000000000000000000003; productType = "com.apple.product-type.app-extension"; };
 		A50000000000000000000001 /* UniversalTaskManager */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A90000000000000000000002 /* Build configuration list for PBXNativeTarget "UniversalTaskManager" */;
@@ -105,28 +128,37 @@
 			buildRules = (
 			);
 			dependencies = (
-				B70000000000000000000001,
+				B70000000000000000000001 /* PBXTargetDependency */,
 			);
 			name = UniversalTaskManager;
 			productName = UniversalTaskManager;
 			productReference = A20000000000000000000006 /* UniversalTaskManager.app */;
 			productType = "com.apple.product-type.application";
 		};
+		B50000000000000000000001 /* AgendaWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B90000000000000000000001 /* Build configuration list for PBXNativeTarget "AgendaWidget" */;
+			buildPhases = (
+				B60000000000000000000001 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AgendaWidget;
+			productName = AgendaWidget;
+			productReference = B20000000000000000000003 /* AgendaWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		AB0000000000000000000001 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (A10000000000000000000011 /* Assets.xcassets in Resources */,);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		A80000000000000000000001 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1600;
-				LastUpgradeCheck = 2660;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					A50000000000000000000001 = {
 						CreatedOnToolsVersion = 16.0;
@@ -147,10 +179,21 @@
 			projectRoot = "";
 			targets = (
 				A50000000000000000000001 /* UniversalTaskManager */,
-				B50000000000000000000001,
+				B50000000000000000000001 /* AgendaWidget */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AB0000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000011 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		A70000000000000000000001 /* Package local web app */ = {
@@ -172,7 +215,6 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		B60000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000002, B10000000000000000000003, B10000000000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
 		A60000000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -184,22 +226,36 @@
 				A10000000000000000000005 /* ICloudBackupStore.swift in Sources */,
 				A10000000000000000000006 /* NativeBackupBridge.swift in Sources */,
 				A10000000000000000000007 /* NativeReminderBridge.swift in Sources */,
-				B10000000000000000000001,
+				B10000000000000000000001 /* UniversalTaskManager/AgendaWidgetStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B60000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000002 /* UniversalTaskManager/AgendaWidgetStore.swift in Sources */,
+				B10000000000000000000003 /* AgendaWidget/AgendaWidget.swift in Sources */,
+				B10000000000000000000005 /* AgendaWidget/AgendaCountdown.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-		B60000000000000000000002 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (B10000000000000000000004, ); name = "Embed widget"; runOnlyForDeploymentPostprocessing = 0; };
-		B70000000000000000000001 = {isa = PBXTargetDependency; target = B50000000000000000000001; targetProxy = B70000000000000000000002; };
-		B70000000000000000000002 = {isa = PBXContainerItemProxy; containerPortal = A80000000000000000000001; proxyType = 1; remoteGlobalIDString = B50000000000000000000001; remoteInfo = AgendaWidget; };
+
+/* Begin PBXTargetDependency section */
+		B70000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B50000000000000000000001 /* AgendaWidget */;
+			targetProxy = B70000000000000000000002 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		BA0000000000000000000001 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = AgendaWidget/AgendaWidget.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = 9686Z4Y482; INFOPLIST_FILE = AgendaWidget/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 3.4.1; PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios.agenda"; PRODUCT_NAME = "$(TARGET_NAME)"; REGISTER_APP_GROUPS = YES; SDKROOT = iphoneos; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; };
-		BA0000000000000000000002 = {isa = XCBuildConfiguration; name = Release; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = AgendaWidget/AgendaWidget.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = 9686Z4Y482; INFOPLIST_FILE = AgendaWidget/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 3.4.1; PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios.agenda"; PRODUCT_NAME = "$(TARGET_NAME)"; REGISTER_APP_GROUPS = YES; SDKROOT = iphoneos; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; };
 		AA0000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
@@ -245,6 +301,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
@@ -287,23 +344,23 @@
 		AA0000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = UniversalTaskManager/UniversalTaskManager.Debug.entitlements;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = UniversalTaskManager/UniversalTaskManager.Debug.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9686Z4Y482;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GOOGLE_IOS_CLIENT_ID = "862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00.apps.googleusercontent.com";
+				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00";
 				INFOPLIST_FILE = UniversalTaskManager/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.4.1;
+				MARKETING_VERSION = 3.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios";
-				GOOGLE_IOS_CLIENT_ID = "862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00.apps.googleusercontent.com";
-				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
@@ -318,23 +375,23 @@
 		AA0000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = UniversalTaskManager/UniversalTaskManager.entitlements;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = UniversalTaskManager/UniversalTaskManager.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9686Z4Y482;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GOOGLE_IOS_CLIENT_ID = "862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00.apps.googleusercontent.com";
+				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00";
 				INFOPLIST_FILE = UniversalTaskManager/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.4.1;
+				MARKETING_VERSION = 3.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios";
-				GOOGLE_IOS_CLIENT_ID = "862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00.apps.googleusercontent.com";
-				GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.862892546789-7u2j6n2tkbjs4lp5rqe84t8ecgaktd00";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
@@ -346,10 +403,65 @@
 			};
 			name = Release;
 		};
+		BA0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = AgendaWidget/AgendaWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9686Z4Y482;
+				INFOPLIST_FILE = AgendaWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 3.4.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios.agenda";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BA0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = AgendaWidget/AgendaWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9686Z4Y482;
+				INFOPLIST_FILE = AgendaWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 3.4.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.universal-task-manager.ios.agenda";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) WIDGET_EXTENSION";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		B90000000000000000000001 = {isa = XCConfigurationList; buildConfigurations = (BA0000000000000000000001, BA0000000000000000000002, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A90000000000000000000001 /* Build configuration list for PBXProject "UniversalTaskManager" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -364,6 +476,15 @@
 			buildConfigurations = (
 				AA0000000000000000000003 /* Debug */,
 				AA0000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B90000000000000000000001 /* Build configuration list for PBXNativeTarget "AgendaWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BA0000000000000000000001 /* Debug */,
+				BA0000000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

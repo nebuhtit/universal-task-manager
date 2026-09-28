@@ -26,6 +26,11 @@ describe('local diagnostics', () => {
     expect(entry?.details).toHaveLength(4_000);
     expect(JSON.parse(localStorage.getItem(DIAGNOSTICS_KEY) ?? '[]')).toHaveLength(1);
   });
+  it('retains finite sync checkpoints even when a stage never finishes', () => {
+    recordDiagnostic({ kind: 'action', message: 'Google sync stage: calculate', operation: 'Google sync stage: calculate', outcome: 'started' });
+    expect(readDiagnostics()).toHaveLength(1);
+    expect(readDiagnostics()[0]?.outcome).toBe('started');
+  });
 
   it('retains failures while bounding the count', () => {
     for (let index = 0; index < MAX_DIAGNOSTIC_ENTRIES + 5; index += 1) recordDiagnostic({ kind: 'error', message: String(index) });

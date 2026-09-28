@@ -1,10 +1,11 @@
 import Foundation
-import Network
+import Darwin
+import OSLog
 
 final class LocalWebServer: @unchecked Sendable {
     // This port is part of the persistent web origin. Changing it would make
     // WebKit expose a different IndexedDB database to the application.
-    private static let serverPort: NWEndpoint.Port = 49_381
+    private static let serverPort: UInt16 = 49_381
 
     enum ServerError: LocalizedError {
         case missingIndex
@@ -22,80 +23,133 @@ final class LocalWebServer: @unchecked Sendable {
 
     private let rootDirectory: URL
     private let queue = DispatchQueue(label: "dev.universal-task-manager.local-web-server")
-    private var listener: NWListener?
+    private var listener: DispatchSourceRead?
+    private var readyURL: URL?
+    private var completions: [(Result<URL, Error>) -> Void] = []
+    private var activeConnections = 0
+    private let log = Logger(subsystem: "dev.universal-task-manager", category: "local-web-server")
 
     init(rootDirectory: URL) {
         self.rootDirectory = rootDirectory.standardizedFileURL
     }
 
     func start(completion: @escaping (Result<URL, Error>) -> Void) {
+        queue.async { [self] in
+            if let readyURL { completion(.success(readyURL)); return }
+            completions.append(completion)
+            // Multiple scenes/repeated requests share the same listener.
+            guard listener == nil, completions.count == 1 else { return }
+            startListener()
+        }
+    }
+
+    private func finish(_ result: Result<URL, Error>) {
+        let callbacks = completions
+        completions.removeAll()
+        callbacks.forEach { $0(result) }
+    }
+
+    private func startListener() {
         guard FileManager.default.fileExists(atPath: rootDirectory.appendingPathComponent("index.html").path) else {
-            completion(.failure(ServerError.missingIndex))
+            finish(.failure(ServerError.missingIndex))
             return
         }
 
-        do {
-            let parameters = NWParameters.tcp
-            parameters.allowLocalEndpointReuse = true
-            parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: Self.serverPort)
-            // requiredLocalEndpoint already supplies the port. Passing it a
-            // second time through init(using:on:) produces NWError 22 on iOS.
-            let listener = try NWListener(using: parameters)
-            self.listener = listener
-
-            listener.newConnectionHandler = { [weak self] connection in
-                self?.serve(connection)
-            }
-            listener.stateUpdateHandler = { [weak self] state in
-                switch state {
-                case .ready:
-                    guard let port = listener.port else {
-                        completion(.failure(ServerError.unavailable))
-                        return
-                    }
-                    completion(.success(URL(string: "http://127.0.0.1:\(port.rawValue)/")!))
-                case .failed(let error):
-                    self?.listener = nil
-                    completion(.failure(error))
-                default:
-                    break
-                }
-            }
-            listener.start(queue: queue)
-        } catch {
-            completion(.failure(error))
+        log.info("Starting listener on fixed port 49381; BSD-loopback v3")
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { failSocket("socket", code: errno); return }
+        var reuse: Int32 = 1
+        guard setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout.size(ofValue: reuse))) == 0 else {
+            failSocket("reuse", code: errno, fd: fd); return
         }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = Self.serverPort.bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bound == 0 else { failSocket("bind", code: errno, fd: fd); return }
+        guard Darwin.listen(fd, 16) == 0 else { failSocket("listen", code: errno, fd: fd); return }
+        guard fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else { failSocket("nonblock", code: errno, fd: fd); return }
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        source.setEventHandler { [weak self] in self?.acceptConnections(fd) }
+        source.setCancelHandler { [weak self] in
+            Darwin.close(fd)
+            guard let self else { return }
+            self.listener = nil
+            // A new start may have arrived while cancellation was pending.
+            if !self.completions.isEmpty { self.startListener() }
+        }
+        listener = source
+        source.resume()
+        readyURL = URL(string: "http://127.0.0.1:\(Self.serverPort)/")!
+        log.info("Listener ready; BSD-loopback v3")
+        finish(.success(readyURL!))
+    }
+
+    private func failSocket(_ stage: String, code: Int32, fd: Int32 = -1) {
+        if fd >= 0 { Darwin.close(fd) }
+        log.error("Local socket failed at \(stage, privacy: .public); errno=\(code)")
+        finish(.failure(NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [
+            NSLocalizedDescriptionKey: "Local server \(stage) failed (errno \(code)): \(String(cString: strerror(code)))"
+        ])))
     }
 
     func stop() {
-        listener?.cancel()
-        listener = nil
+        queue.async { [self] in
+            readyURL = nil
+            finish(.failure(ServerError.unavailable))
+            listener?.cancel()
+        }
     }
 
-    private func serve(_ connection: NWConnection) {
-        connection.start(queue: queue)
-        receiveRequest(from: connection, accumulated: Data())
+    private func acceptConnections(_ fd: Int32) {
+        // Limit work per dispatch and concurrent clients; never block the UI.
+        for _ in 0..<16 {
+            let client = Darwin.accept(fd, nil, nil)
+            guard client >= 0 else { return }
+            guard activeConnections < 16 else { Darwin.close(client); continue }
+            activeConnections += 1
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                serve(client)
+                queue.async { [self] in activeConnections -= 1 }
+            }
+        }
     }
 
-    private func receiveRequest(from connection: NWConnection, accumulated: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { [weak self] data, _, isComplete, error in
-            guard let self, error == nil else {
-                connection.cancel()
-                return
+    private func serve(_ fd: Int32) {
+        defer { Darwin.close(fd) }
+        var noSignal: Int32 = 1
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        guard fcntl(fd, F_SETFL, 0) == 0,
+              setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout.size(ofValue: noSignal))) == 0,
+              setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout))) == 0,
+              setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout))) == 0 else { return }
+        var request = Data()
+        var buffer = [UInt8](repeating: 0, count: 16_384)
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
+        while request.range(of: Data("\r\n\r\n".utf8)) == nil {
+            guard request.count < 65_536, ProcessInfo.processInfo.systemUptime < deadline else { return }
+            let count = Darwin.recv(fd, &buffer, min(buffer.count, 65_536 - request.count), 0)
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else { return }
+            request.append(contentsOf: buffer.prefix(count))
+        }
+        let payload = response(for: request)
+        payload.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { return }
+            var offset = 0
+            while offset < bytes.count {
+                guard ProcessInfo.processInfo.systemUptime < deadline else { return }
+                let sent = Darwin.send(fd, base.advanced(by: offset), bytes.count - offset, 0)
+                if sent < 0 && errno == EINTR { continue }
+                guard sent > 0 else { return }
+                offset += sent
             }
-
-            var request = accumulated
-            if let data { request.append(data) }
-            let hasCompleteHeaders = request.range(of: Data("\r\n\r\n".utf8)) != nil
-            guard hasCompleteHeaders || isComplete || request.count >= 65_536 else {
-                self.receiveRequest(from: connection, accumulated: request)
-                return
-            }
-
-            let response = self.response(for: request)
-            connection.send(content: response, completion: .contentProcessed { _ in
-                connection.cancel()
-            })
         }
     }
 

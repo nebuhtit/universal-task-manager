@@ -9,6 +9,7 @@ export interface ItemSaveIntent {
   recurrenceEdit?: RecurrenceItemEdit;
   /** Exact cycle selected before the editor resolved to its series settings. */
   completionOccurrenceId?: string;
+  completionRecurrenceId?: string;
   convertedProject?: string;
   google?: GoogleSaveOptions;
   /** Set only after the user confirms removing the remote event. */
@@ -18,7 +19,7 @@ const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 /** Apply inside one workspace transaction. Network I/O follows durable persistence. */
 export function saveItemInWorkspace(draft: WorkspaceDocument, item: UniversalItem, options: ItemSaveIntent | undefined, actionNow: Date) {
-  const editIntent = options?.recurrenceEdit ?? (options?.completionOccurrenceId ? { occurrenceId: options.completionOccurrenceId, scope: 'this_occurrence' as const } : undefined);
+  const editIntent = options?.recurrenceEdit ?? (options?.completionOccurrenceId ? { occurrenceId: options.completionOccurrenceId, ...(options.completionRecurrenceId ? { recurrenceId: options.completionRecurrenceId } : {}), scope: 'this_occurrence' as const } : undefined);
   if (editIntent) {
     const selected = draft.items[editIntent.occurrenceId];
     const source = selected?.occurrence ? draft.items[selected.occurrence.seriesId] : undefined;

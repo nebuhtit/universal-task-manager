@@ -1,4 +1,5 @@
 import * as Automerge from '@automerge/automerge';
+import { decodeLocalWorkspaceBinary, encodeRecoverySnapshot } from './recoverySnapshot.js';
 import { hasNativeBiometrics, nativeBiometrics } from './nativeBiometrics.js';
 import { entryProgress } from './entryDiagnostics.js';
 import { createWorkspace, migrateWorkspace, validateWorkspace, workspaceForExport, WORKSPACE_FORMAT_GUIDE } from '@utm/core';
@@ -7,7 +8,7 @@ import {
   decryptBytes, decryptWithKey, encryptWithKey, fromBase64, randomKey, ready, toBase64, unwrapKey, wrapKey,
   type EncryptedEnvelope,
 } from './crypto.js';
-import { createAutomergeDocument, exportContainer, merge, requiresPrivacySafeSnapshot, unlock } from './container.js';
+import { createAutomergeDocument, exportContainer, merge, unlock } from './container.js';
 
 interface EncryptedLocalMetadata { version: 1; wrappedKey: EncryptedEnvelope; createdAt: string; mode?: 'encrypted' }
 interface PlaintextLocalMetadata { version: 1; mode: 'plaintext'; createdAt: string }
@@ -73,7 +74,7 @@ async function loadEntryDocument(block: EncryptedLocalBlock, dataKey: Uint8Array
   const binary = await decryptLocalBlock(block, dataKey);
   entryProgress({ stage: 'decrypt', phase: 'completed', bytes: binary.byteLength });
   entryProgress({ stage: 'load', phase: 'started', bytes: binary.byteLength });
-  const document = Automerge.load<WorkspaceDocument>(binary);
+  const document = decodeLocalWorkspaceBinary(binary);
   entryProgress({ stage: 'load', phase: 'completed', bytes: binary.byteLength });
   return document;
 }
@@ -81,7 +82,7 @@ async function loadEntryDocument(block: EncryptedLocalBlock, dataKey: Uint8Array
 /** Verify the exact bytes that will be persisted can be authenticated and loaded. */
 async function verifyEncryptedDocument(block: EncryptedLocalBlock, dataKey: Uint8Array): Promise<void> {
   const binary = await decryptLocalBlock(block, dataKey);
-  try { const verified = Automerge.load<WorkspaceDocument>(binary); Automerge.free(verified); }
+  try { const verified = decodeLocalWorkspaceBinary(binary); Automerge.free(verified); }
   catch { throw new Error('Encrypted workspace round-trip verification failed'); }
 }
 
@@ -95,17 +96,10 @@ async function encryptedBlockFromVerifiedBinary(binary: Uint8Array, dataKey: Uin
 }
 
 async function createExportSafeBlock(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array, currentBlock?: EncryptedLocalBlock): Promise<EncryptedLocalBlock> {
-  // Most workspaces have never contained Google data. Their normal block is
-  // already safe, so avoid a second Automerge snapshot + encryption per save.
-  if (currentBlock && !requiresPrivacySafeSnapshot(document)) return currentBlock;
-  const snapshot = workspaceForExport(structuredClone(document) as WorkspaceDocument);
-  const cleanDocument = createAutomergeDocument(snapshot);
-  let binary: Uint8Array;
-  try { binary = Automerge.save(cleanDocument); } finally { Automerge.free(cleanDocument); }
-  const encrypted = await encryptWithKey(binary, dataKey, BLOCK_AAD);
-  const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
-  await verifyEncryptedDocument(block, dataKey);
-  return block;
+  // Do not scan/replay historical CRDT operations merely to make a backup.
+  // Filter current values even when only deleted history contained Google data.
+  const snapshot = workspaceForExport(JSON.parse(JSON.stringify(document)) as WorkspaceDocument);
+  return encryptedBlockFromVerifiedBinary(encodeRecoverySnapshot(snapshot), dataKey);
 }
 
 async function ensureExportSafeBlock(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array, currentBlock: EncryptedLocalBlock): Promise<void> {
@@ -322,8 +316,9 @@ export async function passwordProtectionStatus(): Promise<PasswordProtectionStat
   return await getRecord<PasswordBypassRecord>(PASSWORD_BYPASS_KEY) ? 'disabled' : 'required';
 }
 
-export async function createLocalWorkspace(password: string, name = 'My workspace', language: WorkspaceLanguage = 'en'): Promise<UnlockedWorkspace> {
-  if (await hasLocalWorkspace()) throw new Error('A local workspace already exists');
+export async function createLocalWorkspace(password: string, name = 'My workspace', language: WorkspaceLanguage = 'en', replaceWithArchive = false): Promise<UnlockedWorkspace> {
+  const existing = await hasLocalWorkspace();
+  if (existing && !replaceWithArchive) throw new Error('A local workspace already exists');
   const dataKey = await randomKey();
   const wrappedKey = await wrapKey(dataKey, password);
   const workspace = createWorkspace(name);
@@ -334,7 +329,17 @@ export async function createLocalWorkspace(password: string, name = 'My workspac
   const metadata: EncryptedLocalMetadata = { version: 1, wrappedKey, createdAt: new Date().toISOString() };
   const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
   const exportSafeBlock = await createExportSafeBlock(document, dataKey, block);
-  await transactVerifiedRecords([[META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]], metadata, block);
+  if (existing) {
+    // Preserve the original encrypted records without loading their Automerge
+    // history. Archive and replacement commit together or not at all.
+    const keys = [META_KEY, BLOCK_KEY, EXPORT_SAFE_BLOCK_KEY, SAVE_RECEIPT_KEY, ...SNAPSHOT_KEYS, ...MIRROR_KEYS];
+    const values = await readRecordsTogether(keys);
+    if (!values[0] || !values[1]) throw new Error('Original workspace could not be archived. Nothing was replaced.');
+    await transactRecords([
+      [`workspace-archive:${crypto.randomUUID()}`, { archivedAt: new Date().toISOString(), records: keys.flatMap((key, index) => values[index] === undefined ? [] : [[key, values[index]]]) }],
+      [META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock],
+    ], [SAVE_RECEIPT_KEY, ...SNAPSHOT_KEYS, ...MIRROR_KEYS, FACE_ID_KEY, PASSWORD_BYPASS_KEY]);
+  } else await transactVerifiedRecords([[META_KEY, metadata], [BLOCK_KEY, block], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock]], metadata, block);
   return { document, dataKey, storageMode: 'encrypted' };
 }
 
@@ -364,7 +369,7 @@ export async function unlockLocalWorkspace(password: string, options: { readOnly
       const binary = await decryptLocalBlock(candidate.workspace, dataKey);
       entryProgress({ stage: 'decrypt', phase: 'completed', bytes: binary.byteLength });
       entryProgress({ stage: 'load', phase: 'started', bytes: binary.byteLength });
-      const document = Automerge.load<WorkspaceDocument>(binary);
+      const document = decodeLocalWorkspaceBinary(binary);
       entryProgress({ stage: 'load', phase: 'completed', bytes: binary.byteLength });
       entryProgress({ stage: 'storage-preparation', phase: 'started' });
       if (!options.readOnly && candidate.mirrored) {
@@ -405,7 +410,7 @@ export async function unlockUnencryptedLocalWorkspace(): Promise<UnlockedWorkspa
   if (metadata.mode !== 'plaintext' || !isPlaintextBlock(block)) throw new Error('This local workspace requires its password');
   entryProgress({ stage: 'load', phase: 'started', bytes: block.binary.byteLength });
   try {
-    const document = Automerge.load<WorkspaceDocument>(block.binary);
+    const document = decodeLocalWorkspaceBinary(block.binary);
     entryProgress({ stage: 'load', phase: 'completed', bytes: block.binary.byteLength });
     return { document, dataKey: new Uint8Array(), storageMode: 'plaintext' };
   }
@@ -424,13 +429,9 @@ export async function prepareLocalWorkspaceSave(
 ): Promise<PreparedLocalWorkspaceSave> {
   if (storageMode === 'plaintext') {
     const binary = Automerge.save(document);
-    try { const verified = Automerge.load<WorkspaceDocument>(binary); Automerge.free(verified); }
-    catch { throw new Error('Plaintext workspace round-trip verification failed'); }
     return { storageMode: 'plaintext', workspace: { version: 1, mode: 'plaintext', binary } };
   }
-  const encrypted = await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD);
-  const block = { version: 1, ...encrypted } satisfies EncryptedLocalBlock;
-  await verifyEncryptedDocument(block, dataKey);
+  const block = await encryptedBlockFromVerifiedBinary(Automerge.save(document), dataKey);
   return {
     storageMode: 'encrypted',
     workspace: block,
@@ -521,7 +522,7 @@ export async function exportLocalWorkspaceSnapshot(id: string, password: string)
   if (snapshot.metadata.mode === 'plaintext' || isPlaintextBlock(snapshot.workspace)) throw new Error('Plaintext snapshots cannot be exported as encrypted backups');
   const dataKey = await unwrapLocalKey(snapshot.metadata.wrappedKey, password);
   try {
-    const document = Automerge.load<WorkspaceDocument>(await decryptLocalBlock(snapshot.workspace, dataKey));
+    const document = decodeLocalWorkspaceBinary(await decryptLocalBlock(snapshot.workspace, dataKey));
     const workspace = await createExportSafeBlock(document, dataKey, snapshot.workspace);
     return JSON.stringify({ magic: 'UTM-LOCAL-ENCRYPTED', version: 1, exportedAt: new Date().toISOString(), metadata: snapshot.metadata, workspace });
   } finally { dataKey.fill(0); }
@@ -537,7 +538,7 @@ export async function restoreLocalWorkspaceSnapshot(id: string, password: string
   const dataKey = await unwrapKey(snapshot.metadata.wrappedKey, password);
   const binary = await decryptWithKey(snapshot.workspace, dataKey, BLOCK_AAD);
   let document: Automerge.Doc<WorkspaceDocument>;
-  try { document = Automerge.load<WorkspaceDocument>(binary); } catch { throw new Error('Workspace snapshot is damaged'); }
+  try { document = decodeLocalWorkspaceBinary(binary); } catch { throw new Error('Workspace snapshot is damaged'); }
   const exportSafeBlock = await createExportSafeBlock(document, dataKey, snapshot.workspace);
   const previousSnapshot = await getRecord<LocalWorkspaceSnapshot>(SNAPSHOT_KEYS[0]);
   const current: LocalWorkspaceSnapshot = { id: SNAPSHOT_KEYS[0], createdAt: new Date().toISOString(), schemaVersion: String((document as WorkspaceDocument).schemaVersion ?? 'unknown'), reason: 'before snapshot restore', metadata: currentMetadata, workspace: currentBlock };
@@ -571,7 +572,7 @@ export async function importAsLocalWorkspace(source: string, password: string): 
     entryProgress({ stage: 'decrypt', phase: 'completed', bytes: binary.byteLength });
     entryProgress({ stage: 'load', phase: 'started', bytes: binary.byteLength });
     let document: Automerge.Doc<WorkspaceDocument>;
-    try { document = Automerge.load<WorkspaceDocument>(binary); }
+    try { document = decodeLocalWorkspaceBinary(binary); }
     catch { throw new Error('Decrypted recovery copy is damaged'); }
     if (!validateWorkspace(document).valid && !validateWorkspace(migrateWorkspace(document).value).valid) throw new Error('Backup integrity check failed; local storage has not changed');
     entryProgress({ stage: 'load', phase: 'completed', bytes: binary.byteLength });
@@ -605,13 +606,15 @@ export async function decryptWorkspaceFile(source: string, password: string): Pr
     try {
       const binary = await decryptLocalBlock(block, dataKey);
       let document: Automerge.Doc<WorkspaceDocument>;
-      try { document = Automerge.load<WorkspaceDocument>(binary); }
+      try { document = decodeLocalWorkspaceBinary(binary); }
       catch { throw new Error('Decrypted recovery copy is damaged'); }
-      return {
-        format: 'utm-readable-workspace', formatVersion: 1, decryptedAt: new Date().toISOString(),
-        source: { magic: 'UTM-LOCAL-ENCRYPTED', diagnosticsIncluded: 'diagnostics' in parsed },
-        readme: WORKSPACE_FORMAT_GUIDE, workspace: workspaceForExport(JSON.parse(JSON.stringify(document)) as WorkspaceDocument),
-      };
+      try {
+        return {
+          format: 'utm-readable-workspace', formatVersion: 1, decryptedAt: new Date().toISOString(),
+          source: { magic: 'UTM-LOCAL-ENCRYPTED', diagnosticsIncluded: 'diagnostics' in parsed },
+          readme: WORKSPACE_FORMAT_GUIDE, workspace: workspaceForExport(JSON.parse(JSON.stringify(document)) as WorkspaceDocument),
+        };
+      } finally { Automerge.free(document); }
     } finally { dataKey.fill(0); }
   }
   if (parsed.magic === 'UTM-ENCRYPTED') {
@@ -759,7 +762,8 @@ async function verifiedCurrentPassword(password: string): Promise<{ metadata: En
   let dataKey: Uint8Array | undefined;
   try {
     dataKey = await unwrapLocalKey(metadata.wrappedKey, password);
-    Automerge.load<WorkspaceDocument>(await decryptLocalBlock(block, dataKey));
+    const verified = decodeLocalWorkspaceBinary(await decryptLocalBlock(block, dataKey));
+    Automerge.free(verified);
     return { metadata, block, dataKey };
   } catch {
     dataKey?.fill(0);

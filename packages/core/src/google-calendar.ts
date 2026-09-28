@@ -5,6 +5,15 @@ import { createOccurrence } from './recurrence.js';
 import { zonedDateStart } from './view-statistics.js';
 
 export const GOOGLE_DELETION_RECEIPTS_EXTENSION = 'utm:googleDeletionReceipts';
+const occurrenceKey = (seriesId: string, anchor: string) => JSON.stringify([seriesId, anchor]);
+function occurrenceIndex(workspace: WorkspaceDocument): Map<string, UniversalItem> {
+  const result = new Map<string, UniversalItem>();
+  for (const item of Object.values(workspace.items)) if (item.occurrence) {
+    const key = occurrenceKey(item.occurrence.seriesId, item.occurrence.recurrenceId);
+    if (!result.has(key)) result.set(key, item);
+  }
+  return result;
+}
 export interface GoogleDeletionReceipt { calendarId: string; eventId: string; accountEmail: string; deletedAt: string }
 
 export interface GoogleCalendarEventDate {
@@ -169,6 +178,10 @@ function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mir
     ...(mirror.schedule?.startAt ? { startAt: mirror.schedule.startAt } : {}),
     ...(mirror.schedule?.endAt ? { endAt: mirror.schedule.endAt } : {}),
     ...(mirror.schedule?.timezone ? { timezone: mirror.schedule.timezone } : {}), allDay: mirror.schedule?.allDay === true };
+  // An interrupted delete-and-recreate or cross-calendar move can leave only a
+  // tombstone behind while the item itself is open. An exact opaque identity
+  // match is an authoritative restore; never keep hiding that linked item.
+  if (!target.deletedAt) delete workspace.tombstones[target.id];
   if (mirror.extensions?.['utm:googleSeriesEvent']) {
     target.extensions ??= {}; target.extensions['utm:googleSeriesEvent'] = JSON.parse(JSON.stringify(mirror.extensions['utm:googleSeriesEvent']));
     for (const child of Object.values(workspace.items)) if (child.occurrence?.seriesId === target.id && child.external?.eventId === target.external.eventId) detachGoogleCalendar(child);
@@ -214,15 +227,17 @@ export function mergeGoogleCalendarCopies(workspace: WorkspaceDocument): void {
   // Instances may arrive before the move/create acknowledgement links their
   // master. Reconcile stored mirrors too, not only events in the next delta.
   const masters = new Map(Object.values(workspace.items).filter(item => !item.deletedAt && item.role === 'series_template' && item.external?.readOnly === false).map(item => [externalId(item.external!.calendarId, item.external!.eventId), item]));
+  const occurrences = occurrenceIndex(workspace);
   for (const mirror of Object.values(workspace.items)) {
     if (!mirror.external?.readOnly) continue;
     const identity = mirror.extensions?.['utm:googleOccurrenceIdentity'] as { masterId?: string; originalStart?: string } | undefined;
     if (!identity?.masterId || !identity.originalStart || !Number.isFinite(Date.parse(identity.originalStart))) continue;
     const master = masters.get(externalId(mirror.external.calendarId, identity.masterId));
     if (!master) continue;
-    let target = Object.values(workspace.items).find(item => item.occurrence?.seriesId === master.id && item.occurrence.recurrenceId === identity.originalStart);
+    const key = occurrenceKey(master.id, identity.originalStart);
+    let target = occurrences.get(key);
     if (target?.deletedAt || target?.extensions?.['utm:googleSave']) continue;
-    if (!target) { target = createOccurrence(master, new Date(identity.originalStart), 0); workspace.items[target.id] = target; }
+    if (!target) { target = createOccurrence(master, new Date(identity.originalStart), 0); workspace.items[target.id] = target; occurrences.set(key, target); }
     linkGoogleCopy(workspace, target, mirror);
   }
 }
@@ -237,6 +252,25 @@ export function googleCalendarProjection(item: UniversalItem): UniversalItem {
 
 /** Applies one full or incremental calendar response in-place. */
 export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: GoogleCalendarSyncBatch): { added: number; updated: number; removed: number } {
+  // A successful re-link from an explicit UTM save can coexist with a stale
+  // deletion receipt/tombstone left by an interrupted older delete-and-recreate
+  // flow. The active writable link is authoritative when the item itself is
+  // not deleted; otherwise Calendar/Timeline would hide a healthy series while
+  // List can still display its record.
+  const accountEmail = workspace.calendarPreferences.googleCalendar?.accountEmail;
+  for (const item of Object.values(workspace.items)) {
+    const link = item.external;
+    if (!link || link.readOnly || item.deletedAt) continue;
+    const stored = item.extensions?.[GOOGLE_DELETION_RECEIPTS_EXTENSION];
+    if (!Array.isArray(stored)) continue;
+    const retained = stored.filter((receipt: GoogleDeletionReceipt) =>
+      receipt.calendarId !== link.calendarId || receipt.eventId !== link.eventId
+      || (accountEmail && receipt.accountEmail !== accountEmail));
+    if (retained.length === stored.length) continue;
+    if (retained.length) item.extensions![GOOGLE_DELETION_RECEIPTS_EXTENSION] = retained;
+    else delete item.extensions![GOOGLE_DELETION_RECEIPTS_EXTENSION];
+    delete workspace.tombstones[item.id];
+  }
   const seen = new Set<string>();
   const pendingDeletions = new Set(Object.values(workspace.items).flatMap((item) => {
     const pending = item.extensions?.['utm:googleSave'] as { kind?: string; calendarId?: string; eventId?: string } | undefined;
@@ -248,6 +282,17 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
   const restoredByKey = new Map<string, UniversalItem>();
   for (const item of Object.values(workspace.items)) if (!item.deletedAt && !item.external?.readOnly) {
     if (item.external) linkedByEvent.set(externalId(item.external.calendarId, item.external.eventId), item);
+    // A completed cross-calendar replacement may have removed the old external
+    // link before its new-calendar acknowledgement was persisted. Retain and
+    // use the exact stored master identity and organization calendar; unlike a
+    // title/date heuristic this cannot merge an unrelated event.
+    if (!item.external && item.role === 'series_template') {
+      const seriesEvent = item.extensions?.['utm:googleSeriesEvent'] as GoogleCalendarEvent | undefined;
+      const organization = item.extensions?.['utm:calendarOrganization'] as { calendarId?: string } | undefined;
+      if (seriesEvent?.id && seriesEvent.status !== 'cancelled' && organization?.calendarId) {
+        linkedByEvent.set(externalId(organization.calendarId, seriesEvent.id), item);
+      }
+    }
     const pending = item.extensions?.['utm:googleSave'] as { calendarId?: string; destination?: string; eventId?: string; accountEmail?: string } | undefined;
     if (pending?.eventId && pending.calendarId && pending.accountEmail === workspace.calendarPreferences.googleCalendar?.accountEmail) {
       linkedByEvent.set(externalId(pending.calendarId, pending.eventId), item);
@@ -257,6 +302,11 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
     if (typeof key === 'string') restoredByKey.set(key, item);
   }
   let added = 0; let updated = 0; let removed = 0;
+  // Index once instead of walking every Automerge item for every Google cycle.
+  const occurrences = occurrenceIndex(workspace);
+  const cancelledMasters = new Set(batch.events
+    .filter(event => event.status === 'cancelled' && !event.recurringEventId)
+    .map(event => event.id));
   for (const event of batch.events) {
     const id = externalId(batch.calendarId, event.id);
     if (pendingDeletions.has(id)) {
@@ -269,19 +319,28 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
     let linked = linkedByEvent.get(id);
     const master = event.recurringEventId ? linkedByEvent.get(externalId(batch.calendarId, event.recurringEventId)) : undefined;
     const original = event.originalStartTime?.dateTime ?? (event.originalStartTime?.date ? zonedDateStart(event.originalStartTime.date, master?.schedule?.timezone ?? workspace.calendarPreferences.timezone).toISOString() : undefined);
-    if (!linked && master?.role === 'series_template' && original && Number.isFinite(Date.parse(original))) {
-      const anchor = new Date(original).toISOString();
-      linked = Object.values(workspace.items).find(item => item.occurrence?.seriesId === master.id && item.occurrence.recurrenceId === anchor);
-      if (!linked) { linked = createOccurrence(master, new Date(anchor), 0); workspace.items[linked.id] = linked; }
-    }
-    if (linked) seen.add(linked.id);
+    const originalAnchor = original && Number.isFinite(Date.parse(original)) ? new Date(original).toISOString() : undefined;
     if (event.status === 'cancelled') {
+      // Google can return hundreds of cancelled instances after a recurring
+      // master was deleted or moved. Never materialize an occurrence merely to
+      // delete it: that used to create years of empty items and tombstones.
+      if (!linked && master?.role === 'series_template' && originalAnchor) linked = occurrences.get(occurrenceKey(master.id, originalAnchor));
       if (master && linked?.occurrence) { linked.deletedAt = batch.syncedAt; workspace.tombstones[linked.id] = batch.syncedAt; }
+      else if (master?.recurrence && originalAnchor && event.recurringEventId && !cancelledMasters.has(event.recurringEventId)) {
+        master.recurrence.exdates = [...new Set([...master.recurrence.exdates, originalAnchor])];
+      }
       if (linked) detachGoogleCalendar(linked);
       const existing = workspace.items[id];
       if (existing) { delete workspace.items[id]; delete workspace.tombstones[id]; removed += 1; }
       continue;
     }
+    if (!linked && master?.role === 'series_template' && originalAnchor) {
+      const anchor = originalAnchor;
+      const key = occurrenceKey(master.id, anchor);
+      linked = occurrences.get(key);
+      if (!linked) { linked = createOccurrence(master, new Date(anchor), 0); workspace.items[linked.id] = linked; occurrences.set(key, linked); }
+    }
+    if (linked) seen.add(linked.id);
     const next = googleCalendarEventToItem(event, batch.calendarId, batch.connectionId, batch.syncedAt, workspace.calendarPreferences.timezone);
     if (!next) continue;
     const restored = event.localHistoryKey ? restoredByKey.get(event.localHistoryKey) : undefined;

@@ -16,11 +16,16 @@ function includesBytes(source: Uint8Array, expected: Uint8Array): boolean {
 /** Returns a fresh privacy-safe snapshot only when normal CRDT history is unsafe to export. */
 export function persistenceExportSafeSnapshot(
   document: Automerge.Doc<WorkspaceDocument>,
-  changes: Uint8Array[],
+  changes: Uint8Array[] | (() => Uint8Array[]),
 ): WorkspaceDocument | undefined {
   const current = structuredClone(document) as WorkspaceDocument;
   const snapshot = workspaceForExport(current);
   const currentDataChanged = JSON.stringify(snapshot) !== JSON.stringify(current);
-  const privateHistory = changes.some((change) => googleHistoryMarkers.some((marker) => includesBytes(change, marker)));
-  return currentDataChanged || privateHistory ? snapshot : undefined;
+  // Calendar-connected documents already need a filtered snapshot. Expanding
+  // every historical change here wastes memory on mobile and cannot alter the
+  // decision. Keep history inspection lazy for unfiltered current documents.
+  if (currentDataChanged) return snapshot;
+  const history = typeof changes === 'function' ? changes() : changes;
+  const privateHistory = history.some((change) => googleHistoryMarkers.some((marker) => includesBytes(change, marker)));
+  return privateHistory ? snapshot : undefined;
 }

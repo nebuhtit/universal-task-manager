@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
-import { agendaWidgetRequest, agendaWidgetSnapshot, hasNativeAgendaWidget, needsAgendaWidgetSync } from '../../services/nativeAgendaWidget';
+import { useEffect, useMemo, useRef } from 'react';
+import { agendaWidgetRequest, hasNativeAgendaWidget, needsAgendaWidgetSync } from '../../services/nativeAgendaWidget';
+import { agendaInput, calculateAgendaInWorker } from '../../services/agendaWorker';
 import { itemDeletionTime, type WorkspaceDocument } from '@utm/core';
 import { useWorkspaceNow } from '../../hooks/useClock';
 import { AgendaTitle, agendaPlainText } from './AgendaTitle';
@@ -9,30 +10,41 @@ import { formatAgendaRemaining, selectHeaderAgenda, type HeaderAgenda as Agenda 
 
 export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
   const widgetSent = useRef('');
+  const input = useMemo(() => workspace && hasNativeAgendaWidget() ? agendaInput(workspace) : undefined, [workspace]);
   useEffect(() => {
-    if (!workspace || !hasNativeAgendaWidget()) return;
+    if (!input) return;
     let disposed = false;
-    const sync = (force = false) => { void agendaWidgetRequest('status').then(status => {
+    let generation = 0;
+    let calculation: AbortController | undefined;
+    const sync = (force = false) => {
+      const request = ++generation;
+      calculation?.abort();
+      const controller = new AbortController(); calculation = controller;
+      void agendaWidgetRequest('status').then(async status => {
       if (!disposed && status.enabled) {
-        const snapshot = agendaWidgetSnapshot(workspace);
+        if (request !== generation) return;
+        const snapshot = await calculateAgendaInWorker(input.workspace, Date.now(), controller.signal);
+        if (disposed || request !== generation) return;
         const { at: _at, ...firstStage } = snapshot.entries[0] ?? {};
-        const signature = JSON.stringify([workspace.workspaceId, firstStage, snapshot.entries.slice(1), Math.floor(snapshot.generatedAt / 1800)]);
+        const signature = JSON.stringify([input.workspace.workspaceId, firstStage, snapshot.entries.slice(1), Math.floor(snapshot.generatedAt / 1800)]);
         if (!needsAgendaWidgetSync(status, signature, widgetSent.current, force)) return;
         return agendaWidgetRequest('sync', snapshot).then(reply => {
+          if (disposed || request !== generation) return;
           if (!reply.enabled || reply.snapshotReady === false) throw new Error('Widget snapshot was not accepted');
           widgetSent.current = signature;
           recordDiagnostic({ kind: 'result', operation: 'Agenda widget', message: 'Widget snapshot updated', details: JSON.stringify({ version: snapshot.version, generatedAt: snapshot.generatedAt, nextTransition: snapshot.nextStageAt, expires: snapshot.expires }) });
         });
       }
-    }).catch(reason => recordDiagnostic({ kind: 'error', operation: 'Agenda widget', message: 'Widget snapshot transfer failed', details: reason instanceof Error ? reason.message : 'Native bridge failure' })); };
+    }).catch(reason => { if (!disposed && request === generation && !controller.signal.aborted) recordDiagnostic({ kind: 'error', operation: 'Agenda widget', message: 'Widget snapshot transfer failed', details: reason instanceof Error ? reason.message : 'Native bridge failure' }); }); };
     const visible = () => { if (document.visibilityState === 'visible') sync(true); };
     const changed = () => { widgetSent.current = ''; sync(true); };
     sync();
     const refresh = window.setInterval(visible, 30 * 60_000);
     window.addEventListener('utm-agenda-widget-change', changed);
     document.addEventListener('visibilitychange', visible);
-    return () => { disposed = true; window.clearInterval(refresh); window.removeEventListener('utm-agenda-widget-change', changed); document.removeEventListener('visibilitychange', visible); };
-  }, [workspace]);
+    return () => { disposed = true; calculation?.abort(); window.clearInterval(refresh); window.removeEventListener('utm-agenda-widget-change', changed); document.removeEventListener('visibilitychange', visible); };
+    // The key covers agenda inputs only; backup/sync timestamps do not restart work.
+  }, [input?.key]);
   const now = useWorkspaceNow(workspace).getTime();
   const cache = useRef<{ workspace: WorkspaceDocument; at: number; agenda: Agenda } | undefined>(undefined);
   const deletedFromCache = workspace && [cache.current?.agenda.current, ...(cache.current?.agenda.concurrent ?? []), cache.current?.agenda.next].some(entry => {

@@ -58,8 +58,27 @@ export function needsGoogleSave(item: UniversalItem, options: GoogleSaveOptions)
 export async function prepareGoogleSave(args: { workspaceId: string; accountEmail: string; item: UniversalItem; options: GoogleSaveOptions }): Promise<GoogleSaveOperation> {
   const { item, options } = args;
   const pending = item.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
-  if (pending) return { ...pending, desiredDestination: options.calendarId, desiredBusy: options.busy };
   const link = options.baseline.external;
+  if (pending) {
+    const desired = { ...pending, desiredDestination: options.calendarId, desiredBusy: options.busy };
+    delete desired.blocked;
+    const storedInstance = item.extensions?.['utm:googleInstance'] as NonNullable<GoogleSaveOperation['instance']> | undefined;
+    // Older builds could persist a deterministic create before recording that
+    // the draft is one instance of an existing Google series. Preserve the
+    // durable draft, but recover the exact remote instance identity and PATCH it
+    // instead of retrying POST with an already occupied event ID.
+    if (pending.kind === 'create' && !pending.split && storedInstance && !pending.instance) {
+      return { ...desired, instance: { ...storedInstance, baseline: googleEventBody({ eventId: 'utm00000', calendarId: options.calendarId, accountEmail: args.accountEmail, draft: itemGoogleDraft(options.baseline, options.busy) }) } };
+    }
+    // If synchronization already restored the exact persisted link, it is the
+    // authoritative identity; a stale create must become an edit, never a new
+    // event or a title-based merge.
+    if (pending.kind === 'create' && !pending.split && link) return {
+      ...desired, kind: 'edit', calendarId: link.calendarId, eventId: link.eventId,
+      baseline: itemGoogleBaseline(options.baseline),
+    };
+    return desired;
+  }
   const operation: GoogleSaveOperation = {
     kind: link ? 'edit' : 'create', calendarId: link?.calendarId ?? options.calendarId, destination: options.calendarId,
     eventId: link?.eventId ?? await googleCreationId(args.workspaceId, item.occurrence ? `${item.id}:${item.occurrence.recurrenceId}` : item.id),
@@ -153,7 +172,16 @@ export async function saveGoogleItem(args: {
   if (operation.kind === 'create') {
     await persist(operation);
     const event = operation.split?.createdEvent ?? await createSingleGoogleEvent(token, operation as GoogleCreateOperation);
-    await finish(operation.calendarId, event); return;
+    const confirmedCreate = operation.split?.createdEvent
+      || event.extendedProperties?.private?.utmCreateOperation === operation.eventId;
+    if (confirmedCreate) { await finish(operation.calendarId, event); return; }
+    // Legacy UTM builds created the same deterministic event ID without the
+    // private create marker. A 409 followed by an exact-ID read is therefore a
+    // recoverable link, but its body may predate the draft currently on disk.
+    // Persist the transition before PATCHing so a crash can only retry an edit,
+    // never another insert.
+    operation = { ...operation, kind: 'edit', calendarId: operation.calendarId, eventId: event.id, baseline: event, attempted: false };
+    await persist(operation);
   }
   if (operation.kind === 'edit') {
     const edit = operation as GoogleEditOperation;

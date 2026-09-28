@@ -1,5 +1,5 @@
 import * as Automerge from '@automerge/automerge';
-import type { ReconcileResult, WorkspaceDocument } from '@utm/core';
+import { pruneTechnicalDeletedOccurrences, type ReconcileResult, type WorkspaceDocument } from '@utm/core';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -14,6 +14,17 @@ export function writableWorkspaceDocument(document: Automerge.Doc<WorkspaceDocum
     if (reason instanceof RangeError && /outdated document/i.test(reason.message)) return Automerge.clone(document);
     throw reason;
   }
+}
+
+export function compactTechnicalOccurrenceGarbage(document: Automerge.Doc<WorkspaceDocument>): { document: Automerge.Doc<WorkspaceDocument>; removed: number } {
+  const candidates = Object.values(document.items).filter(item => item.role === 'occurrence' && item.deletedAt && item.occurrence && document.tombstones[item.id]).length;
+  if (!candidates) return { document, removed: 0 };
+  const snapshot = clean(document as unknown as WorkspaceDocument);
+  const removed = pruneTechnicalDeletedOccurrences(snapshot);
+  if (!removed) return { document, removed: 0 };
+  // Rebuild current state instead of recording thousands of delete operations
+  // in old CRDT history. Persistence still verifies before replacing storage.
+  return { document: Automerge.from(snapshot as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>, removed };
 }
 
 export function commitWorkspaceDocument(document: Automerge.Doc<WorkspaceDocument>, message: string, mutation: (draft: WorkspaceDocument) => void, now = new Date()): Automerge.Doc<WorkspaceDocument> {

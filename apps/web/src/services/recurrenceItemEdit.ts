@@ -1,6 +1,21 @@
 import { createId, createOccurrence, buildRecurrenceRule, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
-export interface RecurrenceItemEdit { occurrenceId: string; scope: 'this_occurrence' | 'this_and_future' }
+export interface RecurrenceItemEdit { occurrenceId: string; recurrenceId?: string; scope: 'this_occurrence' | 'this_and_future' }
+
+/** Materialize a projected cycle only inside the transaction that changes it. */
+export function ensureRecurrenceEditOccurrence(workspace: WorkspaceDocument, seriesId: string, intent: RecurrenceItemEdit): UniversalItem {
+  const existing = workspace.items[intent.occurrenceId];
+  if (existing) return existing;
+  const series = workspace.items[seriesId];
+  if (!series?.recurrence || !intent.recurrenceId || !Number.isFinite(Date.parse(intent.recurrenceId))) throw new Error('The selected recurrence is unavailable. Reopen the item.');
+  const anchor = new Date(intent.recurrenceId);
+  const first = recurrenceAnchor(series);
+  const sequence = first ? Math.max(0, buildRecurrenceRule(series).between(new Date(Date.parse(first) - 1), anchor, true).length - 1) : 0;
+  const occurrence = createOccurrence(series, anchor, sequence);
+  if (occurrence.id !== intent.occurrenceId) throw new Error('The selected recurrence identity changed. Reopen the item.');
+  workspace.items[occurrence.id] = occurrence;
+  return occurrence;
+}
 /** Parent writes must finish before an instance edit; splits must also settle
  * affected exceptions so their durable remote identities are not discarded. */
 export function recurrenceEditPendingIds(workspace: WorkspaceDocument, intent: RecurrenceItemEdit): string[] {
@@ -29,7 +44,7 @@ function applyFields(target: UniversalItem, edited: UniversalItem) {
 
 /** Save a selected cycle without rewriting the dates or history of past cycles. */
 export function editRecurringItem(workspace: WorkspaceDocument, edited: UniversalItem, intent: RecurrenceItemEdit, now: Date): { item: UniversalItem; previousSeries?: UniversalItem } {
-  const selected = workspace.items[intent.occurrenceId];
+  const selected = ensureRecurrenceEditOccurrence(workspace, edited.id, intent);
   const series = selected?.occurrence ? workspace.items[selected.occurrence.seriesId] : undefined;
   if (!selected?.occurrence || !series?.recurrence || series.id !== edited.id || selected.deletedAt) throw new Error('The selected recurrence is unavailable. Reopen the item.');
   if (recurrenceEditPendingIds(workspace, intent).length) throw new Error('A related Google save is still pending. Retry saving when connected; your draft is kept in the editor.');

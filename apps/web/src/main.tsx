@@ -6,6 +6,10 @@ import { registerSW } from 'virtual:pwa-register';
 import App, { AppErrorBoundary } from './App.js';
 import './styles.css';
 import { bootstrapObsidianWorkspace } from './services/obsidianBridge';
+import { installSyncTraceLifecycle } from './services/syncTrace';
+import { installInputLatency } from './services/inputLatency';
+installSyncTraceLifecycle();
+installInputLatency();
 
 // Let failed lazy imports reach PageErrorBoundary. Automatic reload here used
 // to tear down the unlocked session and could interrupt an outstanding save.

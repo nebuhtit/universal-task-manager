@@ -8,13 +8,23 @@ import Security
 import AVFAudio
 
 /// Short locally generated cues; no audio downloads and no background playback.
-final class NativeSoundBridge: NSObject, WKScriptMessageHandler {
+final class NativeSoundBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable {
+    // Audio state is confined to this serial queue, never the WebKit/UI thread.
+    private let audioQueue = DispatchQueue(label: "dev.universal-task-manager.ui-sound", qos: .utility)
     private var player: AVAudioPlayer?
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         let origin = message.frameInfo.securityOrigin
         guard message.frameInfo.isMainFrame, origin.protocol == "http", origin.host == "127.0.0.1", origin.port == 49381,
               let kind = message.body as? String,
               ["click", "confirm", "dismiss", "toggle", "expand", "reset", "completion", "interval"].contains(kind) else { return }
+        let requestedAt = ProcessInfo.processInfo.systemUptime
+        audioQueue.async { [self] in
+            // Do not replay a backlog of optional feedback after a slow session activation.
+            guard ProcessInfo.processInfo.systemUptime - requestedAt < 0.5 else { return }
+            play(kind)
+        }
+    }
+    private func play(_ kind: String) {
         let frequency = kind == "completion" ? 880.0 : kind == "interval" ? 520.0 : 560.0
         let duration = kind == "completion" ? 0.16 : 0.07
         let count = Int(44100 * duration)
@@ -68,7 +78,8 @@ struct WebAppView: UIViewRepresentable {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
         webView.backgroundColor = .systemBackground
-        webView.load(URLRequest(url: startURL, cachePolicy: .reloadIgnoringLocalCacheData))
+        let entryURL = UserDefaults.standard.bool(forKey: "utm.webRecoveryRequired") ? context.coordinator.recoveryURL : startURL
+        webView.load(URLRequest(url: entryURL, cachePolicy: .reloadIgnoringLocalCacheData))
         return webView
     }
 
@@ -84,6 +95,22 @@ struct WebAppView: UIViewRepresentable {
         let agendaBridge = NativeAgendaBridge()
         private var downloads: [ObjectIdentifier: URL] = [:]
         private weak var keyboardWebView: WKWebView?
+        var recoveryURL: URL {
+            var components = URLComponents(url: localOrigin, resolvingAgainstBaseURL: false)!
+            components.queryItems = [URLQueryItem(name: "utm-recovery", value: "1")]
+            return components.url!
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            // Handle termination ourselves: never loop through automatic unlock.
+            UserDefaults.standard.set(true, forKey: "utm.webRecoveryRequired")
+            let alert = UIAlertController(title: "Universal: восстановление", message: "Процесс интерфейса остановлен iOS. Данные не удалены. Откройте экран входа без автоматического открытия workspace и сохраните резервную копию перед дальнейшими действиями.", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Открыть восстановление", style: .default) { [weak self, weak webView] _ in
+                guard let self, let webView else { return }
+                webView.load(URLRequest(url: self.recoveryURL, cachePolicy: .reloadIgnoringLocalCacheData))
+            })
+            presenter(webView)?.present(alert, animated: true)
+        }
 
         func observeKeyboard(_ webView: WKWebView) {
             keyboardWebView = webView
@@ -348,10 +375,11 @@ final class NativeGoogleAuthBridge: NSObject, WKScriptMessageHandler, ASWebAuthe
             DispatchQueue.main.async { completion(error == nil ? (response as? HTTPURLResponse)?.statusCode ?? 0 : 0, json) }
         }.resume()
     }
-    private func refresh(_ saved: Credential, client: String, scopes: [String], id: String, scheme: String) {
+    private func refresh(_ saved: Credential, client: String, scopes: [String], id: String, scheme: String, interactive: Bool) {
         tokenRequest(["client_id": client, "grant_type": "refresh_token", "refresh_token": saved.refreshToken]) { [weak self] status, result in
             guard let self, self.activeRequestID == id else { return }
             if status == 400, result?["error"] as? String == "invalid_grant" {
+                guard interactive else { self.reply(id, error: "Google access expired. Tap Sync to reconnect."); return }
                 do { try self.deleteCredential(client) }
                 catch { self.reply(id, error: "Could not clear expired Google credentials."); return }
                 self.authorize(client: client, scopes: scopes, id: id, scheme: scheme)
@@ -398,17 +426,20 @@ final class NativeGoogleAuthBridge: NSObject, WKScriptMessageHandler, ASWebAuthe
         let allowed = Set(["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly"])
         guard let scopes = payload["scopes"] as? [String], !scopes.isEmpty, Set(scopes).isSubset(of: allowed) else { reply(id, error: "Invalid Calendar scopes."); return }
         activeRequestID = id
+        let interactive = payload["interactive"] as? Bool ?? true
         do {
             if let saved = try credential(client) {
                 let granted = Set(saved.scopes.split(separator: " ").map(String.init))
                 if Set(scopes).isSubset(of: granted) {
-                    refresh(saved, client: client, scopes: scopes, id: id, scheme: scheme)
+                    refresh(saved, client: client, scopes: scopes, id: id, scheme: scheme, interactive: interactive)
                     return
                 }
+                guard interactive else { reply(id, error: "Google permissions need updating. Tap Sync to reconnect."); return }
                 authorize(client: client, scopes: Array(granted.union(scopes).intersection(allowed)).sorted(), id: id, scheme: scheme)
                 return
             }
         } catch { reply(id, error: "Could not read Google authorization from Keychain. Unlock the device and retry."); return }
+        guard interactive else { reply(id, error: "Google needs reconnecting. Tap Sync when ready."); return }
         authorize(client: client, scopes: scopes, id: id, scheme: scheme)
     }
 

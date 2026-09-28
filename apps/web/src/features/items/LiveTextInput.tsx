@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { orderedOrganizationNames, orderedTagEntries, type WorkspaceDocument } from '@utm/core';
 import { organizationSuggestions } from '../../../quick-entry-lab/organization';
 import { dateValueExpression, parseLiveEntry as parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
@@ -9,10 +9,10 @@ import { createLiveDayPreview } from './liveDayPreview';
 import { buildSegments, positionAt } from '../calendar/timelineLayout';
 import './live-text.css';
 
-export function LiveTextInput({ value, onChange, workspaceId, workspace, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, viewedTimelineDate, timeZone, onSubmit }: {
+export function LiveTextInput({ value, onChange, workspaceId, workspace, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, viewedTimelineDate, timeZone, onSubmit, onFocus, onBlur }: {
   value: string; onChange: (value: string) => void; workspaceId: string; suggestionsEnabled?: boolean;
   inputRef?: RefObject<HTMLInputElement | null>; multiline?: boolean; overlaySuggestions?: boolean; placeholder?: string; ariaLabel?: string; now: Date; error?: string; id?: string; autoFocus?: boolean; language?: string; onViewCalendarDate?: (dateKey: string) => void; viewedTimelineDate?: string | undefined; timeZone?: string;
-  onSubmit?: (text: string) => void;
+  onSubmit?: (text: string) => void; onFocus?: () => void; onBlur?: () => void;
   workspace?: WorkspaceDocument;
 }) {
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
@@ -50,10 +50,14 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const [expected, setExpected] = useState(''), [reportError, setReportError] = useState(''), [notice, setNotice] = useState('');
   const [calendar, setCalendar] = useState<{ start: number; end: number; insert: string; source: string } | null>(null);
   const [date, setDate] = useState('');
-  const parsed = useMemo(() => parseEntry(value, referenceTime), [value, referenceTime]);
+  // Parsing, suggestions and calendar preview are secondary to the native text
+  // update. Deferring them prevents a large workspace from delaying each key.
+  const deferredValue = useDeferredValue(value);
+  const analysisCurrent = deferredValue === value;
+  const parsed = useMemo(() => parseEntry(deferredValue, referenceTime), [deferredValue, referenceTime]);
   const highlight = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState(false);
-  const highlighted = !composing && Boolean(parsed.commandSpans?.length);
+  const highlighted = !composing && analysisCurrent && Boolean(parsed.commandSpans?.length);
   const syncHighlight = () => {
     const element = control(), layer = highlight.current;
     if (!element || !layer) return;
@@ -89,11 +93,14 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const dayPreviewEvents = useMemo(() => dayPreview?.events.filter(event => !event.tentative && !event.invalid && !event.travel)
     .sort((left, right) => left.start - right.start || left.item.id.localeCompare(right.item.id)) ?? [], [dayPreview]);
   const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: orderedTagEntries(workspace).filter((tag): tag is string => tag !== null), projectAreas: Object.fromEntries(orderedOrganizationNames(workspace, 'project').map(name => [name, [...new Set([...(workspace.projectDefinitions[name]?.areas ?? []), ...(workspace.projectDefinitions[name]?.area ? [workspace.projectDefinitions[name]!.area!] : []), ...Object.values(workspace.items).filter(item => !item.deletedAt && (item.projects?.includes(name) || item.project === name)).flatMap(item => [...(item.areas ?? []), ...(item.area ? [item.area] : [])])])]])) } : { area: [], project: [], tag: [] }, [workspace]);
-  const suggestions = useMemo<ReturnType<typeof suggest>>(() => organizationSuggestions(value, caret, catalog) ?? suggest(value, caret, referenceTime, language === 'ru' ? 'ru' : 'en'), [value, caret, referenceTime, language, catalog]);
+  const suggestions = useMemo<ReturnType<typeof suggest>>(() => {
+    const position = Math.min(caret, deferredValue.length);
+    return organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en');
+  }, [deferredValue, caret, referenceTime, language, catalog]);
   const [optionLimit, setOptionLimit] = useState(30);
   useEffect(() => { setOptionLimit(30); }, [value, caret]);
   useEffect(() => { if (selected >= optionLimit) setOptionLimit(selected + 30); }, [selected, optionLimit]);
-  const expanded = focused && open && suggestionsEnabled && suggestions.options.length > 0;
+  const expanded = focused && open && analysisCurrent && suggestionsEnabled && suggestions.options.length > 0;
   useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
   useEffect(() => { if (expanded && selected >= 0) document.getElementById(`${id}-option-${selected}`)?.scrollIntoView({ block: 'nearest' }); }, [expanded, selected, id]);
   useLayoutEffect(() => {
@@ -150,8 +157,8 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     value, placeholder, id: inputId, autoFocus, 'aria-label': ariaLabel ?? placeholder, autoComplete: 'off', spellCheck: false, maxLength: 2000,
     role: 'combobox', 'aria-autocomplete': 'list' as const, 'aria-expanded': expanded, 'aria-controls': `${id}-options`,
     'aria-activedescendant': expanded && selected >= 0 ? `${id}-option-${selected}` : undefined,
-    onFocus: () => { setFocused(true); setOpen(true); setReferenceTime(now); },
-    onBlur: () => { setFocused(false); setOpen(false); },
+    onFocus: () => { setFocused(true); setOpen(true); setReferenceTime(now); onFocus?.(); },
+    onBlur: () => { setFocused(false); setOpen(false); onBlur?.(); },
     onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { onChange(event.target.value); setCaret(event.target.selectionStart ?? 0); setSelected(-1); setOpen(true); setNotice(''); setReferenceTime(now); },
     onSelect: (event: React.SyntheticEvent<HTMLInputElement | HTMLTextAreaElement>) => { setCaret(event.currentTarget.selectionStart ?? 0); requestAnimationFrame(syncHighlight); },
     onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {

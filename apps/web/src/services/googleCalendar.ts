@@ -53,7 +53,7 @@ function loadGoogleIdentityServices(): Promise<void> {
   return loading;
 }
 
-export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIENT_ID, access: 'read' | 'create' = 'read'): Promise<{ accessToken: string; expiresAt: number }> {
+export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIENT_ID, access: 'read' | 'create' = 'read', interactive = true): Promise<{ accessToken: string; expiresAt: number }> {
   const native = isNativeGoogleAuthAvailable();
   if (!clientId && !native) throw new Error('Google Calendar is not configured for this build. Add VITE_GOOGLE_CLIENT_ID.');
   const scopes = access === 'create' ? GOOGLE_WRITE_SCOPES : [GOOGLE_SCOPE];
@@ -61,9 +61,9 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
   if (native) {
     if (nativeAuthorization) {
       await nativeAuthorization;
-      return requestGoogleCalendarToken(clientId, access);
+      return requestGoogleCalendarToken(clientId, access, interactive);
     }
-    const pending = authorizeNativeGoogle(scopes).then(result => {
+    const pending = authorizeNativeGoogle(scopes, interactive).then(result => {
       const granted = new Set(result.scope.split(/\s+/));
       if (!scopes.every(scope => granted.has(scope))) throw new Error('Google Calendar permission was not granted.');
       cachedScopes = granted;
@@ -74,6 +74,7 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
     try { return await pending; }
     finally { if (nativeAuthorization === pending) nativeAuthorization = null; }
   }
+  if (!interactive) throw new Error('Google access needs reconnecting. Tap Sync when ready.');
   await loadGoogleIdentityServices();
   return new Promise((resolve, reject) => {
     const oauth2 = window.google?.accounts?.oauth2;
@@ -102,29 +103,37 @@ export async function requestGoogleCalendarToken(clientId = GOOGLE_CALENDAR_CLIE
 
 export async function googleJson<T>(url: string, accessToken: string, body?: unknown, options?: { method?: 'PATCH' | 'POST' | 'DELETE'; etag?: string }): Promise<T> {
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), GOOGLE_REQUEST_TIMEOUT_MS);
-  let response: Response;
+  let timeout: ReturnType<typeof globalThis.setTimeout>;
+  const deadline = new Promise<never>((_, reject) => {
+    timeout = globalThis.setTimeout(() => {
+      controller.abort();
+      reject(new Error('Google Calendar request timed out. Check the connection and try again.'));
+    }, GOOGLE_REQUEST_TIMEOUT_MS);
+  });
   try {
-    response = await fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(options?.etag ? { 'If-Match': options.etag } : {}) }, signal: controller.signal, ...(options?.method || body ? { method: options?.method ?? 'POST' } : {}), ...(body ? { body: JSON.stringify(body) } : {}) });
+    const response = await Promise.race([deadline, fetch(url, { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(options?.etag ? { 'If-Match': options.etag } : {}) }, signal: controller.signal, ...(options?.method || body ? { method: options?.method ?? 'POST' } : {}), ...(body ? { body: JSON.stringify(body) } : {}) })]);
+    if (!response.ok) {
+      if (response.status === 401) forgetGoogleCalendarAuthorization();
+      const text = await Promise.race([deadline, response.text().catch(() => '')]);
+      const error = new Error(response.status === 401 ? 'Google access expired. Connect again.' : `Google Calendar request failed (${response.status}).`);
+      Object.assign(error, { status: response.status, details: text.slice(0, 500) });
+      throw error;
+    }
+    if (response.status === 204) return undefined as T;
+    return await Promise.race([deadline, response.json() as Promise<T>]);
   } catch (reason) {
     if (controller.signal.aborted) throw new Error('Google Calendar request timed out. Check the connection and try again.');
     throw reason;
-  } finally { globalThis.clearTimeout(timeout); }
-  if (!response.ok) {
-    if (response.status === 401) forgetGoogleCalendarAuthorization();
-    const body = await response.text().catch(() => '');
-    const error = new Error(response.status === 401 ? 'Google access expired. Connect again.' : `Google Calendar request failed (${response.status}).`);
-    Object.assign(error, { status: response.status, details: body.slice(0, 500) });
-    throw error;
-  }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  } finally { globalThis.clearTimeout(timeout!); }
 }
 
 export async function listCalendars(accessToken: string): Promise<GoogleCalendarListEntry[]> {
   const result: GoogleCalendarListEntry[] = [];
+  const pages = new Set<string>();
   let pageToken = '';
   do {
+    if (pages.has(pageToken) || pages.size >= 1000) throw new Error('Google calendar pagination did not finish. Retry Sync.');
+    pages.add(pageToken);
     const query = new URLSearchParams({ maxResults: '250' });
     if (pageToken) query.set('pageToken', pageToken);
     const page = await googleJson<GoogleCalendarListResponse>(`https://www.googleapis.com/calendar/v3/users/me/calendarList?${query}`, accessToken);
@@ -187,8 +196,11 @@ async function attachRecurringSeriesDurations(accessToken: string, calendarId: s
 async function listEvents(accessToken: string, calendarId: string, syncWindow: GoogleSyncWindow, syncToken?: string, onPage?: (page: number, eventCount: number) => void): Promise<{ events: GoogleCalendarEvent[]; nextSyncToken: string; fullSync: boolean }> {
   const run = async (token?: string) => {
     const result: GoogleCalendarEvent[] = [];
+    const pages = new Set<string>();
     let pageToken = ''; let nextSyncToken = ''; let pageNumber = 0;
     do {
+      if (pages.has(pageToken) || pages.size >= 1000) throw new Error('Google event pagination did not finish. Retry Sync.');
+      pages.add(pageToken);
       const query = new URLSearchParams({ maxResults: GOOGLE_EVENTS_PAGE_SIZE, showDeleted: 'true', singleEvents: 'true' });
       if (token) query.set('syncToken', token);
       else { query.set('timeMin', syncWindow.timeMin); query.set('timeMax', syncWindow.timeMax); }

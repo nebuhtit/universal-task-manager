@@ -42,9 +42,16 @@ describe('Single Google event creation', () => {
     expect(fetch.mock.calls[2]![0]).toContain(`/events/${operation.eventId}`);
     expect(fetch.mock.calls[2]![1].method).toBeUndefined();
   });
-  it('does not treat another event with the same identifier as our success', async () => {
+  it('does not treat another event with a non-UTM identifier as our success', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(calendars)).mockResolvedValueOnce(response({}, 409)).mockResolvedValueOnce(response({ id: operation.eventId })));
     await expect(createSingleGoogleEvent('token', operation)).rejects.toThrow('already in use');
+  });
+  it('recognizes an exact deterministic event created by a legacy UTM build', async () => {
+    const eventId = `utm${'a'.repeat(64)}`;
+    const event = { id: eventId, etag: 'legacy', summary: 'Old title' };
+    const fetch = vi.fn().mockResolvedValueOnce(response(calendars)).mockResolvedValueOnce(response({}, 409)).mockResolvedValueOnce(response(event));
+    vi.stubGlobal('fetch', fetch);
+    expect(await createSingleGoogleEvent('token', { ...operation, eventId })).toEqual(event);
   });
   it('blocks sending to a different account or a read-only calendar', async () => {
     const fetch = vi.fn().mockResolvedValue(response({ items: [{ id: 'other@example.com', primary: true, accessRole: 'owner' }] }));

@@ -1,4 +1,5 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
+import { readSyncTrace } from './services/syncTrace';
 import { QuickTimerDialog } from './features/items/QuickTimerDialog';
 import { quickSessionCommand } from '../quick-entry-lab/commandGuide';
 import { PageErrorBoundary } from './components/layout/PageErrorBoundary';
@@ -14,7 +15,7 @@ import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, uns
 import { CloseIcon } from './components/ui/icons';
 import { SectionGuide } from './components/ui/SectionGuide';
 import { initializeItemHistory, recordCompletionTransition, recordExpiredItemTimer, syncActualDuration, syncCompletionCounter } from '@utm/core';
-import { itemDeletionIds, itemDeletionTime, softDeleteItemTree, restoreItemTree } from '@utm/core';
+import { itemDeletionIds, itemDeletionTime, restoreItemTree } from '@utm/core';
 import { googleHistoryKey } from './services/googleHistoryKey';
 import {
   AllItemsPage,
@@ -99,7 +100,7 @@ const downloadText = async (content: string, filename: string, type = 'applicati
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
-const exportSafeDiagnostics = () => [...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
+const exportSafeDiagnostics = () => [...readSyncTrace().map(entry => ({ at: entry.at, kind: 'result' as const, message: `Sync trace ${entry.event}`, operation: 'Sync trace v1', details: JSON.stringify(entry) })), ...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
   if (entry.operation === 'Render page' || entry.operation === 'Render application') {
     const safeDetails = safeRenderFailureDetails(details);
     return { ...entry, ...(safeDetails ? { details: safeDetails } : {}) };
@@ -203,7 +204,10 @@ async function portableFromFile(file: File, workspace: WorkspaceDocument): Promi
   return { source: serializePortablePackage(result.package), warnings: result.warnings };
 }
 
-function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void>; onSafeReady: (session: UnlockedWorkspace, backupPreview?: boolean) => void }) {
+function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: boolean; onReady: (session: UnlockedWorkspace, language: WorkspaceLanguage) => Promise<void>; onSafeReady: (session: UnlockedWorkspace, backupPreview?: boolean) => void }) {
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [backupConfirmed, setBackupConfirmed] = useState(false);
+  const exists = storedExists && !creatingNew;
   const displayedBuild = useDisplayedBuild();
   const [name, setName] = useState('My workspace');
   const [password, setPassword] = useState('');
@@ -272,13 +276,14 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
     beginStartup(safeEntry && exists ? 'safe' : 'local');
     setError(''); setBusy(true);
     try {
+      if (creatingNew && !backupConfirmed) throw new Error('Confirm that you saved the old workspace backup.');
       if (!exists && !unencryptedTestWorkspace && password !== confirm) throw new Error('Passwords do not match');
       if (!exists || !safeEntry) await acquireWorkspaceWriter();
       const unlocked = exists
         ? plaintext ? await unlockUnencryptedLocalWorkspace() : await unlockLocalWorkspace(password, { readOnly: safeEntry })
         : unencryptedTestWorkspace
           ? await createUnencryptedLocalWorkspace(name, language)
-          : await createLocalWorkspace(password, name, language);
+          : await createLocalWorkspace(password, name, language, creatingNew);
       if (safeEntry && exists) { startupCheckpoint('render', 'started', { items: Object.keys(unlocked.document.items ?? {}).length }); onSafeReady(unlocked); }
       else await onReady(unlocked, language);
       const durationMs = Math.round(performance.now() - startedAt);
@@ -336,7 +341,7 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
   };
 
   useEffect(() => {
-    if (!exists || safeEntry || faceId !== 'configured' || faceIdAttempted.current || selectedBackup || decryptFile) return;
+    if (new URLSearchParams(window.location.search).get('utm-recovery') === '1' || !exists || safeEntry || faceId !== 'configured' || faceIdAttempted.current || selectedBackup || decryptFile) return;
     faceIdAttempted.current = true;
     void unlockWithFaceId();
   }, [decryptFile, exists, faceId, selectedBackup]);
@@ -371,6 +376,12 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
       <p className="eyebrow">UNIVERSAL TASK MANAGER</p>
       <span className="auth-beta" aria-label="Beta version">BETA</span>
       <h1>{exists ? 'Unlock your workspace' : 'Build your own system'}</h1>
+      {storedExists && <button type="button" className="secondary wide" disabled={busy} onClick={() => { faceIdAttempted.current = true; setCreatingNew(!creatingNew); setSelectedBackup(null); setPassword(''); setConfirm(''); setPlaintext(false); setSafeEntry(false); setUnencryptedTestWorkspace(false); setError(''); }}>{creatingNew ? 'Back to unlock' : 'Create new workspace'}</button>}
+      {creatingNew && <section>
+        <p>Новый workspace заменит активный. Старые данные останутся в локальном архиве, но для самостоятельного восстановления сохраните файл резервной копии. Google не подключается автоматически.</p>
+        <button type="button" className="secondary" disabled={busy} onClick={() => void downloadLockedBackup()}>Save old workspace backup</button>
+        <label className="check"><input type="checkbox" checked={backupConfirmed} onChange={event => setBackupConfirmed(event.target.checked)} />Я сохранил резервную копию и хочу создать новый workspace</label>
+      </section>}
       {exists && unconfirmedSave && <p role="alert">Последнее сохранение не было подтверждено. На диске может быть предыдущая версия; не очищайте данные сайта. Сохраните резервную копию перед восстановлением.</p>}
       <label className="language-picker">Language<select value={language} onChange={(event) => setLanguage(event.target.value as WorkspaceLanguage)}>{interfaceLanguages.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <form onSubmit={submit}>
@@ -378,7 +389,7 @@ function LockScreen({ exists, onReady, onSafeReady }: { exists: boolean; onReady
         {!exists && <label>{selectedBackup ? 'Backup file' : 'Workspace name'}<input value={selectedBackup ? selectedBackup.name : name} readOnly={Boolean(selectedBackup)} onChange={(event) => setName(event.target.value)} required /></label>}
         {(selectedBackup || (!plaintext && !(!exists && unencryptedTestWorkspace))) && <label>{selectedBackup ? 'Backup password' : 'Password'}<input id="workspace-password" name="password" type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={exists || selectedBackup ? 'current-password' : 'new-password'} required /></label>}
         {!exists && !selectedBackup && !unencryptedTestWorkspace && <label>Confirm password<input name="confirm-password" autoComplete="new-password" type="password" minLength={10} value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>}
-        {!exists && !selectedBackup && <label className="check"><input type="checkbox" checked={unencryptedTestWorkspace} onChange={(event) => { setUnencryptedTestWorkspace(event.target.checked); setError(''); }} />Create a local test workspace without password or encryption</label>}
+        {!exists && !creatingNew && !selectedBackup && <label className="check"><input type="checkbox" checked={unencryptedTestWorkspace} onChange={(event) => { setUnencryptedTestWorkspace(event.target.checked); setError(''); }} />Create a local test workspace without password or encryption</label>}
         {!exists && unencryptedTestWorkspace && <p className="error" role="alert">Test mode: anyone with access to this browser profile can read these items. Do not use it for personal data, and do not rely on it as a backup.</p>}
         {error && <p className="error" role="alert">{error}</p>}
         {!selectedBackup && <button className="primary wide" disabled={busy}>{busy ? 'Working…' : exists ? 'Unlock' : unencryptedTestWorkspace ? 'Create unencrypted test workspace' : 'Create encrypted workspace'}</button>}
@@ -650,7 +661,7 @@ export default function App() {
   }, []);
   const [editor, setEditor] = useState<UniversalItem | null>(null);
   const itemOpenRequest = useRef(0);
-  const editorCompletionSelection = useRef<{ seriesId: string; occurrenceId: string } | null>(null);
+  const editorCompletionSelection = useRef<{ seriesId: string; occurrenceId: string; recurrenceId: string } | null>(null);
   const [quickPinTarget, setQuickPinTarget] = useState<QuickDueTarget | null>(null);
   const [quickDueTarget, setQuickDueTarget] = useState<QuickDueTarget | null>(null);
   const [quickDueError, setQuickDueError] = useState('');
@@ -736,7 +747,6 @@ export default function App() {
   }, [workspace]);
 
   const googleSyncInFlight = useRef(false);
-  const startupGoogleSync = useRef<string | null>(null);
   const syncGoogleCalendarFromHome = async (interactive = true) => {
     const google = workspace?.calendarPreferences.googleCalendar;
     if (!workspace || !google || recovery || googleSyncInFlight.current) return;
@@ -749,7 +759,7 @@ export default function App() {
     setGoogleCalendarSyncStatus('Authorizing Google Calendar…');
     try {
       if (interactive) setToast('Google Calendar: authorizing…');
-      const token = await requestGoogleCalendarToken(undefined, 'create');
+      const token = await requestGoogleCalendarToken(undefined, 'create', interactive);
       if (getCurrentSessionKey() !== syncSessionKey || getCurrentWorkspace()?.calendarPreferences.googleCalendar?.connectionId !== google.connectionId) throw new Error('Workspace or Google connection changed.');
       diagnosticStage = 'outgoing-changes';
       setGoogleCalendarSyncStatus('Sending saved changes…');
@@ -768,23 +778,16 @@ export default function App() {
       recordDiagnostic({ kind: 'error', message: 'Google Calendar sync failed', operation: 'Google Calendar sync', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: googleCalendarFailureDetails(diagnosticStage, reason) });
     } finally { googleSyncInFlight.current = false; setGoogleCalendarSyncing(false); setGoogleCalendarSyncStatus(''); }
   };
-  useEffect(() => {
-    if (!workspace || !session) { startupGoogleSync.current = null; return; }
-    if (recovery) return;
-    const key = workspace.workspaceId;
-    if (startupGoogleSync.current === key) return;
-    // One attempt per opened workspace, never a retry loop after a failed login.
-    startupGoogleSync.current = key;
-    if (!workspace.calendarPreferences.googleCalendar || !GOOGLE_CALENDAR_CLIENT_ID) return;
-    void syncGoogleCalendarFromHome(false);
-  }, [workspace?.workspaceId, workspace?.calendarPreferences.googleCalendar?.connectionId, session, recovery]);
+  // Recovery safeguard: opening a workspace must not replay its Google queue
+  // or apply a potentially large import before the user can reach diagnostics.
+  // Keep existing data/credentials/outbox; Sync remains an explicit action.
   useEffect(() => {
     const openHostItem = (event: Event) => {
       const itemId = (event as CustomEvent<{ itemId?: string }>).detail?.itemId;
       const item = itemId ? workspace?.items[itemId] : undefined;
       if (!workspace || !item) return;
       setEditorIsNew(false);
-      editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item));
+      editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id, recurrenceId: item.occurrence.recurrenceId } : null; setEditor(itemEditorSource(workspace, item));
     };
     window.addEventListener('utm-open-item', openHostItem);
     return () => window.removeEventListener('utm-open-item', openHostItem);
@@ -1026,7 +1029,7 @@ export default function App() {
     if (!itemId || !workspace?.items[itemId]) return;
     const item = workspace.items[itemId]!;
     setEditorIsNew(false);
-    editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item));
+    editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id, recurrenceId: item.occurrence.recurrenceId } : null; setEditor(itemEditorSource(workspace, item));
     window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
   }, [workspace]);
   useEffect(() => {
@@ -1067,7 +1070,7 @@ export default function App() {
 
   const applyItemState = (item: UniversalItem, state: UniversalItem['state'], celebrationColor = 'var(--color-text)', completionAt?: string) => {
     if (state === 'done' && !canManuallyComplete(item)) return;
-    if (item.external?.readOnly) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item)); return; }
+    if (item.external?.readOnly) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id, recurrenceId: item.occurrence.recurrenceId } : null; setEditor(itemEditorSource(workspace, item)); return; }
     const occurredAt = currentWorkspaceNow().toISOString();
     const completedAt = completionAt ?? occurredAt;
     const completionExpiresAt = Date.now() + UNDO_WINDOW_MS;
@@ -1097,7 +1100,12 @@ export default function App() {
     }
     window.requestAnimationFrame(() => window.setTimeout(() => {
       const changed = commit('Change item state', (draft) => {
-        let target = draft.items[item.id]; if (!target) return;
+        let target = draft.items[item.id];
+        if (!target && item.occurrence) {
+          const series = draft.items[item.occurrence.seriesId];
+          if (series) { target = createOccurrence(series, new Date(item.occurrence.recurrenceId), item.occurrence.sequence); draft.items[target.id] = target; }
+        }
+        if (!target) return;
         initializeItemHistory(target);
         const previousState = target.state;
         if (item.habit || (item.occurrence?.seriesId && draft.items[item.occurrence.seriesId]?.habit)) {
@@ -1234,7 +1242,7 @@ export default function App() {
   };
   const openNoticeItem = (notice: Notice) => {
     const item = notice.itemId ? workspace?.items[notice.itemId] : Object.values(workspace?.items ?? {}).find((candidate) => candidate.title === notice.title);
-    if (item) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item)); }
+    if (item) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id, recurrenceId: item.occurrence.recurrenceId } : null; setEditor(itemEditorSource(workspace, item)); }
   };
 
   if (recovery) return <RecoveryShell session={recovery.session} reason={recovery.reason} backupPreview={recovery.backupPreview} onRetry={() => { if (recovery.session && recovery.isolatedPreview) closeReadOnlyWorkspace(recovery.session); setRecovery(null); setPendingUpgrade(null); }} />;
@@ -1253,12 +1261,12 @@ export default function App() {
         if (request !== itemOpenRequest.current) return;
         const latest = getCurrentWorkspace();
         if (!prepared || !latest) return;
-        editorCompletionSelection.current = prepared.occurrence ? { seriesId: prepared.occurrence.seriesId, occurrenceId: prepared.id } : null;
+        editorCompletionSelection.current = prepared.occurrence ? { seriesId: prepared.occurrence.seriesId, occurrenceId: prepared.id, recurrenceId: prepared.occurrence.recurrenceId } : null;
         setEditor(itemEditorSource(latest, prepared));
       }).catch(reason => { if (request === itemOpenRequest.current) { setToast(String(reason)); editorCompletionSelection.current = null; setEditor(item); } });
       return;
     }
-    editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item));
+    editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id, recurrenceId: item.occurrence.recurrenceId } : null; setEditor(itemEditorSource(workspace, item));
   };
 
   const openItems = new Set(Object.values(workspace.items).filter((item) => item.state === 'open' && !item.deletedAt && !isItemTemplate(item) && (item.role !== 'series_template' || item.habit)).map((item) => item.occurrence?.seriesId ?? item.id)).size;
@@ -1364,10 +1372,10 @@ export default function App() {
       onEditItem={() => {
         const item = workspace.items[quickCompletion.itemId];
         setQuickCompletion(null);
-        if (item) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id } : null; setEditor(itemEditorSource(workspace, item)); }
+        if (item) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id, recurrenceId: item.occurrence.recurrenceId } : null; setEditor(itemEditorSource(workspace, item)); }
       }}
     />}
-    <Suspense fallback={null}>{editor && <ItemEditor completionOccurrenceId={editorCompletionSelection.current?.seriesId === editor.id ? editorCompletionSelection.current.occurrenceId : undefined} focusTitle={editor.id === focusEditorId} key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onDuplicate={(item) => { const duplicate = duplicateItemDraft(item, currentWorkspaceNow()); const saved = commit('Duplicate item', draft => { draft.items[duplicate.id] = clean(duplicate); }); if (saved) { setEditorIsNew(false); setEditor(duplicate); setToast('Item duplicated'); void flushPersistence(); } }} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
+    <Suspense fallback={null}>{editor && <ItemEditor completionOccurrenceId={editorCompletionSelection.current?.seriesId === editor.id ? editorCompletionSelection.current.occurrenceId : undefined} completionRecurrenceId={editorCompletionSelection.current?.seriesId === editor.id ? editorCompletionSelection.current.recurrenceId : undefined} focusTitle={editor.id === focusEditorId} key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onDuplicate={(item) => { const duplicate = duplicateItemDraft(item, currentWorkspaceNow()); const saved = commit('Duplicate item', draft => { draft.items[duplicate.id] = clean(duplicate); }); if (saved) { setEditorIsNew(false); setEditor(duplicate); setToast('Item duplicated'); void flushPersistence(); } }} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
       onTimerStateSave={async (itemId, timer) => {
         const saved = commit('Update running timer', (draft) => {
           const target = draft.items[itemId]; if (!target || target.deletedAt) throw new Error('Item no longer exists.');
@@ -1409,7 +1417,7 @@ export default function App() {
       const beforeCompletion = options?.completedFromEditor && workspace.items[completionId] ? clean(workspace.items[completionId]!) : undefined;
       const seriesId = beforeCompletion?.occurrence?.seriesId ?? item.occurrence?.seriesId;
       const beforeSeries = beforeCompletion && seriesId && workspace.items[seriesId] ? clean(workspace.items[seriesId]!) : undefined;
-      const result = await saveService.saveItem(item, options, currentWorkspaceNow());
+      const result = await saveService.saveItem(item, options, currentWorkspaceNow(), true);
       if (beforeCompletion && (item.state === 'done' || options?.completionOccurrenceId)) {
         const afterSeriesSchedule = seriesId ? clean(getCurrentWorkspace()?.items[seriesId]?.schedule ?? null) : null;
         queueUndo('Item completed', () => {
@@ -1434,13 +1442,15 @@ export default function App() {
       setEditorIsNew(false); setEditor(null);
       if (result.pendingGoogle) setToast(workspace.calendarPreferences.language === 'ru' ? 'Сохранено в UTM, ожидает синхронизации. Подробности — в редакторе.' : 'Saved in UTM, waiting for sync. Details are available in the editor.');
       else if (result.recurrenceError) setToast(`Series saved. Recurrence sync will retry in the background (${result.recurrenceError}).`);
-    }} onDelete={(item) => {
-        const deletedIds = new Set(itemDeletionIds(workspace, item.id));
-        const snapshots = itemDeletionIds(workspace, item.id).flatMap(id => workspace.items[id] ? [{ id, item: clean(workspace.items[id]!), tombstone: workspace.tombstones[id] }] : []);
-        const deleted = commit('Delete item and recurrence children', draft => softDeleteItemTree(draft, item.id, currentWorkspaceNow().toISOString()));
-        if (deleted) { setNotices((current) => current.filter((notice) => !notice.itemId || !deletedIds.has(notice.itemId))); queueUndo('Item deleted', () => commit('Undo item deletion', draft => {
-          for (const snapshot of snapshots) { draft.items[snapshot.id] = clean(snapshot.item); if (snapshot.tombstone) draft.tombstones[snapshot.id] = snapshot.tombstone; else delete draft.tombstones[snapshot.id]; }
-        })); setEditorIsNew(false); setEditor(null); }
+    }} onDelete={async (item, scope) => {
+        const snapshots = !scope && !workspace.items[item.id]?.external ? itemDeletionIds(workspace, item.id).flatMap(id => workspace.items[id] ? [{ id, item: clean(workspace.items[id]!) }] : []) : [];
+        await saveService.deleteItem(item.id, scope);
+        const latest = getCurrentWorkspace();
+        if (latest) setNotices(current => current.filter(notice => !notice.itemId || !latest.items[notice.itemId] || !itemDeletionTime(latest, latest.items[notice.itemId]!)));
+        if (snapshots.length) queueUndo('Item deleted', () => commit('Undo local item deletion', draft => {
+          for (const snapshot of snapshots) { draft.items[snapshot.id] = clean(snapshot.item); delete draft.tombstones[snapshot.id]; }
+        }));
+        setEditorIsNew(false); setEditor(null);
       }} />}</Suspense>
     {transfer && <TransferDialog session={session} onFlush={flushPersistence} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { void adoptSession(next).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} onReplaced={(next, message) => { void adoptSession(next, true).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}

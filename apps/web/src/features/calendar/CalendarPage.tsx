@@ -86,17 +86,32 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   useLayoutEffect(() => {
     const title = titleRef.current, root = calendarRoot.current, start = navigatorStart.current;
     if (!title || !root || !start) return;
+    root.style.minHeight = '';
+    root.style.removeProperty('--calendar-collapse-reserve');
     let frame = 0, pointerActive = false, releaseTimer = 0;
+    const navigator = root.querySelector<HTMLElement>('.calendar-navigator');
+    let expandedHeight = 0;
     const update = () => {
       frame = 0;
       root.style.setProperty('--calendar-title-height', `${title.getBoundingClientRect().height}px`);
-      const top = parseFloat(getComputedStyle(title).top) + title.getBoundingClientRect().height;
+      const titleStyle = getComputedStyle(title);
+      const height = title.getBoundingClientRect().height + parseFloat(titleStyle.marginBottom) + (navigator?.getBoundingClientRect().height ?? 0);
+      if (!root.classList.contains('is-compact')) expandedHeight = Math.max(expandedHeight, height);
+      // Keep the document's scroll range while the sticky header shrinks.
+      // Otherwise a short list clamps scrollTop, expands the header, and loops.
+      root.style.setProperty('--calendar-collapse-reserve', `${Math.max(0, expandedHeight - height)}px`);
+      const top = parseFloat(titleStyle.top);
       // Do not move a pressed card between pointerdown and click as the
       // navigator collapses after scrolling (especially on touch WebKit).
       // Hysteresis prevents subpixel/iOS rubber-band scroll from repeatedly
       // expanding and collapsing at the sticky boundary.
       if (!pointerActive) {
-        const distance = start.getBoundingClientRect().top - top;
+        // The page origin is independent of the animated header's own height.
+        const scroll = Math.max(0, window.scrollY);
+        const boundary = Math.max(48, root.getBoundingClientRect().top + scroll - top);
+        const distance = boundary - scroll;
+        if (!root.classList.contains('is-compact') && distance < -4) root.style.minHeight = `${root.getBoundingClientRect().height}px`;
+        else if (distance >= 4) root.style.minHeight = '';
         setCompactNavigator(current => current ? distance < 4 : distance < -4);
       }
     };
@@ -106,7 +121,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     // WebKit can paint between pointerup and its synthesized click. Keep the
     // target still until click dispatch; a cancelled drag has no click to await.
     const pointerUp = () => { releaseTimer = window.setTimeout(pointerEnd, 350); };
-    const observer = new ResizeObserver(schedule); observer.observe(title);
+    const observer = new ResizeObserver(schedule); observer.observe(title); if (navigator) observer.observe(navigator);
     window.addEventListener('scroll', schedule, { passive: true, capture: true });
     window.addEventListener('resize', schedule);
     window.addEventListener('pointerdown', pointerStart, true);
@@ -115,7 +130,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     window.addEventListener('pointercancel', pointerEnd, true);
     update();
     return () => { observer.disconnect(); cancelAnimationFrame(frame); window.clearTimeout(releaseTimer); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); window.removeEventListener('pointerdown', pointerStart, true); window.removeEventListener('pointerup', pointerUp, true); window.removeEventListener('click', pointerEnd, true); window.removeEventListener('pointercancel', pointerEnd, true); };
-  }, []);
+  }, [selectedDate, navigatorMode, preferences.timeline?.mode]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [planningMessage, setPlanningMessage] = useState('');
   const repairedSignature = useRef('');
@@ -237,15 +252,11 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
 
   const materialize = (row: ProjectedOccurrence): UniversalItem | undefined => {
     if (!row.virtual) return workspace.items[row.materializedItemId ?? row.id];
-    let result: UniversalItem | undefined;
-    commit('Materialize calendar occurrence', (draft) => {
-      const source = draft.items[row.sourceItemId];
-      if (!source || !row.recurrenceId) return;
-      const occurrence = createOccurrence(source, new Date(row.recurrenceId), 0);
-      draft.items[occurrence.id] = occurrence;
-      result = structuredClone(occurrence);
-    });
-    return result;
+    const source = workspace.items[row.sourceItemId];
+    if (!source || !row.recurrenceId) return undefined;
+    // Opening a projected cycle is read-only. Persist it only when the user
+    // actually saves, completes, moves, or deletes that cycle.
+    return createOccurrence(source, new Date(row.recurrenceId), 0);
   };
   const openItem = (item: UniversalItem) => {
     const row = rowsById.get(item.id);
@@ -262,15 +273,8 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const resolveTimelineItem = (item: UniversalItem): UniversalItem | undefined => {
     if (workspace.items[item.id]) return workspace.items[item.id];
     if (!item.occurrence) return item;
-    let result: UniversalItem | undefined;
-    commit('Materialize timeline occurrence', draft => {
-      const series = draft.items[item.occurrence!.seriesId];
-      if (!series) return;
-      const occurrence = createOccurrence(series, new Date(item.occurrence!.recurrenceId), 0);
-      draft.items[occurrence.id] = occurrence;
-      result = structuredClone(occurrence);
-    });
-    return result;
+    const series = workspace.items[item.occurrence.seriesId];
+    return series ? createOccurrence(series, new Date(item.occurrence.recurrenceId), item.occurrence.sequence) : undefined;
   };
 
   return <section className={`calendar-page page-section${compactNavigator ? ' is-compact' : ''}`} ref={calendarRoot}>

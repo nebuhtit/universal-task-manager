@@ -2,7 +2,7 @@ type Status = { id: string; ok: boolean; accessToken?: string; expiresIn?: numbe
 const handler = () => window.webkit?.messageHandlers?.utmNativeGoogleAuth;
 export const isNativeGoogleAuthAvailable = () => Boolean(handler());
 
-function nativeGoogleRequest(kind: 'google.authorize' | 'google.disconnect', scopes?: string[]): Promise<Status> {
+function nativeGoogleRequest(kind: 'google.authorize' | 'google.disconnect', scopes?: string[], interactive = true): Promise<Status> {
   const target = handler();
   if (!target) return Promise.reject(new Error('Native Google authorization is unavailable.'));
   const id = crypto.randomUUID();
@@ -20,13 +20,13 @@ function nativeGoogleRequest(kind: 'google.authorize' | 'google.disconnect', sco
       else resolve(result);
     };
     window.addEventListener('utm-native-google-status', receive);
-    try { target.postMessage({ id, kind, ...(scopes ? { scopes } : {}) }); }
+    try { target.postMessage({ id, kind, interactive, ...(scopes ? { scopes } : {}) }); }
     catch (error) { globalThis.clearTimeout(timeout); window.removeEventListener('utm-native-google-status', receive); reject(error); }
   });
 }
 
-export async function authorizeNativeGoogle(scopes: string[]): Promise<{ accessToken: string; expiresIn: number; scope: string }> {
-  const result = await nativeGoogleRequest('google.authorize', scopes);
+export async function authorizeNativeGoogle(scopes: string[], interactive = true): Promise<{ accessToken: string; expiresIn: number; scope: string }> {
+  const result = await nativeGoogleRequest('google.authorize', scopes, interactive);
   if (!result.accessToken) throw new Error('Google sign-in returned no access token.');
   return { accessToken: result.accessToken, expiresIn: result.expiresIn ?? 3600, scope: result.scope ?? '' };
 }

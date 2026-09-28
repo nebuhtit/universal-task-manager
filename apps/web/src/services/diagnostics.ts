@@ -96,7 +96,8 @@ export const recordDiagnostic = (entry: Omit<DiagnosticEntry, 'at'>): void => {
     // can point to a future failure; discard successful routine UI activity.
     const isProblem = entry.kind === 'error' || entry.kind === 'unhandledrejection' || entry.outcome === 'failed';
     const isSlow = typeof entry.durationMs === 'number' && entry.durationMs >= 1_500;
-    if (!isProblem && !isSlow) return;
+    const syncCheckpoint = /^Google sync stage: (queue|download|snapshot|calculate|apply|persist)$/.test(entry.operation ?? '');
+    if (!isProblem && !isSlow && !syncCheckpoint) return;
     const safeEntry: DiagnosticEntry = {
       ...(entry.operation ? { operation: entry.operation.slice(0, 160) } : {}),
       ...(entry.outcome ? { outcome: entry.outcome } : {}),
@@ -120,6 +121,7 @@ export const clearDiagnostics = (): void => {
   clearStartupLog();
   try {
     localStorage.removeItem(DIAGNOSTICS_KEY);
+    localStorage.removeItem('utm:sync-trace:v1');
     window.dispatchEvent(new Event(DIAGNOSTICS_CHANGED_EVENT));
   } catch {
     // Diagnostics must never interfere with application behavior.

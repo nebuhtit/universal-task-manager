@@ -6,16 +6,19 @@ import {
   type PreparedLocalWorkspaceSave,
   type UnlockedWorkspace,
 } from '@utm/sdk';
-import type { WorkspaceDocument } from '@utm/core';
+import { type WorkspaceDocument } from '@utm/core';
 import { persistObsidianWorkspace } from './obsidianBridge';
+import { beginPersistenceTrace } from './syncTrace';
+type SaveTrace = ReturnType<typeof beginPersistenceTrace>['trace'];
 
 type PersistenceResponse =
+  | { id: number; stage: 'export-filter-start' | 'export-filter-end' | 'export-encode-start' | 'export-encode-end'; bytes?: number }
   | { id: number; ok: true; binary: Uint8Array; exportSafeBinary?: Uint8Array }
   | { id: number; ok: false; error: string };
 
 let worker: Worker | undefined;
 let nextRequestId = 1;
-const requests = new Map<number, { resolve: (value: { binary: Uint8Array; exportSafeBinary?: Uint8Array }) => void; reject: (reason: Error) => void }>();
+const requests = new Map<number, { trace: SaveTrace; resolve: (value: { binary: Uint8Array; exportSafeBinary?: Uint8Array }) => void; reject: (reason: Error) => void }>();
 const WORKER_PREPARE_TIMEOUT_MS = 15_000;
 
 const resetWorkspaceWorker = (reason: Error) => {
@@ -32,9 +35,16 @@ const workspaceWorker = (): Worker | undefined => {
   worker.onmessage = (event: MessageEvent<PersistenceResponse>) => {
     const request = requests.get(event.data.id);
     if (!request) return;
+    if ('stage' in event.data) {
+      request.trace(event.data.stage, event.data.bytes === undefined ? {} : { bytes: event.data.bytes });
+      return;
+    }
     requests.delete(event.data.id);
     if (event.data.ok) request.resolve({ binary: event.data.binary, ...(event.data.exportSafeBinary ? { exportSafeBinary: event.data.exportSafeBinary } : {}) });
     else request.reject(new Error(event.data.error));
+    // WASM linear memory keeps its high-water allocation even after free().
+    // Persistence is serialized, so release the idle worker between saves.
+    if (!requests.size) { worker?.terminate(); worker = undefined; }
   };
   worker.onerror = () => {
     resetWorkspaceWorker(new Error('Workspace persistence worker failed'));
@@ -42,28 +52,37 @@ const workspaceWorker = (): Worker | undefined => {
   return worker;
 };
 
-async function prepareOffMainThread(session: UnlockedWorkspace): Promise<PreparedLocalWorkspaceSave> {
+async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveTrace): Promise<PreparedLocalWorkspaceSave> {
   let target: Worker | undefined;
   try { target = workspaceWorker(); } catch { target = undefined; }
-  if (!target) return await prepareLocalWorkspaceSave(session.document, session.dataKey, session.storageMode);
+  if (!target) { syncTrace('storage-fallback'); return await prepareLocalWorkspaceSave(session.document, session.dataKey, session.storageMode); }
   const id = nextRequestId++;
   // Transfer the compressed document with its history instead of replaying
   // every historical operation into an empty document on each save.
+  syncTrace('serialize-start');
   const binary = Automerge.save(session.document as Automerge.Doc<WorkspaceDocument>);
+  syncTrace('serialize-end', { bytes: binary.byteLength });
+  // Only current values go to the filtering worker. The original serialized
+  // history is preserved verbatim, never loaded into a second WASM backend.
+  syncTrace('snapshot-start');
+  const snapshot = JSON.parse(JSON.stringify(session.document)) as WorkspaceDocument;
+  syncTrace('snapshot-end', { items: Object.keys(snapshot.items).length });
   const dataKey = session.dataKey.slice();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
+    syncTrace('storage-worker-start');
     const verified = await new Promise<{ binary: Uint8Array; exportSafeBinary?: Uint8Array }>((resolve, reject) => {
       timeout = setTimeout(() => {
+        syncTrace('save-timeout');
         requests.delete(id);
         const error = new Error('Workspace persistence worker timed out');
         resetWorkspaceWorker(error);
         reject(error);
       }, WORKER_PREPARE_TIMEOUT_MS);
-      requests.set(id, { resolve, reject });
+      requests.set(id, { resolve, reject, trace: syncTrace });
       try {
         target.postMessage(
-          { id, binary },
+          { id, binary, snapshot },
           [binary.buffer],
         );
       } catch (reason) {
@@ -73,18 +92,24 @@ async function prepareOffMainThread(session: UnlockedWorkspace): Promise<Prepare
       }
     });
     if (timeout) clearTimeout(timeout);
-    return await prepareLocalWorkspaceSaveFromVerifiedBinaries(
+    syncTrace('storage-worker-end');
+    syncTrace('encrypt-start');
+    const prepared = await prepareLocalWorkspaceSaveFromVerifiedBinaries(
       verified.binary,
       verified.exportSafeBinary,
       dataKey,
       session.storageMode,
     );
+    syncTrace('encrypt-end');
+    return prepared;
   } catch (reason) {
+    syncTrace('storage-fallback');
     if (timeout) clearTimeout(timeout);
-    // The worker only accelerates serialization. If it is unavailable, slow or
-    // unexpectedly terminated, keep the latest fully verified save path on the
-    // main thread instead of leaving a durable write waiting forever.
-    return await prepareLocalWorkspaceSave(session.document, dataKey, session.storageMode);
+    // Retrying the same memory-heavy work on the UI thread after a worker
+    // failure can kill WebKit. Keep the old durable record and let the existing
+    // persistence queue retain the unsaved document for an explicit retry.
+    resetWorkspaceWorker(new Error('Workspace persistence worker stopped'));
+    throw new Error('Workspace save preparation failed. Existing saved data is retained; retry saving.');
   } finally {
     dataKey.fill(0);
   }
@@ -98,10 +123,20 @@ export function persistWorkspace(session: UnlockedWorkspace): Promise<void> {
 }
 
 async function persistWorkspaceInOrder(session: UnlockedWorkspace): Promise<void> {
-  const prepared = await prepareOffMainThread(session);
-  prepared.receipt = { sourceUpdatedAt: String(session.document.updatedAt), sourceItemCount: Object.keys(session.document.items).length, sourceHeads: Automerge.getHeads(session.document) };
-  await commitPreparedLocalWorkspaceSave(prepared);
-  if (session.storageMode !== 'plaintext') await persistObsidianWorkspace();
+  const log = beginPersistenceTrace();
+  const syncTrace = log.trace;
+  let failed = true;
+  try {
+    const prepared = await prepareOffMainThread(session, syncTrace);
+    prepared.receipt = { sourceUpdatedAt: String(session.document.updatedAt), sourceItemCount: Object.keys(session.document.items).length, sourceHeads: Automerge.getHeads(session.document) };
+    syncTrace('indexeddb-start');
+    await commitPreparedLocalWorkspaceSave(prepared);
+    syncTrace('indexeddb-end');
+    syncTrace('mirror-start');
+    if (session.storageMode !== 'plaintext') await persistObsidianWorkspace();
+    syncTrace('mirror-end');
+    failed = false;
+  } finally { log.finish(failed); }
 }
 
 export type PersistenceOperation = { session: UnlockedWorkspace; message: string; startedAt: number };

@@ -4,7 +4,41 @@ const expand = async (summary: Locator) => {
   await expect(summary.locator('..')).toHaveAttribute('open', '');
 };
 
-test('startup Google sync leaves navigation usable and progress toasts do not capture taps', async ({ page }) => {
+test('creates a fresh workspace from unlock and preserves the old encrypted archive', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Workspace name', { exact: true }).fill('Old test workspace');
+  await page.getByLabel('Password', { exact: true }).fill('synthetic-password-old');
+  await page.getByLabel('Confirm password', { exact: true }).fill('synthetic-password-old');
+  await page.getByRole('button', { name: 'Create encrypted workspace', exact: true }).click();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('utm:pending-save:v1'))).toBeNull();
+  await page.reload();
+  await page.getByRole('button', { name: 'Create new workspace', exact: true }).click();
+  await page.getByLabel('Workspace name', { exact: true }).fill('New test workspace');
+  await page.getByLabel('Password', { exact: true }).fill('synthetic-password-new');
+  await page.getByLabel('Confirm password', { exact: true }).fill('synthetic-password-new');
+  await page.getByRole('checkbox', { name: 'Я сохранил резервную копию и хочу создать новый workspace' }).check();
+  await page.getByRole('button', { name: 'Create encrypted workspace', exact: true }).click();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  const archived = await page.evaluate(() => new Promise<number>((resolve, reject) => {
+    const open = indexedDB.open('utm-secure-v1');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const request = db.transaction('encrypted-records').objectStore('encrypted-records').getAllKeys();
+      request.onsuccess = () => { resolve(request.result.filter(key => String(key).startsWith('workspace-archive:')).length); db.close(); };
+      request.onerror = () => { reject(request.error); db.close(); };
+    };
+  }));
+  expect(archived).toBe(1);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('utm:pending-save:v1'))).toBeNull();
+  await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill('synthetic-password-new');
+  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await expect(page.locator('.app-shell')).toBeVisible();
+});
+
+test('startup does not auto-sync and manual sync leaves navigation usable', async ({ page }) => {
   test.setTimeout(120_000);
   let hold = false; let waiting = false; let release = () => {};
   let gate = Promise.resolve();
@@ -27,9 +61,11 @@ test('startup Google sync leaves navigation usable and progress toasts do not ca
   await expect.poll(() => page.evaluate(() => localStorage.getItem('utm:pending-save:v1'))).toBeNull();
   pause(); await page.reload(); await page.getByLabel('Password', { exact: true }).fill('test-only-sync-password'); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   try {
-    await expect.poll(() => waiting).toBe(true);
+    await expect(page.locator('.app-shell')).toBeVisible();
+    expect(waiting).toBe(false);
     await expect(page.locator('.toast').filter({ hasText: /Google Calendar:/ })).toHaveCount(0);
     await navigate('Calendar'); await expect(page.locator('.calendar-page')).toBeVisible();
+    expect(waiting).toBe(false);
   } finally { release(); }
   await expect(page.getByRole('button', { name: 'Google Calendar sync', exact: true })).toBeEnabled();
   pause(); await page.getByRole('button', { name: 'Google Calendar sync', exact: true }).click();
@@ -39,6 +75,8 @@ test('startup Google sync leaves navigation usable and progress toasts do not ca
     expect(await toast.evaluate(element => { const r = element.getBoundingClientRect(); return Boolean(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('.toast')); })).toBe(false);
     await navigate('Home'); await expect(page.getByPlaceholder('Add new item')).toBeVisible();
   } finally { release(); }
+  await expect(page.getByRole('button', { name: 'Google Calendar sync', exact: true })).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('utm:diagnostics:v1') ?? '[]').some((entry: any) => entry.operation === 'Google sync stage: persist' && entry.outcome === 'succeeded'))).toBe(true);
 });
 
 test('queues offline saves, retries silently, colors calendars and applies PARA bindings', async ({ page }) => {
@@ -53,7 +91,7 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
   await page.goto('/'); await page.getByLabel('Workspace name').fill('Outbox'); await page.getByLabel('Password', { exact: true }).fill('test-only-outbox-password'); await page.getByLabel('Confirm password').fill('test-only-outbox-password'); await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   const nav = async (name: string) => { if (page.viewportSize()!.width <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); } else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click(); };
   await nav('PARA'); await page.getByLabel('New Area', { exact: true }).fill('Office'); await page.getByRole('button', { name: 'Add Area', exact: true }).click();
-  await nav('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
+  await nav('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible(); await page.getByRole('button', { name: 'Authorize event creation and editing', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Beta: edit events older than three hours' })).not.toBeChecked();
   await page.getByText('Google data protection', { exact: true }).click();
   await expect(page.getByLabel('Changes per 24 hours', { exact: true })).toHaveValue('25');
@@ -62,7 +100,7 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
   await page.getByText('Work calendar · Assignments', { exact: true }).click(); await page.locator('summary').filter({ hasText: /^Areas ·/ }).click(); await page.getByRole('checkbox', { name: 'Office', exact: true }).check();
   await nav('Home'); await page.getByPlaceholder('Add new item').fill('Offline event'); await page.getByPlaceholder('Add new item').press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
-  await expand(editor.locator('[data-editor-section="dates"] > summary')); await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(1);
+  await expand(editor.locator('[data-editor-section="dates"] > summary')); await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); await expect.poll(() => inserts).toBe(1);
   const authorizations = await page.evaluate(() => (window as any).authCount);
   await page.getByPlaceholder('Add new item').fill('Unrelated task'); await page.getByPlaceholder('Add new item').press('Enter'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); await expect.poll(() => inserts).toBe(2);
   expect(await page.evaluate(() => (window as any).authCount)).toBe(authorizations);
@@ -175,6 +213,7 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await navigate('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click();
   await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Authorize event creation and editing', exact: true }).click();
   await navigate('Home'); await page.getByPlaceholder('Add new item').fill('Create from UTM'); await page.getByPlaceholder('Add new item').press('Enter');
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   await expect(editor.getByRole('button', { name: 'Create linked Google event', exact: true })).toHaveCount(0);
@@ -190,26 +229,37 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await expand(editor.locator('[data-editor-section="calendar-details"] > summary'));
   await expect(editor.getByRole('combobox', { name: 'Google Calendar', exact: true })).toHaveValue('test@example.com');
   for (const theme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: theme }); await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme); await page.screenshot({ path: test.info().outputPath('unified-' + theme + '.png') }); }
-  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(1);
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); await expect.poll(() => inserts).toBe(1);
   await page.locator('.all-sections').getByText('Create from UTM', { exact: true }).click();
   await expand(editor.locator('[data-editor-section="calendar-details"] > summary'));
   await expect(editor.getByText('Saved in UTM, waiting for sync.', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape'); await expect(editor).toBeHidden();
   await page.reload(); await page.getByLabel(/Безопасное открытие —/).uncheck(); await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple'); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await navigate('All items'); await page.locator('.all-sections').getByText('Create from UTM', { exact: true }).click();
-  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(2);
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(inserts).toBe(1);
+  // Reload intentionally drops the in-memory OAuth token. Saving remains local
+  // and non-interactive; the explicit Sync action reacquires authorization and
+  // resumes the exact durable create operation.
+  await navigate('Home'); await page.getByRole('button', { name: 'Google Calendar sync', exact: true }).click(); await expect.poll(() => inserts).toBe(2); await navigate('All items');
   await expect(page.locator('.all-sections').getByText('Create from UTM', { exact: true })).toHaveCount(1);
   await expect(page.locator('.all-sections .state-toggle')).toHaveCount(0);
   await page.locator('.all-sections').getByText('Create from UTM', { exact: true }).click();
   const sourceLine = editor.getByLabel('Title', { exact: true });
   await sourceLine.fill((await sourceLine.inputValue()).replace('Create from UTM', 'Edited linked event'));
-  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); expect(patches).toBe(1);
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(() => patches).toBe(1);
   await expect(page.locator('.all-sections').getByText('Edited linked event', { exact: true })).toHaveCount(1);
   await page.locator('.all-sections').getByText('Edited linked event', { exact: true }).click();
   await expand(editor.locator('[data-editor-section="calendar-details"] > summary'));
+  // Receiving the PATCH is not the end of the durable write: wait until its
+  // local acknowledgement has removed the outbox entry before starting a move.
+  await expect(editor.getByText('Saved in UTM, waiting for sync.', { exact: true })).toHaveCount(0);
   await editor.getByRole('combobox', { name: 'Google Calendar', exact: true }).selectOption('other');
   await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden();
-  expect(moves).toBe(1); expect(inserts).toBe(2); expect(patches).toBe(1);
+  await expect.poll(() => moves).toBe(1);
+  expect(inserts).toBe(2);
+  expect(patches).toBe(1);
   await page.locator('.all-sections').getByText('Edited linked event', { exact: true }).click();
   await expand(editor.locator('[data-editor-section="calendar-details"] > summary'));
   await expect(editor.getByRole('combobox', { name: 'Google Calendar', exact: true })).toHaveValue('other');

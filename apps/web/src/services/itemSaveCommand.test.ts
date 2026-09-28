@@ -37,6 +37,22 @@ it('completes the selected weekly active-range cycle once while keeping the edit
   Automerge.free(doc);
 });
 
+it('materializes a projected recurrence only when its edit is saved', () => {
+  const now = new Date('2030-01-01T00:00:00Z');
+  const workspace = createWorkspace('Projected edit', now);
+  const series = createItem('Weekly', 'event', now);
+  series.role = 'series_template';
+  series.schedule = { timezone: 'UTC', startAt: '2030-01-06T10:00:00Z', endAt: '2030-01-06T11:00:00Z' };
+  series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', autoRenew: true, closeAt: 'next_activation', rdates: [], exdates: [] };
+  workspace.items[series.id] = series;
+  const projected = createOccurrence(series, new Date('2030-02-03T10:00:00Z'), 4);
+  expect(workspace.items[projected.id]).toBeUndefined();
+  const edited = { ...structuredClone(series), title: 'Edited cycle', schedule: structuredClone(projected.schedule!) };
+  saveItemInWorkspace(workspace, edited, { recurrenceEdit: { occurrenceId: projected.id, recurrenceId: projected.occurrence!.recurrenceId, scope: 'this_occurrence' } }, now);
+  expect(workspace.items[projected.id]).toMatchObject({ title: 'Edited cycle', role: 'occurrence', recurrenceOverride: { kind: 'this_occurrence' } });
+  expect(workspace.items[series.id]?.title).toBe('Weekly');
+});
+
 afterEach(() => vi.unstubAllGlobals());
 const fixture = () => {
   const workspace = createWorkspace('Synthetic regression');

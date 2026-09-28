@@ -23,6 +23,20 @@ async function reopenItem(page: Page) {
   await page.getByRole('dialog').waitFor({ state: 'visible' });
 }
 
+test('reminder number can be cleared before replacement', async ({ page }) => {
+  await createWorkspaceAndItem(page);
+  const reminders = page.locator('details').filter({ has: page.locator(':scope > summary').filter({ hasText: /^Reminders/ }) });
+  await reminders.evaluate(el => { (el as HTMLDetailsElement).open = true; });
+  await page.getByRole('button', { name: '+ Add reminder', exact: true }).click();
+  await page.getByLabel('Reminder 1 mode', { exact: true }).selectOption('before');
+  const amount = page.getByLabel('Reminder 1 amount', { exact: true });
+  await amount.fill(''); await expect(amount).toHaveValue('');
+  await amount.fill('25'); await page.getByLabel('Reminder 1 unit').selectOption('hours');
+  await expect(amount).toHaveValue('25');
+  await amount.fill(''); await page.getByLabel('Reminder 1 unit').focus();
+  await expect(amount).toHaveValue('25');
+});
+
 test('event end and duration stay linked in both directions and allow clearing', async ({ page }) => {
   await createWorkspaceAndItem(page);
   const opens = page.getByLabel('Event opens', { exact: true });

@@ -16,7 +16,6 @@ final class WebAppModel: ObservableObject {
     }
 
     func start() {
-        server?.stop()
         state = .loading
 
         guard let root = Bundle.main.resourceURL?.appendingPathComponent("WebApp", isDirectory: true) else {
@@ -24,7 +23,7 @@ final class WebAppModel: ObservableObject {
             return
         }
 
-        let server = LocalWebServer(rootDirectory: root)
+        let server = self.server ?? LocalWebServer(rootDirectory: root)
         self.server = server
         server.start { [weak self] result in
             DispatchQueue.main.async {
@@ -46,7 +45,7 @@ final class WebAppModel: ObservableObject {
 
 @MainActor
 struct ContentView: View {
-    @StateObject private var model = WebAppModel()
+    @ObservedObject var model: WebAppModel
 
     var body: some View {
         Group {

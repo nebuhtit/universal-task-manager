@@ -195,6 +195,23 @@ test('calendar period swipes, conditional Today, vertical scrolling and keyboard
   await expect(today).toBeVisible();
 });
 
+test('short calendar list stays collapsed at its bottom', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 600 });
+  await setup(page, false);
+  const root = page.locator('.calendar-page');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  for (let n = 0; n < 5; n++) {
+    await page.clock.runFor(300);
+    await expect(root).toHaveClass(/is-compact/);
+  }
+  const top = await page.evaluate(() => window.scrollY);
+  await page.clock.runFor(1000);
+  expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(top, 0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.clock.runFor(700);
+  await expect(root).not.toHaveClass(/is-compact/);
+});
+
 for (const theme of ['light', 'dark'] as const) test(`calendar header compacts with scroll in ${theme}`, async ({ page }) => {
   await setup(page, false, w => { w.calendarPreferences.appearance.mode = theme; w.calendarPreferences.timeline!.mode = 'timeline'; });
   const root = page.locator('.calendar-page');

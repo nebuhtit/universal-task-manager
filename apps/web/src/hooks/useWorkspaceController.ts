@@ -16,7 +16,8 @@ import { beginStartup, failStartup, finishStartup, startupCheckpoint } from '../
 import { acquireWorkspaceWriter, releaseWorkspaceWriter, markPendingSave, clearPendingSave } from '../services/workspaceWriter';
 import { clockService } from '../services/clockService';
 import { getWorkspaceIndex } from '../services/workspaceIndex';
-import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDocument } from '../services/workspaceLifecycle';
+import { applyReconciliationResult, commitWorkspaceDocument, compactTechnicalOccurrenceGarbage, writableWorkspaceDocument } from '../services/workspaceLifecycle';
+import { syncTrace } from '../services/syncTrace';
 import { LatestPersistenceQueue, persistWorkspace, type PersistenceOperation } from '../services/workspacePersistence';
 import { reconcileOffMainThread } from '../services/recurrenceWorker';
 import { scheduleWorkspaceTime } from '../services/workspaceTimers';
@@ -53,10 +54,16 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const deliveredReminderIds = useRef(new Set<string>());
   const recurrenceClock = useRef({ minute: Number.NaN, signature: '' });
   const workspace = session?.document as WorkspaceDocument | undefined;
+  useEffect(() => { syncTrace('react-committed'); }, [workspace]);
 
   useEffect(() => {
     void localWorkspaceMode().then(async (mode) => {
       if (!mode) { setBoot('empty'); return; }
+      if (new URLSearchParams(window.location.search).get('utm-recovery') === '1') {
+        setPasswordProtection(mode === 'plaintext' ? 'plaintext' : await passwordProtectionStatus());
+        setBoot('locked');
+        return;
+      }
       // Pending markers survive force-close and are diagnostic, not proof of failure.
       // Try normal opening; the existing catch paths retain recovery on real errors.
       if (mode === 'plaintext') {
@@ -88,13 +95,14 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const startedAt = performance.now();
     recordDiagnostic({ kind: 'action', message: 'Workspace operation started', operation: message, outcome: 'started' });
     let document: Automerge.Doc<WorkspaceDocument>;
-    try { document = commitWorkspaceDocument(currentSession.document as Automerge.Doc<WorkspaceDocument>, message, mutation); }
+    try { syncTrace('commit-start'); document = commitWorkspaceDocument(currentSession.document as Automerge.Doc<WorkspaceDocument>, message, mutation); syncTrace('commit-end'); }
     catch (reason) {
       const details = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
       recordDiagnostic({ kind: 'error', message: 'Workspace operation failed before persistence', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: message === 'Sync Google Calendar' ? googleCalendarFailureDetails('save', reason) : details });
       onToast(`Save failed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
     }
     const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);
+    syncTrace('react-enqueued');
     markPendingSave(); setSaveStatus('saving');
     persistenceQueue.current?.enqueue({ session: next, message, startedAt });
     return true;
@@ -124,12 +132,14 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     // schema migration. That temporary copy can exhaust mobile Safari after a
     // large calendar import; keep the repair path for old or invalid data.
     const currentIntegrity = sourceVersion === SCHEMA_VERSION ? validateWorkspace(unlocked.document) : null;
-    const activationDocument = writableWorkspaceDocument(unlocked.document as Automerge.Doc<WorkspaceDocument>);
+    const compacted = compactTechnicalOccurrenceGarbage(unlocked.document as Automerge.Doc<WorkspaceDocument>);
+    const activationDocument = writableWorkspaceDocument(compacted.document);
+    if (compacted.removed) recordDiagnostic({ kind: 'result', message: 'Technical deleted recurrence cache compacted', operation: 'Activate workspace', outcome: 'succeeded', details: JSON.stringify({ removed: compacted.removed, retainedTombstones: Object.keys(activationDocument.tombstones).length }) });
     const now = effectiveWorkspaceNow(activationDocument as WorkspaceDocument);
     const migration = currentIntegrity?.valid
       ? { value: activationDocument as WorkspaceDocument, warnings: [] as string[] }
       : migrateWorkspace(activationDocument as WorkspaceDocument);
-    const integrity = currentIntegrity?.valid ? currentIntegrity : validateWorkspace(migration.value);
+    const integrity = compacted.removed || !currentIntegrity?.valid ? validateWorkspace(migration.value) : currentIntegrity;
     if (!integrity.valid) throw new Error(`Workspace integrity check failed (${integrity.errors.length} issues)`);
     const compactNormalizedDocument = sourceVersion === migration.value.schemaVersion && migration.warnings.length > 0;
     const migrationBase = compactNormalizedDocument
@@ -192,7 +202,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     activationStage = 'persistence';
     startupCheckpoint('preparation', 'completed');
     startupCheckpoint('persistence', 'started');
-    const changedDuringActivation = compactNormalizedDocument || Automerge.getHeads(updated).join('|') !== Automerge.getHeads(activationDocument).join('|');
+    const changedDuringActivation = compacted.removed > 0 || compactNormalizedDocument || Automerge.getHeads(updated).join('|') !== Automerge.getHeads(activationDocument).join('|');
     if (changedDuringActivation) { markPendingSave(); setSaveStatus('saving'); }
     const activationPersistence = sourceVersion !== migration.value.schemaVersion || compactNormalizedDocument
       ? saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`)

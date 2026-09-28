@@ -36,8 +36,20 @@ test('long All items lists keep search, scrolling and editor focus', async ({ pa
   const result = page.getByRole('article').getByRole('button', { name: /^Profile item 0999\b/ });
   await expect(result).toBeVisible(); await result.focus(); await result.press('Enter');
   await expect(page.getByRole('dialog', { name: 'Item editor', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(result).toBeFocused();
+  const title = page.getByLabel('Title', { exact: true });
+  await title.fill('');
+  const titleStart = Date.now();
+  await title.pressSequentially('Responsive profile title');
+  const titleTypingMs = Date.now() - titleStart;
+  // This fixture is deliberately close to the reported 1,300-item workspace.
+  // Editing must remain a local text update, not rebuild the complete editor
+  // model for every character.
+  expect(titleTypingMs).toBeLessThan(3_000);
+  await expect(title).toHaveValue('Responsive profile title');
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Item editor', exact: true })).toBeHidden();
+  await search.fill('Responsive profile title');
+  await expect(page.getByRole('article').getByRole('button', { name: /^Responsive profile title\b/ })).toBeVisible();
   await search.fill('');
   const list = page.locator('.all-sections [data-windowed-list]').first();
   const row = list.locator('[data-window-row]').last();

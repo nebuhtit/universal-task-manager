@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as Automerge from '@automerge/automerge';
 import { advanceCompletionAnchoredSeries, createItem, createOccurrence, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, makeSeries, reconcileCalendarOrganization, reconcileRecurrences, recurrenceCompletionHistory, renameProjectDefinition, reorderTagSubset, updateRecurrenceCompletionTime, validateWorkspace, type WorkspaceDocument } from '@utm/core';
-import { applyReconciliationResult, commitWorkspaceDocument, writableWorkspaceDocument } from './workspaceLifecycle';
+import { applyReconciliationResult, commitWorkspaceDocument, compactTechnicalOccurrenceGarbage, writableWorkspaceDocument } from './workspaceLifecycle';
 
 const document = () => Automerge.from(createWorkspace('Integration') as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
 
@@ -19,6 +19,22 @@ describe('workspace lifecycle integration', () => {
   });
   it('validates a current Automerge workspace without cloning it for migration', () => {
     expect(validateWorkspace(document()).valid).toBe(true);
+  });
+  it('compacts technical deleted cycles into a fresh document while retaining tombstones', () => {
+    const workspace = createWorkspace('Compact');
+    const series = createItem('Weekly');
+    series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2030-01-06T10:00:00Z', endAt: '2030-01-06T11:00:00Z' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', autoRenew: true, closeAt: 'next_activation', rdates: [], exdates: [] };
+    const cycle = createOccurrence(series, new Date('2034-12-31T10:00:00Z'), 260);
+    cycle.deletedAt = '2030-01-01T00:00:00Z';
+    workspace.items[series.id] = series; workspace.items[cycle.id] = cycle; workspace.tombstones[cycle.id] = cycle.deletedAt;
+    const source = Automerge.from(workspace as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;
+    const result = compactTechnicalOccurrenceGarbage(source);
+    expect(result.removed).toBe(1);
+    expect(result.document.items[cycle.id]).toBeUndefined();
+    expect(result.document.tombstones[cycle.id]).toBe(cycle.deletedAt);
+    expect(commitWorkspaceDocument(result.document, 'Edit compacted workspace', draft => { draft.name = 'Writable'; }).name).toBe('Writable');
   });
   it('does not grow history or update timestamps for empty recurrence checks', () => {
     const source = document();

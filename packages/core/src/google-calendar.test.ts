@@ -1,9 +1,59 @@
 import { describe, expect, it } from 'vitest';
-import { applyGoogleCalendarSync, createItem, createWorkspace, googleCalendarEventToItem, migrateWorkspace, validateWorkspace } from './index.js';
+import { applyGoogleCalendarSync, createItem, createWorkspace, googleCalendarEventToItem, migrateWorkspace, projectOccurrences, validateWorkspace, type GoogleCalendarEvent } from './index.js';
 
 const syncedAt = '2026-08-31T12:00:00.000Z';
 
 describe('Google Calendar workspace mirror', () => {
+  it('indexes recurrence identity once instead of scanning the workspace per instance', () => {
+    const workspace = createWorkspace();
+    const series = createItem('Synthetic series'); series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2030-01-01T10:00:00Z', endAt: '2030-01-01T11:00:00Z' };
+    series.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', autoRenew: true, closeAt: 'next_activation', rdates: [], exdates: [] };
+    series.external = { provider: 'google_calendar', connectionId: 'c', calendarId: 'cal', eventId: 'master', readOnly: false, sourceUrl: '', syncedAt };
+    workspace.items = { [series.id]: series };
+    let scans = 0;
+    workspace.items = new Proxy(workspace.items, { ownKeys(target) { scans++; return Reflect.ownKeys(target); } });
+    const events = Array.from({ length: 100 }, (_, n) => {
+      const start = new Date(Date.UTC(2030, 0, n + 1, 10)).toISOString();
+      return { id: `instance-${n}`, summary: `Cycle ${n}`, recurringEventId: 'master', originalStartTime: { dateTime: start }, start: { dateTime: start }, end: { dateTime: new Date(Date.parse(start) + 3600000).toISOString() } };
+    });
+    applyGoogleCalendarSync(workspace, { connectionId: 'c', calendarId: 'cal', syncedAt, fullSync: false, events });
+    expect(scans).toBeLessThan(30);
+    expect(Object.values(workspace.items).filter(item => item.role === 'occurrence')).toHaveLength(100);
+  });
+
+  it('keeps cancelled recurring instances compact instead of materializing deleted cycles', () => {
+    const workspace = createWorkspace('Compact cancellations');
+    const series = createItem('Weekly'); series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2030-01-06T10:00:00Z', endAt: '2030-01-06T11:00:00Z' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', timezone: 'UTC', anchor: 'schedule', autoRenew: true, closeAt: 'next_activation', rdates: [], exdates: [] };
+    series.external = { provider: 'google_calendar', connectionId: 'c', calendarId: 'cal', eventId: 'master', readOnly: false, sourceUrl: '', syncedAt };
+    workspace.items[series.id] = series;
+    const cancelled = Array.from({ length: 52 }, (_, index) => {
+      const start = new Date(Date.UTC(2030, 0, 6 + index * 7, 10)).toISOString();
+      return { id: `cancelled-${index}`, status: 'cancelled', recurringEventId: 'master', originalStartTime: { dateTime: start }, start: { dateTime: start }, end: { dateTime: new Date(Date.parse(start) + 3_600_000).toISOString() } };
+    });
+    applyGoogleCalendarSync(workspace, { connectionId: 'c', calendarId: 'cal', syncedAt, fullSync: false, events: cancelled });
+    expect(Object.values(workspace.items).filter(item => item.role === 'occurrence')).toHaveLength(0);
+    expect(series.recurrence.exdates).toHaveLength(52);
+    expect(Object.keys(workspace.tombstones)).toHaveLength(0);
+  });
+
+  it('ignores cancelled instances when their recurring master was also cancelled', () => {
+    const workspace = createWorkspace('Deleted master');
+    const series = createItem('Moved weekly'); series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2030-01-06T10:00:00Z', endAt: '2030-01-06T11:00:00Z' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', timezone: 'UTC', anchor: 'schedule', autoRenew: true, closeAt: 'next_activation', rdates: [], exdates: [] };
+    series.external = { provider: 'google_calendar', connectionId: 'c', calendarId: 'cal', eventId: 'master', readOnly: false, sourceUrl: '', syncedAt };
+    workspace.items[series.id] = series;
+    const start = '2030-01-06T10:00:00.000Z';
+    applyGoogleCalendarSync(workspace, { connectionId: 'c', calendarId: 'cal', syncedAt, fullSync: false, events: [
+      { id: 'cancelled-cycle', status: 'cancelled', recurringEventId: 'master', originalStartTime: { dateTime: start }, start: { dateTime: start }, end: { dateTime: '2030-01-06T11:00:00.000Z' } },
+      { id: 'master', status: 'cancelled', start: { dateTime: start }, end: { dateTime: '2030-01-06T11:00:00.000Z' } },
+    ] });
+    expect(Object.values(workspace.items).filter(item => item.role === 'occurrence')).toHaveLength(0);
+    expect(series.recurrence.exdates).toEqual([]);
+  });
   it('maps timed and all-day events to immutable canonical items', () => {
     const timed = googleCalendarEventToItem({
       id: 'event-1', summary: 'Planning', description: 'Agenda', location: 'Room 4', htmlLink: 'https://calendar.google.com/event?eid=1',
@@ -71,6 +121,57 @@ describe('Google Calendar workspace mirror', () => {
 
     expect(repaired).toMatchObject({ updated: 1 });
     expect(workspace.items['google:primary:weekly_20260923']?.schedule.estimatedDuration).toBe('PT1H45M');
+  });
+
+  it('repairs a stale deletion receipt and tombstone for an active writable series', () => {
+    const workspace = createWorkspace('Recovered series');
+    workspace.calendarPreferences.googleCalendar = {
+      connectionId: 'connection', accountEmail: 'owner@example.invalid',
+      calendars: [{ id: 'calendar', name: 'Calendar', selected: true }], syncTokens: {},
+    };
+    const series = createItem('Weekly');
+    series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2026-10-04T08:00:00Z', endAt: '2026-10-04T09:30:00Z' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+    series.external = { provider: 'google_calendar', connectionId: 'connection', calendarId: 'calendar', eventId: 'master', sourceUrl: '', readOnly: false, syncedAt: '' };
+    series.extensions = { 'utm:googleDeletionReceipts': [{ accountEmail: 'owner@example.invalid', calendarId: 'calendar', eventId: 'master', deletedAt: '2026-09-28T10:15:05Z' }] };
+    workspace.items[series.id] = series;
+    workspace.tombstones[series.id] = '2026-09-28T10:15:05Z';
+    applyGoogleCalendarSync(workspace, {
+      connectionId: 'connection', calendarId: 'calendar', syncedAt: '2026-09-28T11:30:30Z', fullSync: false,
+      events: [{ id: 'master', status: 'confirmed', summary: 'Weekly', recurrence: ['RRULE:FREQ=WEEKLY;INTERVAL=1'], start: { dateTime: '2026-10-04T08:00:00Z' }, end: { dateTime: '2026-10-04T09:30:00Z' } }],
+    });
+    expect(workspace.tombstones[series.id]).toBeUndefined();
+    expect(series.extensions?.['utm:googleDeletionReceipts']).toBeUndefined();
+    expect(series.external?.eventId).toBe('master');
+  });
+
+  it('relinks a recreated master in its destination calendar without reviving the deleted source copy', () => {
+    const workspace = createWorkspace('Moved recurring series');
+    workspace.calendarPreferences.googleCalendar = {
+      connectionId: 'connection', accountEmail: 'owner@example.invalid',
+      calendars: [{ id: 'source', name: 'Source', selected: true }, { id: 'destination', name: 'Destination', selected: true }], syncTokens: {},
+    };
+    const series = createItem('Moved weekly');
+    series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2026-10-04T08:00:00Z', endAt: '2026-10-04T09:00:00Z' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+    const master: GoogleCalendarEvent = { id: 'utm-master', status: 'confirmed', summary: series.title, recurrence: ['RRULE:FREQ=WEEKLY;INTERVAL=1'], start: { dateTime: series.schedule.startAt }, end: { dateTime: series.schedule.endAt } };
+    series.extensions = {
+      'utm:calendarOrganization': { calendarId: 'destination', areas: [], projects: [], tags: [] },
+      'utm:googleSeriesEvent': master,
+      'utm:googleDeletionReceipts': [{ accountEmail: 'owner@example.invalid', calendarId: 'source', eventId: master.id, deletedAt: '2026-09-28T11:42:06Z' }],
+    };
+    workspace.items[series.id] = series;
+    workspace.tombstones[series.id] = '2026-09-28T11:42:06Z';
+    applyGoogleCalendarSync(workspace, { connectionId: 'connection', calendarId: 'source', syncedAt, fullSync: false, events: [{ ...master, status: 'cancelled' }] });
+    applyGoogleCalendarSync(workspace, { connectionId: 'connection', calendarId: 'destination', syncedAt, fullSync: false, events: [master] });
+    expect(workspace.tombstones[series.id]).toBeUndefined();
+    expect(series.external).toMatchObject({ calendarId: 'destination', eventId: master.id, readOnly: false });
+    expect(series.extensions?.['utm:googleDeletionReceipts']).toEqual([expect.objectContaining({ calendarId: 'source', eventId: master.id })]);
+    expect(Object.values(workspace.items).filter(item => item.external?.readOnly)).toHaveLength(0);
+    expect(projectOccurrences(workspace, new Date('2026-10-04T00:00:00Z'), new Date('2026-10-05T00:00:00Z')))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ sourceItemId: series.id, seriesId: series.id })]));
   });
 
   it('scopes acknowledged deletions to the account and exact event identity', () => {

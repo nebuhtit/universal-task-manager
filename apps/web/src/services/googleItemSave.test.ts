@@ -47,6 +47,32 @@ describe('unified Google item save', () => {
     expect(patches).toHaveLength(1); expect(patches[0]).toContain('/events/master_20300920T120000Z');
     expect(apply).toHaveBeenCalledWith('source', expect.objectContaining({ summary: 'Only this', description: remote.description }), true);
   });
+  it('upgrades a stale pending create to an exact recurrence instance edit', async () => {
+    const baseline = fixture(); const item = structuredClone(baseline); item.title = 'Only this';
+    const stale = await prepareGoogleSave({ workspaceId: 'w', accountEmail: 'source', item, options: { calendarId: 'source', busy: true, baseline } });
+    item.extensions = {
+      [GOOGLE_SAVE_EXTENSION]: { ...stale, blocked: 'The event identifier is already in use. No event was changed.' },
+      'utm:googleInstance': { calendarId: 'source', masterId: 'master', originalStart: item.schedule!.startAt! },
+    };
+    const options = { calendarId: 'source', busy: true, baseline };
+    const recovered = await prepareGoogleSave({ workspaceId: 'w', accountEmail: 'source', item, options });
+    expect(recovered.kind).toBe('create');
+    expect(recovered.instance).toMatchObject({ masterId: 'master', originalStart: item.schedule!.startAt! });
+    expect(recovered.blocked).toBeUndefined();
+    item.extensions[GOOGLE_SAVE_EXTENSION] = recovered;
+    const remote = { id: 'master_20300920T120000Z', etag: 'v1', summary: 'Earlier title', start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' }, originalStartTime: { dateTime: item.schedule!.startAt! }, recurringEventId: 'master' };
+    const methods: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      if (url.includes('/instances?')) return reply({ items: [remote] });
+      methods.push(init?.method ?? 'GET');
+      if (init?.method === 'PATCH') return reply({ ...remote, ...JSON.parse(String(init.body)), etag: 'v2' });
+      return reply(remote);
+    }));
+    await saveGoogleItem({ token: 'test', workspaceId: 'w', accountEmail: 'source', item, options, persist: async () => {}, apply: async () => {} });
+    expect(methods).toEqual(['GET', 'PATCH']);
+    expect(methods).not.toContain('POST');
+  });
   it('exports a weekly master RRULE and exceptions instead of only its first instance', async () => {
     const item = fixture(); item.role = 'series_template';
     item.recurrence = { rrule: 'FREQ=WEEKLY;COUNT=4', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: ['2030-09-27T12:00:00Z'] };
@@ -150,6 +176,35 @@ describe('unified Google item save', () => {
     stored.draft = Object.fromEntries(Object.entries(stored.draft).sort(([a], [b]) => a.localeCompare(b))) as unknown as GoogleSaveOperation['draft'];
     await saveGoogleItem(args);
     expect(inserts).toBe(2); expect(apply).toHaveBeenCalledOnce(); expect(item.schedule!.estimatedDuration).toBe('PT20M');
+  });
+  it('adopts and patches an exact deterministic event created without the legacy marker', async () => {
+    const item = fixture();
+    const eventId = `utm${'b'.repeat(64)}`;
+    const existing = {
+      id: eventId, etag: 'legacy-v1', summary: 'Old title', description: '', location: '', transparency: 'opaque',
+      start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' },
+      end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' },
+    };
+    const operation: GoogleSaveOperation = {
+      kind: 'create', calendarId: 'source', destination: 'source', eventId, accountEmail: 'source',
+      draft: { ...itemGoogleDraft(item, true), title: 'Recovered title' },
+    };
+    item.title = 'Recovered title';
+    item.extensions = { [GOOGLE_SAVE_EXTENSION]: structuredClone(operation) };
+    const methods: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      methods.push(init?.method ?? 'GET');
+      if (init?.method === 'POST') return reply({}, 409);
+      if (init?.method === 'PATCH') return reply({ ...existing, ...JSON.parse(String(init.body)), etag: 'legacy-v2' });
+      return reply(existing);
+    }));
+    const persisted: GoogleSaveOperation[] = [];
+    const apply = vi.fn(async () => {});
+    await saveGoogleItem({ token: 'test', workspaceId: 'workspace', accountEmail: 'source', item, options: { calendarId: 'source', busy: true, baseline: fixture() }, persist: async op => { persisted.push(structuredClone(op)); }, apply });
+    expect(methods).toEqual(['POST', 'GET', 'GET', 'PATCH']);
+    expect(persisted).toContainEqual(expect.objectContaining({ kind: 'edit', eventId, baseline: existing }));
+    expect(apply).toHaveBeenCalledWith('source', expect.objectContaining({ id: eventId, summary: 'Recovered title' }), true);
   });
   it('finishes a pending create and then sends a newer local edit to the same Google event', async () => {
     const item = fixture();

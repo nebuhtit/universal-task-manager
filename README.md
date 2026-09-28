@@ -6,7 +6,17 @@ Universal Task Manager (UTM) is a local-first web/PWA and native iOS application
 
 [Open the web app](https://nebuhtit.github.io/universal-task-manager/) · [Install on a phone](#install-on-a-phone) · [Run locally](#run-locally) · [Security model](#security-and-privacy)
 
-Current release: **v3.4.1** · workspace schema: **1.26.0**
+Current release: **v3.4.4** · workspace schema: **1.26.0**
+
+3.4.4 keeps Title typing local to its text control and defers Live text analysis, so large workspaces no longer rebuild the complete Edit item model for every character. Saving applies the latest draft synchronously. A stale recurring-occurrence `create` operation is recovered through its exact Google master and original-start identity and sent as `GET + PATCH`, never a duplicate `POST` or title-based merge.
+
+Includes the 3.4.3 durability work: reminder numbers allow clearing while typing; editor saves release the dialog after durable local/outbox persistence, with Google delivery in the background. Google request deadlines cover response bodies, and startup authentication cannot open an interactive login.
+
+Recovery update: automatic Google sync on workspace opening is temporarily paused after an observed iPhone JavaScript freeze. Manual Sync, credentials and the durable queue remain intact. Recurrence matching now uses per-batch indexes instead of full workspace scans per event. The exact device-specific freeze still requires a fresh diagnostic export; do not treat this safeguard as proof that every sync workload is fixed.
+
+The local sync candidate now computes import changes in a bounded worker, applies only a validated patch, and rejects concurrent document changes. Phase checkpoints survive diagnostic export. See [the maintenance map](docs/google-sync-maintenance.md) and run `pnpm test:google:focused` for the targeted regression gate. Startup auto-sync remains paused until device validation.
+
+Includes 3.4.2: scoped deletion persists its intent before Google writes and keeps local items until acknowledgement; retry survives restart. Calendar header collapse retains scroll range for short lists. Earlier local-only deletions cannot safely be replayed because their selected scope was not stored: restore the item from Trash and delete the intended scope again.
 
 3.4.1 uses the universal Edit item dialog for Google imports too. Opening an imported recurrence adopts its verified master and selected occurrence into the existing linked-item save path, preserving local IDs, history and UTM-only fields. The separate Google properties/editor dialog is removed; first-time series loading needs connectivity, and Google write permissions remain enforced.
 

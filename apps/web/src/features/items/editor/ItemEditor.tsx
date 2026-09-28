@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { addTimerActualTime, calendarDateKey, shiftCalendarDateKey, zonedDateStart, canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition, syncCompletionCounter } from '@utm/core';
 import { googleActionItem } from './itemEditorSource';
@@ -40,6 +40,7 @@ import { hasGoogleWriteAuthorization, requestGoogleCalendarToken } from '../../.
 import { writableGoogleCalendars } from '../../../services/googleCalendarCreate';
 import { GOOGLE_SAVE_EXTENSION, itemGoogleBaseline, itemGoogleDraft, type GoogleSaveOptions } from '../../../services/googleItemSave';
 import { GoogleEditConflict, loadEditableGoogleEvent, rebaseGoogleEdit } from '../../../services/googleCalendarEdit';
+import { applyEditorTitleDraft } from './itemEditorTitle';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -65,13 +66,33 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   </div></Field>;
 }
 
-export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onDuplicate, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onOpenOccurrence }: {
+function EditorTitleInput({ initialValue, inputRef, id, autoFocus, workspace, now, onDraft, onCommit }: {
+  initialValue: string; inputRef: RefObject<HTMLInputElement | null>; id: string; autoFocus: boolean;
+  workspace: WorkspaceDocument; now: Date; onDraft: (value: string, edited: boolean) => void; onCommit: (value: string) => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (focused.current) return;
+    setValue(initialValue);
+    onDraft(initialValue, false);
+  }, [initialValue, onDraft]);
+  return <LiveTextInput multiline id={id} inputRef={inputRef} autoFocus={autoFocus} ariaLabel="Title" value={value}
+    onChange={(next) => { setValue(next); onDraft(next, true); }}
+    onFocus={() => { focused.current = true; }}
+    onBlur={() => { focused.current = false; onCommit(value); }}
+    workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language}
+    suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} overlaySuggestions now={now} placeholder="What needs to happen?" />;
+}
+
+export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, focusTitle = false, initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onDuplicate, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onOpenOccurrence }: {
   completionOccurrenceId?: string | undefined;
+  completionRecurrenceId?: string | undefined;
   focusTitle?: boolean; onOpenOccurrence?: (item: UniversalItem) => void;
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
   onDuplicate?: (item: UniversalItem) => void;
   onTimerStateSave?: (itemId: string, timer: UniversalItem['activeTimer']) => void | Promise<void>;
-  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { recurrenceEdit?: { occurrenceId: string; scope: "this_occurrence" | "this_and_future" }; completionOccurrenceId?: string; completedFromEditor?: boolean; convertedProject?: string; google?: GoogleSaveOptions; deleteGoogleEvent?: boolean }) => void | Promise<void>; onDelete: (item: UniversalItem) => void; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
+  initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { recurrenceEdit?: { occurrenceId: string; recurrenceId?: string; scope: "this_occurrence" | "this_and_future" }; completionOccurrenceId?: string; completionRecurrenceId?: string; completedFromEditor?: boolean; convertedProject?: string; google?: GoogleSaveOptions; deleteGoogleEvent?: boolean }) => void | Promise<void>; onDelete: (item: UniversalItem, scope?: { occurrenceId: string; recurrenceId?: string; scope: 'this_occurrence' | 'this_and_future' }) => void | Promise<void>; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
@@ -105,15 +126,9 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   const [error, setError] = useState('');
   const [sourceEditing, setSourceEditing] = useState(false);
   const [sourceDraft, setSourceDraft] = useState(() => formatQuickEntryForEditor(quickEntrySource(initial)?.text ?? ''));
-  const [titleText, setTitleText] = useState(() => formatQuickEntryForEditor(quickEntrySource(initial)?.text ?? initial.title));
+  const initialTitleText = formatQuickEntryForEditor(quickEntrySource(initial)?.text ?? initial.title);
+  const titleDraft = useRef(initialTitleText);
   const titleEdited = useRef(false);
-  useEffect(() => {
-    // Field controls keep the visible command line current; typing keeps its
-    // exact text/caret until the user leaves the field.
-    if (!sourceEditing && typeof document !== 'undefined' && document.activeElement?.id !== titleFieldId) {
-      setTitleText(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? item.title));
-    }
-  }, [item, sourceEditing, titleFieldId]);
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(initial, null, 2));
   const [jsonDirty, setJsonDirty] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
@@ -130,11 +145,12 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   const quickTitleSaveAllowed = useRef(isNew);
   const quickTitleWasFocused = useRef(false);
   const retainedQuickCaptureFocus = useRef(typeof document !== 'undefined' && Boolean(document.activeElement?.closest('[data-quick-capture]'))).current;
-  const templates = Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.extensions?.['utm:template'] === true && candidate.id !== item.id);
+  const workspaceItems = useMemo(() => Object.values(workspace.items), [workspace.items]);
+  const templates = useMemo(() => workspaceItems.filter((candidate) => !candidate.deletedAt && candidate.extensions?.['utm:template'] === true && candidate.id !== item.id), [workspaceItems, item.id]);
   const focusTitleOnOpen = focusTitle || typeof window !== 'undefined' && window.matchMedia('(min-width: 621px)').matches;
   // Parent links are stored on the parent item (parent -> child). Derive the
   // reverse side so a child always shows its parent in the editor.
-  const parentItems = Object.values(workspace.items).filter((candidate) => !candidate.deletedAt && candidate.id !== item.id && candidate.relations.some((relation) => relation.type === 'parent' && relation.targetId === item.id));
+  const parentItems = useMemo(() => workspaceItems.filter((candidate) => !candidate.deletedAt && candidate.id !== item.id && candidate.relations.some((relation) => relation.type === 'parent' && relation.targetId === item.id)), [workspaceItems, item.id]);
   const applyTemplate = (template: UniversalItem) => {
     const identity = { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, revision: item.revision, createdWithAppId: item.createdWithAppId, createdWithAppName: item.createdWithAppName, createdWithVersion: item.createdWithVersion };
     const next = clean({ ...template, ...identity, state: 'open' as const, role: 'standalone' as const, extensions: { ...template.extensions } });
@@ -149,44 +165,20 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
     setItem(cleanNext); setTags(cleanNext.tags.join(', ')); setContexts(cleanNext.contexts.join(', ')); setRecurring(false); setIsTemplate(false); setJsonDraft(JSON.stringify(cleanNext, null, 2)); setJsonDirty(false);
   };
   const importJsonRef = useRef<HTMLInputElement>(null);
-  const definitions = Object.values(workspace.customFields);
-  const formulas = evaluateFormulas(item, definitions);
+  const definitions = useMemo(() => Object.values(workspace.customFields), [workspace.customFields]);
+  const formulas = useMemo(() => evaluateFormulas(item, definitions), [item, definitions]);
   const scriptResults = evaluateItemScripts(item, (id) => workspace.items[id], now);
   const patchItem = (patch: { [Key in keyof UniversalItem]?: UniversalItem[Key] | undefined }) => setItem((current) => {
     const next = { ...current } as Record<string, unknown>;
     Object.entries(patch).forEach(([key, value]) => { if (value === undefined) delete next[key]; else next[key] = value; });
     return syncQuickEntrySource(current, next as unknown as UniversalItem);
   });
-  const updateTitleText = (text: string) => {
-    titleEdited.current = true;
-    setTitleText(text);
-    const parsed = parseEntry(text, now);
-    if (parsed.errors.length) return;
-    if (quickEntrySource(initial)) {
-      const interpreted = applyQuickEntryText({ ...item, tags: commaList(tags) }, text, now).item;
-      setItem(interpreted);
-      setTags(interpreted.tags.join(', '));
-      return;
-    }
-    setItem((current) => {
-      const interpreted = applyQuickEntryText(current, text, now).item;
-      // The initial field contains the whole stored command line, so removing a
-      // command must remove its value too. Plain-title drafts retain other fields.
-      const schedule = { ...interpreted.schedule!, ...current.schedule };
-      if (parsed.start) {
-        const previousSpan = current.schedule?.startAt && current.schedule?.endAt
-          ? Date.parse(current.schedule.endAt) - Date.parse(current.schedule.startAt) : 0;
-        schedule.startAt = parsed.start;
-        const nextEnd = previousSpan > 0 && !/(?:конец|ends?|event ends|по|to|длительность|duration)\s+/i.test(text)
-          ? new Date(Date.parse(parsed.start) + previousSpan).toISOString() : parsed.end;
-        if (nextEnd) schedule.endAt = nextEnd;
-      } else if (parsed.end) schedule.endAt = parsed.end;
-      if (parsed.due) schedule.dueAt = parsed.due;
-      if (parsed.travelMinutes !== null && interpreted.schedule?.travelDuration) schedule.travelDuration = interpreted.schedule.travelDuration;
-      if (parsed.travelBackMinutes !== undefined && interpreted.schedule?.travelBackDuration) schedule.travelBackDuration = interpreted.schedule.travelBackDuration;
-      if (parsed.durationMinutes !== null && interpreted.schedule?.estimatedDuration) schedule.estimatedDuration = interpreted.schedule.estimatedDuration;
-      return syncQuickEntrySource(current, { ...current, title: parsed.title, schedule, reminders: parsed.reminders.length ? interpreted.reminders : current.reminders });
-    });
+  const commitTitleDraft = (text: string, current = item) => {
+    if (!titleEdited.current) return current;
+    const interpreted = applyEditorTitleDraft(current, initial, text, tags, now);
+    setItem(interpreted);
+    setTags(interpreted.tags.join(', '));
+    return interpreted;
   };
   const patchRecurrence = (patch: Partial<NonNullable<UniversalItem['recurrence']>>) => setItem((current) => ({ ...current, recurrence: {
     rrule: current.recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1', rdates: current.recurrence?.rdates ?? [], exdates: current.recurrence?.exdates ?? [],
@@ -329,8 +321,8 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   const selectedAreas = itemAreas(item);
   const selectedProjects = itemProjects(item);
   const selectedTags = commaList(tags);
-  const areaNames = [...new Set([...Object.keys(workspace.areaDefinitions), ...Object.values(workspace.items).flatMap(itemAreas)])];
-  const projectNames = [...new Set([...Object.keys(workspace.projectDefinitions), ...Object.values(workspace.items).flatMap(itemProjects)])];
+  const areaNames = useMemo(() => [...new Set([...Object.keys(workspace.areaDefinitions), ...workspaceItems.flatMap(itemAreas)])], [workspace.areaDefinitions, workspaceItems]);
+  const projectNames = useMemo(() => [...new Set([...Object.keys(workspace.projectDefinitions), ...workspaceItems.flatMap(itemProjects)])], [workspace.projectDefinitions, workspaceItems]);
   const projectAreas = (project: string) => organizationDefinitionFor(workspace, 'project', project)?.areas ?? [];
   const relatedAreas = new Set(selectedProjects.flatMap(projectAreas));
   const relatedProjects = new Set(projectNames.filter((project) => projectAreas(project).some((area) => selectedAreas.includes(area))));
@@ -347,7 +339,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   const projectSuggestions = projectNames.sort(suggestionOrder('project', selectedProjects, relatedProjects)).map((value) => ({
     value, meta: projectAreas(value).length ? `In: ${projectAreas(value).join(', ')}` : 'No Area',
   }));
-  const knownTags = orderedTagEntries(workspace).filter((tag): tag is string => tag !== null);
+  const knownTags = useMemo(() => orderedTagEntries(workspace).filter((tag): tag is string => tag !== null), [workspace]);
   const collectedTags = [...new Set([...selectedTags, ...knownTags])];
   const toggleTag = (tag: string) => setTags((current) => {
     const values = commaList(current);
@@ -411,7 +403,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   const save = async ({ dismissKeyboard = false, complete = false }: { dismissKeyboard?: boolean; complete?: boolean } = {}) => {
     if (sourceEditing) { setError('Примените или отмените правку строки быстрого ввода перед сохранением.'); return; }
     if (titleEdited.current) {
-      const titleErrors = parseEntry(titleText, now).errors;
+      const titleErrors = parseEntry(titleDraft.current, now).errors;
       if (titleErrors.length) { setError(titleErrors.join(' ')); return; }
     }
     if (timezoneDraft !== (item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone)) { setError('Выберите действительный часовой пояс.'); return; }
@@ -424,18 +416,19 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
         suppressFocusRestore.current = true;
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
-      let itemToSave = complete && !completionOccurrenceId ? { ...item, state: 'done' as const, closure: { at: now.toISOString(), actor: 'user' as const, reason: 'manual' as const } } : item;
-      const overflowingBlocks = programOverflow(item);
-      const programStart = Date.parse(item.schedule?.startAt ?? '');
-      if (overflowingBlocks.length && Number.isFinite(programStart) && item.eventProgram?.blocks.every((block) => block.startOffsetSeconds >= 0)) {
-        const lastBlockEnd = Math.max(...item.eventProgram.blocks.map((block) => block.endOffsetSeconds));
+      let itemToSave = commitTitleDraft(titleDraft.current);
+      if (complete && !completionOccurrenceId) itemToSave = { ...itemToSave, state: 'done' as const, closure: { at: now.toISOString(), actor: 'user' as const, reason: 'manual' as const } };
+      const overflowingBlocks = programOverflow(itemToSave);
+      const programStart = Date.parse(itemToSave.schedule?.startAt ?? '');
+      if (overflowingBlocks.length && Number.isFinite(programStart) && itemToSave.eventProgram?.blocks.every((block) => block.startOffsetSeconds >= 0)) {
+        const lastBlockEnd = Math.max(...itemToSave.eventProgram.blocks.map((block) => block.endOffsetSeconds));
         const suggestedEnd = new Date(programStart + lastBlockEnd * 1_000).toISOString();
         const label = formatViewDate(suggestedEnd, true, workspace.calendarPreferences.language);
         const question = workspace.calendarPreferences.language === 'ru'
           ? `Программа заканчивается ${label}. Продлить событие до этого времени?`
           : `The program ends ${label}. Extend the event to that time?`;
         if (!window.confirm(question)) return;
-        itemToSave = { ...itemToSave, schedule: { ...item.schedule!, endAt: suggestedEnd } };
+        itemToSave = { ...itemToSave, schedule: { ...itemToSave.schedule!, endAt: suggestedEnd } };
         setItem(itemToSave);
       }
       const normalized = normalizeItemForSave({ item: itemToSave, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now });
@@ -447,7 +440,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
       syncCompletionCounter(normalized, now.toISOString());
       if (normalized.closure?.reason !== 'rule') recordCompletionTransition(normalized, initial.state, now.toISOString());
       syncCompletionCounter(normalized, now.toISOString());
-      await onSave(normalized, { ...(!complete && completionOccurrenceId ? { recurrenceEdit: { occurrenceId: completionOccurrenceId, scope: recurrenceScope } } : {}), ...(complete ? { completedFromEditor: true, ...(completionOccurrenceId ? { completionOccurrenceId } : {}) } : {}), ...(convertedProject ? { convertedProject } : {}), ...(deleteGoogleEvent ? { deleteGoogleEvent: true } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
+      await onSave(normalized, { ...(!complete && completionOccurrenceId ? { recurrenceEdit: { occurrenceId: completionOccurrenceId, ...(completionRecurrenceId ? { recurrenceId: completionRecurrenceId } : {}), scope: recurrenceScope } } : {}), ...(complete ? { completedFromEditor: true, ...(completionOccurrenceId ? { completionOccurrenceId, ...(completionRecurrenceId ? { completionRecurrenceId } : {}) } : {}) } : {}), ...(convertedProject ? { convertedProject } : {}), ...(deleteGoogleEvent ? { deleteGoogleEvent: true } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
     } catch (reason) { setGoogleConflict(reason instanceof GoogleEditConflict); setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { savingRef.current = false; setSaving(false); }
   };
@@ -455,7 +448,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
     const saveFromRetainedMobileKeyboard = (event: KeyboardEvent) => {
       if (event.key !== 'Enter' || event.isComposing) return;
       const target = event.target;
-      if (!quickTitleSaveAllowed.current || !item.title.trim() || !(target instanceof HTMLInputElement) || !target.closest('[data-quick-capture]')) return;
+      if (!quickTitleSaveAllowed.current || !titleDraft.current.trim() || !(target instanceof HTMLInputElement) || !target.closest('[data-quick-capture]')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       quickTitleSaveAllowed.current = false;
@@ -476,26 +469,34 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
   // New items stay intentionally quiet until the user opens a section.
   const sectionMark = (filled: boolean) => !isNew && filled ? <span className="section-dot" aria-label="Contains data">•</span> : null;
   const dateField = (label: string, value: string | undefined, onChange: (value: string | undefined) => void, help?: string, onFocus?: () => void, minValue?: string) => <DateTimeField label={label} value={value} language={workspace.calendarPreferences.language} onChange={onChange} help={help} onFocus={onFocus} minValue={minValue} />;
-  const timerOwner = item.role === 'series_template' ? Object.values(workspace.items).find((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id && entry.state === 'open') : undefined;
+  const occurrences = useMemo(() => item.role === 'series_template' ? workspaceItems.filter(entry => !entry.deletedAt && entry.occurrence?.seriesId === item.id) : [], [workspaceItems, item.role, item.id]);
+  const timerOwner = useMemo(() => occurrences.find(entry => entry.state === 'open'), [occurrences]);
+  const remove = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true; setSaving(true); setError('');
+    try { await onDelete(item, completionOccurrenceId ? { occurrenceId: completionOccurrenceId, ...(completionRecurrenceId ? { recurrenceId: completionRecurrenceId } : {}), scope: recurrenceScope } : undefined); }
+    catch (reason) { setError(`Deletion not completed: ${reason instanceof Error ? reason.message : String(reason)}`); }
+    finally { savingRef.current = false; setSaving(false); }
+  };
 
-  return <ResponsiveDialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog is-glass" backdropClassName="is-glass" initialFocus={retainedQuickCaptureFocus || focusTitle ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : opener.current?.isConnected ? opener.current : false} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" disabled={saving || sourceEditing} onClick={() => onDelete(item)}>Delete</Button>}<span /><button className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || sourceEditing} onClick={() => void save()}>{saving ? 'Saving…' : 'Save item'}</button></div>}>
+  return <ResponsiveDialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }} title={<><span className="eyebrow">UNIVERSAL ITEM</span><span className="item-editor-heading">{workspace.items[item.id] ? 'Edit item' : 'New item'}</span></>} ariaLabel="Item editor" className="item-editor-dialog is-glass" backdropClassName="is-glass" initialFocus={retainedQuickCaptureFocus || focusTitle ? titleInputRef : false} finalFocus={() => suppressFocusRestore.current ? false : opener.current?.isConnected ? opener.current : false} closeLabel="Close item editor" footer={<div className="item-editor-actions">{workspace.items[item.id] && <Button variant="secondary" disabled={saving || sourceEditing} onClick={() => void remove()}>Delete</Button>}<span /><button className="secondary" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || sourceEditing} onClick={() => void save()}>{saving ? 'Saving…' : 'Save item'}</button></div>}>
     <div className="editor-scroll" ref={editorScrollRef} onFocusCapture={(event) => {
       if (event.target === titleInputRef.current) quickTitleWasFocused.current = true;
       else if (quickTitleWasFocused.current) quickTitleSaveAllowed.current = false;
     }} onKeyDown={(event) => {
       if (event.key !== 'Enter' || event.defaultPrevented || event.nativeEvent.isComposing) return;
-      if (!quickTitleSaveAllowed.current || event.target !== titleInputRef.current || !item.title.trim()) return;
+      if (!quickTitleSaveAllowed.current || event.target !== titleInputRef.current || !titleDraft.current.trim()) return;
       event.preventDefault();
       quickTitleSaveAllowed.current = false;
       save({ dismissKeyboard: true });
     }}>
         <div className="item-title-field">
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
-            if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? titleText)); setSourceEditing(true); setError(''); return; }
-            try { const updated = applyQuickEntryText(item, sourceDraft, now).item; setItem(updated); setTitleText(updated.title); setSourceDraft(quickEntrySource(updated)?.text ?? ''); setSourceEditing(false); setError(''); }
+            if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? titleDraft.current)); setSourceEditing(true); setError(''); return; }
+            try { const updated = applyQuickEntryText(item, sourceDraft, now).item; setItem(updated); titleDraft.current = updated.title; setSourceDraft(quickEntrySource(updated)?.text ?? ''); setSourceEditing(false); setError(''); }
             catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
           }}>{sourceEditing ? (workspace.calendarPreferences.language === 'ru' ? 'Применить строку' : 'Apply line') : (workspace.calendarPreferences.language === 'ru' ? 'Быстрый ввод' : 'Quick entry')}</Button>}{!sourceEditing && canManuallyComplete(item) && item.state === 'open' && workspace.items[item.id] && <button type="button" className="state-toggle editor-complete" aria-label={workspace.calendarPreferences.language === 'ru' ? 'Выполнить item' : 'Complete item'} title={workspace.calendarPreferences.language === 'ru' ? 'Выполнить и сохранить' : 'Complete and save'} disabled={saving} onPointerDown={event => event.preventDefault()} onClick={() => void save({ complete: true, dismissKeyboard: true })} />}{!sourceEditing && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
-          {sourceEditing ? <><LiveTextInput multiline id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseEntry(sourceDraft, now).errors.length ? <p className="editor-error error">{parseEntry(sourceDraft, now).errors.join(' ')}</p> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseEntry(sourceDraft, now).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <LiveTextInput multiline id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} ariaLabel="Title" value={titleText} onChange={updateTitleText} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} overlaySuggestions now={now} placeholder="What needs to happen?" />}
+          {sourceEditing ? <><LiveTextInput multiline id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseEntry(sourceDraft, now).errors.length ? <p className="editor-error error">{parseEntry(sourceDraft, now).errors.join(' ')}</p> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseEntry(sourceDraft, now).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput initialValue={formatQuickEntryForEditor(quickEntrySource(item)?.text ?? item.title)} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }} />}
           {item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
         {!sourceEditing && <>
@@ -532,7 +533,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
             <Checkbox checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { ...item.habit, target: item.progress?.target ?? item.habit?.target ?? 1, unit: item.habit?.unit ?? 'times', streakMode: item.habit?.streakMode ?? 'manual_only', completedDates: item.habit?.completedDates ?? [] } : undefined })} label="Daily habit: check off once per day" />
             <ItemHistoryJournals item={item} workspace={workspace} onChange={setItem} {...(onHistorySave ? { onOwnerChange: onHistorySave } : {})} />
           </div></details> : <p className="hint">{workspace.calendarPreferences.language === 'ru' ? 'Чтобы отмечать выполнение и отслеживать прогресс, включите «Can be completed» рядом с Note. Прежняя история сохраняется.' : 'Enable “Can be completed” next to Note to track completion and progress. Existing history is retained.'}</p>}
-        <EventProgramSection onValidityChange={setProgramValid} item={item} onChange={setItem} language={workspace.calendarPreferences.language} now={now} occurrences={item.role === 'series_template' ? Object.values(workspace.items).filter((entry) => !entry.deletedAt && entry.occurrence?.seriesId === item.id) : []} onOpenOccurrence={onOpenOccurrence ? (target) => {
+        <EventProgramSection onValidityChange={setProgramValid} item={item} onChange={setItem} language={workspace.calendarPreferences.language} now={now} occurrences={occurrences} onOpenOccurrence={onOpenOccurrence ? (target) => {
           if (JSON.stringify(item) !== JSON.stringify(initial) && !window.confirm(workspace.calendarPreferences.language === 'ru' ? 'Открыть отдельное повторение? Несохранённые изменения текущей формы будут отменены.' : 'Open an occurrence? Unsaved changes in this form will be discarded.')) return;
           onOpenOccurrence(target);
         } : undefined} />
@@ -617,7 +618,7 @@ export function ItemEditor({ completionOccurrenceId, focusTitle = false, initial
           setGoogleBaseline({ ...googleBaseline, extensions: baselineExtensions, title: remote.title, bodyMarkdown: remote.bodyMarkdown, location: remote.location ?? '', schedule: { ...googleBaseline.schedule, ...remote.schedule, timezone: timeZone }, external: { ...link, etag: event.etag!, startAt: remote.schedule!.startAt!, endAt: remote.schedule!.endAt!, timezone: timeZone, allDay: merged.allDay, transparency: event.transparency ?? 'opaque' } });
           const mergedEvent = googleCalendarEventToItem({ id: event.id, summary: merged.title, description: merged.description, location: merged.location, start: merged.allDay ? { date: merged.start, timeZone: merged.timeZone } : { dateTime: merged.start, timeZone: merged.timeZone }, end: merged.allDay ? { date: merged.end, timeZone: merged.timeZone } : { dateTime: merged.end, timeZone: merged.timeZone } }, link.calendarId, link.connectionId, new Date().toISOString(), merged.timeZone)!;
           setItem((current) => ({ ...current, title: merged.title, bodyMarkdown: merged.description, location: merged.location, schedule: { ...current.schedule, startAt: mergedEvent.schedule!.startAt!, endAt: mergedEvent.schedule!.endAt!, allDay: merged.allDay, timezone: merged.timeZone } }));
-          setTitleText(merged.title); setGoogleBusyValue(merged.busy); setGoogleRebased(true); setGoogleConflict(false); setError('');
+          titleDraft.current = merged.title; titleEdited.current = true; setGoogleBusyValue(merged.busy); setGoogleRebased(true); setGoogleConflict(false); setError('');
         } catch (reason) { setError(String(reason)); }
       }}>Load current event; keep my draft</Button>}
         {completionOccurrenceId && <Field label={workspace.calendarPreferences.language === 'ru' ? 'Применить изменения' : 'Apply changes'}><Select aria-label="Recurrence edit scope" value={recurrenceScope} onChange={event => setRecurrenceScope(event.target.value as typeof recurrenceScope)}><option value="this_occurrence">{workspace.calendarPreferences.language === 'ru' ? 'Только это повторение' : 'Only this occurrence'}</option><option value="this_and_future">{workspace.calendarPreferences.language === 'ru' ? 'Это и все будущие' : 'This and all future occurrences'}</option></Select></Field>}

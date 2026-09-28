@@ -4,6 +4,16 @@ import { forgetGoogleCalendarAuthorization, requestGoogleCalendarToken } from '.
 
 afterEach(() => { forgetGoogleCalendarAuthorization(); vi.unstubAllGlobals(); });
 
+it('marks startup authorization as non-interactive', async () => {
+  const events = new EventTarget(); const postMessage = vi.fn();
+  vi.stubGlobal('window', Object.assign(events, { webkit: { messageHandlers: { utmNativeGoogleAuth: { postMessage } } } }));
+  const pending = requestGoogleCalendarToken(undefined, 'read', false);
+  const failure = expect(pending).rejects.toThrow('Tap Sync');
+  expect(postMessage.mock.calls[0]![0].interactive).toBe(false);
+  events.dispatchEvent(new CustomEvent('utm-native-google-status', { detail: { id: postMessage.mock.calls[0]![0].id, ok: false, error: 'Tap Sync to reconnect' } }));
+  await failure;
+});
+
 it('coalesces simultaneous native token requests after a restart', async () => {
   const events = new EventTarget();
   const postMessage = vi.fn();

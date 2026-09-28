@@ -12,6 +12,16 @@ const googleItem = () => googleCalendarEventToItem({
 }, 'private@example.com', 'private-connection', '2026-09-03T09:00:00.000Z')!;
 
 describe('persistence export privacy', () => {
+  it('does not expand historical changes when current data already requires filtering', () => {
+    const workspace = createWorkspace('Private');
+    const item = googleItem(); workspace.items[item.id] = item;
+    const document = createAutomergeDocument(workspace);
+    try {
+      const snapshot = persistenceExportSafeSnapshot(document, () => { throw new Error('History must not be expanded'); });
+      expect(snapshot).toBeDefined();
+      expect(JSON.stringify(snapshot)).not.toContain('PRIVATE GOOGLE EVENT');
+    } finally { Automerge.free(document); }
+  });
   it('keeps the full history and export privacy after compressed document transfer', () => {
     let original = createAutomergeDocument(createWorkspace('Transfer'));
     original = Automerge.change(original, (draft) => { const item = googleItem(); draft.items[item.id] = item; });

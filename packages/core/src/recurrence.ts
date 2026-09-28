@@ -657,16 +657,24 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
       const offset = previous ? Math.min(configuredOffset, Math.max(0, anchor.getTime() - previous.getTime() - scheduledSpan)) : configuredOffset;
       return anchor.getTime() - offset <= now.getTime();
     });
-    if (recurrence.autoRenew) {
+    // Google instances have independent remote identities. Never collapse them
+    // into a rolling task: doing so deletes an instance under an open editor.
+    const googleSeries = series.external?.provider === 'google_calendar';
+    if (recurrence.autoRenew && !googleSeries) {
       const hadOccurrence = Object.values(workspace.items).some((item) => item.occurrence?.seriesId === series.id && !item.deletedAt);
       const rolling = reconcileRollingSeries(workspace, series, activeAnchors, rule, now, (anchor) => unique.findIndex((candidate) => candidate.getTime() === anchor.getTime()), updated, autoClosed, removedIds);
       if (rolling && !hadOccurrence) created.push(rolling);
       else if (!rolling) untouched += 1;
       continue;
     }
+    const existingAnchors = new Set(googleSeries ? Object.values(workspace.items)
+      .filter(item => item.occurrence?.seriesId === series.id)
+      .map(item => item.occurrence!.recurrenceId) : []);
     activeAnchors.forEach((anchor, sequence) => {
       const id = deterministicOccurrenceId(series.id, anchor.toISOString());
-      if (!workspace.items[id] && !workspace.tombstones[id]) {
+      // Imported instances retain their Google-based IDs, not deterministic UTM
+      // IDs. Match the exact occurrence anchor before generating a local row.
+      if (!existingAnchors.has(anchor.toISOString()) && !workspace.items[id] && !workspace.tombstones[id]) {
         const occurrence = createOccurrence(series, anchor, sequence);
         occurrence.custom.__closeAt = series.recurrence!.closeAt;
         workspace.items[id] = occurrence;
