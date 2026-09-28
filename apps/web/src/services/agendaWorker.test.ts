@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace } from '@utm/core';
-import { agendaInput, calculateAgendaInWorker } from './agendaWorker';
+import { agendaInput, agendaWidgetWorkspace, calculateAgendaInWorker } from './agendaWorker';
 import { agendaWidgetSnapshot } from './nativeAgendaWidget';
 afterEach(() => vi.unstubAllGlobals());
 it('keeps projection identical and ignores unrelated changes', () => {
@@ -25,6 +25,19 @@ it('invalidates on completion, deletion, language, time zone and sleep selection
   w.calendarPreferences.language = w.calendarPreferences.language === 'en' ? 'ru' : 'en'; expect(agendaInput(w).key).not.toBe(original);
   const beforeZone = agendaInput(w).key;
   w.calendarPreferences.timezone = 'Pacific/Auckland'; expect(agendaInput(w).key).not.toBe(beforeZone);
+});
+it('drops distant Google mirrors without changing the widget projection', () => {
+  const now = Date.parse('2026-09-28T08:00:00Z');
+  const w = createWorkspace('Large mirror');
+  const near = createItem('Near'); near.schedule = { timezone: 'UTC', startAt: '2026-09-28T10:00:00Z', endAt: '2026-09-28T11:00:00Z' }; w.items[near.id] = near;
+  for (let index = 0; index < 1_000; index += 1) {
+    const item = createItem(`Distant ${index}`);
+    item.schedule = { timezone: 'UTC', startAt: new Date(now + (index + 10) * 86_400_000).toISOString(), endAt: new Date(now + (index + 10) * 86_400_000 + 3_600_000).toISOString() };
+    w.items[item.id] = item;
+  }
+  const reduced = agendaWidgetWorkspace(w, now);
+  expect(Object.keys(reduced.items).length).toBe(2);
+  expect(agendaWidgetSnapshot(reduced, now)).toEqual(agendaWidgetSnapshot(w, now));
 });
 it('terminates stale work and never resolves its late response', async () => {
   let fake: any;

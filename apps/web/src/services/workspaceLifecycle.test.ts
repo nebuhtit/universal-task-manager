@@ -45,6 +45,14 @@ describe('workspace lifecycle integration', () => {
     expect(next.updatedAt).toBe(source.updatedAt);
     expect(commitWorkspaceDocument(next, 'Subsequent edit', (draft) => { draft.name = 'Changed'; }).name).toBe('Changed');
   });
+  it('does not create a change or persistence head for an empty command', () => {
+    const source = document();
+    const heads = Automerge.getHeads(source);
+    const next = commitWorkspaceDocument(source, 'Already applied command', () => undefined, new Date('2030-01-01T00:00:00Z'));
+    expect(next).toBe(source);
+    expect(Automerge.getHeads(next)).toEqual(heads);
+    expect(next.updatedAt).toBe(source.updatedAt);
+  });
   it('does not grow Automerge history for an unchanged Google calendar organization', () => {
     const workspace = createWorkspace('Calendar sync');
     workspace.calendarPreferences.googleCalendar = { connectionId: 'google', calendars: [{ id: 'calendar', name: 'Work', selected: true }], syncTokens: {} };

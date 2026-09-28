@@ -101,6 +101,10 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       recordDiagnostic({ kind: 'error', message: 'Workspace operation failed before persistence', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: message === 'Sync Google Calendar' ? googleCalendarFailureDetails('save', reason) : details });
       onToast(`Save failed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
     }
+    if (document === currentSession.document) {
+      recordDiagnostic({ kind: 'result', message: 'Workspace operation made no changes; persistence skipped', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
+      return true;
+    }
     const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);
     syncTrace('react-enqueued');
     markPendingSave(); setSaveStatus('saving');

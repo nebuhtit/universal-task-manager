@@ -894,6 +894,14 @@ describe('calendar projection and mutations', () => {
 });
 
 describe('automation engine', () => {
+  it('does not touch workspace metadata when no automation matches', () => {
+    const workspace = createWorkspace();
+    const updatedAt = workspace.updatedAt;
+    const result = runAutomationEvents(workspace, [{ id: 'ignored', type: 'item.updated', at: '2030-01-01T00:00:00Z', causationId: 'none', depth: 0 }], { now: new Date('2030-01-01T00:00:00Z') });
+    expect(result.actionsApplied).toBe(0);
+    expect(workspace.updatedAt).toBe(updatedAt);
+    expect(workspace.automationLog).toEqual([]);
+  });
   it('applies allowlisted actions and logs an idempotent run', () => {
     const workspace = createWorkspace();
     const item = createItem('Urgent'); item.priority = 4; workspace.items[item.id] = item;

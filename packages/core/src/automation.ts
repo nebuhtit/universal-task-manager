@@ -138,6 +138,7 @@ export function runAutomationEvents(
   const seen = new Set(workspace.automationLog.map((entry) => entry.idempotencyKey));
   let processedEvents = 0;
   let actionsApplied = 0;
+  let workspaceChanged = false;
   while (queue.length) {
     const event = queue.shift()!;
     processedEvents += 1;
@@ -148,6 +149,7 @@ export function runAutomationEvents(
       seen.add(idempotencyKey);
       const startedAt = (options.now ?? new Date()).toISOString();
       if (event.depth > rule.maxDepth || actionsApplied + rule.actions.length > maxActions) {
+        workspaceChanged = true;
         rule.enabled = false;
         rule.disabledReason = 'Loop or action budget exceeded';
         workspace.automationLog.push(logEntry(rule, event, 'loop_blocked', rule.disabledReason, idempotencyKey, startedAt));
@@ -155,6 +157,7 @@ export function runAutomationEvents(
       }
       const item = event.itemId ? workspace.items[event.itemId] : undefined;
       try {
+        workspaceChanged = true;
         const ast = rule.condition.ast ?? parseExpression(rule.condition.source || 'true');
         const matches = item ? Boolean(evaluateExpression(ast, { item, now: new Date(event.at) })) : rule.condition.source.trim() === '' || rule.condition.source.trim() === 'true';
         if (!matches) {
@@ -173,8 +176,12 @@ export function runAutomationEvents(
       }
     }
   }
-  workspace.automationLog = trimAutomationLog(workspace.automationLog);
-  workspace.updatedAt = (options.now ?? new Date()).toISOString();
+  const trimmedLog = trimAutomationLog(workspace.automationLog);
+  if (trimmedLog.length !== workspace.automationLog.length) {
+    workspace.automationLog = trimmedLog;
+    workspaceChanged = true;
+  }
+  if (workspaceChanged) workspace.updatedAt = (options.now ?? new Date()).toISOString();
   return { workspace, notifications, processedEvents, actionsApplied };
 }
 

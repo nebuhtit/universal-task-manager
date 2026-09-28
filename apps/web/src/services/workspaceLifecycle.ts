@@ -28,7 +28,9 @@ export function compactTechnicalOccurrenceGarbage(document: Automerge.Doc<Worksp
 }
 
 export function commitWorkspaceDocument(document: Automerge.Doc<WorkspaceDocument>, message: string, mutation: (draft: WorkspaceDocument) => void, now = new Date()): Automerge.Doc<WorkspaceDocument> {
-  return Automerge.change(document, message, (draft) => { mutation(draft as unknown as WorkspaceDocument); draft.updatedAt = now.toISOString(); });
+  const changed = Automerge.change(document, message, (draft) => { mutation(draft as unknown as WorkspaceDocument); });
+  if (Automerge.getHeads(changed).join('|') === Automerge.getHeads(document).join('|')) return document;
+  return Automerge.change(changed, `${message}: workspace timestamp`, (draft) => { draft.updatedAt = now.toISOString(); });
 }
 
 export function applyReconciliationResult(document: Automerge.Doc<WorkspaceDocument>, result: ReconcileResult, now: Date, message = 'Workspace reconciliation'): Automerge.Doc<WorkspaceDocument> {

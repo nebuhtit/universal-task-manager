@@ -1,4 +1,4 @@
-import type { WorkspaceDocument } from '@utm/core';
+import { durationToMs, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import type { agendaWidgetSnapshot } from './nativeAgendaWidget';
 import { recordDiagnostic } from './diagnostics';
 
@@ -19,6 +19,44 @@ export function agendaInput(workspace: WorkspaceDocument): { key: string; worksp
       appearance: { headerDueMode: prefs.appearance.headerDueMode }, timeline: { sleepItemId: prefs.timeline?.sleepItemId } } });
   // Also detach Automerge proxies before structured cloning into the worker.
   return { key, workspace: JSON.parse(key) as WorkspaceDocument };
+}
+
+const timestamp = (value?: string) => Date.parse(value ?? '');
+const safeDuration = (value?: string) => {
+  try { return durationToMs(value ?? 'PT0S'); } catch { return 0; }
+};
+
+function agendaMoments(item: UniversalItem): number[] {
+  const start = timestamp(item.schedule?.startAt);
+  const end = timestamp(item.schedule?.endAt);
+  const moments = [start, end, timestamp(item.schedule?.dueAt)];
+  if (Number.isFinite(start)) moments.push(start - safeDuration(item.schedule?.travelDuration));
+  if (Number.isFinite(end)) moments.push(end + safeDuration(item.schedule?.travelBackDuration));
+  if (Number.isFinite(start)) for (const block of item.eventProgram?.blocks ?? []) moments.push(start + block.startOffsetSeconds * 1000, start + block.endOffsetSeconds * 1000);
+  return moments.filter(Number.isFinite);
+}
+
+/** Keep the exact 48-hour widget result while dropping unrelated Google mirror history. */
+export function agendaWidgetWorkspace(workspace: WorkspaceDocument, now: number): WorkspaceDocument {
+  const until = now + 48 * 3600_000;
+  const items = Object.values(workspace.items);
+  const retained = new Set<string>();
+  let firstLaterAt = Number.POSITIVE_INFINITY;
+  const later = new Map<string, number>();
+  for (const item of items) {
+    if (item.role === 'series_template' || item.occurrence) { retained.add(item.id); continue; }
+    const moments = agendaMoments(item);
+    const start = timestamp(item.schedule?.startAt), end = timestamp(item.schedule?.endAt);
+    const active = Number.isFinite(start) && start <= now && Number.isFinite(end) && end > now;
+    if (active || moments.some(at => at >= now && at <= until)) { retained.add(item.id); continue; }
+    const next = Math.min(...moments.filter(at => at > until));
+    if (Number.isFinite(next)) { later.set(item.id, next); firstLaterAt = Math.min(firstLaterAt, next); }
+  }
+  for (const [id, at] of later) if (at === firstLaterAt) retained.add(id);
+  const filteredItems = Object.fromEntries(Object.entries(workspace.items).filter(([id]) => retained.has(id)));
+  const parentIds = new Set(Object.values(filteredItems).flatMap(item => item.occurrence ? [item.occurrence.seriesId] : []));
+  const tombstones = Object.fromEntries(Object.entries(workspace.tombstones).filter(([id]) => retained.has(id) || parentIds.has(id)));
+  return { ...workspace, items: filteredItems, tombstones };
 }
 
 export function calculateAgendaInWorker(workspace: WorkspaceDocument, now: number, signal: AbortSignal): Promise<ReturnType<typeof agendaWidgetSnapshot>> {
