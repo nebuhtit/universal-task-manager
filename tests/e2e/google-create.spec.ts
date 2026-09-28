@@ -107,7 +107,12 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
   await expect(page.locator('.external-calendar-state-marker').first()).toHaveCSS('color', 'rgb(52, 86, 120)');
   await page.getByPlaceholder('Add new item').fill('Quota protected'); await page.getByPlaceholder('Add new item').press('Enter');
   await expand(editor.locator('[data-editor-section="dates"] > summary')); await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-24T12:00'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden();
-  await expect(page.getByText(/Saved in UTM, waiting for sync/)).toBeVisible(); expect(inserts).toBe(2);
+  // The toast is intentionally transient and can disappear before a loaded CI
+  // runner reaches this assertion. Reopen the item and verify its durable outbox.
+  await page.getByRole('button', { name: 'Quota protected', exact: true }).click();
+  await expand(editor.locator('[data-editor-section="calendar-details"] > summary'));
+  await expect(editor.getByText('Saved in UTM, waiting for sync.', { exact: true })).toBeVisible();
+  await editor.getByRole('button', { name: 'Close item editor', exact: true }).click(); expect(inserts).toBe(2);
   name = 'Renamed calendar'; color = '#987654'; await page.getByRole('button', { name: 'Google Calendar sync', exact: true }).click(); await expect(page.getByRole('button', { name: 'UTM + Google Calendar', exact: true })).toHaveCSS('color', 'rgb(152, 118, 84)'); expect(inserts).toBe(2);
   await nav('PARA'); await page.getByRole('button', { name: 'Office', exact: true }).first().click(); await expect(page.getByText('Offline event', { exact: true })).toBeVisible();
   for (const theme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: theme }); await page.screenshot({ path: test.info().outputPath(`outbox-para-${theme}.png`) }); }
