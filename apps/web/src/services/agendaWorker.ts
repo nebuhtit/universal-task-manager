@@ -3,8 +3,12 @@ import type { agendaWidgetSnapshot } from './nativeAgendaWidget';
 import { recordDiagnostic } from './diagnostics';
 
 /** Include every input read by the agenda and recurrence projection, not editor metadata. */
-export function agendaInput(workspace: WorkspaceDocument): { key: string; workspace: WorkspaceDocument } {
-  const items = Object.fromEntries(Object.entries(workspace.items).map(([id, item]) => [id, {
+export function agendaInput(workspace: WorkspaceDocument, now = Date.now()): { key: string; workspace: WorkspaceDocument } {
+  // Reduce before JSON serialization and worker transfer. A 72-hour staging
+  // window safely covers the widget's 30-minute refresh cadence; the worker
+  // still applies the exact 48-hour window for the final snapshot.
+  const relevant = agendaWidgetWorkspace(workspace, now, 72);
+  const items = Object.fromEntries(Object.entries(relevant.items).map(([id, item]) => [id, {
     id: item.id, title: item.title, state: item.state, role: item.role,
     deletedAt: item.deletedAt,
     schedule: item.schedule && Object.fromEntries(['startAt', 'endAt', 'dueAt', 'timezone', 'plannedDate', 'allDay', 'dueDateOnly', 'travelDuration', 'travelBackDuration'].map(key => [key, item.schedule![key as keyof typeof item.schedule]])),
@@ -13,8 +17,8 @@ export function agendaInput(workspace: WorkspaceDocument): { key: string; worksp
     recurrenceOverride: item.recurrenceOverride && { kind: item.recurrenceOverride.kind },
     eventProgram: item.eventProgram && { blocks: item.eventProgram.blocks.map(block => ({ id: block.id, title: block.title, startOffsetSeconds: block.startOffsetSeconds, endOffsetSeconds: block.endOffsetSeconds })) }, reminders: [],
   }]));
-  const prefs = workspace.calendarPreferences;
-  const key = JSON.stringify({ workspaceId: workspace.workspaceId, items, tombstones: workspace.tombstones,
+  const prefs = relevant.calendarPreferences;
+  const key = JSON.stringify({ workspaceId: relevant.workspaceId, items, tombstones: relevant.tombstones,
     calendarPreferences: { language: prefs.language, timezone: prefs.timezone,
       appearance: { headerDueMode: prefs.appearance.headerDueMode }, timeline: { sleepItemId: prefs.timeline?.sleepItemId } } });
   // Also detach Automerge proxies before structured cloning into the worker.
@@ -36,15 +40,18 @@ function agendaMoments(item: UniversalItem): number[] {
   return moments.filter(Number.isFinite);
 }
 
-/** Keep the exact 48-hour widget result while dropping unrelated Google mirror history. */
-export function agendaWidgetWorkspace(workspace: WorkspaceDocument, now: number): WorkspaceDocument {
-  const until = now + 48 * 3600_000;
+/** Keep the requested widget horizon while dropping unrelated generated history. */
+export function agendaWidgetWorkspace(workspace: WorkspaceDocument, now: number, horizonHours = 48): WorkspaceDocument {
+  const until = now + horizonHours * 3600_000;
   const items = Object.values(workspace.items);
   const retained = new Set<string>();
   let firstLaterAt = Number.POSITIVE_INFINITY;
   const later = new Map<string, number>();
   for (const item of items) {
-    if (item.role === 'series_template' || item.occurrence) { retained.add(item.id); continue; }
+    // Templates are needed to project future recurrences. Materialized
+    // occurrences are ordinary candidates: retaining every one was the source
+    // of multi-second widget transfers in old workspaces.
+    if (item.role === 'series_template') { retained.add(item.id); continue; }
     const moments = agendaMoments(item);
     const start = timestamp(item.schedule?.startAt), end = timestamp(item.schedule?.endAt);
     const active = Number.isFinite(start) && start <= now && Number.isFinite(end) && end > now;
@@ -54,9 +61,10 @@ export function agendaWidgetWorkspace(workspace: WorkspaceDocument, now: number)
   }
   for (const [id, at] of later) if (at === firstLaterAt) retained.add(id);
   const filteredItems = Object.fromEntries(Object.entries(workspace.items).filter(([id]) => retained.has(id)));
-  const parentIds = new Set(Object.values(filteredItems).flatMap(item => item.occurrence ? [item.occurrence.seriesId] : []));
-  const tombstones = Object.fromEntries(Object.entries(workspace.tombstones).filter(([id]) => retained.has(id) || parentIds.has(id)));
-  return { ...workspace, items: filteredItems, tombstones };
+  // Recurrence projection can consult tombstones for deleted occurrences whose
+  // item body no longer exists, so keep them until the recurrence layer can
+  // provide an explicit bounded deletion index.
+  return { ...workspace, items: filteredItems, tombstones: workspace.tombstones };
 }
 
 export function calculateAgendaInWorker(workspace: WorkspaceDocument, now: number, signal: AbortSignal): Promise<ReturnType<typeof agendaWidgetSnapshot>> {

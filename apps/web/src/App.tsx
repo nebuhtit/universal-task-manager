@@ -40,6 +40,7 @@ import { useWorkspaceController } from './hooks/useWorkspaceController';
 import { beginStartup, failStartup, finishStartup, interruptedStartup, readStartupLog, startupCheckpoint } from './services/startupDiagnostics';
 import { closeReadOnlyWorkspace, localWorkspaceMode, openLocalRecoveryReadOnly, unlockUnencryptedLocalWorkspace } from '@utm/sdk';
 import { acquireWorkspaceWriter, PENDING_SAVE_KEY } from './services/workspaceWriter';
+import { hasFaceIdConfiguredHint, setFaceIdConfiguredHint } from './services/faceIdHint';
 import { ResponsiveDialog } from './components/ui/ResponsiveDialog';
 import { Button } from './components/ui/primitives';
 import { DueQuickChoices } from './features/items/DueQuickChoices';
@@ -227,7 +228,7 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
   const [decryptPassword, setDecryptPassword] = useState('');
   const [decryptError, setDecryptError] = useState('');
   const [decryptBusy, setDecryptBusy] = useState(false);
-  const [faceId, setFaceId] = useState<'available' | 'unsupported' | 'configured'>('unsupported');
+  const [faceId, setFaceId] = useState<'available' | 'unsupported' | 'configured'>(() => hasFaceIdConfiguredHint() ? 'configured' : 'unsupported');
   const [online, setOnline] = useState(() => navigator.onLine);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
@@ -254,7 +255,7 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
   }, []);
   useEffect(() => {
     if (!exists) return;
-    void faceIdStatus().then(setFaceId).catch(() => setFaceId('unsupported'));
+    void faceIdStatus().then((status) => { setFaceIdConfiguredHint(status === 'configured'); setFaceId(status); }).catch(() => setFaceId('unsupported'));
   }, [exists]);
   useEffect(() => {
     const onOnline = () => setOnline(true); const onOffline = () => setOnline(false);
@@ -333,6 +334,7 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
     try {
       await acquireWorkspaceWriter();
       await onReady(await unlockLocalWorkspaceWithFaceId(), language);
+      setFaceIdConfiguredHint(true);
       recordDiagnostic({ kind: 'result', message: 'Face ID workspace entry succeeded', operation: 'Unlock local workspace with Face ID', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
     } catch (reason) {
       recordDiagnostic({ kind: 'error', message: 'Face ID workspace entry failed', operation: 'Unlock local workspace with Face ID', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
@@ -874,7 +876,7 @@ export default function App() {
   };
   useEffect(() => {
     if (!workspace || session?.storageMode === 'plaintext') { setFaceId('unsupported'); return; }
-    void faceIdStatus().then(setFaceId).catch(() => setFaceId('unsupported'));
+    void faceIdStatus().then((status) => { setFaceIdConfiguredHint(status === 'configured'); setFaceId(status); }).catch(() => setFaceId('unsupported'));
   }, [workspace?.workspaceId, session?.storageMode]);
   const enterWorkspace = async (unlocked: UnlockedWorkspace, language: WorkspaceLanguage) => {
     const sourceVersion = String((unlocked.document as WorkspaceDocument).schemaVersion ?? '1.0.0');
@@ -1348,7 +1350,7 @@ export default function App() {
         <details className="settings-disclosure"><summary>Backup and recovery</summary><section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="text" inputMode="numeric" pattern="[0-9]*" value={backupReminderDraft} onChange={(event) => { const next = event.target.value; if (/^\d*$/.test(next)) setBackupReminderDraft(next); }} onBlur={applyBackupReminderDays} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button><button className="secondary" onClick={() => void downloadOfflineRecoveryKit().then(() => setToast('Offline recovery kit downloaded.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section></details>
         <SettingsPage workspace={workspace} passwordProtection={passwordProtection} onPasswordProtectionChanged={refreshPasswordProtection} onBeforeCriticalAction={flushPersistence} onExportAll={async (format, metadata) => { const items = Object.values(workspace.items).filter((item) => !item.deletedAt); await exportPortable(workspace, createPortablePackage(workspace, { kind: 'items', items, views: format === 'xlsx' ? Object.values(workspace.views) : [], selection: { type: 'all_items' } }), `${safeFilename(workspace.name)}-all-items`, format, metadata); }} onDownloadLockedRecoveryCopy={downloadLockedRecoveryCopy} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void (isNativeReminderAvailable() ? requestNativeReminderPermission().then((status) => { setToast(`Notification permission: ${status.authorization ?? "unchanged"}`); if (status.authorization === "granted") return syncNativeReminders(workspace); }) : Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} onRestoredSnapshot={(next) => { void adoptSession(next, true).then(() => setToast('Previous workspace version restored.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />
         <DiagnosticsSettings workspace={workspace} count={diagnosticCount} onEnabledChange={(enabled) => { setDiagnosticsEnabled(enabled); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = enabled; }); }} onDownload={downloadDiagnostics} onClear={clearDiagnostics} />
-        <details className="settings-disclosure"><summary>Device unlock</summary><section className="settings-card"><p className="eyebrow">DEVICE UNLOCK</p><h2>Face ID / Touch ID</h2>{faceId === 'unsupported' ? <p>Unavailable on this browser or device. Password unlock remains available.</p> : <><p>Optional quick unlock for this device only. Face ID never replaces your password, and exports still require the password.</p>{faceId === 'configured' ? <button className="secondary" onClick={() => void disableFaceIdUnlock().then(() => { setFaceId('available'); setToast('Face ID unlock disabled. Password unlock remains unchanged.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Disable Face ID</button> : <button className="secondary" onClick={() => void enableFaceIdUnlock(session.dataKey).then(() => { setFaceId('configured'); setToast('Face ID unlock is ready on this device.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Enable Face ID</button>}<p className="hint">If Face ID fails, is cancelled, or the device changes, use the password field on the lock screen. Removing this option never removes your workspace.</p></>}</section></details>
+        <details className="settings-disclosure"><summary>Device unlock</summary><section className="settings-card"><p className="eyebrow">DEVICE UNLOCK</p><h2>Face ID / Touch ID</h2>{faceId === 'unsupported' ? <p>Unavailable on this browser or device. Password unlock remains available.</p> : <><p>Optional quick unlock for this device only. Face ID never replaces your password, and exports still require the password.</p>{faceId === 'configured' ? <button className="secondary" onClick={() => void disableFaceIdUnlock().then(() => { setFaceIdConfiguredHint(false); setFaceId('available'); setToast('Face ID unlock disabled. Password unlock remains unchanged.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Disable Face ID</button> : <button className="secondary" onClick={() => void enableFaceIdUnlock(session.dataKey).then(() => { setFaceIdConfiguredHint(true); setFaceId('configured'); setToast('Face ID unlock is ready on this device.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Enable Face ID</button>}<p className="hint">If Face ID fails, is cancelled, or the device changes, use the password field on the lock screen. Removing this option never removes your workspace.</p></>}</section></details>
       </section>}
       </Suspense>
       </PageErrorBoundary>
