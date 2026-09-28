@@ -1,4 +1,4 @@
-import { durationToMs, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { buildRecurrenceRule, createOccurrence, durationToMs, itemDeletionTime, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import type { agendaWidgetSnapshot } from './nativeAgendaWidget';
 import { recordDiagnostic } from './diagnostics';
 
@@ -40,27 +40,33 @@ function agendaMoments(item: UniversalItem): number[] {
   return moments.filter(Number.isFinite);
 }
 
-/** Keep the requested widget horizon while dropping unrelated generated history. */
+/** Materialize only the requested widget horizon; no series projection enters the worker. */
 export function agendaWidgetWorkspace(workspace: WorkspaceDocument, now: number, horizonHours = 48): WorkspaceDocument {
   const until = now + horizonHours * 3600_000;
   const items = Object.values(workspace.items);
-  const retained = new Set<string>();
-  let firstLaterAt = Number.POSITIVE_INFINITY;
-  const later = new Map<string, number>();
+  const retained = new Map<string, UniversalItem>();
   for (const item of items) {
-    // Templates are needed to project future recurrences. Materialized
-    // occurrences are ordinary candidates: retaining every one was the source
-    // of multi-second widget transfers in old workspaces.
-    if (item.role === 'series_template') { retained.add(item.id); continue; }
+    if (item.role === 'series_template') continue;
     const moments = agendaMoments(item);
     const start = timestamp(item.schedule?.startAt), end = timestamp(item.schedule?.endAt);
     const active = Number.isFinite(start) && start <= now && Number.isFinite(end) && end > now;
-    if (active || moments.some(at => at >= now && at <= until)) { retained.add(item.id); continue; }
-    const next = Math.min(...moments.filter(at => at > until));
-    if (Number.isFinite(next)) { later.set(item.id, next); firstLaterAt = Math.min(firstLaterAt, next); }
+    if (active || moments.some(at => at >= now && at <= until)) retained.set(item.id, item);
   }
-  for (const [id, at] of later) if (at === firstLaterAt) retained.add(id);
-  const filteredItems = Object.fromEntries(Object.entries(workspace.items).filter(([id]) => retained.has(id)));
+  for (const series of items) {
+    const anchorValue = series.role === 'series_template' ? recurrenceAnchor(series) : undefined;
+    if (!anchorValue || !series.recurrence || series.state !== 'open' || itemDeletionTime(workspace, series)) continue;
+    const origin = new Date(anchorValue);
+    const sample = createOccurrence(series, origin, 0);
+    const offsets = [timestamp(sample.schedule?.endAt), timestamp(sample.schedule?.dueAt), ...(sample.eventProgram?.blocks ?? []).map(block => origin.getTime() + block.endOffsetSeconds * 1000)];
+    const lookback = Math.max(0, ...offsets.filter(Number.isFinite).map(at => at - origin.getTime()));
+    const overrides = new Set(items.filter(item => item.occurrence?.seriesId === series.id).map(item => item.occurrence!.recurrenceId));
+    for (const anchor of buildRecurrenceRule(series).between(new Date(now - lookback), new Date(until + 1), true)) {
+      if (overrides.has(anchor.toISOString())) continue;
+      const occurrence = createOccurrence(series, anchor, 0);
+      if (occurrence.state === 'open' && !itemDeletionTime(workspace, occurrence)) retained.set(occurrence.id, occurrence);
+    }
+  }
+  const filteredItems = Object.fromEntries(retained);
   // Recurrence projection can consult tombstones for deleted occurrences whose
   // item body no longer exists, so keep them until the recurrence layer can
   // provide an explicit bounded deletion index.

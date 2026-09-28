@@ -41,9 +41,24 @@ it('drops distant Google mirrors without changing the widget projection', () => 
     w.items[item.id] = item;
   }
   const reduced = agendaWidgetWorkspace(w, now);
-  expect(Object.keys(reduced.items).length).toBe(2);
-  expect(agendaWidgetSnapshot(reduced, now)).toEqual(agendaWidgetSnapshot(w, now));
-  expect(Object.keys(agendaInput(w, now).workspace.items).length).toBe(2);
+  expect(Object.keys(reduced.items).length).toBe(1);
+  expect(agendaWidgetSnapshot(reduced, now).entries[0]).toEqual(agendaWidgetSnapshot(w, now).entries[0]);
+  expect(Object.keys(agendaInput(w, now).workspace.items).length).toBe(1);
+});
+
+it('materializes recurring events once and sends no templates to the widget worker', () => {
+  const now = Date.parse('2026-09-28T08:00:00Z');
+  const w = createWorkspace('Recurring'); const series = createItem('Weekly');
+  series.role = 'series_template';
+  series.schedule = { timezone: 'UTC', startAt: '2026-09-28T10:00:00Z', endAt: '2026-09-28T11:00:00Z' };
+  series.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', autoRenew: true, activationOffset: 'PT0M', closeAt: 'due', rdates: [], exdates: [] };
+  w.items[series.id] = series;
+  const reduced = agendaWidgetWorkspace(w, now);
+  expect(Object.values(reduced.items).every(item => item.role !== 'series_template')).toBe(true);
+  expect(Object.values(reduced.items).every(item => item.occurrence?.seriesId === series.id)).toBe(true);
+  expect(Object.keys(reduced.items)).toHaveLength(2);
+  const snapshot = agendaWidgetSnapshot(reduced, now);
+  expect(snapshot.entries.every(entry => entry.target === null || entry.target * 1000 <= now + 48 * 3600_000)).toBe(true);
 });
 it('terminates stale work and never resolves its late response', async () => {
   let fake: any;

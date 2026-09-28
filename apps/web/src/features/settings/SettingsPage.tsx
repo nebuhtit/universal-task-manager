@@ -24,6 +24,7 @@ import {
   restoreLocalWorkspaceSnapshot,
   type LocalWorkspaceSnapshotInfo, type PasswordProtectionStatus, type UnlockedWorkspace,
 } from '@utm/sdk';
+import { setPasswordBypassHint } from '../../services/passwordBypassHint';
 
 export type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -72,8 +73,8 @@ function PasswordProtectionSettings({ status, onStatusChange, onBeforeCriticalAc
   });
   const toggleRequirement = () => void run(async () => {
     await onBeforeCriticalAction();
-    if (status === 'disabled') await enablePasswordRequirement(currentPassword);
-    else await disablePasswordRequirement(currentPassword);
+    if (status === 'disabled') { await enablePasswordRequirement(currentPassword); setPasswordBypassHint(false); }
+    else { await disablePasswordRequirement(currentPassword); setPasswordBypassHint(true); }
     const next = await onStatusChange();
     setCurrentPassword('');
     setMessage(next === 'disabled'

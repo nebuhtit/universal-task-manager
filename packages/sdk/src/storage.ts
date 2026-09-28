@@ -403,6 +403,17 @@ export async function unlockLocalWorkspaceWithoutPassword(): Promise<UnlockedWor
   }
 }
 
+/** Repairs an explicitly requested local bypass after a biometric unlock. */
+export async function restorePasswordBypass(dataKey: Uint8Array): Promise<void> {
+  const metadata = await getRecord<LocalMetadata>(META_KEY);
+  const block = await getRecord<LocalBlock>(BLOCK_KEY);
+  if (!metadata || !block || metadata.mode === 'plaintext' || isPlaintextBlock(block)) throw new Error('Encrypted workspace data is missing');
+  const document = await loadEntryDocument(block, dataKey);
+  Automerge.free(document);
+  await putRecords([[PASSWORD_BYPASS_KEY, { version: 1, dataKey: toBase64(dataKey), enabledAt: new Date().toISOString() } satisfies PasswordBypassRecord]]);
+  if (!await getRecord<PasswordBypassRecord>(PASSWORD_BYPASS_KEY)) throw new Error('Password-free device unlock could not be retained');
+}
+
 export async function unlockUnencryptedLocalWorkspace(): Promise<UnlockedWorkspace> {
   const metadata = await getRecord<LocalMetadata>(META_KEY);
   const block = await getRecord<LocalBlock>(BLOCK_KEY);
@@ -787,6 +798,7 @@ export async function disablePasswordRequirement(currentPassword: string): Promi
   const { dataKey } = await verifiedCurrentPassword(currentPassword);
   try {
     await putRecords([[PASSWORD_BYPASS_KEY, { version: 1, dataKey: toBase64(dataKey), enabledAt: new Date().toISOString() } satisfies PasswordBypassRecord]]);
+    if (!await getRecord<PasswordBypassRecord>(PASSWORD_BYPASS_KEY)) throw new Error('Password-free device unlock could not be retained');
   } finally { dataKey.fill(0); }
 }
 

@@ -7,7 +7,7 @@ import {
 } from '@utm/core';
 import {
   localWorkspaceMode, lock, passwordProtectionStatus, saveMigratedLocalWorkspace,
-  unlockLocalWorkspaceWithoutPassword, unlockUnencryptedLocalWorkspace,
+  restorePasswordBypass, unlockLocalWorkspaceWithFaceId, unlockLocalWorkspaceWithoutPassword, unlockUnencryptedLocalWorkspace,
   type PasswordProtectionStatus, type UnlockedWorkspace,
 } from '@utm/sdk';
 import type { AppNotice } from '../components/layout/AppShell';
@@ -22,6 +22,7 @@ import { LatestPersistenceQueue, persistWorkspace, type PersistenceOperation } f
 import { reconcileOffMainThread } from '../services/recurrenceWorker';
 import { scheduleWorkspaceTime } from '../services/workspaceTimers';
 import { nativeReminderSchedule, notificationItemMomentBody } from '../services/nativeReminders';
+import { hasPasswordBypassHint, setPasswordBypassHint } from '../services/passwordBypassHint';
 import { acknowledgeObsidianFlush, persistObsidianWorkspace, syncObsidianReminders } from '../services/obsidianBridge';
 
 const ACTIVATION_PERSISTENCE_WAIT_MS = 5_000;
@@ -79,10 +80,26 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       const protection = await passwordProtectionStatus();
       setPasswordProtection(protection);
       if (protection === 'disabled') {
+        setPasswordBypassHint(true);
         beginStartup('automatic');
         try { await acquireWorkspaceWriter(); await activate(await unlockLocalWorkspaceWithoutPassword()); }
         catch (reason) {
           recordDiagnostic({ kind: 'error', message: 'Saved device unlock failed', operation: 'Unlock without password', outcome: 'failed', details: diagnosticFailureCode(reason) });
+          setBoot('locked');
+        }
+      } else if (hasPasswordBypassHint()) {
+        // A restore or storage repair can retain the explicit preference while
+        // losing its IndexedDB key. Re-authorize once with biometrics, verify
+        // the key against the encrypted block, then restore direct startup.
+        beginStartup('automatic');
+        try {
+          await acquireWorkspaceWriter();
+          const unlocked = await unlockLocalWorkspaceWithFaceId();
+          await restorePasswordBypass(unlocked.dataKey);
+          setPasswordProtection('disabled');
+          await activate(unlocked);
+        } catch (reason) {
+          recordDiagnostic({ kind: 'error', message: 'Saved device unlock recovery failed', operation: 'Restore unlock without password', outcome: 'failed', details: diagnosticFailureCode(reason) });
           setBoot('locked');
         }
       } else setBoot('locked');
