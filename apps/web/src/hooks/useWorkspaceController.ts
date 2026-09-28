@@ -225,7 +225,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     startupCheckpoint('persistence', 'started');
     const changedDuringActivation = compacted.removed > 0 || compactNormalizedDocument || Automerge.getHeads(updated).join('|') !== Automerge.getHeads(activationDocument).join('|');
     if (changedDuringActivation) { markPendingSave(); setSaveStatus('saving'); }
-    const activationPersistence = sourceVersion !== migration.value.schemaVersion || compactNormalizedDocument
+    const requiresMigrationCheckpoint = sourceVersion !== migration.value.schemaVersion || compactNormalizedDocument;
+    const activationPersistence = requiresMigrationCheckpoint
       ? saveMigratedLocalWorkspace(updated, unlocked.dataKey, sourceVersion, `schema ${sourceVersion} to ${migration.value.schemaVersion}`)
       : changedDuringActivation
         ? persistWorkspace({ ...unlocked, document: updated })
@@ -250,12 +251,13 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     activationStage = 'session';
     persistenceQueue.current?.clearPending();
     const activated = { ...unlocked, document: updated };
-    if (typeof persistenceOutcome === 'object') {
+    if (typeof persistenceOutcome === 'object' && requiresMigrationCheckpoint) {
       // Do not enter an editable session after a failed migration save: later
       // ordinary writes must not bypass its required rollback checkpoint.
       throw new Error('Initial workspace save failed. Original data is retained. Retry opening or use safe recovery mode.');
-    } else if (persistenceOutcome === 'saved') { clearPendingSave(); setSaveStatus('loaded'); }
-    else {
+    }
+    if (persistenceOutcome === 'saved') { clearPendingSave(); setSaveStatus('loaded'); }
+    else if (persistenceOutcome === 'pending') {
       // Wait before exposing an editable session: no ordinary write may race
       // the migration checkpoint or its original persistence operation.
       await activationPersistence;

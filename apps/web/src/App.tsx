@@ -228,7 +228,8 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
   const [decryptPassword, setDecryptPassword] = useState('');
   const [decryptError, setDecryptError] = useState('');
   const [decryptBusy, setDecryptBusy] = useState(false);
-  const [faceId, setFaceId] = useState<'available' | 'unsupported' | 'configured'>(() => hasFaceIdConfiguredHint() ? 'configured' : 'unsupported');
+  const [faceId, setFaceId] = useState<'checking' | 'available' | 'unsupported' | 'configured'>(() => hasFaceIdConfiguredHint() ? 'configured' : 'checking');
+  const [automaticFaceId, setAutomaticFaceId] = useState<'pending' | 'attempting' | 'finished'>(() => exists ? 'pending' : 'finished');
   const [online, setOnline] = useState(() => navigator.onLine);
   const [language, setLanguage] = useState<WorkspaceLanguage>(() => {
     const saved = window.localStorage.getItem('utm-interface-language') as WorkspaceLanguage | null;
@@ -327,26 +328,42 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
-  const unlockWithFaceId = async () => {
+  const unlockWithFaceId = async (origin: 'automatic' | 'manual' = 'manual') => {
     beginStartup('local');
     const startedAt = performance.now();
+    const operation = `Unlock local workspace with Face ID (${origin})`;
+    if (origin === 'automatic') setAutomaticFaceId('attempting');
+    recordDiagnostic({ kind: 'action', message: `Face ID workspace entry requested (${origin})`, operation, outcome: 'started' });
     setBusy(true); setError('');
     try {
       await acquireWorkspaceWriter();
       await onReady(await unlockLocalWorkspaceWithFaceId(), language);
       setFaceIdConfiguredHint(true);
-      recordDiagnostic({ kind: 'result', message: 'Face ID workspace entry succeeded', operation: 'Unlock local workspace with Face ID', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
+      recordDiagnostic({ kind: 'result', message: `Face ID workspace entry succeeded (${origin})`, operation, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
     } catch (reason) {
-      recordDiagnostic({ kind: 'error', message: 'Face ID workspace entry failed', operation: 'Unlock local workspace with Face ID', outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
+      recordDiagnostic({ kind: 'error', message: `Face ID workspace entry failed (${origin})`, operation, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: diagnosticFailureCode(reason) });
       setError('Face ID was unavailable, cancelled, or could not unlock this workspace. Enter your password below instead.');
-    } finally { setBusy(false); }
+    } finally {
+      if (origin === 'automatic') setAutomaticFaceId('finished');
+      setBusy(false);
+    }
   };
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('utm-recovery') === '1' || !exists || safeEntry || faceId !== 'configured' || faceIdAttempted.current || selectedBackup || decryptFile) return;
+    if (new URLSearchParams(window.location.search).get('utm-recovery') === '1' || !exists || safeEntry || selectedBackup || decryptFile) {
+      setAutomaticFaceId('finished');
+      return;
+    }
+    if (faceId === 'checking') return;
+    if (faceId !== 'configured') {
+      setAutomaticFaceId('finished');
+      return;
+    }
+    if (faceIdAttempted.current) return;
     faceIdAttempted.current = true;
-    void unlockWithFaceId();
-  }, [decryptFile, exists, faceId, selectedBackup]);
+    const timer = window.setTimeout(() => void unlockWithFaceId('automatic'), 250);
+    return () => window.clearTimeout(timer);
+  }, [decryptFile, exists, faceId, safeEntry, selectedBackup]);
 
   const downloadLockedBackup = async () => {
     setError('');
@@ -372,13 +389,17 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
     } finally { setDecryptBusy(false); }
   };
 
+  if (exists && !safeEntry && !selectedBackup && !decryptFile && (faceId === 'checking' || automaticFaceId !== 'finished')) {
+    return <main className="splash"><div className="brand-mark">U</div><p>{automaticFaceId === 'attempting' ? 'Confirm Face ID…' : 'Checking device unlock…'}</p></main>;
+  }
+
   return <main className="lock-shell">
     <section className="lock-card">
       <div className="brand-mark">U</div>
       <p className="eyebrow">UNIVERSAL TASK MANAGER</p>
       <span className="auth-beta" aria-label="Beta version">BETA</span>
       <h1>{exists ? 'Unlock your workspace' : 'Build your own system'}</h1>
-      {storedExists && <button type="button" className="secondary wide" disabled={busy} onClick={() => { faceIdAttempted.current = true; setCreatingNew(!creatingNew); setSelectedBackup(null); setPassword(''); setConfirm(''); setPlaintext(false); setSafeEntry(false); setUnencryptedTestWorkspace(false); setError(''); }}>{creatingNew ? 'Back to unlock' : 'Create new workspace'}</button>}
+      {storedExists && <button type="button" className="secondary wide" disabled={busy} onClick={() => { faceIdAttempted.current = true; setAutomaticFaceId('finished'); setCreatingNew(!creatingNew); setSelectedBackup(null); setPassword(''); setConfirm(''); setPlaintext(false); setSafeEntry(false); setUnencryptedTestWorkspace(false); setError(''); }}>{creatingNew ? 'Back to unlock' : 'Create new workspace'}</button>}
       {creatingNew && <section>
         <p>Новый workspace заменит активный. Старые данные останутся в локальном архиве, но для самостоятельного восстановления сохраните файл резервной копии. Google не подключается автоматически.</p>
         <button type="button" className="secondary" disabled={busy} onClick={() => void downloadLockedBackup()}>Save old workspace backup</button>
@@ -397,7 +418,7 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
         {!selectedBackup && <button className="primary wide" disabled={busy}>{busy ? 'Working…' : exists ? 'Unlock' : unencryptedTestWorkspace ? 'Create unencrypted test workspace' : 'Create encrypted workspace'}</button>}
         {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Working…' : safeEntry || exists ? 'Посмотреть бэкап без импорта' : 'Import selected backup'}</button>}
       </form>
-      {exists && faceId === 'configured' && <button className="secondary wide" type="button" disabled={busy || safeEntry} onClick={() => void unlockWithFaceId()}>Unlock with Face ID</button>}
+      {exists && faceId === 'configured' && <button className="secondary wide" type="button" disabled={busy || safeEntry} onClick={() => void unlockWithFaceId('manual')}>Unlock with Face ID</button>}
       {<div className="import-lock">
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
         <input ref={fileRef} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setUnencryptedTestWorkspace(false); setName(file.name); setConfirm(''); setError(''); }} />
