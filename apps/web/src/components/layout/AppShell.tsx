@@ -49,7 +49,7 @@ function HeaderClock({ workspace, fallback, compact = false }: { workspace?: Wor
   return <span ref={root} className="top-summary responsive-clock"><span>{fallback ?? variants[level]}</span><span className="clock-measures" aria-hidden="true">{variants.map((text, index) => <span data-clock-measure key={index}>{text}</span>)}</span></span>;
 }
 
-const nav: NavItem[] = [['home', 'home', 'Home'], ['calendar', 'calendar', 'Calendar'], ['all', 'items', 'All items'], ['organization', 'views', 'PARA'], ['settings', 'settings', 'Settings']];
+const nav: NavItem[] = [['all', 'items', 'All items'], ['organization', 'views', 'PARA'], ['settings', 'settings', 'Settings']];
 
 function NoticeCard({ notice, actionLabel, onOpen, onAction, onComplete, onSnooze, language, dismissPopup = false }: {
   notice: AppNotice; actionLabel: string; onOpen: () => void; onAction: () => void; onComplete?: (() => void) | undefined; onSnooze?: ((option: ReminderSnoozeOption) => void) | undefined; language?: string | undefined; dismissPopup?: boolean;

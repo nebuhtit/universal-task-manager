@@ -27,6 +27,7 @@
   }
 }
 .capture-dock { align-items: center; gap: var(--space-2); transition: gap var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard); }
+.capture-dock-nav-only { justify-content: flex-start; }
 .capture-dock .quick-capture { min-width: 0; }
 .keyboard-open .quick-page-nav { max-width: 0; opacity: 0; visibility: hidden; }
 .keyboard-open .capture-dock { gap: 0; }
