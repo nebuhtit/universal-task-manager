@@ -31,7 +31,7 @@ const builtInViewFields: ViewFieldOption[] = [
   { path: 'contexts', label: 'Contexts', group: 'Core' },
   { path: 'tags', label: 'Tags', group: 'Organization' },
   { path: 'area', label: 'Areas', group: 'Organization' }, { path: 'project', label: 'Projects', group: 'Organization' }, { path: 'list', label: 'Task list', group: 'Organization' },
-  { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Event opens', group: 'Schedule' },
+  { path: 'schedule.plannedDate', label: 'Planned date', group: 'Schedule' }, { path: 'schedule.availableFrom', label: 'Available to work from', group: 'Schedule' }, { path: 'schedule.startAt', label: 'Event opens', group: 'Schedule' },
   { path: 'schedule.endAt', label: 'Event ends', group: 'Schedule' }, { path: 'schedule.dueAt', label: 'Due / Active range ends', group: 'Schedule' },
   { path: 'schedule.estimatedDuration', label: 'Estimated duration', group: 'Schedule' }, { path: 'schedule.travelDuration', label: 'Travel time', group: 'Schedule' }, { path: 'schedule.actualDuration', label: 'Actual duration', group: 'Schedule' },
   { path: 'schedule.timezone', label: 'Timezone', group: 'Schedule' }, { path: 'schedule.allDay', label: 'All day', group: 'Schedule' },
