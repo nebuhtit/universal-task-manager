@@ -515,12 +515,19 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
           })) throw new Error('Could not persist pending Google operation.');
         } else selection = undefined;
       }
-      await flushPersistence();
+      // The editor is intentionally allowed to close before the durable write
+      // finishes. The local commit and Google outbox are already in memory;
+      // persistence continues in the queue and the remote write waits for it
+      // in the background path below. Waiting here made every editor close,
+      // calendar selection and iOS List/Timeline interaction pay the full
+      // encrypted workspace write latency.
+      const persistence = flushPersistence();
       if (selection) {
         if (backgroundGoogle) {
           // The editor may close only after the item and outbox are durable.
-          // Network latency must not hold its modal interaction lock.
+          // Network and storage latency must not hold its modal interaction lock.
           void (async () => {
+            await persistence;
             const token = await requestGoogleCalendarToken(undefined, 'create', false);
             assertCurrent();
             const latest = requireWorkspace().items[candidate.id];
@@ -529,6 +536,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
           })().catch(() => { /* Durable operation remains available to retry. */ });
           return { recurrenceError, pendingGoogle: true };
         }
+        await persistence;
         try {
           const token = await requestGoogleCalendarToken(undefined, 'create');
           assertCurrent();
@@ -538,6 +546,8 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
           return { recurrenceError, pendingGoogle: true };
         }
       }
+      if (!selection && backgroundGoogle) void persistence.catch(() => { /* Queue retains the latest local change for retry. */ });
+      else if (!selection) await persistence;
       return { recurrenceError, pendingGoogle: false };
     } finally {
       for (const id of reservedIds) localSaves.delete(id);
