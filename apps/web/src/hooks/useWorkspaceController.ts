@@ -378,17 +378,20 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   }, []);
 
   useEffect(() => {
+    const isNativeContainer = Boolean(window.webkit?.messageHandlers?.utmNativeAgenda);
     const flushBeforeBackground = () => {
-      if (document.visibilityState === 'hidden') void flushPersistence().catch((reason) => {
+      if (!isNativeContainer && document.visibilityState === 'hidden') void flushPersistence().catch((reason) => {
         recordDiagnostic({ kind: 'error', message: 'Workspace flush on background failed', operation: 'Flush workspace before background', outcome: 'failed', details: diagnosticFailureCode(reason) });
       });
     };
     const flushBeforePageExit = () => {
+      if (isNativeContainer) return;
       void flushPersistence().catch((reason) => {
         recordDiagnostic({ kind: 'error', message: 'Workspace flush on page exit failed', operation: 'Flush workspace before page exit', outcome: 'failed', details: diagnosticFailureCode(reason) });
       });
     };
     const warnUnsaved = (event: BeforeUnloadEvent) => {
+      if (isNativeContainer) return;
       if (saveStatus === 'saving' || saveStatus === 'error') { event.preventDefault(); event.returnValue = ''; }
     };
     window.addEventListener('beforeunload', warnUnsaved);
