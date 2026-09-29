@@ -147,7 +147,11 @@ export function evaluateCalendarRange(
     if (cache.source === workspace && prior && Object.keys(prior.items).length === projected.length && projected.every(({ item }) => prior.items[item.id] === item)) projectedWorkspace = prior;
     else { cache.workspace = projectedWorkspace; cache.counters.indexBuilds++; }
     if (cache.source !== workspace) {
-      const { items: _items, updatedAt: _updatedAt, ...context } = workspace;
+      const { items: _items, updatedAt: _updatedAt, calendarPreferences, ...rest } = workspace;
+      // Timeline/List and other presentation-only preferences belong to the UI
+      // revision. They must not invalidate the expensive calendar evaluation.
+      const { timeline: _timeline, ...evaluationPreferences } = calendarPreferences;
+      const context = { ...rest, calendarPreferences: evaluationPreferences };
       cache.context = JSON.stringify(context);
       cache.source = workspace;
     }
@@ -275,9 +279,22 @@ export function evaluateCalendarRange(
     timeSort = rules.some(rule => expressionDependsOnCurrentTime(rule.expression));
   } catch { /* Keep invalid sort behavior unchanged. */ }
   const days = Object.fromEntries([...buckets].map(([key, bucket]) => {
-    const signature = cache ? JSON.stringify([cache.context, bucket.view, bucket.entries, bucket.metricItems, [...bucket.reserveCandidates], bucket.reservedDurationMs, bucket.reservedIntervals, timeSort ? now.getTime() : null, attentionSort ? bucket.entries.map(({ item }) => attentionSortValues(viewItemForEvaluation(item), now)) : null]) : '';
+    const contentSensitive = /\b(title|body|bodyMarkdown|description|tags|contexts|areas|projects)\b/i.test(`${filterSource}\n${sortSource}`);
+    const compactItem = (item: UniversalItem) => contentSensitive ? item : {
+      id: item.id,
+      state: item.state,
+      schedule: item.schedule,
+      occurrence: item.occurrence,
+      external: item.external ? { transparency: item.external.transparency, startAt: item.external.startAt, endAt: item.external.endAt } : undefined,
+    };
+    const signature = cache ? JSON.stringify([cache.context, bucket.view, bucket.entries.map(({ item, row }) => ({ row, item: compactItem(item) })), bucket.metricItems.map(compactItem), [...bucket.reserveCandidates].map(([id, item]) => [id, compactItem(item)]), bucket.reservedDurationMs, bucket.reservedIntervals, timeSort ? now.getTime() : null, attentionSort ? bucket.entries.map(({ item }) => attentionSortValues(viewItemForEvaluation(item), now)) : null]) : '';
     const prior = cache?.days.get(key);
-    if (prior?.signature === signature) return [key, { ...prior.value, evaluation: { ...prior.value.evaluation, now } }];
+    if (prior?.signature === signature) {
+      const currentItems = new Map(bucket.entries.map(({ item }) => [item.id, item]));
+      const items = prior.value.evaluation.items.map(item => currentItems.get(item.id) ?? item);
+      const entries = prior.value.entries.map(entry => ({ ...entry, item: currentItems.get(entry.item.id) ?? entry.item }));
+      return [key, { ...prior.value, entries, reservedItems: prior.value.reservedItems.map(item => currentItems.get(item.id) ?? item), evaluation: { ...prior.value.evaluation, items, now } }];
+    }
     const items = sortViewItems(projectedWorkspace, bucket.view, bucket.entries.map(({ item }) => item), now);
     const entriesById = new Map(bucket.entries.map((entry) => [entry.item.id, entry]));
     const entries = items.map((item) => entriesById.get(item.id)).filter((entry): entry is CalendarProjectedEntry => Boolean(entry));

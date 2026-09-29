@@ -23,6 +23,7 @@ import { calendarProjectionPadding } from './calendarProjectionCache';
 import { MoonPhase } from './MoonPhase';
 import { useCalendarPeriodSwipe } from './useCalendarPeriodSwipe';
 import { calendarUndatedItems, showOverdueToday } from './calendarVisibility';
+import { recordDiagnostic } from '../../services/diagnostics';
 import './calendar.css';
 
 const DAY_MS = 86_400_000;
@@ -165,12 +166,15 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const rangeStartKey = navigatorMode === 'week' ? selectedWeekStart : weekStart(monthStart(selectedDate), preferences.weekStartsOn);
   const rangeEndKey = navigatorMode === 'week' ? shiftDateKey(rangeStartKey, 7) : shiftDateKey(weekStart(shiftDateKey(nextMonthStart(selectedDate), -1), preferences.weekStartsOn), 7);
   const projectedBoundaries = useMemo(() => {
+    const startedAt = performance.now();
     const { padding } = calendarProjectionPadding(Object.values(evaluator.projections.workspaceFor(workspace).items));
     const rows = [
       ...evaluator.projections.project(workspace, zonedDateStart(rangeStartKey, preferences.timezone), zonedDateStart(rangeEndKey, preferences.timezone)),
       ...evaluator.projections.project(workspace, new Date(+zonedDateStart(selectedDate, preferences.timezone) - padding), new Date(+zonedDateStart(shiftDateKey(selectedDate, 1), preferences.timezone) + padding)),
     ];
-    return rows.flatMap(row => [row.schedule.availableFrom, row.schedule.startAt, row.schedule.endAt, row.schedule.dueAt]).map(value => Date.parse(value ?? '')).filter(Number.isFinite);
+    const result = rows.flatMap(row => [row.schedule.availableFrom, row.schedule.startAt, row.schedule.endAt, row.schedule.dueAt]).map(value => Date.parse(value ?? '')).filter(Number.isFinite);
+    if (performance.now() - startedAt >= 100) recordDiagnostic({ kind: 'result', message: 'Calendar projection boundaries calculated', operation: 'Calendar internal projection', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt), details: JSON.stringify({ rows: rows.length, boundaries: result.length }) });
+    return result;
   }, [evaluator, workspace, rangeStartKey, rangeEndKey, selectedDate, preferences.timezone]);
   const now = useCalendarNow(workspace, selectedDayView, projectedBoundaries, suppliedNow);
 
@@ -179,7 +183,12 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     for (let key = rangeStartKey; key < rangeEndKey; key = shiftDateKey(key, 1)) keys.push(key);
     return keys;
   }, [rangeStartKey, rangeEndKey]);
-  const calendar = useMemo(() => evaluator.evaluate(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now), [evaluator, completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
+  const calendar = useMemo(() => {
+    const startedAt = performance.now();
+    const result = evaluator.evaluate(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now);
+    if (performance.now() - startedAt >= 100) recordDiagnostic({ kind: 'result', message: 'Calendar evaluation completed', operation: 'Calendar internal evaluation', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt), details: JSON.stringify({ days: Object.keys(result.days).length, items: Object.values(result.days).reduce((sum, day) => sum + day.evaluation.items.length, 0) }) });
+    return result;
+  }, [evaluator, completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
   const dayData = calendar.days;
   const planning = planningEnabled(workspace);
   const preparedDays = useMemo(() => planning ? Object.fromEntries(dayKeys.map(key => [key, prepareTimelineData(workspace, key, now, evaluator.projections)])) : null, [planning, workspace, dayKeys, now.getTime(), evaluator]);
@@ -233,6 +242,24 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     return `${result.freeMs < 0 ? (preferences.language === 'ru' ? 'Перегрузка' : 'Over capacity') : (preferences.language === 'ru' ? 'Свободно' : 'Free')} ${amount}${compact ? '' : reserve}`;
   };
   const timelineSettings = preferences.timeline ?? { mode: 'list' as const, hideSleep: false };
+  const [displayMode, setDisplayMode] = useState<'list' | 'timeline'>(() => {
+    const saved = readUiBoolean('calendar:display-timeline', preferences.timeline?.mode === 'timeline');
+    return saved ? 'timeline' : 'list';
+  });
+  const displayModeStartedAt = useRef<number | null>(null);
+  useEffect(() => {
+    const startedAt = displayModeStartedAt.current;
+    if (startedAt === null) return;
+    displayModeStartedAt.current = null;
+    recordDiagnostic({ kind: 'result', message: `Calendar ${displayMode} mode committed`, operation: 'Calendar display mode UI', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt), details: JSON.stringify({ mode: displayMode, items: selected.evaluation.items.length }) });
+  }, [displayMode, selected.evaluation.items.length]);
+  const changeDisplayMode = (mode: 'list' | 'timeline') => {
+    if (mode === displayMode) return;
+    displayModeStartedAt.current = performance.now();
+    recordDiagnostic({ kind: 'action', message: `Calendar ${mode} mode requested`, operation: 'Calendar display mode UI', outcome: 'started', details: JSON.stringify({ from: displayMode, items: selected.evaluation.items.length }) });
+    setDisplayMode(mode);
+    persistUiBoolean('calendar:display-timeline', mode === 'timeline');
+  };
   const setTimelineSetting = (changes: Partial<typeof timelineSettings>) => commit('Calendar visibility', draft => { draft.calendarPreferences.timeline = { ...draft.calendarPreferences.timeline, mode: 'list', hideSleep: draft.calendarPreferences.timeline?.hideSleep ?? false, ...changes }; });
   const rowsById = new Map(selected.entries.map(({ row, item }) => [item.id, row]));
   const formatDate = (key: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(preferences.language, { ...options, timeZone: 'UTC' }).format(dateFromKey(key));
@@ -306,10 +333,10 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     </Surface>
 
     <div className="calendar-display-switch" role="group" aria-label="Calendar display mode">
-      <Button size="compact" aria-pressed={preferences.timeline?.mode !== 'timeline'} onClick={() => commit('Calendar list mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'list', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>{preferences.language === 'ru' ? 'Список' : 'List'}</Button>
-      <Button size="compact" aria-pressed={preferences.timeline?.mode === 'timeline'} onClick={() => commit('Calendar timeline mode', draft => { draft.calendarPreferences.timeline = { ...preferences.timeline, mode: 'timeline', hideSleep: preferences.timeline?.hideSleep ?? false }; })}>Timeline</Button>
+      <Button size="compact" aria-pressed={displayMode === 'list'} onClick={() => changeDisplayMode('list')}>{preferences.language === 'ru' ? 'Список' : 'List'}</Button>
+      <Button size="compact" aria-pressed={displayMode === 'timeline'} onClick={() => changeDisplayMode('timeline')}>Timeline</Button>
     </div>
-    {preferences.timeline?.mode === 'timeline'
+    {displayMode === 'timeline'
       ? <CalendarTimeline listItems={selected.evaluation.items} plan={plan} onReorder={plan ? reorder : undefined} onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
       : <><div className="timeline-toolbar calendar-list-toolbar">
         {overdueIds.size > 0 && <Button size="compact" aria-pressed={timelineSettings.showOverdue !== false} onClick={() => setTimelineSetting({ showOverdue: timelineSettings.showOverdue === false })}>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</Button>}

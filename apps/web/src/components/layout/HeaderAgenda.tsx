@@ -23,19 +23,22 @@ export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
       void agendaWidgetRequest('status').then(async status => {
       if (!disposed && status.enabled) {
         if (request !== generation) return;
+        const calculationStartedAt = performance.now();
         const snapshot = await calculateAgendaInWorker(input.workspace, Date.now(), controller.signal);
+        const calculationMs = Math.round(performance.now() - calculationStartedAt);
         if (disposed || request !== generation) return;
         const { at: _at, ...firstStage } = snapshot.entries[0] ?? {};
         const signature = JSON.stringify([input.workspace.workspaceId, firstStage, snapshot.entries.slice(1), Math.floor(snapshot.generatedAt / 1800)]);
         if (!needsAgendaWidgetSync(status, signature, widgetSent.current, force)) return;
+        const transferStartedAt = performance.now();
         return agendaWidgetRequest('sync', snapshot).then(reply => {
           if (disposed || request !== generation) return;
           if (!reply.enabled || reply.snapshotReady === false) throw new Error('Widget snapshot was not accepted');
           widgetSent.current = signature;
-          recordDiagnostic({ kind: 'result', operation: 'Agenda widget', message: 'Widget snapshot updated', details: JSON.stringify({ version: snapshot.version, generatedAt: snapshot.generatedAt, nextTransition: snapshot.nextStageAt, expires: snapshot.expires }) });
+          recordDiagnostic({ kind: 'result', operation: 'Agenda widget', message: 'Widget snapshot updated', durationMs: Math.round(performance.now() - transferStartedAt), details: JSON.stringify({ version: snapshot.version, generatedAt: snapshot.generatedAt, nextTransition: snapshot.nextStageAt, expires: snapshot.expires, calculationMs, transferMs: Math.round(performance.now() - transferStartedAt) }) });
         });
       }
-    }).catch(reason => { if (!disposed && request === generation && !controller.signal.aborted) recordDiagnostic({ kind: 'error', operation: 'Agenda widget', message: 'Widget snapshot transfer failed', details: reason instanceof Error ? reason.message : 'Native bridge failure' }); }); };
+    }).catch(reason => { if (!disposed && request === generation && !controller.signal.aborted) recordDiagnostic({ kind: 'error', operation: 'Agenda widget', message: 'Widget snapshot transfer failed', details: JSON.stringify({ code: reason instanceof Error ? reason.message : 'native_bridge_failure' }) }); }); };
     const visible = () => { if (document.visibilityState === 'visible') sync(true); };
     const changed = () => { widgetSent.current = ''; sync(true); };
     sync();

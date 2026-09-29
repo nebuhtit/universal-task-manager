@@ -9,15 +9,30 @@ export function calendarProjectionPadding(items: UniversalItem[]) {
 export function createCalendarProjectionCache() {
   let previous: WorkspaceDocument | undefined;
   let mapped: WorkspaceDocument | undefined;
-  let signature = '';
+  let scheduleSignature = '';
   const ranges = new Map<string, ProjectedOccurrence[]>();
   const groups = new Map<string, { signature: string; workspace: WorkspaceDocument; ranges: Map<string, ProjectedOccurrence[]> }>();
   const counters = { mappings: 0, projections: 0, groupProjections: 0 };
   const workspaceFor = (workspace: WorkspaceDocument) => {
     if (previous === workspace) return mapped!;
-    const next = JSON.stringify([workspace.workspaceId, workspace.items, workspace.tombstones, workspace.calendarPreferences.timezone]);
-    if (!mapped || next !== signature) {
-      mapped = { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map(item => [item.id, googleCalendarProjection(item)])) };
+    const nextScheduleSignature = JSON.stringify([
+      workspace.workspaceId,
+      workspace.calendarPreferences.timezone,
+      workspace.tombstones,
+      Object.values(workspace.items).map(item => ({
+        id: item.id,
+        role: item.role,
+        state: item.state,
+        schedule: item.schedule,
+        recurrence: item.recurrence,
+        occurrence: item.occurrence,
+        external: item.external ? { transparency: item.external.transparency } : undefined,
+      })),
+    ]);
+    // Rebuild the lightweight source map so edited titles are visible, while
+    // keeping expensive recurrence projections when only card content changed.
+    mapped = { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map(item => [item.id, googleCalendarProjection(item)])) };
+    if (!mapped || nextScheduleSignature !== scheduleSignature) {
       ranges.clear(); counters.mappings++;
       const roots = new Set(Object.values(mapped.items).filter(item => item.role === 'series_template' && !item.occurrence && item.recurrence).map(item => item.id));
       const buckets = new Map<string, WorkspaceDocument['items']>();
@@ -32,7 +47,7 @@ export function createCalendarProjectionCache() {
         if (groups.get(key)?.signature !== groupSignature) groups.set(key, { signature: groupSignature, workspace: { ...mapped, items }, ranges: new Map() });
       }
     } else mapped = { ...workspace, items: mapped.items };
-    previous = workspace; signature = next;
+    previous = workspace; scheduleSignature = nextScheduleSignature;
     return mapped;
   };
   const project = (workspace: WorkspaceDocument, start: Date, end: Date) => {

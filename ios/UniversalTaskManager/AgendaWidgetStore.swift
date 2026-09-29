@@ -41,7 +41,7 @@ final class NativeAgendaBridge: NSObject, WKScriptMessageHandlerWithReply {
         let origin = message.frameInfo.securityOrigin
         guard message.frameInfo.isMainFrame, origin.protocol == "http", origin.host == "127.0.0.1", origin.port == 49381,
               let body = message.body as? [String: Any], let kind = body["kind"] as? String,
-              let file = AgendaWidgetStore.file, let defaults = AgendaWidgetStore.defaults else { replyHandler(nil, "Widget App Group unavailable"); return }
+              let file = AgendaWidgetStore.file, let defaults = AgendaWidgetStore.defaults else { replyHandler(nil, "widget_app_group_unavailable"); return }
         do {
             switch kind {
             case "status": break
@@ -50,13 +50,15 @@ final class NativeAgendaBridge: NSObject, WKScriptMessageHandlerWithReply {
                 if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
                 defaults.set(false, forKey: "enabled")
             case "sync":
-                guard AgendaWidgetStore.enabled, let payload = body["payload"] as? [String: Any] else { replyHandler(["enabled": false], nil); return }
+                guard AgendaWidgetStore.enabled else { replyHandler(nil, "widget_disabled"); return }
+                guard let payload = body["payload"] as? [String: Any] else { replyHandler(nil, "widget_payload_missing"); return }
                 let data = try JSONSerialization.data(withJSONObject: payload)
-                guard data.count < 200_000 else { replyHandler(nil, "Widget payload too large"); return }
+                guard data.count < 200_000 else { replyHandler(nil, "widget_payload_too_large"); return }
                 let value = try JSONDecoder().decode(AgendaWidgetSnapshot.self, from: data)
                 guard value.entries.count <= 128, value.expires.isFinite,
-                      value.entries.allSatisfy({ $0.at.isFinite && $0.title.count <= 160 && $0.current.count <= 160 }) else { replyHandler(nil, "Invalid widget payload"); return }
-                try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                      value.entries.allSatisfy({ $0.at.isFinite && $0.title.count <= 160 && $0.current.count <= 160 }) else { replyHandler(nil, "widget_payload_invalid"); return }
+                do { try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]) }
+                catch { replyHandler(nil, "widget_file_write_failed"); return }
             default: replyHandler(nil, "Unsupported widget action"); return
             }
             if kind == "sync" || kind == "disable" {
@@ -83,7 +85,7 @@ final class NativeAgendaBridge: NSObject, WKScriptMessageHandlerWithReply {
                           "snapshotReady": snapshot != nil,
                           "snapshotGeneratedAt": snapshot?.generatedAt ?? 0,
                           "snapshotExpires": snapshot?.expires ?? 0], nil)
-        } catch { replyHandler(nil, "Could not update widget storage") }
+        } catch { replyHandler(nil, "widget_storage_update_failed") }
     }
 }
 #endif

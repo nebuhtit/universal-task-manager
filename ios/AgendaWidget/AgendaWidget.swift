@@ -26,12 +26,19 @@ struct AgendaProvider: TimelineProvider {
         let fallback = AgendaEntry(date: now, current: "Universal", title: russian ? "Откройте приложение и включите виджет" : "Open app and enable widget", target: nil, label: "")
         guard let snapshot = AgendaWidgetStore.snapshot() else { return [fallback] }
         let expired = AgendaEntry(date: Date(timeIntervalSince1970: max(now.timeIntervalSince1970, snapshot.expires)), current: "Universal", title: snapshot.refreshLabel, target: nil, label: "")
-        guard snapshot.expires > now.timeIntervalSince1970 else { return [expired] }
+        // Keep the last known data visible while the app is unavailable or a
+        // replacement snapshot is being transferred. A transient refresh
+        // failure must not turn a useful widget into an empty placeholder.
         // Last source entry wins at the same boundary; synthetic entries cannot revive it.
         let unique = Dictionary(snapshot.entries.map { ($0.at, $0) }, uniquingKeysWith: { _, latest in latest })
         let ordered = unique.values.sorted { $0.at < $1.at }
         let previous = ordered.last { $0.at <= now.timeIntervalSince1970 }
-        let future = ordered.filter { $0.at > now.timeIntervalSince1970 && $0.at < snapshot.expires }
+        // The widget only needs the current item and the next few transitions.
+        // Rendering hundreds of archived SwiftUI entries makes WidgetKit spin
+        // until it kills the extension for CPU overuse.
+        let future = ordered
+            .filter { $0.at > now.timeIntervalSince1970 && $0.at < snapshot.expires }
+            .prefix(8)
         var result = ([previous].compactMap { $0 } + future).map { value in
             AgendaEntry(date: Date(timeIntervalSince1970: max(now.timeIntervalSince1970, value.at)), current: value.current, title: value.title, target: value.target.map { Date(timeIntervalSince1970: $0) }, label: value.label, moment: value.moment ?? "", tomorrow: value.tomorrow ?? false)
         }
@@ -51,7 +58,12 @@ struct AgendaProvider: TimelineProvider {
         let fiveMinutes: TimeInterval = 5 * 60
         var minute = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / fiveMinutes) * fiveMinutes + fiveMinutes)
         let expiry = Date(timeIntervalSince1970: snapshot.expires)
-        while minute < expiry {
+        // Keep the archived timeline deliberately small. The system timer is
+        // used for the final ten minutes; beyond that, four hours of coarse
+        // five-minute checkpoints are enough for the next widget refresh.
+        let minuteHorizon = min(expiry.timeIntervalSince(now), 4 * 60 * 60)
+        let minuteEnd = now.addingTimeInterval(max(0, minuteHorizon))
+        while minute < minuteEnd && minuteEntries.count < 48 {
             if let source = result.last(where: { $0.date <= minute }), let target = source.target, target.timeIntervalSince(minute) >= 600 {
                 minuteEntries.append(AgendaEntry(date: minute, current: source.current, title: source.title, target: target, label: source.label, moment: source.moment, tomorrow: source.tomorrow, compactRemaining: AgendaCountdown.compact(remaining: target.timeIntervalSince(minute))))
             }
@@ -59,8 +71,11 @@ struct AgendaProvider: TimelineProvider {
         }
         result.append(contentsOf: minuteEntries)
         result.sort { $0.date < $1.date }
-        if result.isEmpty { result.append(fallback) }
-        result.append(expired)
+        if result.count > 64 {
+            result = Array(result.prefix(64))
+        }
+        if result.isEmpty { result.append(snapshot.expires > now.timeIntervalSince1970 ? fallback : expired) }
+        else if snapshot.expires <= now.timeIntervalSince1970 { result.append(expired) }
         return result
     }
 }

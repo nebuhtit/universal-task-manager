@@ -100,16 +100,30 @@ export function parallelPlacementIssue(item: UniversalItem, key: string, start: 
 }
 /** Minute ticks affect today's queue, not every other visible day. */
 export function createCalendarPlanCache() {
-  const values = new Map<string, { workspace: WorkspaceDocument; prepared: Prepared; reserved: UniversalItem[]; stamp: string; value: ReturnType<typeof buildCalendarPlan> }>();
+  const values = new Map<string, { planningSignature: string; prepared: Prepared; reserved: UniversalItem[]; stamp: string; value: ReturnType<typeof buildCalendarPlan> }>();
   return (workspace: WorkspaceDocument, key: string, prepared: Prepared, now: Date, reserved: UniversalItem[]) => {
     const today = calendarDateKey(now, workspace.calendarPreferences.timezone);
     const pinBoundaries = activeCalendarPins(workspace, key, now).map(({ item }) => dueBoundary(item, workspace.calendarPreferences.timezone) <= +now).join(',');
     const stamp = `${today}:${key === today ? Math.floor(+now / 60_000) : pinBoundaries}`;
+    // Planning does not depend on titles, notes, tags or Google metadata.
+    // Keep those content changes out of the expensive order calculation.
+    const planningSignature = JSON.stringify({
+      timezone: workspace.calendarPreferences.timezone,
+      planning: workspace.calendarPreferences.planning,
+      items: Object.values(workspace.items).map(item => ({
+        id: item.id,
+        state: item.state,
+        revision: item.revision,
+        schedule: item.schedule,
+        occurrence: item.occurrence,
+        external: item.external ? { transparency: item.external.transparency } : undefined,
+      })),
+    });
     const prior = values.get(key);
-    if (prior && prior.workspace === workspace && prior.prepared === prepared && prior.reserved === reserved && prior.stamp === stamp) return prior.value;
+    if (prior && prior.planningSignature === planningSignature && prior.prepared === prepared && prior.reserved === reserved && prior.stamp === stamp) return prior.value;
     const value = buildCalendarPlan(workspace, key, prepared, now, reserved);
     if (values.size >= 62 && !values.has(key)) values.delete(values.keys().next().value!);
-    values.set(key, { workspace, prepared, reserved, stamp, value }); return value;
+    values.set(key, { planningSignature, prepared, reserved, stamp, value }); return value;
   };
 }
 

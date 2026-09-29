@@ -256,7 +256,14 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
   }, []);
   useEffect(() => {
     if (!exists) return;
-    void faceIdStatus().then((status) => { setFaceIdConfiguredHint(status === 'configured'); setFaceId(status); }).catch(() => setFaceId('unsupported'));
+    void faceIdStatus().then((status) => {
+      recordDiagnostic({ kind: 'result', message: `Face ID status resolved: ${status}`, operation: 'Face ID availability check', outcome: 'succeeded' });
+      setFaceIdConfiguredHint(status === 'configured');
+      setFaceId(status);
+    }).catch((reason) => {
+      recordDiagnostic({ kind: 'error', message: 'Face ID availability check failed', operation: 'Face ID availability check', outcome: 'failed', details: diagnosticFailureCode(reason) });
+      setFaceId('unsupported');
+    });
   }, [exists]);
   useEffect(() => {
     const onOnline = () => setOnline(true); const onOffline = () => setOnline(false);
@@ -350,12 +357,12 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
   };
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('utm-recovery') === '1' || !exists || safeEntry || selectedBackup || decryptFile) {
+    if (!exists || safeEntry || selectedBackup || decryptFile) {
       setAutomaticFaceId('finished');
       return;
     }
     if (faceId === 'checking') return;
-    if (faceId !== 'configured') {
+    if (faceId !== 'configured' && faceId !== 'available') {
       setAutomaticFaceId('finished');
       return;
     }
