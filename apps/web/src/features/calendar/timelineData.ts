@@ -7,6 +7,7 @@ import { dayBounds, hiddenIntervals, intersects, itemInterval, travelInterval, r
 import { planUndatedTasks } from './timelinePlanning';
 import { isCompletelyUndated, showUndatedItem, showOverdueToday } from './calendarVisibility';
 import { calendarProjectionPadding, type CalendarProjectionCache } from './calendarProjectionCache';
+import { beginProfileSpan } from '../../services/performanceProfile';
 
 /** Visibility until Due is distinct from fixed occupancy ending at Event ends. */
 export function timelineActiveRangeBounds(item: UniversalItem) {
@@ -19,6 +20,7 @@ export function timelineActiveRangeBounds(item: UniversalItem) {
 }
 
 export function prepareTimelineData(workspace: WorkspaceDocument, key: string, now: Date, cache?: CalendarProjectionCache) {
+  const finish = beginProfileSpan('calendar.timeline-prepare');
   const preferences = workspace.calendarPreferences;
   const day = dayBounds(key, preferences.timezone);
   const mapped = cache?.workspaceFor(workspace) ?? { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map(item => [item.id, googleCalendarProjection(item)])) };
@@ -124,6 +126,7 @@ export function prepareTimelineData(workspace: WorkspaceDocument, key: string, n
   const withoutSleep = events.filter(event => !isSleep(event.item));
   const visible = hiding ? withoutSleep : events;
   const sleepGaps = hiddenIntervals(sleep, withoutSleep, day);
+  finish({ scanned: items.length, rows: candidates.size, recalculated: candidates.size });
   return { day, events, visible, allDay, undated, activeRange, displayRanges, overdue, dateOnlyTasks, sleep, sleepGaps, hiding,
     showOverdue: preferences.timeline?.showOverdue !== false,
     sleepMissing: Boolean(preferences.timeline?.hideSleep && (!sleepId || !sleep.length)), projectionLimited: desiredPadding > padding };

@@ -16,6 +16,7 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void) {
   const listId = useId();
   const container = useRef<HTMLDivElement | null>(null);
   const drag = useRef<DragState | null>(null);
+  const suppressClickUntil = useRef(0);
   const rowProps = (index: number): HTMLAttributes<HTMLDivElement> => ({
     'data-reorder-list': listId,
     'data-reorder-index': String(index),
@@ -46,6 +47,33 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void) {
     drag.current.target = target;
     drag.current.after = clientY >= bounds.top + bounds.height / 2;
   };
+  const surface = (index: number): HTMLAttributes<HTMLElement> => ({
+    onPointerDown: (event) => {
+      if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      const target = event.currentTarget;
+      const startY = event.clientY;
+      const timer = window.setTimeout(() => {
+        drag.current = { from: index, target: index, after: false };
+        try { navigator.vibrate?.(15); } catch { /* Haptics are optional. */ }
+      }, 350);
+      const move = (pointerEvent: PointerEvent) => {
+        if (!drag.current && Math.abs(pointerEvent.clientY - startY) > 10) { window.clearTimeout(timer); cleanup(); return; }
+        if (drag.current) pointerEvent.preventDefault();
+        updateDragTarget(pointerEvent.clientY);
+      };
+      const finish = (pointerEvent: PointerEvent) => {
+        window.clearTimeout(timer); updateDragTarget(pointerEvent.clientY);
+        const current = drag.current;
+        if (current && current.target !== current.from) { onChange(moveEntry(items, current.from, current.target, current.after)); suppressClickUntil.current = performance.now() + 500; }
+        drag.current = null; cleanup();
+      };
+      const cancel = () => { window.clearTimeout(timer); drag.current = null; cleanup(); };
+      const cleanup = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', cancel); };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', cancel);
+      target.setPointerCapture?.(event.pointerId);
+    },
+    onClick: (event) => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } },
+  });
   const handle = (index: number, label: string): ReactNode => <button
     type="button"
     draggable
@@ -105,5 +133,5 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void) {
       window.addEventListener('mouseup', finish);
     }}
   ><svg viewBox="0 0 16 24" width="16" height="24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="5" r="1.35"/><circle cx="11" cy="5" r="1.35"/><circle cx="5" cy="12" r="1.35"/><circle cx="11" cy="12" r="1.35"/><circle cx="5" cy="19" r="1.35"/><circle cx="11" cy="19" r="1.35"/></svg></button>;
-  return { container, rowProps, handle };
+  return { container, rowProps, handle, surface };
 }

@@ -8,6 +8,8 @@ import './styles.css';
 import { bootstrapObsidianWorkspace } from './services/obsidianBridge';
 import { installSyncTraceLifecycle } from './services/syncTrace';
 import { installInputLatency } from './services/inputLatency';
+import { installPerformanceProfile } from './services/performanceProfile';
+installPerformanceProfile();
 installSyncTraceLifecycle();
 installInputLatency();
 

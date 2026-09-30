@@ -20,7 +20,8 @@ describe('SavedViewSection metrics', () => {
     expect(allMarkup).toContain('aria-expanded="true"');
     const collapsed = renderToStaticMarkup(<SavedViewSection {...props} view={view} initialOpen={false} reorderHandle={<span>Drag view</span>} />);
     expect(collapsed).not.toContain('view-metrics-summary');
-    expect(collapsed).toContain('Drag view');
+    expect(collapsed).not.toContain('Drag view');
+    expect(collapsed).toContain('view-section-title');
 
     const openMarkup = renderToStaticMarkup(<SavedViewSection {...props} view={{ ...view, query: { source: 'state == "open"' } }} />);
     expect(openMarkup).toContain('>40мин</span>');

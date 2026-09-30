@@ -59,6 +59,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
   }, [optimisticClosed, visiblyClosed]);
   useEffect(() => () => { if (optimisticReset.current) window.clearTimeout(optimisticReset.current); }, []);
   const customDisplay = fields !== undefined;
+  const showPlannedDate = !customDisplay || fields?.includes('schedule.plannedDate');
   const displayNow = now ?? new Date();
   const planned = item.schedule?.plannedDate;
   const plannedOverdue = planned && item.state === 'open' ? Math.max(0, Math.round((Date.parse(calendarDateKey(displayNow, workspace?.calendarPreferences.timezone ?? item.schedule?.timezone)) - Date.parse(planned)) / 86400000)) : 0;
@@ -95,7 +96,7 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
     <button className="item-main" onClick={onEdit}>
       {calendarReference && <span className="calendar-reference-badge">↗ {workspace?.calendarPreferences.language === 'ru' ? 'Временная ссылка' : 'Temporary reference'}</span>}
       {(!customDisplay || fields?.includes('title')) && <UserDataText className="item-title">{item.title}</UserDataText>}
-      {planned && !calendarTimeOnly && <span className="item-meta">{planned}{plannedOverdue > 0 ? ` · ${workspace?.calendarPreferences.language === 'ru' ? 'Не выполнено в плановый день; дней' : 'Planned day missed; days'}: ${plannedOverdue}` : ''}</span>}
+      {showPlannedDate && planned && !calendarTimeOnly && <span className="item-meta">{planned}{plannedOverdue > 0 ? ` · ${workspace?.calendarPreferences.language === 'ru' ? 'Не выполнено в плановый день; дней' : 'Planned day missed; days'}: ${plannedOverdue}` : ''}</span>}
       {!customDisplay && <span className="item-meta"><OverdueDueIndicator item={item} now={displayNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} /><span className={`preset ${inferredPreset(item)}`}>{t(inferredPreset(item))}</span>{due && <span>{formatViewDate(due, !item.schedule?.allDay && !item.schedule?.dueDateOnly, workspace?.calendarPreferences.language, item.schedule?.dueDateOnly ? item.schedule.timezone : undefined)}</span>}{item.schedule?.estimatedDuration && <span>{item.schedule.estimatedDuration}</span>}{item.tags.slice(0, 2).map((tag) => <span className="organization-colored-name" translate="no" data-utm-user-data style={{ '--organization-accent': workspace ? organizationAccentFor(workspace, 'tag', tag) : undefined } as CSSProperties} key={tag}>#{tag}</span>)}{item.closure?.reason === 'auto_renew' && <span className="auto-pill">{t('auto-closed')}</span>}</span>}
       {customDisplay && (showOverdueDueIndicator || metadataFields.length > 0) && <span className="view-item-fields"><OverdueDueIndicator item={item} now={displayNow} label={t('Overdue')} enabled={overdueAgeIndicatorEnabled} />{metadataFields.map(({ field, value }) => {
         if (field === 'scripts' && workspace) return readItemScripts(item, workspace, displayNow).map(({ script, text }) => {

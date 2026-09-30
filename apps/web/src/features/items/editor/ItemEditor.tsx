@@ -41,6 +41,7 @@ import { writableGoogleCalendars } from '../../../services/googleCalendarCreate'
 import { GOOGLE_SAVE_EXTENSION, itemGoogleBaseline, itemGoogleDraft, type GoogleSaveOptions } from '../../../services/googleItemSave';
 import { GoogleEditConflict, loadEditableGoogleEvent, rebaseGoogleEdit } from '../../../services/googleCalendarEdit';
 import { applyEditorTitleDraft } from './itemEditorTitle';
+import { labelProfileAction, measureProfile, recordProfileCommit } from '../../../services/performanceProfile';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -94,6 +95,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   onTimerStateSave?: (itemId: string, timer: UniversalItem['activeTimer']) => void | Promise<void>;
   initial: UniversalItem; workspace: WorkspaceDocument; now?: Date; isNew?: boolean; onSave: (item: UniversalItem, options?: { recurrenceEdit?: { occurrenceId: string; recurrenceId?: string; scope: "this_occurrence" | "this_and_future" }; completionOccurrenceId?: string; completionRecurrenceId?: string; completedFromEditor?: boolean; convertedProject?: string; google?: GoogleSaveOptions; deleteGoogleEvent?: boolean }) => void | Promise<void>; onDelete: (item: UniversalItem, scope?: { occurrenceId: string; recurrenceId?: string; scope: 'this_occurrence' | 'this_and_future' }) => void | Promise<void>; onCreateSubtask: (title: string, parentId: string) => UniversalItem; onToggleSubtask: (id: string) => void; onUpdateRecurrenceCompletion: (record: RecurrenceCompletionRecord, completedAt: string) => { series: UniversalItem | undefined; rescheduled: boolean }; onReadPortableFile: (file: File) => Promise<string>; onExportItem: (item: UniversalItem, format: PortableFormat, metadata?: boolean) => void; onClose: () => void;
 }) {
+  useLayoutEffect(() => recordProfileCommit('editor'));
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
   const [item, setItem] = useState(() => { const next = clean(googleCalendarProjection(initial)); initializeItemHistory(next); return next; });
@@ -409,6 +411,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
     if (timezoneDraft !== (item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone)) { setError('Выберите действительный часовой пояс.'); return; }
     if (!programValid) { setError(workspace.calendarPreferences.language === 'ru' ? 'Исправьте текст программы перед сохранением.' : 'Correct the program text before saving.'); return; }
     if (savingRef.current) return; savingRef.current = true; setSaving(true); setError('');
+    labelProfileAction('item-save');
     try {
       if (dismissKeyboard) {
         // Base UI normally restores focus to the quick-capture input when this
@@ -431,7 +434,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
         itemToSave = { ...itemToSave, schedule: { ...itemToSave.schedule!, endAt: suggestedEnd } };
         setItem(itemToSave);
       }
-      const normalized = normalizeItemForSave({ item: itemToSave, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now });
+      const normalized = measureProfile('item.prepare', () => normalizeItemForSave({ item: itemToSave, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now }), () => ({ recalculated: 1 }));
       const deleteGoogleEvent = Boolean(googleLink && !normalized.schedule?.endAt);
       if (deleteGoogleEvent && !workspace.items[item.id]?.external) throw new Error('This Google link belongs to a recurrence occurrence. Open that occurrence to remove its Event ends.');
       if (deleteGoogleEvent && !window.confirm(workspace.calendarPreferences.language === 'ru'

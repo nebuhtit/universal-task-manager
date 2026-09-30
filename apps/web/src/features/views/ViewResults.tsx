@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ComponentProps } from 'react';
 import { type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { FieldIcon, ItemCard, ItemStateMarker, OverdueDueIndicator, displayViewValue, readItemField, readItemScripts, stateNames } from '../items';
 import { formatViewDate } from '../../utils/dates';
@@ -14,6 +14,14 @@ import { longListClass } from '../../performance/longList';
 import { canQuickChangeDue } from '../items/dueQuickActions';
 
 export const VIEW_LIVE_TICK_MS = 1_000;
+const ViewItemCard = memo(function ViewItemCard({ onEditItem, onStateItem, accent, ...props }: Omit<ComponentProps<typeof ItemCard>, 'onEdit' | 'onState'> & {
+  onEditItem: (item: UniversalItem) => void;
+  onStateItem: (item: UniversalItem, state: UniversalItem['state'], color?: string) => void;
+  accent: string;
+}) {
+  return <ItemCard {...props} onEdit={() => onEditItem(props.item)} onState={state => onStateItem(props.item, state, accent)} />;
+});
+const noViewScripts: NonNullable<ComponentProps<typeof ItemCard>['viewScripts']> = [];
 export const viewNeedsLiveClock = (view: Pick<SavedView, 'fields'> & Partial<Pick<SavedView, 'scripts'>>, workspace?: WorkspaceDocument) => workspace
   ? viewDependsOnCurrentTime(workspace, view as SavedView)
   : view.fields.some((field) => field === 'scripts' || field.startsWith('script.') || field === 'view_scripts' || field.startsWith('view_script.'));
@@ -26,6 +34,10 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
   evaluation?: ViewEvaluation; hiddenItemIds?: ReadonlySet<string> | undefined; onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void; onReorder?: ((itemIds: string[], movedId: string) => void) | undefined; celebrationColors?: ReadonlyMap<string, string> | undefined;
 }) {
   const t = useTranslation(workspace.calendarPreferences.language);
+  const handlers = useRef({ onEdit, onState });
+  useLayoutEffect(() => { handlers.current = { onEdit, onState }; }, [onEdit, onState]);
+  const editCard = useCallback((item: UniversalItem) => handlers.current.onEdit(item), []);
+  const stateCard = useCallback((item: UniversalItem, state: UniversalItem['state'], color?: string) => handlers.current.onState(item, state, color), []);
   const fallbackNow = useViewNow(workspace, view, evaluation?.now);
   const liveNow = evaluation?.now ?? fallbackNow;
   const renderWorkspace = workspace;
@@ -37,6 +49,34 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
   const projectLink = (project: typeof projects[number]) => <ProjectResultLink project={project} language={workspace.calendarPreferences.language} />;
   const items = hiddenItemIds?.size ? matchingItems.filter((item) => !hiddenItemIds.has(item.id)) : matchingItems;
   const drag = useRef<{ itemId: string; targetId?: string | undefined; after?: boolean | undefined } | null>(null);
+  const pendingDrag = useRef<{ itemId: string; timer: number; element: HTMLElement; pointerId: number; x: number; y: number } | null>(null);
+  const suppressItemClickUntil = useRef(0);
+  const touchDrag = useRef(false);
+  const touchFinish = useRef<() => void>(() => {});
+  useEffect(() => {
+    const move = (event: TouchEvent) => {
+      if (!touchDrag.current || !drag.current) return;
+      event.preventDefault();
+      const touch = event.touches[0];
+      if (!touch) return;
+      const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-view-item-id]');
+      const id = target?.dataset.viewItemId;
+      if (!target || !id || id === drag.current.itemId) return;
+      drag.current.targetId = id;
+      drag.current.after = touch.clientY >= target.getBoundingClientRect().top + target.getBoundingClientRect().height / 2;
+      setDropTargetId(id);
+    };
+    const end = () => touchFinish.current();
+    document.addEventListener('touchmove', move, { passive: false });
+    document.addEventListener('touchend', end);
+    document.addEventListener('touchcancel', end);
+    return () => {
+      document.removeEventListener('touchmove', move);
+      document.removeEventListener('touchend', end);
+      document.removeEventListener('touchcancel', end);
+      if (pendingDrag.current) window.clearTimeout(pendingDrag.current.timer);
+    };
+  }, []);
   const stateCommittedOnPointerDown = useRef(new Set<string>());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
@@ -98,15 +138,55 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
     if (stateCommittedOnPointerDown.current.delete(item.id)) return;
     changeState(item);
   };
-  const finishDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const finishDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'touch') return;
+    if (pendingDrag.current) { window.clearTimeout(pendingDrag.current.timer); pendingDrag.current = null; }
     const current = drag.current;
     if (current?.targetId && onReorder) onReorder(moveManualItem(itemIds, current.itemId, current.targetId, current.after), current.itemId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     drag.current = null; setDraggingId(null); setDropTargetId(null);
   };
-  const cancelDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const cancelDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'touch' && touchDrag.current) return;
+    const pending = pendingDrag.current;
+    if (pending) { window.clearTimeout(pending.timer); pendingDrag.current = null; }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     drag.current = null; setDraggingId(null); setDropTargetId(null);
+  };
+  touchFinish.current = () => {
+    if (pendingDrag.current) { window.clearTimeout(pendingDrag.current.timer); pendingDrag.current = null; }
+    if (!touchDrag.current) return;
+    const current = drag.current;
+    suppressItemClickUntil.current = performance.now() + 700;
+    touchDrag.current = false;
+    drag.current = null; setDraggingId(null); setDropTargetId(null);
+    if (current?.targetId && onReorder) onReorder(moveManualItem(itemIds, current.itemId, current.targetId, current.after), current.itemId);
+  };
+  const beginCardDrag = (item: Pick<UniversalItem, 'id' | 'title'>, event: ReactPointerEvent<HTMLElement>) => {
+    if (!onReorder || (movableIds !== undefined && !movableIds.has(item.id)) || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if ((event.target as HTMLElement).closest('.state-toggle, input, textarea, select, a, [contenteditable="true"]')) return;
+    const element = event.currentTarget;
+    const timer = window.setTimeout(() => {
+      pendingDrag.current = null;
+      drag.current = { itemId: item.id };
+      setDraggingId(item.id);
+      touchDrag.current = event.pointerType === 'touch';
+      if (!touchDrag.current) element.setPointerCapture(event.pointerId);
+      suppressItemClickUntil.current = performance.now() + 500;
+      try { navigator.vibrate?.(15); } catch { /* Haptics are optional. */ }
+    }, 1000);
+    pendingDrag.current = { itemId: item.id, timer, element, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+  };
+  const moveCardDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const pending = pendingDrag.current;
+    if (pending && event.pointerType === 'mouse' && Math.hypot(event.clientX - pending.x, event.clientY - pending.y) > 24) {
+      window.clearTimeout(pending.timer); pendingDrag.current = null;
+    }
+    if (!drag.current) return;
+    const target = (document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null)?.closest<HTMLElement>('[data-view-item-id]');
+    const targetId = target?.dataset.viewItemId;
+    if (!targetId || targetId === drag.current.itemId) { drag.current.targetId = undefined; setDropTargetId(null); return; }
+    const bounds = target.getBoundingClientRect(); drag.current.targetId = targetId; drag.current.after = event.clientY >= bounds.top + bounds.height / 2; setDropTargetId(targetId);
   };
   const dragHandle = (item: Pick<UniversalItem, 'id' | 'title'>) => <button
     type="button"
@@ -163,5 +243,5 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
     return visibleColumns.length || projects.length ? <div className={`mini-board${items.length ? '' : ' project-only-board'}`}>{visibleColumns.map(({ key, label, userData, items: columnItems }) => <section key={key}><h4>{userData ? <UserDataText>{label}</UserDataText> : t(label)}</h4>{columnItems.map((item) => <article data-utm-item-id={item.id} data-utm-series-id={item.occurrence?.seriesId} data-utm-recurrence-id={item.occurrence?.recurrenceId} data-utm-due-item-id={canQuickChangeDue(item) ? item.id : undefined} data-utm-due-series-id={item.occurrence?.seriesId} data-utm-due-recurrence-id={item.occurrence?.recurrenceId} className={`board-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}`} style={celebrationStyle(item)} key={item.id}>{stateControl(item)}<button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}{projects.length > 0 && <section><h4>{t('No value')}</h4>{projects.map((project) => <article key={project.id} className="project-board-item">{projectLink(project)}</article>)}</section>}</div> : <p className="empty">{t('No items match this board.')}</p>;
   }
   if (renderView.renderer === 'table') return <div className="table-wrap renderer-table-wrap"><table><thead><tr><th className="reorder-column"><span className="sr-only">{t('Manual order')}</span></th><th className="state-column"><span className="sr-only">{t('Complete')}</span></th>{overdueAgeIndicatorEnabled && <th className="item-system-status-column"><span className="sr-only">{t('Status')}</span></th>}{visibleFields.map((field) => { const label = viewFieldLabel(renderWorkspace, field, renderView.scripts); return <th key={field} aria-label={label} title={label}><FieldIcon path={field} label={label} /><span className="sr-only">{t(label)}</span></th>; })}</tr></thead><tbody>{results.map((entry) => { if (entry.kind === 'project') return <tr key={entry.id} data-view-item-id={entry.id}><td>{dragHandle({ id: entry.id, title: entry.name })}</td><td colSpan={visibleFields.length + 1 + (overdueAgeIndicatorEnabled ? 1 : 0)}>{projectLink(entry)}</td></tr>; const item = entry.item; return <tr data-utm-item-id={item.id} data-utm-series-id={item.occurrence?.seriesId} data-utm-recurrence-id={item.occurrence?.recurrenceId} data-utm-due-item-id={canQuickChangeDue(item) ? item.id : undefined} data-utm-due-series-id={item.occurrence?.seriesId} data-utm-due-recurrence-id={item.occurrence?.recurrenceId} data-view-item-id={item.id} className={`state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`} style={celebrationStyle(item)} key={item.id} onClick={() => onEdit(item)}><td className="reorder-column">{dragHandle(item)}</td><td className="state-column">{stateControl(item, true)}</td>{overdueAgeIndicatorEnabled && <td className="item-system-status-column"><OverdueDueIndicator item={item} now={liveNow} label={t('Overdue')} /></td>}{visibleFields.map((field) => { const value = displayViewValue(readItemField(item, field, renderWorkspace, liveNow, renderView.scripts), field, renderWorkspace.calendarPreferences.language); return <td key={field} data-field={field} translate="no" data-utm-user-data title={field === 'bodyMarkdown' ? value : undefined}>{value}</td>; })}</tr>; })}</tbody></table></div>;
-  return <div className={longListClass('item-list reorderable-item-list', items.length)}>{results.map((entry) => { if (entry.kind === 'project') return <div key={entry.id} data-view-item-id={entry.id} className="reorderable-view-item">{dragHandle({ id: entry.id, title: entry.name })}{projectLink(entry)}</div>; const item = entry.item; return <div data-view-item-id={item.id} className={`view-item-exit-shell${isExiting(item) ? ' is-exiting' : ''}`} key={item.id}>{itemLabels?.get(item.id) && <span className="calendar-category-label">{itemLabels.get(item.id)}</span>}<div className={`reorderable-view-item${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}${isCelebrating(item) ? ' is-celebrating' : ''}`} style={celebrationStyle(item)}>{dragHandle(item)}<ItemCard calendarReference={referenceIds?.has(item.id)} item={item} celebrating={false} fields={visibleFields} calendarTimeOnly={calendarTimeOnly} workspace={renderWorkspace} now={liveNow} viewScripts={renderView.scripts ?? []} onEdit={() => onEdit(item)} onState={(state) => onState(item, state, view.accent ?? 'var(--color-text)')} /></div></div>; })}</div>;
+return <div className={longListClass('item-list reorderable-item-list', items.length)}>{results.map((entry) => { if (entry.kind === 'project') return <div key={entry.id} data-view-item-id={entry.id} className="reorderable-view-item">{dragHandle({ id: entry.id, title: entry.name })}{projectLink(entry)}</div>; const item = entry.item; return <div data-view-item-id={item.id} className={`view-item-exit-shell${isExiting(item) ? ' is-exiting' : ''}`} key={item.id}>{itemLabels?.get(item.id) && <span className="calendar-category-label">{itemLabels.get(item.id)}</span>}<div className={`reorderable-view-item card-reorder-surface${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}${isCelebrating(item) ? ' is-celebrating' : ''}`} style={celebrationStyle(item)} onPointerDown={event => beginCardDrag(item, event)} onPointerMove={moveCardDrag} onPointerUp={finishDrag} onPointerCancel={cancelDrag} onClick={event => { if (performance.now() < suppressItemClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}><ViewItemCard calendarReference={referenceIds?.has(item.id)} item={item} celebrating={false} fields={visibleFields} calendarTimeOnly={calendarTimeOnly} workspace={renderWorkspace} now={liveNow} viewScripts={renderView.scripts ?? noViewScripts} onEditItem={editCard} onStateItem={stateCard} accent={view.accent ?? 'var(--color-text)'} /></div></div>; })}</div>;
 }

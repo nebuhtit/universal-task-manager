@@ -24,6 +24,7 @@ import { scheduleWorkspaceTime } from '../services/workspaceTimers';
 import { nativeReminderSchedule, notificationItemMomentBody } from '../services/nativeReminders';
 import { hasPasswordBypassHint, setPasswordBypassHint } from '../services/passwordBypassHint';
 import { acknowledgeObsidianFlush, persistObsidianWorkspace, syncObsidianReminders } from '../services/obsidianBridge';
+import { currentProfileActionId, measureProfile } from '../services/performanceProfile';
 
 const ACTIVATION_PERSISTENCE_WAIT_MS = 5_000;
 
@@ -40,7 +41,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const persistenceQueue = useRef<LatestPersistenceQueue<PersistenceOperation> | null>(null);
   if (!persistenceQueue.current) {
     persistenceQueue.current = new LatestPersistenceQueue(
-      async ({ session: target }) => persistWorkspace(target),
+      async ({ session: target, profileActionId }) => persistWorkspace(target, profileActionId ?? null),
       ({ session: target, message, startedAt }) => {
         if (sessionRef.current?.document === target.document) { clearPendingSave(); setSaveStatus('saved'); }
         recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
@@ -50,6 +51,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
         recordDiagnostic({ kind: 'error', message: 'Workspace persistence is delayed and retained for retry', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
         onToast(`Save is delayed; your latest change remains open and will retry: ${reason instanceof Error ? reason.message : String(reason)}`);
       },
+      80,
+      value => value.profileActionId ?? null,
     );
   }
   const deliveredReminderIds = useRef(new Set<string>());
@@ -106,13 +109,13 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     });
   }, []);
 
-  const commit = (message: string, mutation: (draft: WorkspaceDocument) => void): boolean => {
+  const commit = (message: string, mutation: (draft: WorkspaceDocument) => void, profileActionId: number | null = currentProfileActionId() ?? null): boolean => {
     const currentSession = sessionRef.current;
     if (!currentSession) return false;
     const startedAt = performance.now();
     recordDiagnostic({ kind: 'action', message: 'Workspace operation started', operation: message, outcome: 'started' });
     let document: Automerge.Doc<WorkspaceDocument>;
-    try { syncTrace('commit-start'); document = commitWorkspaceDocument(currentSession.document as Automerge.Doc<WorkspaceDocument>, message, mutation); syncTrace('commit-end'); }
+    try { syncTrace('commit-start'); document = measureProfile('workspace.commit', () => commitWorkspaceDocument(currentSession.document as Automerge.Doc<WorkspaceDocument>, message, mutation), undefined, profileActionId); syncTrace('commit-end'); }
     catch (reason) {
       const details = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
       recordDiagnostic({ kind: 'error', message: 'Workspace operation failed before persistence', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: message === 'Sync Google Calendar' ? googleCalendarFailureDetails('save', reason) : details });
@@ -125,7 +128,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);
     syncTrace('react-enqueued');
     markPendingSave(); setSaveStatus('saving');
-    persistenceQueue.current?.enqueue({ session: next, message, startedAt });
+    persistenceQueue.current?.enqueue({ session: next, message, startedAt, profileActionId });
     return true;
   };
 

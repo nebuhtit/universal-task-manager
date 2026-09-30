@@ -2,7 +2,19 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace } from '@utm/core';
 import { agendaInput, agendaWidgetWorkspace, calculateAgendaInWorker } from './agendaWorker';
 import { agendaWidgetSnapshot } from './nativeAgendaWidget';
-afterEach(() => vi.unstubAllGlobals());
+import { clearPerformanceProfiles, readPerformanceProfiles, setPerformanceProfilingEnabled } from './performanceProfile';
+afterEach(() => { vi.unstubAllGlobals(); clearPerformanceProfiles(); setPerformanceProfilingEnabled(false); });
+it('profiles main-thread widget staging without retaining titles or signatures', () => {
+  setPerformanceProfilingEnabled(true);
+  const w = createWorkspace('PRIVATE WORKSPACE');
+  const item = createItem('PRIVATE EVENT');
+  item.schedule = { timezone: 'UTC', startAt: '2026-09-28T12:00:00Z' }; w.items[item.id] = item;
+  agendaInput(w, Date.parse('2026-09-28T08:00:00Z'));
+  const profile = readPerformanceProfiles().at(-1)!;
+  expect(profile.aggregates.map(entry => entry.stage)).toEqual(expect.arrayContaining(['agenda.input', 'agenda.project']));
+  expect(profile.aggregates.find(entry => entry.stage === 'agenda.project')?.metrics.rows).toBe(1);
+  expect(JSON.stringify(profile)).not.toContain('PRIVATE');
+});
 it('keeps projection identical and ignores unrelated changes', () => {
   const now = Date.parse('2026-09-28T08:00:00Z');
   const w = createWorkspace('Test'); const item = createItem('Event');

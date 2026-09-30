@@ -12,6 +12,7 @@
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: center;
 }
 
 .view-section.is-collapsed .view-metrics-summary { display: none; }

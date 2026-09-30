@@ -7,6 +7,7 @@ import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { saveLiveTextReport } from './liveTextReports';
 import { createLiveDayPreview } from './liveDayPreview';
 import { buildSegments, positionAt } from '../calendar/timelineLayout';
+import { measureProfile } from '../../services/performanceProfile';
 import './live-text.css';
 
 export function LiveTextInput({ value, onChange, workspaceId, workspace, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, viewedTimelineDate, timeZone, onSubmit, onFocus, onBlur }: {
@@ -84,8 +85,17 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   }, [workspace, parsed.plannedDate, parsed.start, parsed.due, timeZone, value]);
   const previewMinute = Math.floor(referenceTime.getTime() / 60_000);
   const previewModel = useMemo(createLiveDayPreview, []);
-  const previewRequested = focused && open && suggestionsEnabled && calendarDate !== viewedTimelineDate;
-  const dayPreview = useMemo(() => previewRequested && calendarDate && workspace ? previewModel.evaluate(workspace, calendarDate, referenceTime) : null, [previewRequested, calendarDate, workspace, previewMinute, previewModel]);
+  // Focus must return to WebKit before secondary calendar calculations start.
+  // Cancel the scheduled work if the field closes or loses focus meanwhile.
+  const [previewReady, setPreviewReady] = useState(false);
+  useEffect(() => {
+    if (!focused || !open) { setPreviewReady(false); return; }
+    let task: number | undefined;
+    const frame = requestAnimationFrame(() => { task = window.setTimeout(() => setPreviewReady(true), 0); });
+    return () => { cancelAnimationFrame(frame); if (task !== undefined) window.clearTimeout(task); };
+  }, [focused, open]);
+  const previewRequested = previewReady && focused && open && suggestionsEnabled && calendarDate !== viewedTimelineDate;
+  const dayPreview = useMemo(() => previewRequested && calendarDate && workspace ? measureProfile('editor.preview', () => previewModel.evaluate(workspace, calendarDate, referenceTime)) : null, [previewRequested, calendarDate, workspace, previewMinute, previewModel]);
   const previewSegments = useMemo(() => dayPreview ? buildSegments(dayPreview.day, dayPreview.hidden) : [], [dayPreview]);
   const previewHeight = previewSegments.at(-1) ? previewSegments.at(-1)!.top + previewSegments.at(-1)!.height : 1;
   const previewPercent = (at: number) => positionAt(at, previewSegments) / previewHeight * 100;
@@ -95,7 +105,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: orderedTagEntries(workspace).filter((tag): tag is string => tag !== null), projectAreas: Object.fromEntries(orderedOrganizationNames(workspace, 'project').map(name => [name, [...new Set([...(workspace.projectDefinitions[name]?.areas ?? []), ...(workspace.projectDefinitions[name]?.area ? [workspace.projectDefinitions[name]!.area!] : []), ...Object.values(workspace.items).filter(item => !item.deletedAt && (item.projects?.includes(name) || item.project === name)).flatMap(item => [...(item.areas ?? []), ...(item.area ? [item.area] : [])])])]])) } : { area: [], project: [], tag: [] }, [workspace]);
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => {
     const position = Math.min(caret, deferredValue.length);
-    return organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en');
+    return measureProfile('editor.suggestions', () => organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
   }, [deferredValue, caret, referenceTime, language, catalog]);
   const [optionLimit, setOptionLimit] = useState(30);
   useEffect(() => { setOptionLimit(30); }, [value, caret]);

@@ -1,4 +1,5 @@
 import { itemDeletionTime, reminderTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { measureProfile } from './performanceProfile';
 
 export interface NativeReminderEntry {
   id: string;
@@ -65,6 +66,10 @@ export function notificationItemMomentBody(workspace: WorkspaceDocument, item: U
 }
 
 export function nativeReminderSchedule(workspace: WorkspaceDocument, now = new Date()): NativeReminderEntry[] {
+  return measureProfile('reminders.prepare', () => prepareReminderSchedule(workspace, now), value => ({ rows: value.length }));
+}
+
+function prepareReminderSchedule(workspace: WorkspaceDocument, now: Date): NativeReminderEntry[] {
   const nowTime = now.getTime();
   return Object.values(workspace.items).flatMap((item) => {
     if (itemDeletionTime(workspace, item) || item.state !== 'open' || item.role === 'series_template') return [];

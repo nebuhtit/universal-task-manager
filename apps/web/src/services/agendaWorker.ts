@@ -1,9 +1,14 @@
 import { buildRecurrenceRule, createOccurrence, durationToMs, itemDeletionTime, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import type { agendaWidgetSnapshot } from './nativeAgendaWidget';
 import { recordDiagnostic } from './diagnostics';
+import { measureProfile } from './performanceProfile';
 
 /** Include every input read by the agenda and recurrence projection, not editor metadata. */
 export function agendaInput(workspace: WorkspaceDocument, now = Date.now()): { key: string; workspace: WorkspaceDocument } {
+  return measureProfile('agenda.input', () => prepareAgendaInput(workspace, now), value => ({ rows: Object.keys(value.workspace.items).length }));
+}
+
+function prepareAgendaInput(workspace: WorkspaceDocument, now: number): { key: string; workspace: WorkspaceDocument } {
   // Reduce before JSON serialization and worker transfer. A 72-hour staging
   // window safely covers the widget's 30-minute refresh cadence; the worker
   // still applies the exact 48-hour window for the final snapshot.
@@ -42,6 +47,10 @@ function agendaMoments(item: UniversalItem): number[] {
 
 /** Materialize only the requested widget horizon; no series projection enters the worker. */
 export function agendaWidgetWorkspace(workspace: WorkspaceDocument, now: number, horizonHours = 48): WorkspaceDocument {
+  return measureProfile('agenda.project', () => projectAgendaWorkspace(workspace, now, horizonHours), value => ({ rows: Object.keys(value.items).length }));
+}
+
+function projectAgendaWorkspace(workspace: WorkspaceDocument, now: number, horizonHours: number): WorkspaceDocument {
   const until = now + horizonHours * 3600_000;
   const items = Object.values(workspace.items);
   const retained = new Map<string, UniversalItem>();

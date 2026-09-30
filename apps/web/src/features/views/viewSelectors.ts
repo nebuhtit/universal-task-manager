@@ -3,6 +3,7 @@ import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { googleCalendarProjection, viewStatisticsItems, evaluateExpression, parseExpression } from '@utm/core';
 import { projectResults, type ViewResult } from './projectResults';
+import { beginProfileSpan, measureProfile } from '../../services/performanceProfile';
 
 export const COMPLETION_EXIT_MS = 200;
 export type CompletionHold = { previous: UniversalItem; undoUntil: number; removeAt: number };
@@ -62,17 +63,22 @@ export type AttentionSortValues = { bucket: number; at?: number; durationMs: num
 export type ViewEvaluation = { items: UniversalItem[]; results?: ViewResult[]; metrics: ViewTimeMetrics | null; now: Date };
 
 /** Assigns duplicates to the first expanded Home View without letting collapsed Views claim them. */
-export function hiddenItemIdsByExpandedView(workspace: WorkspaceDocument, views: SavedView[], expandedViewIds: ReadonlySet<string>, now = effectiveWorkspaceNow(workspace)): Map<string, ReadonlySet<string>> {
+export function hiddenItemIdsByExpandedView(workspace: WorkspaceDocument, views: SavedView[], expandedViewIds: ReadonlySet<string>, now = effectiveWorkspaceNow(workspace), evaluations?: ReadonlyMap<string, ViewEvaluation>): Map<string, ReadonlySet<string>> {
+  const finish = beginProfileSpan('home.deduplicate');
+  let evaluated = 0, matchedCount = 0;
   const claimed = new Set<string>();
   const hidden = new Map<string, ReadonlySet<string>>();
   for (const view of views) {
     if (!expandedViewIds.has(view.id)) continue;
-    const matched = view.renderer !== 'calendar' && view.resultTypes?.includes('project')
+    const shared = evaluations?.get(view.id);
+    const matched = shared ? (view.renderer !== 'calendar' && view.resultTypes?.includes('project') ? shared.results ?? [] : shared.items) : view.renderer !== 'calendar' && view.resultTypes?.includes('project')
       ? evaluateView(workspace, view, now).results ?? []
       : selectViewItems(workspace, view, now);
+    evaluated++; matchedCount += matched.length;
     hidden.set(view.id, new Set(matched.filter((item) => claimed.has(item.id)).map((item) => item.id)));
     matched.forEach((item) => claimed.add(item.id));
   }
+  finish({ calls: evaluated, matched: matchedCount });
   return hidden;
 }
 
@@ -129,6 +135,10 @@ export function viewContinuouslyDependsOnCurrentTime(workspace: WorkspaceDocumen
 }
 
 export function evaluateView(workspace: WorkspaceDocument, view: SavedView, now = effectiveWorkspaceNow(workspace)): ViewEvaluation {
+  return measureProfile('view.evaluate', () => evaluateViewInternal(workspace, view, now), value => ({ matched: value.items.length, calls: 1 }));
+}
+
+function evaluateViewInternal(workspace: WorkspaceDocument, view: SavedView, now: Date): ViewEvaluation {
   const items = selectViewItems(workspace, view, now);
   let matchesForStatistics: ((item: UniversalItem) => boolean) | undefined;
   if (view.statistics?.includeHiddenCompleted) {
@@ -207,6 +217,10 @@ export function attentionSortValues(item: UniversalItem, now = new Date()): Atte
 
 /** Sorts an already-filtered set without rescanning the workspace. */
 export function sortViewItems(workspace: WorkspaceDocument, view: SavedView, sourceItems: Iterable<UniversalItem>, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
+  return measureProfile('view.sort', () => sortViewItemsInternal(workspace, view, sourceItems, now), value => ({ recalculated: value.length }));
+}
+
+function sortViewItemsInternal(workspace: WorkspaceDocument, view: SavedView, sourceItems: Iterable<UniversalItem>, now: Date): UniversalItem[] {
   const index = getWorkspaceIndex(workspace, true);
   const selectionSource = viewItemForEvaluation;
   const items = [...sourceItems];
@@ -279,6 +293,7 @@ export function sortViewItems(workspace: WorkspaceDocument, view: SavedView, sou
 }
 
 export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, now = effectiveWorkspaceNow(workspace)): UniversalItem[] {
+  const finish = beginProfileSpan('view.select');
   const index = getWorkspaceIndex(workspace, true);
   const templateFilterRequested = Boolean(view && /\bisTemplate\b/.test(view.query.source));
   const selectionSource = viewItemForEvaluation;
@@ -290,7 +305,7 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
       && (templateFilterRequested || !isItemTemplate(source))
       && !(source.role === 'occurrence' && source.occurrence?.seriesId && index.itemById.get(source.occurrence.seriesId)?.habit);
   });
-  if (!view) return available.filter((item) => item.role !== 'series_template');
+  if (!view) { const result = available.filter((item) => item.role !== 'series_template'); finish({ scanned: index.visibleItems.length, matched: result.length }); return result; }
 
   let items: UniversalItem[];
   try {
@@ -341,8 +356,10 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
       return true;
     });
   } catch {
+    finish({ scanned: index.visibleItems.length, failed: 1 });
     return [];
   }
+  finish({ scanned: index.visibleItems.length, matched: items.length });
   return sortViewItems(workspace, view, items, now);
 }
 

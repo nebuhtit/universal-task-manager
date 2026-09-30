@@ -1,5 +1,41 @@
 import { expect, test } from '@playwright/test';
 
+test('retains the header and accepts input while its background result is delayed', async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = window as typeof window & { headerDelay: number };
+    state.headerDelay = 0;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      private header: boolean;
+      constructor(url: string | URL, options?: WorkerOptions) { super(url, options); this.header = String(url).includes('headerAgenda.worker'); }
+      set onmessage(callback: ((this: Worker, event: MessageEvent) => unknown) | null) {
+        super.onmessage = callback ? event => {
+          if (this.header && state.headerDelay) setTimeout(() => callback.call(this, event), state.headerDelay);
+          else callback.call(this, event);
+        } : null;
+      }
+    };
+  });
+  await page.goto('/');
+  await page.getByLabel('Workspace name').fill('Async header');
+  await page.getByLabel('Password', { exact: true }).fill('async-header-test');
+  await page.getByLabel('Confirm password').fill('async-header-test');
+  await page.getByRole('button', { name: 'Create encrypted workspace', exact: true }).click();
+  const capture = page.getByPlaceholder('Add new item', { exact: true });
+  await capture.fill('Later header event tomorrow 15:00'); await capture.press('Enter');
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  const agenda = page.locator('.header-agenda');
+  await expect(agenda).toContainText('Later header event');
+  await page.evaluate(() => { (window as typeof window & { headerDelay: number }).headerDelay = 7000; });
+  await capture.fill('Earlier header event tomorrow 14:00'); await capture.press('Enter');
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeHidden({ timeout: 2000 });
+  await expect(agenda).toContainText('Later header event');
+  await page.getByRole('button', { name: 'Notifications', exact: true }).click({ timeout: 2000 });
+  await expect(page.getByRole('complementary', { name: 'Notification center' })).toBeVisible({ timeout: 2000 });
+  await expect(agenda).toContainText('Earlier header event', { timeout: 15_000 });
+});
+
 test('two-row header keeps its height, truncates titles and updates countdown', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-09-23T12:00:00Z') });
   await page.goto('/');

@@ -47,6 +47,8 @@ export default defineConfig({
   define: {
     // GitHub supplies its exact SHA; local development reads the checked-out commit.
     'import.meta.env.VITE_COMMIT_SHA': JSON.stringify(process.env.VITE_COMMIT_SHA || localCommit),
+    'import.meta.env.VITE_BUILD_DIRTY': JSON.stringify(hasLocalChanges()),
+    'import.meta.env.VITE_BUILD_AT': JSON.stringify(new Date().toISOString()),
   },
   // Keep Automerge's JavaScript slim and load its WASM as one cacheable asset.
   // The webpack condition remains for packages that expose browser-safe entries.

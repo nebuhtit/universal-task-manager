@@ -1,4 +1,6 @@
 import { clearStartupLog } from './startupDiagnostics';
+import { clearPerformanceProfiles, setPerformanceProfilingEnabled } from './performanceProfile';
+import { clearSyncTrace } from './syncTrace';
 export const DIAGNOSTICS_KEY = 'utm:diagnostics:v1';
 export const DIAGNOSTICS_ENABLED_KEY = 'utm:diagnostics-enabled:v1';
 export const DIAGNOSTICS_CHANGED_EVENT = 'utm:diagnostics-changed';
@@ -67,6 +69,7 @@ export const diagnosticsEnabled = (): boolean => {
 };
 
 export const setDiagnosticsEnabled = (enabled: boolean): void => {
+  setPerformanceProfilingEnabled(enabled);
   try {
     localStorage.setItem(DIAGNOSTICS_ENABLED_KEY, String(enabled));
     window.dispatchEvent(new Event(DIAGNOSTICS_CHANGED_EVENT));
@@ -119,9 +122,10 @@ export const recordDiagnostic = (entry: Omit<DiagnosticEntry, 'at'>): void => {
 
 export const clearDiagnostics = (): void => {
   clearStartupLog();
+  clearPerformanceProfiles();
+  clearSyncTrace();
   try {
     localStorage.removeItem(DIAGNOSTICS_KEY);
-    localStorage.removeItem('utm:sync-trace:v1');
     window.dispatchEvent(new Event(DIAGNOSTICS_CHANGED_EVENT));
   } catch {
     // Diagnostics must never interfere with application behavior.

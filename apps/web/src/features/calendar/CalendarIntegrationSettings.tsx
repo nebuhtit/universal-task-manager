@@ -6,12 +6,13 @@ import { googleCalendarFailureDetails, recordDiagnostic, type GoogleCalendarSync
 import { forgetGoogleCalendarAuthorization, GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken, synchronizeGoogleCalendars } from '../../services/googleCalendar';
 import { disconnectNativeGoogle } from '../../services/nativeGoogleAuth';
 import { isNativeGoogleAuthAvailable } from '../../services/nativeGoogleAuth';
+import { beginProfileSpan, currentProfileActionId, labelProfileAction, measureProfile } from '../../services/performanceProfile';
 
 type GoogleSyncLogEntry = { at: string; level: 'info' | 'error'; message: string };
 
 export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
   workspace: WorkspaceDocument;
-  commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => boolean | void;
+  commit: (message: string, mutation: (draft: WorkspaceDocument) => void, profileActionId?: number | null) => boolean | void;
   onFlush: () => Promise<void>;
 }) {
   const preferences = workspace.calendarPreferences;
@@ -23,6 +24,8 @@ export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
   const [googleSyncLog, setGoogleSyncLog] = useState<GoogleSyncLogEntry[]>([]);
 
   const syncGoogle = async () => {
+    labelProfileAction('google-sync');
+    const profileActionId = currentProfileActionId() ?? null;
     const startedAt = performance.now();
     let diagnosticStage: GoogleCalendarSyncStage = 'authorization';
     const appendLog = (message: string, level: GoogleSyncLogEntry['level'] = 'info') => setGoogleSyncLog((entries) => [...entries, { at: new Date().toISOString(), level, message }].slice(-30));
@@ -36,12 +39,17 @@ export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
       setGoogleToken(token);
       appendLog('Google authorization received.');
       diagnosticStage = 'calendar-list';
-      const result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
-        diagnosticStage = progress.stage; setGoogleSyncStatus(progress.message); appendLog(progress.message);
-      });
+      const download = beginProfileSpan('google.download', profileActionId);
+      let result: Awaited<ReturnType<typeof synchronizeGoogleCalendars>>;
+      try {
+        result = await synchronizeGoogleCalendars(token.accessToken, current, (progress) => {
+          diagnosticStage = progress.stage; setGoogleSyncStatus(progress.message); appendLog(progress.message);
+        });
+        download();
+      } catch (reason) { download({ failed: 1 }); throw reason; }
       diagnosticStage = 'save';
       setGoogleSyncStatus('Saving events to this workspace…'); appendLog('Saving downloaded events to this workspace.');
-      const applied = commit('Sync Google Calendar', (draft) => {
+      const applied = measureProfile('google.apply', () => commit('Sync Google Calendar', (draft) => {
         for (const batch of result.batches) applyGoogleCalendarSync(draft, batch);
         draft.calendarPreferences.googleCalendar = {
           ...JSON.parse(JSON.stringify(current)) as GoogleCalendarPreferences, connectionId: current.connectionId, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow,
@@ -49,10 +57,12 @@ export function CalendarIntegrationSettings({ workspace, commit, onFlush }: {
         };
         delete draft.calendarPreferences.googleCalendar.lastError;
         reconcileCalendarOrganization(draft);
-      });
+      }, profileActionId), undefined, profileActionId);
       if (applied === false) throw new Error('Could not save Google synchronization locally.');
       diagnosticStage = 'flush';
-      await onFlush();
+      const persist = beginProfileSpan('google.persist', profileActionId);
+      try { await onFlush(); persist(); }
+      catch (reason) { persist({ failed: 1 }); throw reason; }
       window.dispatchEvent(new Event('utm-retry-google-queue'));
       const eventCount = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);

@@ -111,6 +111,9 @@
 .view-item-exit-shell.is-exiting { animation: completion-row-exit var(--motion-default) var(--motion-easing-standard) forwards; pointer-events: none; }
 .calendar-item.is-exiting, .board-item.is-exiting, .renderer-table-wrap tbody tr.is-exiting { animation: completion-row-fade var(--motion-default) var(--motion-easing-standard) forwards; pointer-events: none; }
 .reorderable-view-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; min-width: 0; border-radius: var(--radius-sm); transition: background var(--motion-fast) var(--motion-easing-standard), opacity var(--motion-fast) var(--motion-easing-standard); }
+.reorderable-view-item.card-reorder-surface { grid-template-columns: minmax(0, 1fr); width: 100%; }
+.reorderable-view-item.card-reorder-surface, .reorderable-view-item.card-reorder-surface * { user-select: none; -webkit-user-select: none; }
+.reorderable-view-item.card-reorder-surface { touch-action: pan-y; }
 .reorderable-view-item > .item-card { min-width: 0; }
 .view-section .reorderable-view-item:has(.state-toggle:active),
 .view-section .calendar-item:has(.state-toggle:active),
@@ -515,6 +518,7 @@ label.check input { width: 18px; height: 18px; }
 .view-section { border: 0; border-radius: 0; padding: 0; background: transparent; }
 .view-section > .view-section-summary { position: relative; display: block; width: 100%; min-width: 0; overflow: hidden; overflow-anchor: auto; padding: 14px 0 8px; }
 .view-section-summary > .view-section-title { width: 100%; min-width: 0; overflow: hidden; padding: 0 74px; border: 0; background: transparent; color: inherit; text-align: center; cursor: pointer; }
+.view-section-summary > .view-section-title.is-reorder-surface { user-select: none; -webkit-user-select: none; touch-action: none; }
 .view-section-summary h2 { max-width: 100%; margin: 5px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
 .view-section-summary h2 { color: var(--view-accent, var(--ink)); }
 .view-section.is-collapsed .view-section-summary h2 { color: var(--view-accent, var(--muted)); font-weight: 400; opacity: .52; }

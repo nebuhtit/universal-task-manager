@@ -24,6 +24,7 @@ import { MoonPhase } from './MoonPhase';
 import { useCalendarPeriodSwipe } from './useCalendarPeriodSwipe';
 import { calendarUndatedItems, showOverdueToday } from './calendarVisibility';
 import { recordDiagnostic } from '../../services/diagnostics';
+import { labelProfileAction, recordProfileCommit } from '../../services/performanceProfile';
 import './calendar.css';
 
 const DAY_MS = 86_400_000;
@@ -246,6 +247,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     const saved = readUiBoolean('calendar:display-timeline', preferences.timeline?.mode === 'timeline');
     return saved ? 'timeline' : 'list';
   });
+  useLayoutEffect(() => recordProfileCommit('calendar'));
   const displayModeStartedAt = useRef<number | null>(null);
   useEffect(() => {
     const startedAt = displayModeStartedAt.current;
@@ -255,6 +257,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   }, [displayMode, selected.evaluation.items.length]);
   const changeDisplayMode = (mode: 'list' | 'timeline') => {
     if (mode === displayMode) return;
+    labelProfileAction(mode === 'list' ? 'calendar-list' : 'calendar-timeline');
     displayModeStartedAt.current = performance.now();
     recordDiagnostic({ kind: 'action', message: `Calendar ${mode} mode requested`, operation: 'Calendar display mode UI', outcome: 'started', details: JSON.stringify({ from: displayMode, items: selected.evaluation.items.length }) });
     setDisplayMode(mode);

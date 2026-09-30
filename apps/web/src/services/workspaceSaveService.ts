@@ -15,13 +15,14 @@ import { applyGoogleSyncPlan } from './googleSyncPlan';
 import { googleSyncSnapshot, planGoogleSync, yieldGoogleSync } from './googleSyncWorker';
 import { recordDiagnostic } from './diagnostics';
 import { beginSyncTrace, endSyncTrace, syncTrace } from './syncTrace';
+import { beginProfileSpan, currentProfileActionId } from './performanceProfile';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const fingerprint = (value: unknown): string | undefined => JSON.stringify(value, (_key, entry) => entry && typeof entry === 'object' && !Array.isArray(entry) ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => a.localeCompare(b))) : entry);
 export interface WorkspaceSavePorts {
   getWorkspace: () => WorkspaceDocument | null;
   getSessionKey: () => object | null;
-  commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => boolean;
+  commit: (message: string, mutation: (draft: WorkspaceDocument) => void, profileActionId?: number | null) => boolean;
   flushPersistence: () => Promise<void>;
   notify: (message: string) => void;
 }
@@ -29,24 +30,27 @@ export interface WorkspaceSavePorts {
 /** One coordinator per app instance. Every remote effect follows durable intent. */
 export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
   let syncing = false;
-  const stage = async <T>(name: 'queue' | 'download' | 'snapshot' | 'calculate' | 'apply' | 'persist', action: () => T | Promise<T>): Promise<T> => {
+  const stage = async <T>(name: 'queue' | 'download' | 'snapshot' | 'calculate' | 'apply' | 'persist', action: () => T | Promise<T>, actionId: number | null): Promise<T> => {
     const operation = `Google sync stage: ${name}`;
     syncTrace(`${name}-start`);
     recordDiagnostic({ kind: 'action', message: operation, operation, outcome: 'started' });
     await yieldGoogleSync();
     const start = performance.now();
+    const finishProfile = beginProfileSpan(`google.${name}`, actionId);
     try {
       const result = await action();
+      finishProfile();
       syncTrace(`${name}-end`);
       recordDiagnostic({ kind: 'result', message: operation, operation, outcome: 'succeeded', durationMs: Math.round(performance.now() - start) });
       return result;
     } catch (error) {
+      finishProfile({ failed: 1 });
       recordDiagnostic({ kind: 'error', message: operation, operation, outcome: 'failed', durationMs: Math.round(performance.now() - start) });
       throw error;
     }
   };
   const getWorkspace = () => ports.getWorkspace();
-  const commit = (message: string, mutation: (draft: WorkspaceDocument) => void) => ports.commit(message, mutation);
+  const commit = (message: string, mutation: (draft: WorkspaceDocument) => void, profileActionId?: number | null) => ports.commit(message, mutation, profileActionId);
   const flushPersistence = () => ports.flushPersistence();
   const setToast = (message: string) => ports.notify(message);
   const requireWorkspace = () => { const current = getWorkspace(); if (!current) throw new Error('Workspace is locked.'); return current; };
@@ -59,7 +63,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     return () => { googleWrites.delete(id); googleWriteCompletions.delete(id); resolve(); };
   };
   const localSaves = new Set<string>();
-  const guard = () => {
+  const guard = (profileActionId: number | null = currentProfileActionId() ?? null) => {
     const workspace = requireWorkspace();
     const sessionKey = ports.getSessionKey();
     const connection = workspace.calendarPreferences.googleCalendar?.connectionId;
@@ -69,7 +73,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     };
     return {
       assertCurrent,
-      commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => { assertCurrent(); return commit(message, mutation); },
+      commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => { assertCurrent(); return commit(message, mutation, profileActionId); },
       flushPersistence: async () => { assertCurrent(); await flushPersistence(); assertCurrent(); },
     };
   };
@@ -270,9 +274,10 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
   };
 
   const completeGoogleSeries = async (itemId: string, operation: GoogleEditOperation, token: string) => {
+    const profileActionId = currentProfileActionId() ?? null;
     const { commit, flushPersistence } = guard();
     const workspace = requireWorkspace();
-    await refreshGoogle(token);
+    await refreshGoogle(token, undefined, profileActionId);
 
     const edited = workspace.items[itemId]!;
     const saved = commit('Update Google recurring series', (draft) => {
@@ -360,8 +365,8 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     return linkedItem;
   };
 
-  const refreshGoogle = async (suppliedToken: string, progress?: Parameters<typeof synchronizeGoogleCalendars>[2]) => {
-    const { commit, flushPersistence, assertCurrent } = guard();
+  const refreshGoogle = async (suppliedToken: string, progress?: Parameters<typeof synchronizeGoogleCalendars>[2], profileActionId: number | null = currentProfileActionId() ?? null) => {
+    const { commit, flushPersistence, assertCurrent } = guard(profileActionId);
     const current = requireWorkspace();
     const google = current.calendarPreferences.googleCalendar;
     if (!google) throw new Error('Google connection changed.');
@@ -370,7 +375,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     // After a failed import, a valid delta cursor does not prove that the local
     // mirror is complete. Re-read the selected calendars before clearing error.
     const fullSync = repairLegacyMirrors || Boolean(google.lastError);
-    let result = await stage('download', () => synchronizeGoogleCalendars(suppliedToken, google, progress, fullSync ? { fullSync: true } : {}));
+    let result = await stage('download', () => synchronizeGoogleCalendars(suppliedToken, google, progress, fullSync ? { fullSync: true } : {}), profileActionId);
     const recovered: Array<{ itemId: string; calendarId: string; event: GoogleCalendarEvent }> = [];
     for (const item of Object.values(current.items)) {
       if (item.deletedAt || item.external || item.role !== 'series_template' || item.recurrenceOverride?.kind !== 'future_split' || item.extensions?.[GOOGLE_SAVE_EXTENSION] || item.extensions?.[GOOGLE_DELETION_RECEIPTS_EXTENSION]) continue;
@@ -386,12 +391,12 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
         if (event.id === eventId && event.status !== 'cancelled' && event.recurrence?.length && event.extendedProperties?.private?.utmCreateOperation === eventId) recovered.push({ itemId: item.id, calendarId, event });
       }
     }
-    if (recovered.length && !repairLegacyMirrors) result = await stage('download', () => synchronizeGoogleCalendars(suppliedToken, google, progress, { fullSync: true }));
+    if (recovered.length && !repairLegacyMirrors) result = await stage('download', () => synchronizeGoogleCalendars(suppliedToken, google, progress, { fullSync: true }), profileActionId);
     assertCurrent();
     const source = requireWorkspace();
-    const snapshot = await stage('snapshot', () => googleSyncSnapshot(source));
+    const snapshot = await stage('snapshot', () => googleSyncSnapshot(source), profileActionId);
     assertCurrent();
-    const patches = await stage('calculate', () => planGoogleSync({ workspace: snapshot, result, recovered }));
+    const patches = await stage('calculate', () => planGoogleSync({ workspace: snapshot, result, recovered }, profileActionId), profileActionId);
     syncTrace('worker-result', { patches: patches.length, events: result.batches.reduce((sum, batch) => sum + batch.events.length, 0), calendars: result.batches.length });
     assertCurrent();
     await stage('apply', () => {
@@ -400,20 +405,20 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
       // patch. Do not apply a plan based on an older document generation.
       if (requireWorkspace() !== source) throw new Error('Workspace changed during Google sync. Your changes are safe; retry Sync.');
       if (!commit('Sync Google Calendar', draft => applyGoogleSyncPlan(draft, patches))) throw new Error('Could not apply Google refresh; local changes were retained.');
-    });
-    await stage('persist', flushPersistence);
+    }, profileActionId);
+    await stage('persist', flushPersistence, profileActionId);
     return result;
   };
-  const synchronize = async (token: string, progress?: Parameters<typeof synchronizeGoogleCalendars>[2]) => {
+  const synchronize = async (token: string, progress?: Parameters<typeof synchronizeGoogleCalendars>[2], profileActionId: number | null = currentProfileActionId() ?? null) => {
     if (syncing) throw new Error('Google synchronization is already running.');
-    const { assertCurrent, commit, flushPersistence } = guard();
+    const { assertCurrent, commit, flushPersistence } = guard(profileActionId);
     syncing = true;
     beginSyncTrace();
     let failed = true;
     try {
-      const queuedGoogleWrites = await stage('queue', () => retryGoogleQueue(false, undefined, token));
+      const queuedGoogleWrites = await stage('queue', () => retryGoogleQueue(false, undefined, token), profileActionId);
       assertCurrent();
-      const result = await refreshGoogle(token, progress);
+      const result = await refreshGoogle(token, progress, profileActionId);
       failed = false;
       return { result, queuedGoogleWrites };
     } catch (reason) {

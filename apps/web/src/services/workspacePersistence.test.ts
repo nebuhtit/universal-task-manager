@@ -1,7 +1,25 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LatestPersistenceQueue } from './workspacePersistence';
+import { clearPerformanceProfiles, profileInput, readPerformanceProfiles, setPerformanceProfilingEnabled } from './performanceProfile';
+
+afterEach(() => { clearPerformanceProfiles(); setPerformanceProfilingEnabled(false); vi.useRealTimers(); });
 
 describe('LatestPersistenceQueue', () => {
+  it('measures queue wait and coalescing against the originating action', async () => {
+    vi.useFakeTimers(); setPerformanceProfilingEnabled(true);
+    const origin = profileInput.start('click', 0)!;
+    const persisted: number[] = [];
+    const queue = new LatestPersistenceQueue<number>(async value => { persisted.push(value); }, () => undefined, () => undefined, 80);
+    queue.enqueue(1); queue.enqueue(2);
+    profileInput.frame(origin);
+    profileInput.start('input', 0);
+    await vi.advanceTimersByTimeAsync(80);
+    const report = readPerformanceProfiles().at(-1)!;
+    expect(persisted).toEqual([2]);
+    expect(report.aggregates.find(entry => entry.stage === 'save.queue')).toMatchObject({ count: 1, metrics: { coalesced: 1 } });
+    expect(report.actions[0]!.spans.some(span => span.stage === 'save.queue')).toBe(true);
+    expect(report.actions[1]!.spans.some(span => span.stage === 'save.queue')).toBe(false);
+  });
   it('coalesces rapid optimistic changes into the latest save', async () => {
     vi.useFakeTimers();
     const persisted: number[] = [];

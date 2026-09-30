@@ -7,6 +7,7 @@ import { dayBounds, intersects, itemInterval, mergeIntervals, type Interval, typ
 import type { prepareTimelineData } from './timelineData';
 import { calendarDayView } from './calendarEvaluation';
 import { sortViewItems } from '../views/viewSelectors';
+import { beginProfileSpan, recordProfileCache } from '../../services/performanceProfile';
 
 export const planningEnabled = (workspace: WorkspaceDocument) => workspace.calendarPreferences.planning?.enabled !== false;
 export const hasFixedEventInterval = (item: UniversalItem) => Boolean(item.schedule?.startAt && item.schedule?.endAt);
@@ -102,6 +103,7 @@ export function parallelPlacementIssue(item: UniversalItem, key: string, start: 
 export function createCalendarPlanCache() {
   const values = new Map<string, { planningSignature: string; prepared: Prepared; reserved: UniversalItem[]; stamp: string; value: ReturnType<typeof buildCalendarPlan> }>();
   return (workspace: WorkspaceDocument, key: string, prepared: Prepared, now: Date, reserved: UniversalItem[]) => {
+    const finish = beginProfileSpan('calendar.plan');
     const today = calendarDateKey(now, workspace.calendarPreferences.timezone);
     const pinBoundaries = activeCalendarPins(workspace, key, now).map(({ item }) => dueBoundary(item, workspace.calendarPreferences.timezone) <= +now).join(',');
     const stamp = `${today}:${key === today ? Math.floor(+now / 60_000) : pinBoundaries}`;
@@ -120,8 +122,10 @@ export function createCalendarPlanCache() {
       })),
     });
     const prior = values.get(key);
-    if (prior && prior.planningSignature === planningSignature && prior.prepared === prepared && prior.reserved === reserved && prior.stamp === stamp) return prior.value;
+    if (prior && prior.planningSignature === planningSignature && prior.prepared === prepared && prior.reserved === reserved && prior.stamp === stamp) { recordProfileCache('calendar.plan', true, 'unchanged'); finish(); return prior.value; }
     const value = buildCalendarPlan(workspace, key, prepared, now, reserved);
+    recordProfileCache('calendar.plan', false, !prior ? 'empty' : prior.stamp !== stamp ? 'time-boundary' : 'inputs', value.ids.length);
+    finish({ recalculated: value.ids.length });
     if (values.size >= 62 && !values.has(key)) values.delete(values.keys().next().value!);
     values.set(key, { planningSignature, prepared, reserved, stamp, value }); return value;
   };

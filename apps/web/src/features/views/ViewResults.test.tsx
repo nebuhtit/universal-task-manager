@@ -12,15 +12,16 @@ describe('ViewResults manual ordering controls', () => {
     expect(viewNeedsLiveClock({ fields: ['title', 'schedule.dueAt'] })).toBe(false);
   });
 
-  it('exposes touch and keyboard reorder handles only for ordered row renderers', () => {
+  it('uses the item card as the reorder surface for lists and keeps keyboard handles in tables', () => {
     const workspace = createWorkspace('Reorder');
     const item = createItem('Alpha'); workspace.items[item.id] = item;
     const view: SavedView = { id: 'view', name: 'View', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] };
     const props = { workspace, onEdit: vi.fn(), onState: vi.fn(), onReorder: vi.fn() };
 
     const list = renderToStaticMarkup(<ViewResults {...props} view={view} />);
-    expect(list).toContain('aria-label="Reorder Alpha"');
+    expect(list).not.toContain('aria-label="Reorder Alpha"');
     expect(list).toContain(`data-view-item-id="${item.id}"`);
+    expect(list).toContain('reorderable-view-item');
     expect(list).toContain('data-sound="none"');
 
     const table = renderToStaticMarkup(<ViewResults {...props} view={{ ...view, renderer: 'table' }} />);

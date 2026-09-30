@@ -9,16 +9,18 @@ import {
 import { type WorkspaceDocument } from '@utm/core';
 import { persistObsidianWorkspace } from './obsidianBridge';
 import { beginPersistenceTrace } from './syncTrace';
+import { beginProfileSpan, currentProfileActionId, recordProfileSpan, recordWorkerProfileSpan } from './performanceProfile';
 type SaveTrace = ReturnType<typeof beginPersistenceTrace>['trace'];
 
 type PersistenceResponse =
-  | { id: number; stage: 'export-filter-start' | 'export-filter-end' | 'export-encode-start' | 'export-encode-end'; bytes?: number }
-  | { id: number; ok: true; binary: Uint8Array; exportSafeBinary?: Uint8Array }
+  | { ready: true; postedAt: number }
+  | { id: number; stage: 'export-filter-start' | 'export-filter-end' | 'export-encode-start' | 'export-encode-end'; bytes?: number; durationMs?: number }
+  | { id: number; ok: true; binary: Uint8Array; exportSafeBinary?: Uint8Array; workerDurationMs?: number; postedAt?: number }
   | { id: number; ok: false; error: string };
 
 let worker: Worker | undefined;
 let nextRequestId = 1;
-const requests = new Map<number, { trace: SaveTrace; resolve: (value: { binary: Uint8Array; exportSafeBinary?: Uint8Array }) => void; reject: (reason: Error) => void }>();
+const requests = new Map<number, { trace: SaveTrace; actionId: number | null; resolve: (value: { binary: Uint8Array; exportSafeBinary?: Uint8Array }) => void; reject: (reason: Error) => void }>();
 const WORKER_PREPARE_TIMEOUT_MS = 15_000;
 
 const resetWorkspaceWorker = (reason: Error) => {
@@ -28,33 +30,53 @@ const resetWorkspaceWorker = (reason: Error) => {
   worker = undefined;
 };
 
-const workspaceWorker = (): Worker | undefined => {
+const workspaceWorker = (actionId: number | null): Worker | undefined => {
   if (typeof Worker === 'undefined') return undefined;
   if (worker) return worker;
-  worker = new Worker(new URL('../workspacePersistence.worker.ts', import.meta.url), { type: 'module' });
-  worker.onmessage = (event: MessageEvent<PersistenceResponse>) => {
+  const finishStartup = beginProfileSpan('save.worker-startup', actionId);
+  const target = new Worker(new URL('../workspacePersistence.worker.ts', import.meta.url), { type: 'module' });
+  worker = target;
+  let ready = false;
+  target.onmessage = (event: MessageEvent<PersistenceResponse>) => {
+    if (worker !== target) return;
+    if ('ready' in event.data) { ready = true; finishStartup(); return; }
     const request = requests.get(event.data.id);
     if (!request) return;
     if ('stage' in event.data) {
-      request.trace(event.data.stage, event.data.bytes === undefined ? {} : { bytes: event.data.bytes });
+      request.trace(event.data.stage, { ...(event.data.bytes === undefined ? {} : { bytes: event.data.bytes }), ...(event.data.durationMs === undefined ? {} : { durationMs: event.data.durationMs }) });
       return;
     }
     requests.delete(event.data.id);
-    if (event.data.ok) request.resolve({ binary: event.data.binary, ...(event.data.exportSafeBinary ? { exportSafeBinary: event.data.exportSafeBinary } : {}) });
-    else request.reject(new Error(event.data.error));
-    // WASM linear memory keeps its high-water allocation even after free().
-    // Persistence is serialized, so release the idle worker between saves.
-    if (!requests.size) { worker?.terminate(); worker = undefined; }
+    if (event.data.ok) {
+      // Same-device wall clock: receive minus post, not worker CPU time.
+      // Ignore clock adjustments or malformed values rather than exporting them.
+      if (event.data.postedAt !== undefined) {
+        const deliveryMs = Date.now() - event.data.postedAt;
+        if (Number.isFinite(deliveryMs) && deliveryMs >= 0 && deliveryMs < WORKER_PREPARE_TIMEOUT_MS) recordProfileSpan('save.worker-delivery', deliveryMs, {}, request.actionId);
+      }
+      if (event.data.workerDurationMs !== undefined) recordWorkerProfileSpan('save.worker-work', event.data.workerDurationMs, {}, request.actionId);
+      request.resolve({ binary: event.data.binary, ...(event.data.exportSafeBinary ? { exportSafeBinary: event.data.exportSafeBinary } : {}) });
+    }
+    else { request.trace('storage-worker-calculation-failed'); request.reject(new Error(event.data.error)); }
+    // This worker only filters/encodes JSON; it no longer loads a WASM document.
+    // Reuse the module between saves, with no retained snapshots or binaries.
   };
-  worker.onerror = () => {
+  target.onerror = () => {
+    if (worker !== target) return;
+    requests.forEach(request => request.trace(ready ? 'storage-worker-runtime-failed' : 'storage-worker-load-failed'));
     resetWorkspaceWorker(new Error('Workspace persistence worker failed'));
   };
-  return worker;
+  target.onmessageerror = () => {
+    if (worker !== target) return;
+    requests.forEach(request => request.trace('storage-worker-message-failed'));
+    resetWorkspaceWorker(new Error('Workspace persistence worker response failed'));
+  };
+  return target;
 };
 
-async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveTrace): Promise<PreparedLocalWorkspaceSave> {
+async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveTrace, actionId: number | null): Promise<PreparedLocalWorkspaceSave> {
   let target: Worker | undefined;
-  try { target = workspaceWorker(); } catch { target = undefined; }
+  try { target = workspaceWorker(actionId); } catch { target = undefined; }
   if (!target) { syncTrace('storage-fallback'); return await prepareLocalWorkspaceSave(session.document, session.dataKey, session.storageMode); }
   const id = nextRequestId++;
   // Transfer the compressed document with its history instead of replaying
@@ -79,13 +101,13 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
         resetWorkspaceWorker(error);
         reject(error);
       }, WORKER_PREPARE_TIMEOUT_MS);
-      requests.set(id, { resolve, reject, trace: syncTrace });
+      requests.set(id, { resolve, reject, trace: syncTrace, actionId });
       try {
-        target.postMessage(
-          { id, binary, snapshot },
-          [binary.buffer],
-        );
+        const finishTransfer = beginProfileSpan('save.transfer', actionId);
+        try { target.postMessage({ id, binary, snapshot }, [binary.buffer]); }
+        finally { finishTransfer(); }
       } catch (reason) {
+        syncTrace('storage-worker-transfer-failed');
         requests.delete(id);
         if (timeout) clearTimeout(timeout);
         reject(reason instanceof Error ? reason : new Error(String(reason)));
@@ -116,18 +138,22 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
 }
 
 let persistenceTail: Promise<void> = Promise.resolve();
-export function persistWorkspace(session: UnlockedWorkspace): Promise<void> {
-  const next = persistenceTail.then(() => persistWorkspaceInOrder(session));
+export function persistWorkspace(session: UnlockedWorkspace, actionId: number | null = currentProfileActionId() ?? null): Promise<void> {
+  const enqueuedAt = performance.now();
+  const next = persistenceTail.then(() => { recordProfileSpan('save.serial-queue', performance.now() - enqueuedAt, {}, actionId); return persistWorkspaceInOrder(session, actionId); });
   persistenceTail = next.catch(() => undefined);
   return next;
 }
 
-async function persistWorkspaceInOrder(session: UnlockedWorkspace): Promise<void> {
-  const log = beginPersistenceTrace();
+async function persistWorkspaceInOrder(session: UnlockedWorkspace, actionId: number | null): Promise<void> {
+  const log = beginPersistenceTrace(actionId);
   const syncTrace = log.trace;
   let failed = true;
   try {
-    const prepared = await prepareOffMainThread(session, syncTrace);
+    const preparation = beginProfileSpan('save.prepare', actionId);
+    let prepared: PreparedLocalWorkspaceSave;
+    try { prepared = await prepareOffMainThread(session, syncTrace, actionId); preparation(); }
+    catch (reason) { preparation({ failed: 1 }); throw reason; }
     prepared.receipt = { sourceUpdatedAt: String(session.document.updatedAt), sourceItemCount: Object.keys(session.document.items).length, sourceHeads: Automerge.getHeads(session.document) };
     syncTrace('indexeddb-start');
     await commitPreparedLocalWorkspaceSave(prepared);
@@ -139,7 +165,7 @@ async function persistWorkspaceInOrder(session: UnlockedWorkspace): Promise<void
   } finally { log.finish(failed); }
 }
 
-export type PersistenceOperation = { session: UnlockedWorkspace; message: string; startedAt: number };
+export type PersistenceOperation = { session: UnlockedWorkspace; message: string; startedAt: number; profileActionId?: number | null };
 
 /**
  * Debounced, latest-wins persistence. At most one durable write is active;
@@ -150,15 +176,22 @@ export class LatestPersistenceQueue<T> {
   private active: Promise<void> | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private failed = false;
+  private enqueuedAt = 0;
+  private actionId: number | null = null;
+  private coalesced = 0;
 
   constructor(
     private readonly persist: (value: T) => Promise<void>,
     private readonly onSuccess: (value: T) => void,
     private readonly onFailure: (reason: unknown, value: T) => void,
     private readonly debounceMs = 80,
+    private readonly profileActionIdForValue?: (value: T) => number | null,
   ) {}
 
   enqueue(value: T): void {
+    if (this.pending !== undefined) this.coalesced++;
+    this.enqueuedAt = performance.now();
+    this.actionId = this.profileActionIdForValue ? this.profileActionIdForValue(value) : currentProfileActionId() ?? null;
     this.pending = value;
     this.failed = false;
     if (!this.active) this.schedule();
@@ -176,6 +209,9 @@ export class LatestPersistenceQueue<T> {
     if (this.active) return this.active;
     const value = this.pending;
     if (value === undefined) return Promise.resolve();
+    const actionId = this.actionId;
+    recordProfileSpan('save.queue', performance.now() - this.enqueuedAt, { coalesced: this.coalesced }, actionId);
+    this.coalesced = 0;
     this.pending = undefined;
     const task = this.persist(value);
     this.active = task;
@@ -185,7 +221,7 @@ export class LatestPersistenceQueue<T> {
     }, (reason) => {
       // A newer optimistic state supersedes a failed older write. Otherwise
       // retain this value so the next edit or explicit flush can retry it.
-      if (this.pending === undefined) this.pending = value;
+      if (this.pending === undefined) { this.pending = value; this.enqueuedAt = performance.now(); this.actionId = actionId; }
       this.failed = true;
       this.onFailure(reason, value);
     }).finally(() => {
@@ -209,5 +245,6 @@ export class LatestPersistenceQueue<T> {
     this.timer = undefined;
     this.pending = undefined;
     this.failed = false;
+    this.coalesced = 0;
   }
 }

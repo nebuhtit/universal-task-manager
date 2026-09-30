@@ -13,4 +13,16 @@ describe('calendar list card', () => {
     expect(markup).toContain('15:00');
     expect(markup).not.toContain('23 Sep');
   });
+
+  it('shows planned date only when the view selects it', () => {
+    const workspace = createWorkspace();
+    const item = createItem('Date only');
+    item.schedule = { timezone: 'Europe/Moscow', plannedDate: '2026-09-29' };
+
+    const hidden = renderToStaticMarkup(<ItemCard item={item} workspace={workspace} fields={['title']} onEdit={() => {}} onState={() => {}} />);
+    const shown = renderToStaticMarkup(<ItemCard item={item} workspace={workspace} fields={['title', 'schedule.plannedDate']} onEdit={() => {}} onState={() => {}} />);
+
+    expect(hidden).not.toContain('2026-09-29');
+    expect(shown).toContain('2026-09-29');
+  });
 });

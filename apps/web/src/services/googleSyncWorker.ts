@@ -1,6 +1,7 @@
 import type { WorkspaceDocument } from '@utm/core';
 import { syncTrace } from './syncTrace';
 import { type GoogleSyncPlanInput, type GoogleSyncPatch } from './googleSyncPlan';
+import { currentProfileActionId, recordWorkerProfileSpan } from './performanceProfile';
 
 export const yieldGoogleSync = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
@@ -21,15 +22,16 @@ export async function googleSyncSnapshot(workspace: WorkspaceDocument): Promise<
   return snapshot as unknown as WorkspaceDocument;
 }
 
-export async function planGoogleSync(input: GoogleSyncPlanInput): Promise<GoogleSyncPatch[]> {
+export async function planGoogleSync(input: GoogleSyncPlanInput, actionId: number | null = currentProfileActionId() ?? null): Promise<GoogleSyncPatch[]> {
   // No synchronous fallback: it would reintroduce the device freeze.
   if (typeof Worker === 'undefined') throw new Error('Google sync worker is unavailable. Nothing was imported.');
   const worker = new Worker(new URL('../googleSync.worker.ts', import.meta.url), { type: 'module' });
   try {
     return await new Promise<GoogleSyncPatch[]>((resolve, reject) => {
       const timeout = setTimeout(() => { worker.terminate(); reject(new Error('Google sync calculation timed out. Nothing was imported.')); }, 30_000);
-      worker.onmessage = (event: MessageEvent<{ ok: boolean; patches: GoogleSyncPatch[] }>) => {
+      worker.onmessage = (event: MessageEvent<{ ok: boolean; patches: GoogleSyncPatch[]; durationMs?: number }>) => {
         clearTimeout(timeout);
+        if (event.data.durationMs !== undefined) recordWorkerProfileSpan('google.worker-work', event.data.durationMs, { recalculated: event.data.patches?.length ?? 0 }, actionId);
         if (event.data.ok) resolve(event.data.patches); else reject(new Error('Google sync calculation failed. Nothing was imported.'));
       };
       worker.onerror = () => { clearTimeout(timeout); reject(new Error('Google sync worker failed. Nothing was imported.')); };

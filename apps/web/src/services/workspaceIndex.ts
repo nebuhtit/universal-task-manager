@@ -20,6 +20,7 @@ import {
   type UniversalItem,
   type WorkspaceDocument,
 } from '@utm/core';
+import { beginProfileSpan, recordProfileCache } from './performanceProfile';
 
 export type RelationIndexValue = {
   isSubtask: boolean;
@@ -257,8 +258,11 @@ function buildWorkspaceIndex(workspace: WorkspaceDocument): WorkspaceIndex {
  */
 export function getWorkspaceIndex(workspace: WorkspaceDocument, validateShape = false): WorkspaceIndex {
   const cached = workspaceIndexes.get(workspace);
-  if (cached && cached.updatedAt === workspace.updatedAt && (!validateShape || cached.itemCount === Object.keys(workspace.items).length)) return cached.index;
+  if (cached && cached.updatedAt === workspace.updatedAt && (!validateShape || cached.itemCount === Object.keys(workspace.items).length)) { recordProfileCache('workspace.index', true, 'unchanged'); return cached.index; }
+  const finish = beginProfileSpan('workspace.index');
   const index = buildWorkspaceIndex(workspace);
+  recordProfileCache('workspace.index', false, cached ? 'workspace-timestamp' : 'snapshot-not-indexed', index.items.length);
+  finish({ scanned: index.items.length, recalculated: index.items.length });
   workspaceIndexes.set(workspace, { index, itemCount: index.items.length, updatedAt: workspace.updatedAt });
   return index;
 }

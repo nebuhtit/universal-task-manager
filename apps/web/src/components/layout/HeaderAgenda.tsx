@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { agendaWidgetRequest, hasNativeAgendaWidget, needsAgendaWidgetSync } from '../../services/nativeAgendaWidget';
 import { agendaInput, calculateAgendaInWorker } from '../../services/agendaWorker';
-import { itemDeletionTime, type WorkspaceDocument } from '@utm/core';
+import type { WorkspaceDocument } from '@utm/core';
 import { useWorkspaceNow } from '../../hooks/useClock';
 import { AgendaTitle, agendaPlainText } from './AgendaTitle';
 import { agendaMoment } from './agendaMoment';
 import { recordDiagnostic } from '../../services/diagnostics';
-import { formatAgendaRemaining, selectHeaderAgenda, type HeaderAgenda as Agenda } from './headerAgendaModel';
+import { useHeaderAgenda } from '../../hooks/useHeaderAgenda';
+import { formatAgendaRemaining } from './headerAgendaModel';
 
 export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
   const widgetSent = useRef('');
@@ -49,17 +50,7 @@ export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
     // The key covers agenda inputs only; backup/sync timestamps do not restart work.
   }, [input?.key]);
   const now = useWorkspaceNow(workspace).getTime();
-  const cache = useRef<{ workspace: WorkspaceDocument; at: number; agenda: Agenda } | undefined>(undefined);
-  const deletedFromCache = workspace && [cache.current?.agenda.current, ...(cache.current?.agenda.concurrent ?? []), cache.current?.agenda.next].some(entry => {
-    if (!entry) return false;
-    const id = entry.id.split('/')[0]!;
-    const item = workspace.items[id];
-    return Boolean(workspace.tombstones[id] || (item && itemDeletionTime(workspace, item)));
-  });
-  if (workspace && (!cache.current || cache.current.workspace !== workspace || deletedFromCache || now < cache.current.at || now >= cache.current.agenda.validUntil)) {
-    cache.current = { workspace, at: now, agenda: selectHeaderAgenda(workspace, now) };
-  }
-  const agenda = workspace ? cache.current?.agenda : undefined;
+  const agenda = useHeaderAgenda(workspace, now);
   const ru = workspace?.calendarPreferences.language === 'ru';
   const current = agenda?.current, next = agenda?.next;
   const moment = next && workspace ? agendaMoment(next.at, now, workspace.calendarPreferences.timezone) : undefined;

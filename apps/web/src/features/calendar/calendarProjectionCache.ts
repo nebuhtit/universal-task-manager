@@ -1,4 +1,5 @@
 import { effectiveItemDurationMs, googleCalendarProjection, projectOccurrences, recurrenceDisplayItems, type ProjectedOccurrence, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { beginProfileSpan, measureProfile, recordProfileCache } from '../../services/performanceProfile';
 
 export function calendarProjectionPadding(items: UniversalItem[]) {
   const desired = items.reduce((maximum, item) => item.role !== 'series_template' ? maximum : Math.max(maximum, effectiveItemDurationMs(item), Math.max(0, Date.parse(item.schedule?.dueAt ?? '') - Date.parse(item.schedule?.startAt ?? '')) || 0), 86_400_000);
@@ -14,7 +15,8 @@ export function createCalendarProjectionCache() {
   const groups = new Map<string, { signature: string; workspace: WorkspaceDocument; ranges: Map<string, ProjectedOccurrence[]> }>();
   const counters = { mappings: 0, projections: 0, groupProjections: 0 };
   const workspaceFor = (workspace: WorkspaceDocument) => {
-    if (previous === workspace) return mapped!;
+    if (previous === workspace) { recordProfileCache('calendar.mapping', true, 'unchanged'); return mapped!; }
+    const finish = beginProfileSpan('calendar.map');
     const nextScheduleSignature = JSON.stringify([
       workspace.workspaceId,
       workspace.calendarPreferences.timezone,
@@ -31,9 +33,14 @@ export function createCalendarProjectionCache() {
     ]);
     // Rebuild the lightweight source map so edited titles are visible, while
     // keeping expensive recurrence projections when only card content changed.
-    mapped = { ...workspace, items: Object.fromEntries(recurrenceDisplayItems(workspace).map(item => [item.id, googleCalendarProjection(item)])) };
-    if (!mapped || nextScheduleSignature !== scheduleSignature) {
-      ranges.clear(); counters.mappings++;
+    const visible = recurrenceDisplayItems(workspace);
+    mapped = { ...workspace, items: Object.fromEntries(visible.map(item => [item.id, googleCalendarProjection(item)])) };
+    recordProfileCache('calendar.mapping', false, !previous ? 'empty' : nextScheduleSignature !== scheduleSignature ? 'schedule-signature' : 'content-only', visible.length);
+    // Projection rows also contain title/content. Refresh changed groups even
+    // when their schedules match; unchanged series retain their range caches.
+    {
+      ranges.clear();
+      if (!previous || nextScheduleSignature !== scheduleSignature) counters.mappings++;
       const roots = new Set(Object.values(mapped.items).filter(item => item.role === 'series_template' && !item.occurrence && item.recurrence).map(item => item.id));
       const buckets = new Map<string, WorkspaceDocument['items']>();
       for (const item of Object.values(mapped.items)) {
@@ -46,30 +53,35 @@ export function createCalendarProjectionCache() {
         const groupSignature = JSON.stringify([items, workspace.tombstones, workspace.calendarPreferences.timezone]);
         if (groups.get(key)?.signature !== groupSignature) groups.set(key, { signature: groupSignature, workspace: { ...mapped, items }, ranges: new Map() });
       }
-    } else mapped = { ...workspace, items: mapped.items };
+    }
     previous = workspace; scheduleSignature = nextScheduleSignature;
+    finish({ scanned: visible.length, recalculated: visible.length });
     return mapped;
   };
   const project = (workspace: WorkspaceDocument, start: Date, end: Date) => {
+    const finish = beginProfileSpan('calendar.project');
     workspaceFor(workspace);
     const key = `${start.getTime()}:${end.getTime()}`;
     let rows = ranges.get(key);
     if (!rows) {
+      recordProfileCache('calendar.range', false, 'range-not-cached');
       rows = [];
       for (const group of groups.values()) {
         let projected = group.ranges.get(key);
         if (!projected) {
-          projected = projectOccurrences(group.workspace, start, end);
+          projected = measureProfile('calendar.group-project', () => projectOccurrences(group.workspace, start, end), value => ({ rows: value.length }));
+          recordProfileCache('calendar.group', false, 'range-not-cached', projected.length);
           if (group.ranges.size >= 4) group.ranges.delete(group.ranges.keys().next().value!);
           group.ranges.set(key, projected); counters.groupProjections++;
-        }
+        } else recordProfileCache('calendar.group', true, 'unchanged');
         rows.push(...projected);
       }
       const at = (row: ProjectedOccurrence) => Date.parse(row.schedule.startAt ?? row.schedule.dueAt ?? '');
       rows.sort((a, b) => at(a) - at(b) || a.id.localeCompare(b.id));
       if (ranges.size >= 4) ranges.delete(ranges.keys().next().value!);
       ranges.set(key, rows); counters.projections++;
-    }
+    } else recordProfileCache('calendar.range', true, 'unchanged');
+    finish({ rows: rows.length });
     return rows;
   };
   return { workspaceFor, project, counters };

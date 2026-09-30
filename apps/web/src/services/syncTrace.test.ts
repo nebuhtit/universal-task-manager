@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { beginSyncTrace, beginPersistenceTrace, endSyncTrace, readSyncTrace, syncTrace } from './syncTrace';
-afterEach(() => { endSyncTrace(false); vi.unstubAllGlobals(); });
+import { clearPerformanceProfiles, readPerformanceProfiles, setPerformanceProfilingEnabled } from './performanceProfile';
+afterEach(() => { endSyncTrace(false); clearPerformanceProfiles(); setPerformanceProfilingEnabled(false); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 function storage() {
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
@@ -32,4 +33,18 @@ it('respects disabled diagnostics and survives unavailable storage', () => {
   expect(readSyncTrace()).toEqual([]);
   vi.stubGlobal('localStorage', { getItem() { throw new Error('unavailable'); } });
   expect(() => { beginSyncTrace(); syncTrace('commit-start'); endSyncTrace(true); }).not.toThrow();
+});
+
+it('separates worker computation from response delivery and main-thread waiting', () => {
+  storage(); setPerformanceProfilingEnabled(true);
+  let clock = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => clock);
+  const save = beginPersistenceTrace(null);
+  save.trace('storage-worker-start');
+  clock = 5000;
+  save.trace('export-encode-end', { durationMs: 80, bytes: 123 });
+  save.trace('storage-worker-end'); save.finish(false);
+  const report = readPerformanceProfiles().at(-1)!;
+  expect(report.aggregates.find(entry => entry.stage === 'save.worker-encode')).toMatchObject({ count: 1, totalMs: 80 });
+  expect(report.aggregates.find(entry => entry.stage === 'save.worker-wait')).toMatchObject({ count: 1, totalMs: 5000 });
 });

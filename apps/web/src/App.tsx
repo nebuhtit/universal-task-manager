@@ -1,5 +1,6 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
 import { readSyncTrace } from './services/syncTrace';
+import { currentProfileActionId, labelProfileAction, readPerformanceProfiles, recordProfileCommit } from './services/performanceProfile';
 import { QuickTimerDialog } from './features/items/QuickTimerDialog';
 import { quickSessionCommand } from '../quick-entry-lab/commandGuide';
 import { PageErrorBoundary } from './components/layout/PageErrorBoundary';
@@ -9,7 +10,7 @@ import { NativeBackupGate } from './services/nativeBackupGate';
 import { planningEnabled } from './features/calendar/calendarPlanning';
 import { weatherService } from './features/weather/weatherService';
 import { createWorkspaceSaveService } from './services/workspaceSaveService';
-import { Component, lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { installDomLocalization, interfaceLanguages } from './i18n';
 import { createPushPreferences, subscribeBackgroundPush, syncBackgroundPush, unsubscribeBackgroundPush } from './push';
 import { CloseIcon } from './components/ui/icons';
@@ -101,7 +102,7 @@ const downloadText = async (content: string, filename: string, type = 'applicati
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
-const exportSafeDiagnostics = () => [...readSyncTrace().map(entry => ({ at: entry.at, kind: 'result' as const, message: `Sync trace ${entry.event}`, operation: 'Sync trace v1', details: JSON.stringify(entry) })), ...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
+const exportSafeDiagnostics = () => [...readPerformanceProfiles().map(profile => ({ at: profile.at, kind: 'usage' as const, message: 'Performance profile', operation: 'Performance profile v1', details: JSON.stringify(profile) })), ...readSyncTrace().map(entry => ({ at: entry.at, kind: 'result' as const, message: `Sync trace ${entry.event}`, operation: 'Sync trace v1', details: JSON.stringify(entry) })), ...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
   if (entry.operation === 'Render page' || entry.operation === 'Render application') {
     const safeDetails = safeRenderFailureDetails(details);
     return { ...entry, ...(safeDetails ? { details: safeDetails } : {}) };
@@ -681,6 +682,7 @@ function resolveQuickDueItem(workspace: WorkspaceDocument, target: QuickDueTarge
 }
 
 export default function App() {
+  useLayoutEffect(recordProfileCommit);
   const [page, setPage] = useState<Page>('home');
   const [calendarJump, setCalendarJump] = useState<{ key: string; request: number }>();
   const [calendarCaptureDate, setCalendarCaptureDate] = useState<string>();
@@ -781,6 +783,8 @@ export default function App() {
     const google = workspace?.calendarPreferences.googleCalendar;
     if (!workspace || !google || recovery || googleSyncInFlight.current) return;
     if (!GOOGLE_CALENDAR_CLIENT_ID) { setToast('This build needs a Google OAuth client ID before sync is available.'); return; }
+    labelProfileAction('google-sync');
+    const profileActionId = currentProfileActionId() ?? null;
     googleSyncInFlight.current = true;
     const syncSessionKey = getCurrentSessionKey();
     const startedAt = performance.now();
@@ -797,7 +801,7 @@ export default function App() {
         diagnosticStage = progress.stage;
         setGoogleCalendarSyncStatus(progress.message);
         if (interactive) setToast(`Google Calendar: ${progress.message}`);
-      });
+      }, profileActionId);
       const events = result.batches.reduce((total, batch) => total + batch.events.length, 0);
       const durationMs = Math.round(performance.now() - startedAt);
       if (interactive) setToast(queuedGoogleWrites ? `Google Calendar synced: ${events} events. ${queuedGoogleWrites} outgoing change${queuedGoogleWrites === 1 ? '' : 's'} remain safely queued.` : `Google Calendar synced: ${events} events.`);
