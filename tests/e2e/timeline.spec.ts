@@ -50,8 +50,7 @@ async function setup(page: Page, filter = 'true', quickSource = false) {
   }, { metadata, block });
   await page.reload(); await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.getByPlaceholder('Add new item')).toBeVisible({ timeout: 30_000 });
-  if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click(); }
-  else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name: 'Calendar', exact: true }).click();
   await expect(page.locator('.calendar-timeline')).toBeVisible();
 }
 
@@ -260,10 +259,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.reload();
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
-  if ((page.viewportSize()?.width ?? 0) <= 620) {
-    await page.getByRole('button', { name: 'Open navigation' }).click();
-    await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click();
-  } else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name: 'Calendar', exact: true }).click();
   await expect(allDayButton).toHaveAttribute('aria-pressed', 'false');
   await allDayButton.click();
   await expect(page.locator('.timeline-all-day-items .item-card')).toBeVisible();
@@ -347,8 +343,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible(); await page.reload();
   await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.getByPlaceholder('Add new item')).toBeVisible({ timeout: 30_000 });
-  if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Calendar', exact: true }).click(); }
-  else await page.locator('.sidebar').getByRole('button', { name: 'Calendar', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name: 'Calendar', exact: true }).click();
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true'); expect(errors).toEqual([]);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(showUndated).toHaveAttribute('aria-pressed', 'true');

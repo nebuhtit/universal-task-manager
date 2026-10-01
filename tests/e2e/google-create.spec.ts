@@ -50,6 +50,7 @@ test('startup does not auto-sync and manual sync leaves navigation usable', asyn
     await route.fulfill({ json: { items: [], nextSyncToken: 'test-sync' } });
   });
   const navigate = async (name: string) => {
+    if (name === 'Home' || name === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name, exact: true }).click(); return; }
     if (page.viewportSize()!.width <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); }
     else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click();
   };
@@ -89,7 +90,7 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
     return route.fulfill({ json: { items: remote ? [remote] : [], nextSyncToken: 'sync' } });
   });
   await page.goto('/'); await page.getByLabel('Workspace name').fill('Outbox'); await page.getByLabel('Password', { exact: true }).fill('test-only-outbox-password'); await page.getByLabel('Confirm password').fill('test-only-outbox-password'); await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  const nav = async (name: string) => { if (page.viewportSize()!.width <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); } else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click(); };
+  const nav = async (name: string) => { if (name === 'Home' || name === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name, exact: true }).click(); return; } if (page.viewportSize()!.width <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); } else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click(); };
   await nav('PARA'); await page.getByLabel('New Area', { exact: true }).fill('Office'); await page.getByRole('button', { name: 'Add Area', exact: true }).click();
   await nav('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible(); await page.getByRole('button', { name: 'Authorize event creation and editing', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Beta: edit events older than three hours' })).not.toBeChecked();
@@ -145,7 +146,7 @@ test('edits imported Google occurrences in the universal editor and keeps local 
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  const navigate = async (name: string) => { if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click(); } else await page.locator('.sidebar').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click(); };
+  const navigate = async (name: string) => { if (name === 'Home' || name === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name, exact: true }).click(); return; } if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click(); } else await page.locator('.sidebar').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click(); };
   await navigate('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
   await navigate('Calendar'); await page.locator('article').getByText('Editable meeting', { exact: true }).first().click();
   const edit = page.getByRole('dialog', { name: 'Item editor', exact: true });
@@ -212,6 +213,7 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await page.getByLabel('Confirm password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   const navigate = async (name: string) => {
+    if (name === 'Home' || name === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name, exact: true }).click(); return; }
     if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click(); }
     else await page.locator('.sidebar').getByRole('button', { name: name === 'All items' ? /^All items/ : name, exact: name !== 'All items' }).click();
   };
