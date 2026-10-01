@@ -42,6 +42,7 @@ async function unlock(page: Page) {
   await expect(page.locator('.app-shell')).toBeVisible({ timeout: 30_000 });
 }
 async function navigate(page: Page, label: string) {
+  if (label === 'Home' || label === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name: label, exact: true }).click(); return; }
   if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: label, exact: true }).click(); }
   else await page.locator('.sidebar').getByRole('button', { name: label === 'All items' ? /^All items(?: \d+)?$/ : label, exact: true }).click();
 }
