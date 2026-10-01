@@ -123,7 +123,7 @@ test('mobile navigation uses the shared glass surface in both themes', async ({ 
     expect(style.blur).toBe('blur(6px)');
     expect(style.background).toBe(theme === 'light' ? 'rgba(255, 255, 255, 0.56)' : 'rgba(0, 0, 0, 0.62)');
   }
-  await menu.getByRole('button', { name: 'Home', exact: true }).click();
+  await menu.getByRole('button', { name: /^All items(?: \d+)?$/ }).click();
   await expect(menu).toBeHidden();
 });
 
@@ -460,18 +460,24 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   const { read } = await setup(page), before = (await read()).items;
   const handle = page.locator('[data-view-item-id="task"] .item-main');
   const target = page.locator('[data-view-item-id="event"]');
-  // Keep the drop point away from the fixed quick-add composer. Font metrics on
-  // Linux can leave the bottom edge of an otherwise visible card behind it.
-  await handle.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  // Start at the top: centering a card in this short list can place it behind
+  // the sticky week header on Linux, despite toBeInViewport succeeding.
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
   await page.clock.runFor(500);
   await expect(handle).toBeInViewport();
   await page.waitForTimeout(350);
   await page.clock.runFor(100);
   const source = (await handle.boundingBox())!;
-  const destination = (await target.boundingBox())!;
+  await expect.poll(() => handle.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+  })).toBe(true);
   await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
   await page.mouse.down(); await page.clock.runFor(1100);
+  await expect(page.locator('[data-view-item-id="task"] .card-reorder-surface')).toHaveClass(/is-dragging/);
+  const destination = (await target.boundingBox())!;
   await page.mouse.move(destination.x + 24, destination.y + destination.height * 0.65, { steps: 8 });
+  await expect(target.locator('.card-reorder-surface')).toHaveClass(/is-drop-target/);
   await page.mouse.up();
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   expect((await read()).items).toEqual(before);
