@@ -127,7 +127,9 @@ test('mobile navigation uses the shared glass surface in both themes', async ({ 
   await expect(menu).toBeHidden();
 });
 
-test('a failed menu section preserves workspace, navigation and diagnostics', async ({ page }) => {
+test.describe('isolated chunk failure', () => {
+ test.use({ serviceWorkers: 'block' });
+ test('a failed menu section preserves workspace, navigation and diagnostics', async ({ page }) => {
   const { read } = await setup(page, true, undefined, 'All items');
   await page.route('**/SettingsPage-*.js', route => route.abort());
   await navigate(page, 'Settings');
@@ -140,6 +142,8 @@ test('a failed menu section preserves workspace, navigation and diagnostics', as
   await expect(page.getByRole('heading', { name: 'Could not open this section' })).toHaveCount(0);
   await expect(page.locator('[data-utm-item-id="task"]').first()).toBeVisible();
   expect((await read()).items.task!.title).toBe('A task');
+});
+
 });
 
 test('widget route opens today both while unlocked and after unlock', async ({ page }) => {
@@ -378,7 +382,7 @@ test('keyboard reorder shared with Timeline, two reset confirmations and off swi
     await button.click();
     await expect(page.getByRole('dialog', { name: 'Reset calendar order' })).toBeVisible();
   };
-  const handle = page.getByRole('button', { name: 'Reorder A task', exact: true });
+  const handle = page.locator('[data-view-item-id="task"] .item-main');
   await handle.focus(); await handle.press('ArrowDown');
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   await expect(handle).toBeFocused();
@@ -454,7 +458,7 @@ test('same-time reference expires without touching the source; vertical scroll d
 
 test('pointer reorder changes only the day order and supports dark mode', async ({ page }) => {
   const { read } = await setup(page), before = (await read()).items;
-  const handle = page.getByRole('button', { name: 'Reorder A task', exact: true });
+  const handle = page.locator('[data-view-item-id="task"] .item-main');
   const target = page.locator('[data-view-item-id="event"]');
   // Keep the drop point away from the fixed quick-add composer. Font metrics on
   // Linux can leave the bottom edge of an otherwise visible card behind it.
@@ -463,9 +467,12 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   await expect(handle).toBeInViewport();
   await page.waitForTimeout(350);
   await page.clock.runFor(100);
-  await handle.dragTo(target, {
-    targetPosition: { x: 24, y: Math.max(24, (await target.boundingBox())!.height * 0.65) },
-  });
+  const source = (await handle.boundingBox())!;
+  const destination = (await target.boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down(); await page.clock.runFor(1100);
+  await page.mouse.move(destination.x + 24, destination.y + destination.height * 0.65, { steps: 8 });
+  await page.mouse.up();
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   expect((await read()).items).toEqual(before);
   await navigate(page, 'Settings');
@@ -492,7 +499,7 @@ test('pointer reorder changes only the day order and supports dark mode', async 
 
 test('List moves a fixed event without changing its Timeline interval', async ({ page }) => {
   const { read } = await setup(page), before = (await read()).items;
-  const eventHandle = page.getByRole('button', { name: 'Reorder B event', exact: true });
+  const eventHandle = page.locator('[data-view-item-id="event"] .item-main');
   await eventHandle.press('ArrowUp');
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
@@ -506,7 +513,7 @@ test('active-range ordering follows List below the event and capacity has only o
     w.items.task!.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: '2026-09-25T18:00:00Z', estimatedDuration: 'PT1H' };
   });
   const before = (await read()).items;
-  await page.getByRole('button', { name: 'Reorder B event', exact: true }).press('ArrowUp');
+  await page.locator('[data-view-item-id="event"] .item-main').press('ArrowUp');
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   const range = page.getByTestId('timeline-active-range');
@@ -522,7 +529,7 @@ test('late anchor can reach the first row even if the remaining task has no free
     w.items.event!.schedule!.startAt = '2026-09-24T22:00:00Z'; w.items.event!.schedule!.endAt = '2026-09-24T23:15:00Z';
   });
   const before = (await read()).items;
-  await page.getByRole('button', { name: 'Reorder B event', exact: true }).press('ArrowUp');
+  await page.locator('[data-view-item-id="event"] .item-main').press('ArrowUp');
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
   await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
   await expect(page.locator('.calendar-page')).not.toContainText('No continuous free slot');
@@ -534,7 +541,7 @@ test('moving an event cannot put an active-range task after its future Due', asy
     w.items.task!.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: '2026-09-24T10:00:00Z', estimatedDuration: 'PT1H' };
   });
   const before = (await read()).items;
-  await page.getByRole('button', { name: 'Reorder B event', exact: true }).press('ArrowUp');
+  await page.locator('[data-view-item-id="event"] .item-main').press('ArrowUp');
   await expect(page.locator('.calendar-page')).toContainText('A task: Placement does not fit before Due.');
   expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   expect((await read()).items).toEqual(before);
