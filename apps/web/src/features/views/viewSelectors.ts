@@ -35,6 +35,21 @@ export function moveManualItem(itemIds: string[], draggedId: string, targetId: s
   return next;
 }
 
+/** UI-only hold: keep current data, never resurrect filtered/deleted rows. */
+export function retainCompletionPositions<T extends { id: string }>(rows: T[], previousIds: readonly string[]): T[] {
+  if (!completionHolds.size || !previousIds.length) return rows;
+  const byId = new Map(rows.map(row => [row.id, row]));
+  const held = previousIds.flatMap((id, index) => {
+    const row = byId.get(id);
+    return row && completionPhase(id) ? [{ row, index }] : [];
+  });
+  if (!held.length) return rows;
+  const ids = new Set(held.map(entry => entry.row.id));
+  const result = rows.filter(row => !ids.has(row.id));
+  for (const { row, index } of held) result.splice(Math.min(index, result.length), 0, row);
+  return result;
+}
+
 export function setCompletionHold(itemId: string, hold?: CompletionHold): void {
   if (hold === undefined) completionHolds.delete(itemId);
   else completionHolds.set(itemId, hold);

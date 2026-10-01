@@ -132,7 +132,7 @@ test('entry screens follow system theme and keep explanations collapsed', async 
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v3\.5\.3 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v3\.5\.5 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -141,7 +141,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v3\.5\.3 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v3\.5\.5 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -1020,12 +1020,14 @@ test('completion keeps an open-only view stable through the Undo window', async 
   expect(immediate.card).toBe('rgba(0, 0, 0, 0)');
   expect(immediate.toggle).not.toBe('rgba(0, 0, 0, 0)');
   const undo = page.locator('.undo-toast');
+  await expect(undo).toBeHidden();
+  await expect(complete).toHaveAttribute('aria-label', 'Complete item');
+  await complete.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
+  await complete.evaluate((button: HTMLButtonElement) => button.click());
   await expect(undo).toBeVisible();
   await expect(undo.locator('strong')).toHaveText('4');
   await expect(complete).toHaveAttribute('aria-label', 'Reopen item');
   await expect(complete).toHaveCSS('background-color', immediate.toggle);
-  await complete.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
-  await complete.evaluate((button: HTMLButtonElement) => button.click());
   await expect(row.getByRole('button', { name: 'Reopen item' })).toBeVisible();
   const held = await view.boundingBox();
   expect(before).not.toBeNull(); expect(held).not.toBeNull();

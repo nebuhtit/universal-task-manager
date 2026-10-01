@@ -331,7 +331,9 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
       }
       if (linked) detachGoogleCalendar(linked);
       const existing = workspace.items[id];
-      if (existing) { delete workspace.items[id]; delete workspace.tombstones[id]; removed += 1; }
+      // Imported IDs retain their original calendar after a move. A cancelled
+      // source copy must not delete the item now linked to the destination.
+      if (existing && (!existing.external || (existing.external.calendarId === batch.calendarId && existing.external.eventId === event.id))) { delete workspace.items[id]; delete workspace.tombstones[id]; removed += 1; }
       continue;
     }
     if (!linked && master?.role === 'series_template' && originalAnchor) {

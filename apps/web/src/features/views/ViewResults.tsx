@@ -3,7 +3,7 @@ import { type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm
 import { FieldIcon, ItemCard, ItemStateMarker, OverdueDueIndicator, displayViewValue, readItemField, readItemScripts, stateNames } from '../items';
 import { formatViewDate } from '../../utils/dates';
 import { viewFieldLabel } from './fieldCatalog';
-import { boardSettingsFor, completionPhase, moveManualItem, selectViewItems, viewDependsOnCurrentTime, type ViewEvaluation } from './viewSelectors';
+import { boardSettingsFor, completionPhase, moveManualItem, retainCompletionPositions, selectViewItems, viewDependsOnCurrentTime, type ViewEvaluation } from './viewSelectors';
 import { useViewNow } from './useViewEvaluation';
 import { recordDiagnostic } from '../../services/diagnostics';
 import { previewCompletionSound } from '../../hooks/useUiSounds';
@@ -44,7 +44,10 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
   const renderView = view;
   const resolved = evaluation ?? evaluateView(renderWorkspace, renderView, liveNow);
   const matchingItems = resolved.items;
-  const results = (resolved.results ?? matchingItems.map((item) => ({ kind: 'item' as const, id: item.id, item }))).filter((entry) => !hiddenItemIds?.has(entry.id));
+  const previousPositions = useRef<{ viewId: string; ids: string[] }>({ viewId: view.id, ids: [] });
+  const visibleResults = (resolved.results ?? matchingItems.map((item) => ({ kind: 'item' as const, id: item.id, item }))).filter((entry) => !hiddenItemIds?.has(entry.id));
+  const results = retainCompletionPositions(visibleResults, previousPositions.current.viewId === view.id ? previousPositions.current.ids : []);
+  useLayoutEffect(() => { previousPositions.current = { viewId: view.id, ids: results.map(entry => entry.id) }; });
   const projects = results.filter((entry) => entry.kind === 'project');
   const projectLink = (project: typeof projects[number]) => <ProjectResultLink project={project} language={workspace.calendarPreferences.language} />;
   const items = hiddenItemIds?.size ? matchingItems.filter((item) => !hiddenItemIds.has(item.id)) : matchingItems;
@@ -55,6 +58,11 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
   const touchFinish = useRef<() => void>(() => {});
   useEffect(() => {
     const move = (event: TouchEvent) => {
+      const pending = pendingDrag.current;
+      const firstTouch = event.touches[0];
+      if (pending && firstTouch && Math.hypot(firstTouch.clientX - pending.x, firstTouch.clientY - pending.y) > 24) {
+        window.clearTimeout(pending.timer); pendingDrag.current = null;
+      }
       if (!touchDrag.current || !drag.current) return;
       event.preventDefault();
       const touch = event.touches[0];
@@ -67,17 +75,20 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
       setDropTargetId(id);
     };
     const end = () => touchFinish.current();
+    const cancel = () => {
+      drag.current = null;
+      touchFinish.current();
+    };
     document.addEventListener('touchmove', move, { passive: false });
     document.addEventListener('touchend', end);
-    document.addEventListener('touchcancel', end);
+    document.addEventListener('touchcancel', cancel);
     return () => {
       document.removeEventListener('touchmove', move);
       document.removeEventListener('touchend', end);
-      document.removeEventListener('touchcancel', end);
+      document.removeEventListener('touchcancel', cancel);
       if (pendingDrag.current) window.clearTimeout(pendingDrag.current.timer);
     };
   }, []);
-  const stateCommittedOnPointerDown = useRef(new Set<string>());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const itemIds = reorderIds ?? results.map((entry) => entry.id);
@@ -129,13 +140,10 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
     if (readOnlyExternal(item)) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     previewState(item);
-    if (event.pointerType === 'mouse') return;
-    stateCommittedOnPointerDown.current.add(item.id);
-    changeState(item);
+    // Domain state changes only on click, after the pointer gesture completes.
   };
   const finishStateChange = (item: UniversalItem) => {
     if (readOnlyExternal(item)) return;
-    if (stateCommittedOnPointerDown.current.delete(item.id)) return;
     changeState(item);
   };
   const finishDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -243,5 +251,5 @@ export function ViewResults({ view, workspace, evaluation, hiddenItemIds, onEdit
     return visibleColumns.length || projects.length ? <div className={`mini-board${items.length ? '' : ' project-only-board'}`}>{visibleColumns.map(({ key, label, userData, items: columnItems }) => <section key={key}><h4>{userData ? <UserDataText>{label}</UserDataText> : t(label)}</h4>{columnItems.map((item) => <article data-utm-item-id={item.id} data-utm-series-id={item.occurrence?.seriesId} data-utm-recurrence-id={item.occurrence?.recurrenceId} data-utm-due-item-id={canQuickChangeDue(item) ? item.id : undefined} data-utm-due-series-id={item.occurrence?.seriesId} data-utm-due-recurrence-id={item.occurrence?.recurrenceId} className={`board-item state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}`} style={celebrationStyle(item)} key={item.id}>{stateControl(item)}<button className="board-item-main" onClick={() => onEdit(item)}>{fieldContent(item, ['state'])}</button></article>)}</section>)}{projects.length > 0 && <section><h4>{t('No value')}</h4>{projects.map((project) => <article key={project.id} className="project-board-item">{projectLink(project)}</article>)}</section>}</div> : <p className="empty">{t('No items match this board.')}</p>;
   }
   if (renderView.renderer === 'table') return <div className="table-wrap renderer-table-wrap"><table><thead><tr><th className="reorder-column"><span className="sr-only">{t('Manual order')}</span></th><th className="state-column"><span className="sr-only">{t('Complete')}</span></th>{overdueAgeIndicatorEnabled && <th className="item-system-status-column"><span className="sr-only">{t('Status')}</span></th>}{visibleFields.map((field) => { const label = viewFieldLabel(renderWorkspace, field, renderView.scripts); return <th key={field} aria-label={label} title={label}><FieldIcon path={field} label={label} /><span className="sr-only">{t(label)}</span></th>; })}</tr></thead><tbody>{results.map((entry) => { if (entry.kind === 'project') return <tr key={entry.id} data-view-item-id={entry.id}><td>{dragHandle({ id: entry.id, title: entry.name })}</td><td colSpan={visibleFields.length + 1 + (overdueAgeIndicatorEnabled ? 1 : 0)}>{projectLink(entry)}</td></tr>; const item = entry.item; return <tr data-utm-item-id={item.id} data-utm-series-id={item.occurrence?.seriesId} data-utm-recurrence-id={item.occurrence?.recurrenceId} data-utm-due-item-id={canQuickChangeDue(item) ? item.id : undefined} data-utm-due-series-id={item.occurrence?.seriesId} data-utm-due-recurrence-id={item.occurrence?.recurrenceId} data-view-item-id={item.id} className={`state-${item.state}${isCelebrating(item) ? ' is-celebrating' : ''}${isExiting(item) ? ' is-exiting' : ''}${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`} style={celebrationStyle(item)} key={item.id} onClick={() => onEdit(item)}><td className="reorder-column">{dragHandle(item)}</td><td className="state-column">{stateControl(item, true)}</td>{overdueAgeIndicatorEnabled && <td className="item-system-status-column"><OverdueDueIndicator item={item} now={liveNow} label={t('Overdue')} /></td>}{visibleFields.map((field) => { const value = displayViewValue(readItemField(item, field, renderWorkspace, liveNow, renderView.scripts), field, renderWorkspace.calendarPreferences.language); return <td key={field} data-field={field} translate="no" data-utm-user-data title={field === 'bodyMarkdown' ? value : undefined}>{value}</td>; })}</tr>; })}</tbody></table></div>;
-return <div className={longListClass('item-list reorderable-item-list', items.length)}>{results.map((entry) => { if (entry.kind === 'project') return <div key={entry.id} data-view-item-id={entry.id} className="reorderable-view-item">{dragHandle({ id: entry.id, title: entry.name })}{projectLink(entry)}</div>; const item = entry.item; return <div data-view-item-id={item.id} className={`view-item-exit-shell${isExiting(item) ? ' is-exiting' : ''}`} key={item.id}>{itemLabels?.get(item.id) && <span className="calendar-category-label">{itemLabels.get(item.id)}</span>}<div className={`reorderable-view-item card-reorder-surface${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}${isCelebrating(item) ? ' is-celebrating' : ''}`} style={celebrationStyle(item)} onPointerDown={event => beginCardDrag(item, event)} onPointerMove={moveCardDrag} onPointerUp={finishDrag} onPointerCancel={cancelDrag} onClick={event => { if (performance.now() < suppressItemClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}><ViewItemCard calendarReference={referenceIds?.has(item.id)} item={item} celebrating={false} fields={visibleFields} calendarTimeOnly={calendarTimeOnly} workspace={renderWorkspace} now={liveNow} viewScripts={renderView.scripts ?? noViewScripts} onEditItem={editCard} onStateItem={stateCard} accent={view.accent ?? 'var(--color-text)'} /></div></div>; })}</div>;
+return <div className={longListClass('item-list reorderable-item-list', items.length)}>{results.map((entry) => { if (entry.kind === 'project') return <div key={entry.id} data-view-item-id={entry.id} className="reorderable-view-item">{dragHandle({ id: entry.id, title: entry.name })}{projectLink(entry)}</div>; const item = entry.item; return <div data-view-item-id={item.id} className={`view-item-exit-shell${isExiting(item) ? ' is-exiting' : ''}`} key={item.id}>{itemLabels?.get(item.id) && <span className="calendar-category-label">{itemLabels.get(item.id)}</span>}<div className={`reorderable-view-item card-reorder-surface${draggingId === item.id ? ' is-dragging' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}${isCelebrating(item) ? ' is-celebrating' : ''}`} style={celebrationStyle(item)} onPointerDown={event => beginCardDrag(item, event)} onPointerMove={moveCardDrag} onPointerUp={finishDrag} onPointerCancel={cancelDrag} onClickCapture={event => { if (performance.now() < suppressItemClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}><ViewItemCard calendarReference={referenceIds?.has(item.id)} item={item} celebrating={false} fields={visibleFields} calendarTimeOnly={calendarTimeOnly} workspace={renderWorkspace} now={liveNow} viewScripts={renderView.scripts ?? noViewScripts} onEditItem={editCard} onStateItem={stateCard} accent={view.accent ?? 'var(--color-text)'} /></div></div>; })}</div>;
 }

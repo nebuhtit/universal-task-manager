@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '3.5.3';
-export const APP_RELEASED_AT = '2026-09-30T17:11:28.527Z';
+export const APP_VERSION = '3.5.5';
+export const APP_RELEASED_AT = '2026-09-30T19:49:46.500Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -606,6 +606,8 @@ export interface GoogleCalendarDefinition {
   selected: boolean;
 }
 export interface GoogleCalendarPreferences {
+  /** One-time re-read after legacy move acknowledgements could discard local mirrors. */
+  moveMirrorRepairVersion?: number;
   allowPastEventEditing?: boolean;
   /** Maximum logical Google event writes allowed during a rolling 24-hour window. */
   writeDailyLimit?: number;

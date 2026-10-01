@@ -15,6 +15,39 @@ function fixture() {
   return { workspace, result };
 }
 describe('detached Google import plan', () => {
+  it.each([false, true])('restores moved event without duplicates, legacy receipt present: %s', receiptPresent => {
+    const { workspace, result } = fixture();
+    workspace.calendarPreferences.googleCalendar!.accountEmail = 'owner';
+    const oldId = 'google:source:e';
+    if (receiptPresent) {
+      const item = createItem('Local retained title'); item.id = oldId;
+      item.extensions = { 'utm:googleDeletionReceipts': [{ accountEmail: 'owner', calendarId: 'cal', eventId: 'e', deletedAt: result.syncedAt }] };
+      workspace.items[oldId] = item;
+    }
+    result.batches.unshift({ calendarId: 'source', connectionId: 'c', syncedAt: result.syncedAt, fullSync: true, events: [{ id: 'e', status: 'cancelled' }] });
+    const destination = copy(workspace);
+    const patches = calculateGoogleSyncPlan({ workspace, result, recovered: [] });
+    applyGoogleSyncPlan(destination, patches);
+    const events = Object.values(destination.items).filter(item => item.external?.eventId === 'e');
+    expect(events).toHaveLength(1);
+    expect(events[0]!.external?.calendarId).toBe('cal');
+    if (receiptPresent) expect(events[0]!.id).toBe(oldId);
+    expect(destination.calendarPreferences.googleCalendar!.moveMirrorRepairVersion).toBe(1);
+    const again = calculateGoogleSyncPlan({ workspace: copy(destination), result, recovered: [] });
+    applyGoogleSyncPlan(destination, again);
+    expect(Object.values(destination.items).filter(item => item.external?.eventId === 'e')).toHaveLength(1);
+  });
+
+  it('does not clear same-calendar deletion receipts during repair', () => {
+    const { workspace, result } = fixture();
+    workspace.calendarPreferences.googleCalendar!.accountEmail = 'owner';
+    const item = createItem('Unlinked task'); item.id = 'google:cal:e';
+    item.extensions = { 'utm:googleDeletionReceipts': [{ accountEmail: 'owner', calendarId: 'cal', eventId: 'e', deletedAt: result.syncedAt }] };
+    workspace.items[item.id] = item;
+    calculateGoogleSyncPlan({ workspace, result, recovered: [] });
+    expect(workspace.items[item.id]!.external).toBeUndefined();
+    expect(workspace.items[item.id]!.extensions?.['utm:googleDeletionReceipts']).toHaveLength(1);
+  });
   it('applies a detached plan to a real Automerge draft', async () => {
     const { workspace, result } = fixture();
     const doc = Automerge.from(copy(workspace) as unknown as Record<string, unknown>) as unknown as Automerge.Doc<WorkspaceDocument>;

@@ -3,6 +3,12 @@ import { hasNativeBiometrics, nativeBiometrics } from './nativeBiometrics.js';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('native biometric bridge', () => {
+  it('distinguishes explicit cancellation from a retryable native failure without exposing details', async () => {
+    const postMessage = vi.fn().mockRejectedValueOnce(new Error('UTM_BIOMETRIC_CANCELLED')).mockRejectedValueOnce(new Error('private failure details'));
+    vi.stubGlobal('window', { webkit: { messageHandlers: { utmNativeBiometrics: { postMessage } } } });
+    await expect(nativeBiometrics('read', 'test')).rejects.toMatchObject({ name: 'BiometricCancelledError' });
+    await expect(nativeBiometrics('read', 'test')).rejects.toMatchObject({ name: 'BiometricUnavailableError' });
+  });
   it('leaves non-native environments on the existing password/browser path', async () => {
     vi.stubGlobal('window', {});
     expect(hasNativeBiometrics()).toBe(false);

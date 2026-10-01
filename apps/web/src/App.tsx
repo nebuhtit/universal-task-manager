@@ -38,6 +38,7 @@ import { playCompletionSoundUnlessPreviewed, useUiSounds } from './hooks/useUiSo
 import { useViewport } from './hooks/useViewport';
 import { useDisplayedBuild } from './hooks/useDisplayedBuild';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
+import { SaveStatusSubscription } from './components/SaveStatusSubscription';
 import { beginStartup, failStartup, finishStartup, interruptedStartup, readStartupLog, startupCheckpoint } from './services/startupDiagnostics';
 import { closeReadOnlyWorkspace, localWorkspaceMode, openLocalRecoveryReadOnly, unlockUnencryptedLocalWorkspace } from '@utm/sdk';
 import { acquireWorkspaceWriter, PENDING_SAVE_KEY } from './services/workspaceWriter';
@@ -85,7 +86,7 @@ const DiagnosticsSettings = lazy(() => import('./features/settings/DiagnosticsSe
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 type PendingUndoAction = { id: string; label: string; expiresAt: number; undo: () => void; itemId?: string };
 type QuickCompletionRequest = { itemId: string; celebrationColor: string; completedAt: string };
-const UNDO_WINDOW_MS = 4_000;
+const UNDO_WINDOW_MS = 3_000;
 
 // Some iOS Files providers do not implement File.text() reliably for custom
 // extensions. Reading bytes ourselves keeps .utmb recovery working reliably.
@@ -218,7 +219,7 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
   const [busy, setBusy] = useState(false);
   const [interrupted] = useState(interruptedStartup);
   // A terminated iOS process is not evidence of corrupt data. Recovery is opt-in.
-  const [safeEntry, setSafeEntry] = useState(false);
+  const [safeEntry, setSafeEntry] = useState(() => new URLSearchParams(window.location.search).get('utm-recovery') === '1');
   const [unconfirmedSave] = useState(() => { try { return Boolean(localStorage.getItem(PENDING_SAVE_KEY)); } catch { return false; } });
   const [plaintext, setPlaintext] = useState(false);
   useEffect(() => { if (exists) void localWorkspaceMode().then((mode) => setPlaintext(mode === 'plaintext')); }, [exists]);
@@ -345,7 +346,20 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
     setBusy(true); setError('');
     try {
       await acquireWorkspaceWriter();
-      await onReady(await unlockLocalWorkspaceWithFaceId(), language);
+      for (let attempt = 1; attempt <= (origin === 'automatic' ? 2 : 1); attempt++) {
+        try {
+          await onReady(await unlockLocalWorkspaceWithFaceId(), language);
+          break;
+        } catch (reason) {
+          const cancelled = reason instanceof Error && ['BiometricCancelledError', 'NotAllowedError', 'AbortError'].includes(reason.name);
+          if (origin !== 'automatic' || cancelled || attempt === 2) {
+            if (origin === 'automatic' && !cancelled) setSafeEntry(true);
+            throw reason;
+          }
+          recordDiagnostic({ kind: 'action', message: 'Automatic Face ID retry', operation, outcome: 'started' });
+          await new Promise(resolve => window.setTimeout(resolve, 500));
+        }
+      }
       setFaceIdConfiguredHint(true);
       recordDiagnostic({ kind: 'result', message: `Face ID workspace entry succeeded (${origin})`, operation, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
     } catch (reason) {
@@ -730,7 +744,7 @@ export default function App() {
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length + readStartupLog().length);
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string; backupPreview?: boolean | undefined; isolatedPreview?: boolean } | null>(null);
-  const { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey } = useWorkspaceController({ onToast: setToast, setNotices });
+  const { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey } = useWorkspaceController({ onToast: setToast, setNotices });
   const notices = workspace ? visibleItemNotices(workspace, rawNotices) : rawNotices;
   useEffect(() => {
     if (!workspace) return;
@@ -1370,7 +1384,7 @@ export default function App() {
   return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onCompleteNotice={(notice) => { const item = notice.itemId ? workspace.items[notice.itemId] : undefined; if (item && item.state === 'open' && canManuallyComplete(item)) changeItemState(item, 'done'); }} onSnoozeNotice={snoozeNotice} onQuickPin={planningEnabled(workspace) ? setQuickPinTarget : undefined} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <PageErrorBoundary key={page} page={page} language={workspace.calendarPreferences.language} onDiagnostics={() => void downloadDiagnostics()}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
-      {(saveStatus === 'saving' || saveStatus === 'error') && <p className={`save-status-banner${saveStatus === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : 'Не сохранено. Последние изменения пока только в памяти.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>}
+      <SaveStatusSubscription store={saveStatusStore}>{saveStatus => (saveStatus === 'saving' || saveStatus === 'error') && <p className={`save-status-banner${saveStatus === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : 'Не сохранено. Последние изменения пока только в памяти.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>}</SaveStatusSubscription>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
       {page === 'calendar' && <CalendarPage onPlanningNotice={setToast} onCreateItem={item => { setEditorIsNew(true); setFocusEditorId(item.id); setEditor(item); }} workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} {...(calendarCaptureDate ? { initialDate: calendarCaptureDate } : {})} onSelectedDateChange={setCalendarCaptureDate} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={openWorkspaceItem} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
@@ -1378,10 +1392,10 @@ export default function App() {
       {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onQuickAddItem={captureQuickViewItem} onExport={() => exportAfterFlush(() => exportParaStructure(workspace))} /></section>}
       <QuickTimerDialog workspace={workspace} open={quickTimerOpen} onClose={() => setQuickTimerOpen(false)} commit={commit} />
       {page === 'settings' && <section className="page-section settings-page-shell">
-        <SettingsReleaseInfo saveStatus={saveStatus} />
+        <SaveStatusSubscription store={saveStatusStore}>{saveStatus => <SettingsReleaseInfo saveStatus={saveStatus} />}</SaveStatusSubscription>
         <details className="settings-disclosure"><summary>Backup and recovery</summary><section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="text" inputMode="numeric" pattern="[0-9]*" value={backupReminderDraft} onChange={(event) => { const next = event.target.value; if (/^\d*$/.test(next)) setBackupReminderDraft(next); }} onBlur={applyBackupReminderDays} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button><button className="secondary" onClick={() => void downloadOfflineRecoveryKit().then(() => setToast('Offline recovery kit downloaded.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section></details>
         <SettingsPage workspace={workspace} passwordProtection={passwordProtection} onPasswordProtectionChanged={refreshPasswordProtection} onBeforeCriticalAction={flushPersistence} onExportAll={async (format, metadata) => { const items = Object.values(workspace.items).filter((item) => !item.deletedAt); await exportPortable(workspace, createPortablePackage(workspace, { kind: 'items', items, views: format === 'xlsx' ? Object.values(workspace.views) : [], selection: { type: 'all_items' } }), `${safeFilename(workspace.name)}-all-items`, format, metadata); }} onDownloadLockedRecoveryCopy={downloadLockedRecoveryCopy} commit={commit} onTransfer={() => setTransfer(true)} onImportFile={(file) => { void portableFromFile(file, workspace).then(({ source, warnings }) => { if (warnings.length) setToast(warnings[0]!); setPortableImportSource(source); }).catch((error) => setToast(error instanceof Error ? error.message : String(error))); }} onNotify={() => void (isNativeReminderAvailable() ? requestNativeReminderPermission().then((status) => { setToast(`Notification permission: ${status.authorization ?? "unchanged"}`); if (status.authorization === "granted") return syncNativeReminders(workspace); }) : Notification.requestPermission().then((permission) => setToast(`Notification permission: ${permission}`))).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))} onEnableBackground={() => void enableBackgroundNotifications()} onDisableBackground={() => void disableBackgroundNotifications()} onBackgroundContent={setBackgroundNotificationContent} onRestoredSnapshot={(next) => { void adoptSession(next, true).then(() => setToast('Previous workspace version restored.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />
-        <DiagnosticsSettings workspace={workspace} count={diagnosticCount} onEnabledChange={(enabled) => { setDiagnosticsEnabled(enabled); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = enabled; }); }} onDownload={downloadDiagnostics} onClear={clearDiagnostics} />
+        <DiagnosticsSettings workspace={workspace} count={diagnosticCount} getDataKey={getCurrentSessionKey} downloadPrivate={downloadText} onEnabledChange={(enabled) => { setDiagnosticsEnabled(enabled); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = enabled; }); }} onDownload={downloadDiagnostics} onClear={clearDiagnostics} />
         <details className="settings-disclosure"><summary>Device unlock</summary><section className="settings-card"><p className="eyebrow">DEVICE UNLOCK</p><h2>Face ID / Touch ID</h2>{faceId === 'unsupported' ? <p>Unavailable on this browser or device. Password unlock remains available.</p> : <><p>Optional quick unlock for this device only. Face ID never replaces your password, and exports still require the password.</p>{faceId === 'configured' ? <button className="secondary" onClick={() => void disableFaceIdUnlock().then(() => { setFaceIdConfiguredHint(false); setFaceId('available'); setToast('Face ID unlock disabled. Password unlock remains unchanged.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Disable Face ID</button> : <button className="secondary" onClick={() => void enableFaceIdUnlock(session.dataKey).then(() => { setFaceIdConfiguredHint(true); setFaceId('configured'); setToast('Face ID unlock is ready on this device.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Enable Face ID</button>}<p className="hint">If Face ID fails, is cancelled, or the device changes, use the password field on the lock screen. Removing this option never removes your workspace.</p></>}</section></details>
       </section>}
       </Suspense>

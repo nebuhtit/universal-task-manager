@@ -17,7 +17,7 @@ import { CalendarTimeline } from './CalendarTimeline';
 import { calendarDayView, createCalendarEvaluator } from './calendarEvaluation';
 import { calendarVisibleCapacity, createCalendarCapacityCache } from './calendarCapacity';
 import { prepareTimelineData } from './timelineData';
-import { buildCalendarPlan, calendarPlanMetricItems, calendarReorderIssue, createCalendarPlanCache, planningEnabled, planningReason } from './calendarPlanning';
+import { buildCalendarPlan, calendarListOrder, calendarPlanMetricItems, calendarReorderIssue, createCalendarPlanCache, planningEnabled, planningReason } from './calendarPlanning';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { calendarProjectionPadding } from './calendarProjectionCache';
 import { MoonPhase } from './MoonPhase';
@@ -144,7 +144,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     pendingOrderFocus.current = null;
     const row = [...document.querySelectorAll<HTMLElement>('.calendar-page [data-view-item-id]')].find(node => node.dataset.viewItemId === id);
     const handle = row?.querySelector<HTMLButtonElement>('.view-drag-handle') ?? [...document.querySelectorAll<HTMLButtonElement>('.calendar-page [data-calendar-handle-id]')].find(node => node.dataset.calendarHandleId === id);
-    handle?.focus({ preventScroll: true });
+    (handle ?? row?.querySelector<HTMLElement>('.item-main'))?.focus({ preventScroll: true });
   }, [workspace]);
   useEffect(() => { setResetStep(0); setPlanningMessage(''); }, [selectedDate]);
   const [allDayOpen, setAllDayOpen] = useState(() => readUiBoolean('calendar:all-day', true));
@@ -208,25 +208,26 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     if (result !== false) onPlanningNotice?.(preferences.language === 'ru' ? 'Порядок дня исправлен: задачи перенесены перед событиями, мешавшими успеть до Due.' : 'Day order repaired: tasks moved before events that blocked their Due.');
   }, [plan, selectedDate, workspace, commit, onPlanningNotice, preferences.language]);
   const originalSelected = dayData[selectedDate]!;
-  const selected = plan ? { ...originalSelected, evaluation: { metrics: originalSelected.evaluation.metrics, now: originalSelected.evaluation.now, items: [...plan.items, ...originalSelected.evaluation.items.filter(item => !plan.ids.includes(item.id))] } } : originalSelected;
+  const selected = plan ? { ...originalSelected, evaluation: { metrics: originalSelected.evaluation.metrics, now: originalSelected.evaluation.now, items: [...plan.items, ...originalSelected.evaluation.items.filter(item => !plan.ids.includes(item.id))] } } : { ...originalSelected, evaluation: { ...originalSelected.evaluation, items: calendarListOrder(originalSelected.evaluation.items, preferences.planning?.orders?.[selectedDate]) } };
   const reorder = (ids: string[], movedId: string) => {
-    if (!plan || !preparedDays) return;
-    const next = buildCalendarPlan(workspace, selectedDate, preparedDays[selectedDate]!, capacityNow, originalSelected.reservedItems, ids);
-    const issue = calendarReorderIssue(plan, next, movedId, capacityNow, preferences.timezone, preferences.timeline?.mode !== 'timeline');
-    if (issue) { const message = `${issue.item.title}: ${planningReason(issue.reason, preferences.language === 'ru')}`; setPlanningMessage(message); onPlanningNotice?.(message); return; }
+    if (plan && preparedDays && plan.ids.includes(movedId)) {
+      const next = buildCalendarPlan(workspace, selectedDate, preparedDays[selectedDate]!, capacityNow, originalSelected.reservedItems, ids);
+      const issue = calendarReorderIssue(plan, next, movedId, capacityNow, preferences.timezone, preferences.timeline?.mode !== 'timeline');
+      if (issue) { const message = `${issue.item.title}: ${planningReason(issue.reason, preferences.language === 'ru')}`; setPlanningMessage(message); onPlanningNotice?.(message); return; }
+    }
     setPlanningMessage('');
     pendingOrderFocus.current = movedId;
     commit('Calendar day order', draft => { draft.calendarPreferences.planning ??= {}; draft.calendarPreferences.planning.orders ??= {}; draft.calendarPreferences.planning.orders[selectedDate] = [...ids]; });
   };
-  const orderProps = { onReorder: plan ? reorder : undefined, reorderIds: plan?.ids, movableIds: plan ? new Set([...plan.movable, ...plan.fixed.keys()]) : undefined, referenceIds: plan ? new Set(plan.pins.keys()) : undefined };
   const listView = { ...selected.view, fields: calendarListFields(preferences.dayView) };
   const overdueIds = new Set(selected.evaluation.items.filter(item => showOverdueToday(item, selectedDate, now, preferences.timezone, item.occurrence ? workspace.items[item.occurrence.seriesId] : undefined)).map(item => item.id));
   const allDayIds = new Set(selected.evaluation.items.filter(item => item.schedule?.allDay && !overdueIds.has(item.id)).map(item => item.id));
   const selectedIds = new Set(selected.evaluation.items.map(item => item.id));
   const allUndatedItems = useMemo(() => calendarUndatedItems(workspace, now), [workspace, now.getTime()]);
-  const unsortedUndatedItems = sortViewItems(workspace, selected.view, allUndatedItems.filter(item => !selectedIds.has(item.id) || (plan?.movable.has(item.id) && !plan.pins.has(item.id))), now);
+  const unsortedUndatedItems = calendarListOrder(sortViewItems(workspace, selected.view, allUndatedItems.filter(item => !selectedIds.has(item.id) || (plan?.movable.has(item.id) && !plan.pins.has(item.id))), now), preferences.planning?.orders?.[selectedDate]);
   const undatedItems = plan ? [...unsortedUndatedItems].sort((a, b) => plan.ids.indexOf(a.id) - plan.ids.indexOf(b.id)) : unsortedUndatedItems;
   const undatedIds = new Set(undatedItems.map(item => item.id));
+  const orderProps = { onReorder: reorder, reorderIds: [...new Set([...selected.evaluation.items, ...undatedItems].map(item => item.id))], referenceIds: plan ? new Set(plan.pins.keys()) : undefined };
   const manuallyOrdered = Boolean(plan && preferences.planning?.orders?.[selectedDate]?.length);
   const categoryLabels = new Map(selected.evaluation.items.flatMap(item => {
     const label = overdueIds.has(item.id) ? (preferences.language === 'ru' ? 'Просрочено' : 'Overdue') : allDayIds.has(item.id) ? (preferences.language === 'ru' ? 'Весь день' : 'All day') : undatedIds.has(item.id) ? (preferences.language === 'ru' ? 'Без даты' : 'No date') : '';
@@ -340,7 +341,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
       <Button size="compact" aria-pressed={displayMode === 'timeline'} onClick={() => changeDisplayMode('timeline')}>Timeline</Button>
     </div>
     {displayMode === 'timeline'
-      ? <CalendarTimeline listItems={selected.evaluation.items} plan={plan} onReorder={plan ? reorder : undefined} onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
+      ? <CalendarTimeline preparedDay={preparedDays?.[selectedDate]} listItems={selected.evaluation.items} plan={plan} onReorder={plan ? reorder : undefined} onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
       : <><div className="timeline-toolbar calendar-list-toolbar">
         {overdueIds.size > 0 && <Button size="compact" aria-pressed={timelineSettings.showOverdue !== false} onClick={() => setTimelineSetting({ showOverdue: timelineSettings.showOverdue === false })}>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</Button>}
         <Button size="compact" aria-pressed={timelineSettings.showUndated === true} onClick={() => setTimelineSetting({ showUndated: timelineSettings.showUndated !== true })}>{preferences.language === 'ru' ? 'Без даты' : 'No date'}{undatedItems.length ? ` · ${undatedItems.length}` : ''}</Button>
@@ -352,7 +353,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
         <ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id) || undatedIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
         {timelineSettings.showUndated === true && undatedItems.length > 0 && <div className="calendar-no-date"><h2>{preferences.language === 'ru' ? 'Без даты' : 'No date'} · {undatedItems.length}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={workspace} evaluation={{ items: undatedItems, metrics: null, now }} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
       </>}</Surface></>}
-    {planning && <Button size="compact" onClick={() => setResetStep(1)} disabled={!preferences.planning?.orders?.[selectedDate]?.length}>{preferences.language === 'ru' ? 'Сбросить порядок дня' : 'Reset day order'}</Button>}
+    {(planning || Boolean(preferences.planning?.orders?.[selectedDate]?.length)) && <Button size="compact" onClick={() => setResetStep(1)} disabled={!preferences.planning?.orders?.[selectedDate]?.length}>{preferences.language === 'ru' ? 'Сбросить порядок дня' : 'Reset day order'}</Button>}
     {planningMessage && <p role="status">{planningMessage}</p>}
     <ResponsiveDialog open={resetStep > 0} onOpenChange={open => { if (!open) setResetStep(0); }} title={preferences.language === 'ru' ? 'Сброс порядка' : 'Reset order'} ariaLabel="Reset calendar order">
       <p>{resetStep === 1 ? (preferences.language === 'ru' ? 'Вернуть исходную сортировку? Закрепления и items останутся без изменений.' : 'Restore the initial sorting? Pins and items will not change.') : `${preferences.language === 'ru' ? 'Подтвердите сброс порядка только для' : 'Confirm resetting order only for'} ${selectedLabel} (${selectedDate}).`}</p>

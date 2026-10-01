@@ -197,6 +197,7 @@ describe('Google Calendar workspace mirror', () => {
     workspace.items[item.id] = item;
     (workspace.calendarPreferences as unknown as { googleCalendar: unknown }).googleCalendar = {
       connectionId: 'connection-1', accessToken: 'secret', calendars: [{ id: 'primary', name: 'Main' }], syncTokens: { primary: 'sync-token' },
+      moveMirrorRepairVersion: 1,
       syncWindow: { timeMin: '2025-08-31T12:00:00.000Z', timeMax: '2027-08-31T12:00:00.000Z', refreshedAt: '2026-08-31T12:00:00.000Z', unexpected: 'drop-me' },
     };
     const migrated = migrateWorkspace(workspace).value;
@@ -205,6 +206,7 @@ describe('Google Calendar workspace mirror', () => {
     expect(migrated.calendarPreferences.googleCalendar).toMatchObject({ connectionId: 'connection-1', calendars: [{ id: 'primary', name: 'Main', selected: true }], syncTokens: { primary: 'sync-token' } });
     expect(migrated.calendarPreferences.googleCalendar?.syncWindow).toEqual({ timeMin: '2025-08-31T12:00:00.000Z', timeMax: '2027-08-31T12:00:00.000Z', refreshedAt: '2026-08-31T12:00:00.000Z' });
     expect(migrated.calendarPreferences.googleCalendar).not.toHaveProperty('accessToken');
+    expect(migrated.calendarPreferences.googleCalendar?.moveMirrorRepairVersion).toBe(1);
     expect(validateWorkspace(migrated).valid).toBe(true);
   });
 });

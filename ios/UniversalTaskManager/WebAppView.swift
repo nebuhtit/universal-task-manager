@@ -78,8 +78,9 @@ struct WebAppView: UIViewRepresentable {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
         webView.backgroundColor = .systemBackground
-        let entryURL = UserDefaults.standard.bool(forKey: "utm.webRecoveryRequired") ? context.coordinator.recoveryURL : startURL
-        webView.load(URLRequest(url: entryURL, cachePolicy: .reloadIgnoringLocalCacheData))
+        // A previous process termination must not permanently change future launches.
+        UserDefaults.standard.removeObject(forKey: "utm.webRecoveryRequired")
+        webView.load(URLRequest(url: startURL, cachePolicy: .reloadIgnoringLocalCacheData))
         return webView
     }
 
@@ -95,6 +96,7 @@ struct WebAppView: UIViewRepresentable {
         let agendaBridge = NativeAgendaBridge()
         private var downloads: [ObjectIdentifier: URL] = [:]
         private weak var keyboardWebView: WKWebView?
+        private var terminationRetries = 0
         var recoveryURL: URL {
             var components = URLComponents(url: localOrigin, resolvingAgainstBaseURL: false)!
             components.queryItems = [URLQueryItem(name: "utm-recovery", value: "1")]
@@ -102,8 +104,12 @@ struct WebAppView: UIViewRepresentable {
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            // Handle termination ourselves: never loop through automatic unlock.
-            UserDefaults.standard.set(true, forKey: "utm.webRecoveryRequired")
+            // Bounded per launch, not persisted across normal force-close/reopen.
+            if terminationRetries < 1 {
+                terminationRetries += 1
+                webView.load(URLRequest(url: localOrigin, cachePolicy: .reloadIgnoringLocalCacheData))
+                return
+            }
             let alert = UIAlertController(title: "Universal: восстановление", message: "Процесс интерфейса остановлен iOS. Данные не удалены. Откройте экран входа без автоматического открытия workspace и сохраните резервную копию перед дальнейшими действиями.", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Открыть восстановление", style: .default) { [weak self, weak webView] _ in
                 guard let self, let webView else { return }
@@ -292,7 +298,7 @@ final class NativeBiometricBridge: NSObject, WKScriptMessageHandlerWithReply {
                 var value: CFTypeRef?
                 let status = SecItemCopyMatching(readQuery as CFDictionary, &value)
                 guard status == errSecSuccess, let key = value as? Data, key.count == 32 else {
-                    finish(nil, "Face ID cancelled or key unavailable. Use your workspace password."); return
+                    finish(nil, status == errSecUserCanceled ? "UTM_BIOMETRIC_CANCELLED" : "UTM_BIOMETRIC_UNAVAILABLE"); return
                 }
                 finish(["key": key.base64EncodedString()], nil)
             }

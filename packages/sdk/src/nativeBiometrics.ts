@@ -9,5 +9,10 @@ export async function nativeBiometrics(kind: 'status' | 'create' | 'read' | 'rem
   if (!bridge) throw new Error('Native Face ID is unavailable. Use your workspace password.');
   const language = typeof document === 'undefined' ? 'en' : document.documentElement.lang;
   try { return await bridge.postMessage({ kind, language, ...(id ? { id } : {}) }); }
-  catch { throw new Error('Face ID was cancelled or unavailable. Use your workspace password, or enable Face ID again in Settings.'); }
+  catch (reason) {
+    const cancelled = /^(Error: )?(UTM_BIOMETRIC_CANCELLED|cancelled)$/.test(String(reason));
+    const error = new Error('Face ID was cancelled or unavailable. Use your workspace password, or enable Face ID again in Settings.');
+    error.name = cancelled ? 'BiometricCancelledError' : 'BiometricUnavailableError';
+    throw error;
+  }
 }

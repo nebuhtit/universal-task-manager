@@ -40,7 +40,8 @@ export function TimelineNow({ workspace, segments, suppliedNow }: { workspace: W
   return <div className={`timeline-now${segment.hidden ? ' is-hidden-time' : ''}`} style={{ top }} data-testid="timeline-now" aria-label={`Current time ${timeLabel(at, workspace.calendarPreferences.timezone)}`}><span>{timeLabel(at, workspace.calendarPreferences.timezone)}</span></div>;
 }
 
-export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
+export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, plan, onReorder, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
+  preparedDay?: ReturnType<typeof prepareTimelineData> | undefined;
   plan?: ReturnType<typeof buildCalendarPlan> | undefined; onReorder?: ((ids: string[], movedId: string) => void) | undefined;
   workspace: WorkspaceDocument; dateKey: string; now: Date; suppliedNow?: Date | undefined;
   capacityLabel?: string; allDayOpen?: boolean; onAllDayChange?: (open: boolean) => void;
@@ -85,7 +86,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ plan, onReorder
     change(); media.addEventListener('change', change); return () => media.removeEventListener('change', change);
   }, []);
   useEffect(() => { setMore([]); }, [dateKey]);
-  const prepared = useMemo(() => prepareTimelineData(workspace, dateKey, now, projectionCache), [workspace, dateKey, now.getTime(), projectionCache]);
+  const prepared = useMemo(() => preparedDay ?? prepareTimelineData(workspace, dateKey, now, projectionCache), [preparedDay, workspace, dateKey, now.getTime(), projectionCache]);
   const data = useMemo(() => {
     const legacy = applyTimelinePlanning(prepared, planningNow);
     const undatedIds = new Set(prepared.undated.filter(item => !item.schedule?.plannedDate).map(item => item.id));

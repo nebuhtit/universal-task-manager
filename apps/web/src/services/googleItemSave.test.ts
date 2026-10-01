@@ -11,6 +11,23 @@ const calendars = { items: [{ id: 'source', primary: true, accessRole: 'owner', 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 describe('unified Google item save', () => {
+  it.each([false, true])('never treats a cancelled move response as deletion (destination confirmed: %s)', async confirmed => {
+    const item = fixture();
+    const event = { id: 'event', iCalUID: 'unique', etag: 'v1', summary: item.title, start: { dateTime: item.schedule!.startAt! }, end: { dateTime: item.schedule!.endAt! } };
+    const op: GoogleSaveOperation = { kind: 'move', calendarId: 'source', destination: 'destination', accountEmail: 'source', eventId: event.id, baseline: event, draft: itemGoogleDraft(item, true) };
+    item.extensions = { [GOOGLE_SAVE_EXTENSION]: op };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('calendarList')) return reply(calendars);
+      if (url.includes('/move?')) return reply({ id: event.id, status: 'cancelled' });
+      if (url.includes('/calendars/destination/')) return reply(confirmed ? event : { id: event.id, status: 'cancelled' });
+      return reply(event);
+    }));
+    const apply = vi.fn(async () => {});
+    const persist = vi.fn(async (operation: GoogleSaveOperation) => { item.extensions![GOOGLE_SAVE_EXTENSION] = operation; });
+    const result = saveGoogleItem({ token: 'test', workspaceId: 'w', accountEmail: 'source', item, options: { calendarId: 'destination', busy: true, baseline: item }, persist, apply });
+    if (confirmed) { await result; expect(apply).toHaveBeenCalledWith('destination', event, true); }
+    else { await expect(result).rejects.toThrow('not confirmed'); expect(apply).not.toHaveBeenCalled(); expect(item.extensions![GOOGLE_SAVE_EXTENSION]).toMatchObject({ kind: 'move', attempted: true }); }
+  });
   it('moves a recurring master without a request body, retaining its recurrence', async () => {
     const item = fixture(); item.role = 'series_template';
     item.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };

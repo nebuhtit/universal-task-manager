@@ -210,5 +210,14 @@ export async function saveGoogleItem(args: {
   let moved: GoogleCalendarEvent;
   try { moved = await googleJson<GoogleCalendarEvent>(`${eventUrl(operation.calendarId, operation.eventId)}/move?destination=${encodeURIComponent(operation.destination)}&sendUpdates=all`, token, undefined, { method: 'POST', etag: current.etag }); }
   catch (reason) { if ((reason as { status?: number }).status === 412) throw new GoogleEditConflict(); throw reason; }
+  // A move may return the cancelled source copy. It is not a user deletion.
+  // Keep the durable move intent until the destination confirms the same event.
+  if (moved.status === 'cancelled') {
+    const destination = await googleJson<GoogleCalendarEvent>(eventUrl(operation.destination, operation.eventId), token);
+    if (destination.status === 'cancelled' || destination.id !== operation.eventId || !destination.iCalUID || destination.iCalUID !== current.iCalUID) {
+      throw new Error('Google move is not confirmed yet. The local event and pending move are retained; retry sync.');
+    }
+    moved = destination;
+  }
   await finish(operation.destination, moved);
 }

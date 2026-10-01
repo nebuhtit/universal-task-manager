@@ -23,6 +23,31 @@ export function calculateGoogleSyncPlan({ workspace, result, recovered }: Google
   }
   const google = workspace.calendarPreferences.googleCalendar;
   if (!google) throw new Error('Google connection changed.');
+  // Repair only the legacy cross-calendar receipt shape, and only with a fresh
+  // full response confirming the exact destination identity. Never undo a real
+  // queued deletion or match events by title/time.
+  for (const item of Object.values(workspace.items)) {
+    if (item.deletedAt || item.external || item.extensions?.['utm:googleSave'] || item.extensions?.['utm:itemDelete']) continue;
+    const receipts = item.extensions?.['utm:googleDeletionReceipts'];
+    if (!Array.isArray(receipts)) continue;
+    const matches = receipts.flatMap(receipt => {
+      if (receipt.accountEmail !== google.accountEmail || typeof receipt.eventId !== 'string' || typeof receipt.calendarId !== 'string') return [];
+      const suffix = `:${receipt.eventId}`;
+      if (!item.id.startsWith('google:') || !item.id.endsWith(suffix)) return [];
+      const sourceCalendar = item.id.slice(7, -suffix.length);
+      if (sourceCalendar === encodeURIComponent(receipt.calendarId)) return [];
+      const batch = result.batches.find(batch => batch.fullSync && batch.calendarId === receipt.calendarId);
+      const event = batch?.events.find(event => event.id === receipt.eventId && event.status !== 'cancelled');
+      return event ? [{ receipt, event }] : [];
+    });
+    if (matches.length !== 1) continue;
+    const { receipt, event } = matches[0]!;
+    const mirror = googleCalendarEventToItem(event, receipt.calendarId, google.connectionId, result.syncedAt);
+    if (!mirror?.external) continue;
+    item.external = { ...mirror.external, readOnly: false };
+    item.extensions!['utm:googleDeletionReceipts'] = receipts.filter(entry => entry !== receipt);
+    delete workspace.tombstones[item.id];
+  }
   for (const recovery of recovered) {
     if (recovered.filter(entry => entry.itemId === recovery.itemId).length !== 1) continue;
     const target = workspace.items[recovery.itemId];
@@ -36,6 +61,7 @@ export function calculateGoogleSyncPlan({ workspace, result, recovered }: Google
     applyGoogleCalendarSync(workspace, { connectionId: google.connectionId, calendarId: recovery.calendarId, events: [recovery.event], syncedAt: result.syncedAt, fullSync: false });
   }
   for (const batch of result.batches) applyGoogleCalendarSync(workspace, batch);
+  if (result.calendars.filter(calendar => calendar.selected).every(calendar => result.batches.some(batch => batch.calendarId === calendar.id && batch.fullSync))) google.moveMirrorRepairVersion = 1;
   workspace.calendarPreferences.googleCalendar = { ...google, calendars: result.calendars, syncTokens: result.syncTokens, syncWindow: result.syncWindow, lastSyncedAt: result.syncedAt, ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}) };
   delete workspace.calendarPreferences.googleCalendar.lastError;
   reconcileCalendarOrganization(workspace);

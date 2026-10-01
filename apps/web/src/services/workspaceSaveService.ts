@@ -134,6 +134,9 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
           assertCurrent();
           assertOperation(requireWorkspace());
           if (event.status === 'cancelled') {
+            if ((requireWorkspace().items[candidate.id]?.extensions?.[GOOGLE_SAVE_EXTENSION] as GoogleSaveOperation | undefined)?.kind !== 'delete') {
+              throw new Error('Google returned a cancelled event while saving. The local item and pending operation are retained.');
+            }
             const ok = commit('Confirm Google event deletion', (draft) => {
               assertOperation(draft);
               reconcileCalendarOrganization(draft);
@@ -374,7 +377,7 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     const repairLegacyMirrors = Object.values(current.items).some(item => item.external?.readOnly && linkedCalendars.has(item.external.calendarId) && item.extensions?.['utm:googleIdentityVersion'] !== 1 && google.calendars.some(calendar => calendar.id === item.external!.calendarId && calendar.selected));
     // After a failed import, a valid delta cursor does not prove that the local
     // mirror is complete. Re-read the selected calendars before clearing error.
-    const fullSync = repairLegacyMirrors || Boolean(google.lastError);
+    const fullSync = repairLegacyMirrors || Boolean(google.lastError) || google.moveMirrorRepairVersion !== 1;
     let result = await stage('download', () => synchronizeGoogleCalendars(suppliedToken, google, progress, fullSync ? { fullSync: true } : {}), profileActionId);
     const recovered: Array<{ itemId: string; calendarId: string; event: GoogleCalendarEvent }> = [];
     for (const item of Object.values(current.items)) {

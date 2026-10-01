@@ -4,7 +4,7 @@ import { encodeRecoverySnapshot, workspaceForExport, type WorkspaceDocument } fr
 type PersistenceRequest = {
   id: number;
   binary: Uint8Array;
-  snapshot: WorkspaceDocument;
+  snapshotJson: string;
 };
 
 type PersistenceResponse =
@@ -14,7 +14,7 @@ type PersistenceResponse =
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 
 workerScope.onmessage = (event: MessageEvent<PersistenceRequest>) => {
-  const { id, binary, snapshot } = event.data;
+  const { id, binary, snapshotJson } = event.data;
   const startedAt = performance.now();
   const stage = (name: string, bytes?: number, durationMs?: number) => workerScope.postMessage({ id, stage: name, ...(bytes === undefined ? {} : { bytes }), ...(durationMs === undefined ? {} : { durationMs }) });
   try {
@@ -22,7 +22,8 @@ workerScope.onmessage = (event: MessageEvent<PersistenceRequest>) => {
     // This worker has no WASM backend and never constructs a second CRDT.
     stage('export-filter-start');
     const filterStart = performance.now();
-    const safe = workspaceForExport(snapshot);
+    // Parse here, avoiding a full object allocation and structured clone on UI.
+    const safe = workspaceForExport(JSON.parse(snapshotJson) as WorkspaceDocument);
     stage('export-filter-end', undefined, performance.now() - filterStart);
     stage('export-encode-start');
     const encodeStart = performance.now();

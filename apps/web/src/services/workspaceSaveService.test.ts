@@ -8,6 +8,8 @@ import { createAutomergeDocument } from '@utm/sdk';
 import { createWorkspaceSaveService } from './workspaceSaveService';
 import { commitWorkspaceDocument } from './workspaceLifecycle';
 import { googleEventDraft, type GoogleEditOperation } from './googleCalendarEdit';
+import { prepareTimelineData } from '../features/calendar/timelineData';
+import { createCalendarProjectionCache } from '../features/calendar/calendarProjectionCache';
 
 const refresh = vi.hoisted(() => vi.fn());
 vi.mock('./googleSyncWorker', async importOriginal => ({
@@ -36,7 +38,7 @@ function fixture(linked = false) {
 }
 
 /** Discard all volatile state and restore only the last durable Automerge bytes. */
-function app(initial: WorkspaceDocument) {
+function app(initial: WorkspaceDocument, onCommit?: (workspace: WorkspaceDocument, message: string) => void) {
   let doc = createAutomergeDocument(initial);
   let disk = Automerge.save(doc);
   let session: object | null = {};
@@ -46,7 +48,7 @@ function app(initial: WorkspaceDocument) {
     getWorkspace: () => session ? doc as WorkspaceDocument : null,
     getSessionKey: () => session,
     notify: vi.fn(),
-    commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => { doc = commitWorkspaceDocument(doc, message, mutation); lastCommit = message; return true; },
+    commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => { doc = commitWorkspaceDocument(doc, message, mutation); lastCommit = message; onCommit?.(doc, message); return true; },
     flushPersistence: async () => {
       if (crashAt === lastCommit) { session = null; throw new Error('IndexedDB acknowledgement interrupted by app closure'); }
       disk = Automerge.save(doc);
@@ -102,6 +104,9 @@ it('restores missing Sunday instances after a failed import without remote write
   expect(runtime.workspace.calendarPreferences.googleCalendar!.lastError).toBeUndefined();
   expect(runtime.workspace.calendarPreferences.googleCalendar!.syncTokens[account]).toBe('new-cursor');
   expect(google.effects).toEqual({ creates: 0, deletes: 0, patches: 0 });
+  expect(runtime.workspace.calendarPreferences.googleCalendar!.moveMirrorRepairVersion).toBe(1);
+  await runtime.service.synchronize('test');
+  expect(refresh.mock.calls[1]![3]).toEqual({});
 });
 
 it('rejects overlapping sync and releases its lock after failure', async () => {
@@ -147,6 +152,35 @@ it('recovers an unlinked future split by its verified creation ID after manual s
 });
 
 describe('workspace save coordinator crash recovery', () => {
+  for (const imported of [false, true]) it(`keeps a single moved event on Timeline before refresh (imported=${imported})`, async () => {
+    const { workspace, item } = fixture(true);
+    item.external!.readOnly = imported;
+    if (imported) {
+      delete workspace.items[item.id];
+      item.id = `google:${encodeURIComponent(account)}:utm12345`;
+      workspace.items[item.id] = item;
+    }
+    workspace.calendarPreferences.timezone = 'UTC';
+    workspace.calendarPreferences.dayView.filter.source = 'true';
+    workspace.calendarPreferences.googleCalendar!.calendars.push({ id: 'destination', name: 'Destination', selected: false });
+    let event: GoogleCalendarEvent = { id: 'utm12345', iCalUID: 'stable-id', etag: 'v1', summary: item.title, start: { dateTime: item.schedule!.startAt!, timeZone: 'UTC' }, end: { dateTime: item.schedule!.endAt!, timeZone: 'UTC' }, status: 'confirmed' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('calendarList')) return Response.json({ items: [{ id: account, primary: true, accessRole: 'owner', timeZone: 'UTC' }, { id: 'destination', accessRole: 'writer', timeZone: 'UTC' }] });
+      if (init?.method === 'PATCH') event = { ...event, ...JSON.parse(String(init.body)), etag: 'v2' };
+      if (url.includes('/move?')) event = { ...event, etag: 'v3' };
+      return Response.json(event);
+    }));
+    const cache = createCalendarProjectionCache();
+    const now = new Date('2099-09-20T10:00:00Z');
+    const visibility: Array<{ message: string; count: number }> = [];
+    const inspect = (w: WorkspaceDocument, message: string) => visibility.push({ message, count: prepareTimelineData(w, '2099-09-20', now, cache).events.filter(row => row.item.id === item.id).length });
+    inspect(workspace, 'before');
+    const runtime = app(workspace, inspect);
+    await runtime.service.saveItem(copy(item), { google: { calendarId: 'destination', busy: true, baseline: copy(item) } }, now);
+    expect(runtime.workspace.items[item.id]!.external?.calendarId).toBe('destination');
+    expect(visibility.filter(entry => entry.count !== 1)).toEqual([]);
+    expect(refresh).not.toHaveBeenCalled();
+  });
   it('returns after durable local save without waiting for Google response', async () => {
     const { workspace, item } = fixture(true);
     let release!: (response: Response) => void;

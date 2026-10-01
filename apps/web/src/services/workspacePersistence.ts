@@ -87,8 +87,8 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
   // Only current values go to the filtering worker. The original serialized
   // history is preserved verbatim, never loaded into a second WASM backend.
   syncTrace('snapshot-start');
-  const snapshot = JSON.parse(JSON.stringify(session.document)) as WorkspaceDocument;
-  syncTrace('snapshot-end', { items: Object.keys(snapshot.items).length });
+  const snapshotJson = JSON.stringify(session.document);
+  syncTrace('snapshot-end', { items: Object.keys(session.document.items).length });
   const dataKey = session.dataKey.slice();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -104,7 +104,7 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
       requests.set(id, { resolve, reject, trace: syncTrace, actionId });
       try {
         const finishTransfer = beginProfileSpan('save.transfer', actionId);
-        try { target.postMessage({ id, binary, snapshot }, [binary.buffer]); }
+        try { target.postMessage({ id, binary, snapshotJson }, [binary.buffer]); }
         finally { finishTransfer(); }
       } catch (reason) {
         syncTrace('storage-worker-transfer-failed');
@@ -138,9 +138,21 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
 }
 
 let persistenceTail: Promise<void> = Promise.resolve();
+let pendingTail: { session: UnlockedWorkspace; promise: Promise<void> } | undefined;
 export function persistWorkspace(session: UnlockedWorkspace, actionId: number | null = currentProfileActionId() ?? null): Promise<void> {
+  // Share only adjacent, still-pending writes of the exact immutable document.
+  // Never reuse completed writes: A -> B -> A must still persist in that order,
+  // and a failed write must remain retryable. All callers await the durable commit.
+  if (pendingTail && pendingTail.session.document === session.document
+    && pendingTail.session.dataKey === session.dataKey
+    && pendingTail.session.storageMode === session.storageMode) return pendingTail.promise;
+  const captured = { ...session };
   const enqueuedAt = performance.now();
-  const next = persistenceTail.then(() => { recordProfileSpan('save.serial-queue', performance.now() - enqueuedAt, {}, actionId); return persistWorkspaceInOrder(session, actionId); });
+  const next = persistenceTail.then(() => { recordProfileSpan('save.serial-queue', performance.now() - enqueuedAt, {}, actionId); return persistWorkspaceInOrder(captured, actionId); });
+  const entry = { session: captured, promise: next };
+  pendingTail = entry;
+  const clear = () => { if (pendingTail === entry) pendingTail = undefined; };
+  void next.then(clear, clear);
   persistenceTail = next.catch(() => undefined);
   return next;
 }

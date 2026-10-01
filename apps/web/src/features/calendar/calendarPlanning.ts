@@ -10,6 +10,15 @@ import { sortViewItems } from '../views/viewSelectors';
 import { beginProfileSpan, recordProfileCache } from '../../services/performanceProfile';
 
 export const planningEnabled = (workspace: WorkspaceDocument) => workspace.calendarPreferences.planning?.enabled !== false;
+
+/** Reorder presentation only; preserve the prepared order of all unlisted rows. */
+export function calendarListOrder(items: UniversalItem[], order?: readonly string[]): UniversalItem[] {
+  if (!order?.length) return items;
+  const byId = new Map(items.map(item => [item.id, item]));
+  const result: UniversalItem[] = [];
+  for (const id of order) { const item = byId.get(id); if (item) { result.push(item); byId.delete(id); } }
+  return [...result, ...byId.values()];
+}
 export const hasFixedEventInterval = (item: UniversalItem) => Boolean(item.schedule?.startAt && item.schedule?.endAt);
 export const sourceReference = (item: UniversalItem): CalendarSourceReference => ({ itemId: item.id, ...(item.occurrence ? { seriesId: item.occurrence.seriesId, recurrenceId: item.occurrence.recurrenceId } : {}) });
 export const referenceKey = (ref: CalendarSourceReference) => ref.seriesId && ref.recurrenceId ? `${ref.seriesId}@${ref.recurrenceId}` : ref.itemId;
@@ -101,6 +110,8 @@ export function parallelPlacementIssue(item: UniversalItem, key: string, start: 
 }
 /** Minute ticks affect today's queue, not every other visible day. */
 export function createCalendarPlanCache() {
+  let signatureWorkspace: WorkspaceDocument | undefined;
+  let cachedSignature = '';
   const values = new Map<string, { planningSignature: string; prepared: Prepared; reserved: UniversalItem[]; stamp: string; value: ReturnType<typeof buildCalendarPlan> }>();
   return (workspace: WorkspaceDocument, key: string, prepared: Prepared, now: Date, reserved: UniversalItem[]) => {
     const finish = beginProfileSpan('calendar.plan');
@@ -109,7 +120,10 @@ export function createCalendarPlanCache() {
     const stamp = `${today}:${key === today ? Math.floor(+now / 60_000) : pinBoundaries}`;
     // Planning does not depend on titles, notes, tags or Google metadata.
     // Keep those content changes out of the expensive order calculation.
-    const planningSignature = JSON.stringify({
+    // All visible days consume the same immutable snapshot. Serialize it once,
+    // not once per day/minute. Unknown dependencies still invalidate safely.
+    if (signatureWorkspace !== workspace) {
+      cachedSignature = JSON.stringify({
       timezone: workspace.calendarPreferences.timezone,
       planning: workspace.calendarPreferences.planning,
       items: Object.values(workspace.items).map(item => ({
@@ -120,7 +134,10 @@ export function createCalendarPlanCache() {
         occurrence: item.occurrence,
         external: item.external ? { transparency: item.external.transparency } : undefined,
       })),
-    });
+      });
+      signatureWorkspace = workspace;
+    }
+    const planningSignature = cachedSignature;
     const prior = values.get(key);
     if (prior && prior.planningSignature === planningSignature && prior.prepared === prepared && prior.reserved === reserved && prior.stamp === stamp) { recordProfileCache('calendar.plan', true, 'unchanged'); finish(); return prior.value; }
     const value = buildCalendarPlan(workspace, key, prepared, now, reserved);

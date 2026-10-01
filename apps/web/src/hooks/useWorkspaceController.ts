@@ -25,6 +25,8 @@ import { nativeReminderSchedule, notificationItemMomentBody } from '../services/
 import { hasPasswordBypassHint, setPasswordBypassHint } from '../services/passwordBypassHint';
 import { acknowledgeObsidianFlush, persistObsidianWorkspace, syncObsidianReminders } from '../services/obsidianBridge';
 import { currentProfileActionId, measureProfile } from '../services/performanceProfile';
+import { createSaveStatusStore } from '../services/saveStatusStore';
+import { recordEntityChanges } from '../services/entityJournal';
 
 const ACTIVATION_PERSISTENCE_WAIT_MS = 5_000;
 
@@ -36,7 +38,8 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const [boot, setBoot] = useState<'checking' | 'empty' | 'locked' | 'ready'>('checking');
   const [passwordProtection, setPasswordProtection] = useState<PasswordProtectionStatus | 'checking'>('checking');
   const [session, setSession] = useState<UnlockedWorkspace | null>(null);
-  const [saveStatus, setSaveStatus] = useState<'loaded' | 'saving' | 'saved' | 'error'>('loaded');
+  const [saveStatusStore] = useState(createSaveStatusStore);
+  const setSaveStatus = saveStatusStore.set;
   const sessionRef = useRef<UnlockedWorkspace | null>(null);
   const persistenceQueue = useRef<LatestPersistenceQueue<PersistenceOperation> | null>(null);
   if (!persistenceQueue.current) {
@@ -125,6 +128,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       recordDiagnostic({ kind: 'result', message: 'Workspace operation made no changes; persistence skipped', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
       return true;
     }
+    recordEntityChanges(currentSession.document, document, message, currentSession.dataKey);
     const next = { ...currentSession, document }; sessionRef.current = next; setSession(next);
     syncTrace('react-enqueued');
     markPendingSave(); setSaveStatus('saving');
@@ -395,6 +399,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     };
     const warnUnsaved = (event: BeforeUnloadEvent) => {
       if (isNativeContainer) return;
+      const saveStatus = saveStatusStore.getSnapshot();
       if (saveStatus === 'saving' || saveStatus === 'error') { event.preventDefault(); event.returnValue = ''; }
     };
     window.addEventListener('beforeunload', warnUnsaved);
@@ -407,7 +412,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       window.removeEventListener('beforeunload', flushBeforePageExit);
       window.removeEventListener('beforeunload', warnUnsaved);
     };
-  }, [saveStatus]);
+  }, [saveStatusStore]);
 
   const lockWorkspace = async () => {
     if (session?.storageMode === 'plaintext') { onToast('An unencrypted test workspace cannot be locked. Create an encrypted workspace to use password lock.'); return; }
@@ -427,5 +432,5 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const resetReminderDelivery = (ids: string[]) => ids.forEach((id) => deliveredReminderIds.current.delete(id));
   const getCurrentWorkspace = () => (sessionRef.current?.document as WorkspaceDocument | undefined) ?? null;
   const getCurrentSessionKey = () => sessionRef.current?.dataKey ?? null;
-  return { boot, session, workspace, saveStatus, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey };
+  return { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey };
 }

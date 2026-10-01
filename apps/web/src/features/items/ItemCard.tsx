@@ -10,8 +10,6 @@ import { OverdueDueIndicator, overdueAgeWithoutActiveRange } from './OverdueDueI
 import { ItemStateMarker } from './ItemStateMarker';
 import { canQuickChangeDue } from './dueQuickActions';
 
-const touchStateCommits = new Map<string, number>();
-
 export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewScripts = [], calendarTimeOnly = false, calendarReference = false, celebrating = false }: { item: UniversalItem; onEdit: () => void; onState: (state: UniversalItem['state']) => void; fields?: string[]; workspace?: WorkspaceDocument; now?: Date; viewScripts?: readonly ItemScriptField[]; calendarTimeOnly?: boolean; calendarReference?: boolean | undefined; celebrating?: boolean }) {
   const t = useTranslation(workspace?.calendarPreferences.language ?? 'en');
   const due = item.schedule?.dueAt ?? item.schedule?.startAt;
@@ -34,18 +32,11 @@ export function ItemCard({ item, onEdit, onState, fields, workspace, now, viewSc
   const beginStateToggle = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (readOnlyExternal) return;
     primeStateToggle(event);
-    if (event.pointerType === 'mouse') return;
-    touchStateCommits.set(item.id, performance.now() + 1_000);
-    const nextState = visiblyClosed ? 'open' : 'done';
-    onState(nextState);
+    // Only paint feedback on press. Committing here can move this card before
+    // the browser dispatches click, allowing that click to hit another item.
   };
   const finishStateToggle = () => {
     if (readOnlyExternal) return;
-    const touchCommitUntil = touchStateCommits.get(item.id) ?? 0;
-    touchStateCommits.delete(item.id);
-    if (touchCommitUntil >= performance.now()) {
-      return;
-    }
     if (optimisticClosed === null) primeStateToggle();
     const nextState = visiblyClosed ? 'open' : 'done';
     onState(nextState);

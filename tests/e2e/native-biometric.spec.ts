@@ -13,6 +13,9 @@ test('native Face ID enrollment, reopen, cancellation, password fallback and dis
         return { key };
       }
       if (message.kind === 'read') {
+        sessionStorage.setItem('synthetic-read-count', String(Number(sessionStorage.getItem('synthetic-read-count') ?? 0) + 1));
+        if (sessionStorage.getItem('synthetic-fail-always')) throw new Error('Temporarily unavailable');
+        if (sessionStorage.getItem('synthetic-fail-once')) { sessionStorage.removeItem('synthetic-fail-once'); throw new Error('Temporarily unavailable'); }
         if (sessionStorage.getItem('synthetic-cancel')) throw new Error('cancelled');
         return { key: sessionStorage.getItem(prefix + message.id) };
       }
@@ -31,11 +34,23 @@ test('native Face ID enrollment, reopen, cancellation, password fallback and dis
   await expect(page.getByRole('button', { name: 'Disable Face ID', exact: true })).toBeVisible();
   await page.reload();
   await expect(page.locator('.sidebar').getByRole('button', { name: 'Settings' })).toBeVisible();
+  await page.evaluate(() => { sessionStorage.setItem('synthetic-fail-once', '1'); sessionStorage.setItem('synthetic-read-count', '0'); });
+  await page.reload();
+  await expect(page.locator('.sidebar').getByRole('button', { name: 'Settings' })).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem('synthetic-read-count'))).toBe('2');
   await page.evaluate(() => sessionStorage.setItem('synthetic-cancel', '1'));
   await page.reload();
   await expect(page.getByText('Face ID was unavailable, cancelled, or could not unlock this workspace. Enter your password below instead.')).toBeVisible();
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await expect(page.locator('.sidebar').getByRole('button', { name: 'Settings' })).toBeVisible();
+  await page.evaluate(() => { sessionStorage.removeItem('synthetic-cancel'); sessionStorage.setItem('synthetic-fail-always', '1'); sessionStorage.setItem('synthetic-read-count', '0'); });
+  await page.reload();
+  await expect(page.getByRole('checkbox', { name: /Безопасное открытие/ })).toBeChecked();
+  expect(await page.evaluate(() => sessionStorage.getItem('synthetic-read-count'))).toBe('2');
+  await page.evaluate(() => sessionStorage.removeItem('synthetic-fail-always'));
+  await page.getByRole('checkbox', { name: /Безопасное открытие/ }).uncheck();
+  await page.getByRole('button', { name: 'Unlock with Face ID', exact: true }).click();
   await page.locator('.sidebar').getByRole('button', { name: 'Settings' }).click();
   const disclosure = page.locator('details').filter({ has: page.getByText('Device unlock', { exact: true }) }).last();
   if (!await disclosure.getAttribute('open').then(value => value !== null)) await page.getByText('Device unlock', { exact: true }).click();
