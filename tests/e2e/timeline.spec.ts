@@ -238,10 +238,7 @@ test('active-range work is an unfilled outline on successive days and opens its 
   await swipeTouch(page, '.timeline-axis', 290, 120);
   await expect(page.locator('.calendar-heading-date h1')).toContainText('September 23, 2026');
   await expect(cue).toHaveCount(1);
-  await cue.evaluate(element => element.scrollIntoView({ block: 'center' }));
-  await page.waitForTimeout(350);
-  await page.clock.runFor(100);
-  await cue.click();
+  await activateControl(cue, page.viewportSize()?.width === 390);
   await expect(page.getByRole('dialog')).toContainText('Active preparation');
 });
 
@@ -312,8 +309,8 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   const hiddenSleep = page.locator('.timeline-break').first();
   // On mobile the floating quick-add dock can cover the bottom of the long
   // timeline. Center the collapsed gap before tapping it.
-  await hiddenSleep.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
-  await hiddenSleep.click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
+  await activateControl(hiddenSleep, testInfo.project.use.hasTouch === true);
+  await expect(page.locator('.timeline-break')).toHaveCount(0);
   await page.getByRole('button', { name: /^Collapse night/ }).click(); await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await tentative.scrollIntoViewIfNeeded();
