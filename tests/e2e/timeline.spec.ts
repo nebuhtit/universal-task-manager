@@ -309,7 +309,11 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.getByRole('button', { name: 'Sleep source', exact: true }).click();
   await page.getByRole('button', { name: 'Save view' }).click();
   await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
-  await page.locator('.timeline-break').first().click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
+  const hiddenSleep = page.locator('.timeline-break').first();
+  // On mobile the floating quick-add dock can cover the bottom of the long
+  // timeline. Center the collapsed gap before tapping it.
+  await hiddenSleep.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await hiddenSleep.click(); await expect(page.locator('.timeline-break')).toHaveCount(0);
   await page.getByRole('button', { name: /^Collapse night/ }).click(); await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await tentative.scrollIntoViewIfNeeded();
