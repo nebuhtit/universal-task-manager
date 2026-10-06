@@ -21,4 +21,17 @@ describe('item editor title draft', () => {
     expect(result.schedule?.estimatedDuration).toBe('PT30M');
     expect(result.schedule?.startAt).toBe(item.schedule.startAt);
   });
+
+  it.each(['Updated ттб 45м', 'Updated ttb 45m'])('uses existing event bounds for both travel legs in %s', text => {
+    const item = createItem('Before');
+    item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z', endAt: '2030-09-20T13:00:00Z' };
+    const result = applyEditorTitleDraft(item, structuredClone(item), text, '', new Date('2030-09-01T00:00:00Z'));
+    expect(result.title).toBe('Updated');
+    expect(result.schedule).toMatchObject({
+      startAt: item.schedule.startAt,
+      endAt: item.schedule.endAt,
+      travelDuration: 'PT45M',
+      travelBackDuration: 'PT45M',
+    });
+  });
 });
