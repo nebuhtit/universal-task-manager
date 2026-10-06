@@ -685,14 +685,15 @@ tbody tr:hover { background: var(--soft); }
   place-items: center;
   padding: 24px;
   background-color: #fafafa;
+  /* Fade each patch fully before its image edge, including tall iPhone screens. */
   background-image:
-    radial-gradient(circle, rgba(255, 153, 153, .17) 0, transparent 64%),
-    radial-gradient(circle, rgba(255, 194, 128, .16) 0, transparent 64%),
-    radial-gradient(circle, rgba(246, 224, 132, .14) 0, transparent 64%),
-    radial-gradient(circle, rgba(145, 218, 174, .17) 0, transparent 64%),
-    radial-gradient(circle, rgba(125, 211, 226, .16) 0, transparent 64%),
-    radial-gradient(circle, rgba(139, 177, 237, .17) 0, transparent 64%),
-    radial-gradient(circle, rgba(190, 153, 229, .16) 0, transparent 64%);
+    radial-gradient(ellipse closest-side, rgba(255, 153, 153, .17) 0, transparent 100%),
+    radial-gradient(ellipse closest-side, rgba(255, 194, 128, .16) 0, transparent 100%),
+    radial-gradient(ellipse closest-side, rgba(246, 224, 132, .14) 0, transparent 100%),
+    radial-gradient(ellipse closest-side, rgba(145, 218, 174, .17) 0, transparent 100%),
+    radial-gradient(ellipse closest-side, rgba(125, 211, 226, .16) 0, transparent 100%),
+    radial-gradient(ellipse closest-side, rgba(139, 177, 237, .17) 0, transparent 100%),
+    radial-gradient(ellipse closest-side, rgba(190, 153, 229, .16) 0, transparent 100%);
   background-repeat: no-repeat;
   background-size: 62% 62%;
   background-position: -12% -15%, 38% -24%, 102% -8%, 112% 52%, 76% 112%, 22% 118%, -18% 68%;

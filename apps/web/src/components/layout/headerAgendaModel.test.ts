@@ -123,4 +123,30 @@ describe('header agenda', () => {
     expect(selectHeaderAgenda(workspace, now).current).toBeUndefined();
     expect(selectHeaderAgenda(workspace, now).next?.at).toBe(now + 10000);
   });
+  it('keeps the same agenda in a large workspace with historical series and exceptions', () => {
+    const { workspace, add } = fixture();
+    for (let index = 0; index < 1600; index++) add(`Unscheduled ${index}`, 86400 * 10);
+    for (let index = 0; index < 40; index++) {
+      const base = createItem(`Historical ${index}`, 'event');
+      base.schedule = { timezone: 'Europe/Moscow', startAt: '2010-01-04T07:00:00Z', endAt: '2010-01-04T08:00:00Z' };
+      const series = makeSeries(base, 'FREQ=WEEKLY');
+      workspace.items[series.id] = series;
+      for (let cycle = 0; cycle < 10; cycle++) {
+        const exception = createOccurrence(series, new Date(Date.parse(base.schedule.startAt!) + cycle * 7 * 86400000), cycle);
+        exception.state = 'done'; workspace.items[exception.id] = exception;
+      }
+    }
+    const next = add('Next event', 1, 60);
+    const before = JSON.stringify(workspace);
+    const timings: number[] = [];
+    for (let run = 0; run < 3; run++) {
+      const started = performance.now();
+      const agenda = selectHeaderAgenda(workspace, now);
+      timings.push(performance.now() - started);
+      expect(agenda).toMatchObject({ next: { id: next.id, at: now + 1000 }, concurrent: [], additional: 0, validUntil: now + 1000 });
+      expect(agenda.current).toBeUndefined();
+    }
+    expect(JSON.stringify(workspace)).toBe(before);
+    if (process.env.UTM_PERF_BASELINE === '1') console.info('header agenda historical-series benchmark (ms):', timings.map(value => Math.round(value)));
+  });
 });

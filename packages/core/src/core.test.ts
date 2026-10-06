@@ -517,6 +517,31 @@ describe('recurrence and auto-renew', () => {
     ]);
   });
 
+  it('keeps timezone conversions correct after formatter reuse and eviction', () => {
+    const item = createItem('Berlin daily');
+    item.schedule = { timezone: 'Europe/Berlin', startAt: '2026-03-28T08:00:00.000Z' };
+    const series = makeSeries(item, 'FREQ=DAILY;COUNT=3', { timezone: 'Europe/Berlin' });
+    const expected = ['2026-03-28T08:00:00.000Z', '2026-03-29T07:00:00.000Z', '2026-03-30T07:00:00.000Z'];
+    expect(buildRecurrenceRule(series).all().map(date => date.toISOString())).toEqual(expected);
+    const zones = [...Array.from({ length: 25 }, (_, index) => {
+      const offset = index - 12;
+      return offset === 0 ? 'Etc/GMT' : `Etc/GMT${offset > 0 ? '+' : ''}${offset}`;
+    }), 'UTC', 'Europe/Moscow', 'America/New_York', 'Asia/Tokyo', 'Asia/Kolkata', 'Australia/Sydney', 'Pacific/Auckland', 'Europe/London', 'Europe/Paris'];
+    for (const timezone of zones) {
+      const other = { ...series, recurrence: { ...series.recurrence!, timezone } };
+      const dates = buildRecurrenceRule(other).all();
+      expect(dates[0]?.toISOString()).toBe(item.schedule.startAt);
+    }
+    for (let run = 0; run < 2; run++) {
+      const rule = buildRecurrenceRule(series);
+      expect(rule.all().map(date => date.toISOString())).toEqual(expected);
+      expect(rule.after(new Date(expected[0]!))?.toISOString()).toBe(expected[1]);
+      expect(rule.between(new Date(expected[0]!), new Date(expected[2]!), true).map(date => date.toISOString())).toEqual(expected);
+    }
+    expect(() => buildRecurrenceRule({ ...series, recurrence: { ...series.recurrence!, timezone: 'invalid/zone' } })).toThrow();
+    expect(buildRecurrenceRule(series).all().map(date => date.toISOString())).toEqual(expected);
+  });
+
   it('materializes a due-only recurring item without inventing a scheduled start', () => {
     const now = new Date('2026-08-28T10:00:00.000Z');
     const workspace = createWorkspace('Due-only recurrence', now);

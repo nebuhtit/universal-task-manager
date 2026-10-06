@@ -1,5 +1,30 @@
 # Performance profile v1
 
+## 3.5.6: recurring header preparation
+
+Diagnostics 47 showed `agenda.header` up to 25,379 ms in iOS. That is worker
+calculation duration, not proof that the main thread was blocked for that time.
+Recurrence timezone conversion now shares up to 32 fixed-option Intl formatters.
+Dates, timezone rules, DST conversion and recurrence iteration remain unchanged.
+Header selection builds the stored-exception lookup once and materializes the
+next eligible cycle once, instead of scanning all items for each series and
+cloning the accepted cycle twice. No occurrence-result cache was added.
+
+The local historical-series regression fixture contains 2,041 items, including
+40 weekly series anchored in 2010 and 400 closed exceptions. Three isolated
+selection runs before this change were 703/647/629 ms; afterward 430/423/413 ms
+(median improvement about 35%). These desktop results are not iPhone timings.
+Reproduce with:
+
+```sh
+UTM_PERF_BASELINE=1 pnpm exec vitest run apps/web/src/components/layout/headerAgendaModel.test.ts
+```
+
+The fixture always checks the resulting agenda and workspace immutability.
+Core tests also exercise DST, interleaved timezones, eviction and invalid zones.
+Compare fresh iOS `agenda.header`/`agenda.header-wait` profiles separately from
+startup UI commit/frame delays before attributing an end-to-end speedup.
+
 ## 3.5.3: Home evaluation and focus
 
 Diagnostics 43: six saves succeeded (maximum 525 ms); 598 selections scanned

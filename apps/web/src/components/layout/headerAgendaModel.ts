@@ -11,19 +11,29 @@ const stable = (a: AgendaEntry, b: AgendaEntry) => a.id.localeCompare(b.id);
 /** Read-only projection: stored exceptions replace virtual cycles, including deleted/closed ones. */
 function agendaItems(workspace: WorkspaceDocument, now: number): UniversalItem[] {
   const stored = Object.values(workspace.items);
+  const overridesBySeries = new Map<string, Set<string>>();
+  for (const item of stored) {
+    if (!item.occurrence) continue;
+    const { seriesId, recurrenceId } = item.occurrence;
+    let overrides = overridesBySeries.get(seriesId);
+    if (!overrides) { overrides = new Set(); overridesBySeries.set(seriesId, overrides); }
+    overrides.add(recurrenceId);
+  }
   const eligible = (item: UniversalItem) => item.state === 'open' && !itemDeletionTime(workspace, item);
   const result = stored.filter(item => item.role !== 'series_template' && eligible(item));
   for (const series of stored) {
-    if (series.role !== 'series_template' || !eligible(series) || !series.recurrence || !recurrenceAnchor(series)) continue;
-    const origin = new Date(recurrenceAnchor(series)!);
+    if (series.role !== 'series_template' || !eligible(series) || !series.recurrence) continue;
+    const originValue = recurrenceAnchor(series);
+    if (!originValue) continue;
+    const origin = new Date(originValue);
     const sample = createOccurrence(series, origin, 0);
     // Include long-running cycles and due offsets, not just yesterday's anchor.
     const offsets = [timestamp(sample.schedule?.endAt), timestamp(sample.schedule?.dueAt), ...(sample.eventProgram?.blocks ?? []).map(block => origin.getTime() + block.endOffsetSeconds * 1000)];
     const lookback = Math.max(0, ...offsets.filter(Number.isFinite).map(at => at - origin.getTime()));
-    const overrides = new Set(stored.filter(item => item.occurrence?.seriesId === series.id).map(item => item.occurrence!.recurrenceId));
+    const overrides = overridesBySeries.get(series.id);
     const rule = buildRecurrenceRule(series);
     const append = (anchor: Date) => {
-      if (!overrides.has(anchor.toISOString())) {
+      if (!overrides?.has(anchor.toISOString())) {
         const item = createOccurrence(series, anchor, 0);
         if (eligible(item)) result.push(item);
       }
@@ -31,8 +41,13 @@ function agendaItems(workspace: WorkspaceDocument, now: number): UniversalItem[]
     for (const anchor of rule.between(new Date(now - lookback), new Date(now), true)) append(anchor);
     let next = rule.after(new Date(now));
     // Exceptions may move or close arbitrarily many upcoming cycles.
-    while (next && (overrides.has(next.toISOString()) || !eligible(createOccurrence(series, next, 0)))) next = rule.after(next);
-    if (next) append(next);
+    while (next) {
+      if (!overrides?.has(next.toISOString())) {
+        const item = createOccurrence(series, next, 0);
+        if (eligible(item)) { result.push(item); break; }
+      }
+      next = rule.after(next);
+    }
   }
   return result;
 }

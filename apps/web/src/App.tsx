@@ -948,7 +948,8 @@ export default function App() {
     setCompletionHold(itemId);
   };
   const holdCompletedItem = (item: UniversalItem, undoUntil: number) => {
-    clearCompletionHold(item.id);
+    const timers = completionTimers.current.get(item.id);
+    if (timers) { window.clearTimeout(timers.exit); window.clearTimeout(timers.remove); }
     const removeAt = undoUntil + COMPLETION_EXIT_MS;
     const hold = { previous: clean(item), undoUntil, removeAt };
     setCompletionHold(item.id, hold);
@@ -1130,7 +1131,6 @@ export default function App() {
       window.setTimeout(() => setCelebrationColors((current) => { const next = new Map(current); next.delete(item.id); return next; }), 900);
     }
     else {
-      clearCompletionHold(item.id);
       clearUndoActionsForItem(item.id);
       setCelebrationColors((current) => {
         if (!current.has(item.id)) return current;
@@ -1200,6 +1200,9 @@ export default function App() {
         const result = runAutomationEvents(draft, [event]);
         if (result.notifications.length) setNotices((current) => [...current, ...result.notifications.map((notice) => ({ ...notice, id: createId(), at: occurredAt }))]);
       });
+      // Keep the row's filtering and position until the reopened document is
+      // queued for rendering; releasing it earlier briefly hides a done item.
+      if (changed && state === 'open') clearCompletionHold(item.id);
       if (!changed && undoId) {
         const timer = undoTimers.current.get(undoId);
         if (timer) window.clearTimeout(timer);

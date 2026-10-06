@@ -51,7 +51,9 @@ export function retainCompletionPositions<T extends { id: string }>(rows: T[], p
 }
 
 export function setCompletionHold(itemId: string, hold?: CompletionHold): void {
-  if (hold === undefined) completionHolds.delete(itemId);
+  if (hold === undefined) {
+    if (!completionHolds.delete(itemId)) return;
+  }
   else completionHolds.set(itemId, hold);
   notifyCompletionHolds();
 }

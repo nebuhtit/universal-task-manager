@@ -47,11 +47,22 @@ export function deterministicOccurrenceId(seriesId: string, anchor: string): str
   return `occ_${seriesId}_${anchor.replace(/[-:.TZ]/g, '')}`;
 }
 
+// Formatters contain timezone rules, not dates or workspace state. Reusing them
+// avoids repeated ICU setup while keeping every conversion and DST resolution
+// unchanged. Bound the cache even when imported workspaces use many zones.
+const localPartFormatters = new Map<string, Intl.DateTimeFormat>();
+const MAX_LOCAL_PART_FORMATTERS = 32;
 function localParts(date: Date, timezone: string): Record<string, number> {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).formatToParts(date);
+  let formatter = localPartFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    });
+    if (localPartFormatters.size >= MAX_LOCAL_PART_FORMATTERS) localPartFormatters.delete(localPartFormatters.keys().next().value!);
+    localPartFormatters.set(timezone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
   return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
 }
 
