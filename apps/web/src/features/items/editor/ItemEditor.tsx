@@ -23,7 +23,7 @@ import { useWorkspaceNow } from '../../../hooks/useClock';
 import { inferredPreset, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
-import { formatQuickEntryForEditor, applyQuickEntryEditorText as applyQuickEntryText, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
+import { formatQuickEntryForEditor, applyQuickEntryEditorText as applyQuickEntryText, parseQuickEntryForItem, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
 import { LiveTextInput } from '../LiveTextInput';
 import { parseLiveEntry as parseEntry } from '../../../../quick-entry-lab/parser';
 import { ItemSection } from './ItemSection';
@@ -99,7 +99,14 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   useLayoutEffect(() => recordProfileCommit('editor'));
   const liveNow = useWorkspaceNow(workspace, 1_000, suppliedNow === undefined);
   const now = suppliedNow ?? liveNow;
-  const [item, setItem] = useState(() => { const next = clean(googleCalendarProjection(initial)); initializeItemHistory(next); return next; });
+  const [item, setItem] = useState(() => {
+    const next = clean(googleCalendarProjection(initial));
+    if (next.preset === 'event' && !next.external && !next.schedule?.allDay && next.schedule?.startAt && !next.schedule.endAt && !next.schedule.estimatedDuration) {
+      next.schedule = scheduleWithDuration({ ...next.schedule, timezone: next.schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone }, { amount: 1, unit: 'hours' });
+    }
+    initializeItemHistory(next);
+    return next;
+  });
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [googleBaseline, setGoogleBaseline] = useState(() => clean(initial));
@@ -406,7 +413,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const save = async ({ dismissKeyboard = false, complete = false }: { dismissKeyboard?: boolean; complete?: boolean } = {}) => {
     if (sourceEditing) { setError('Примените или отмените правку строки быстрого ввода перед сохранением.'); return; }
     if (titleEdited.current) {
-      const titleErrors = parseEntry(titleDraft.current, now).errors;
+      const titleErrors = parseQuickEntryForItem(titleDraft.current, now, item).errors;
       if (titleErrors.length) { setError(titleErrors.join(' ')); return; }
     }
     if (timezoneDraft !== (item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone)) { setError('Выберите действительный часовой пояс.'); return; }
@@ -503,6 +510,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
           {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseEntry(sourceDraft, now).errors.length ? <p className="editor-error error">{parseEntry(sourceDraft, now).errors.join(' ')}</p> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseEntry(sourceDraft, now).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntrySource(item)?.text ?? item.title)} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }} />}
           {item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
+        {error && <p className="editor-error error" role="alert">{error}</p>}
         {!sourceEditing && <>
         <QuickItemTimer soundEnabled defaultDurationSeconds={item.schedule?.estimatedDuration ? durationToMs(item.schedule.estimatedDuration) / 1000 : 600} timerTitle={item.title || 'Universal'} activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
           if (onTimerStateSave && workspace.items[(timerOwner ?? item).id]) await onTimerStateSave((timerOwner ?? item).id, runningTimer);
@@ -608,7 +616,6 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
           {Boolean(item.extensions?.[GOOGLE_SAVE_EXTENSION]) && <p role="status" className="hint">{workspace.calendarPreferences.language === 'ru' ? 'Сохранено в UTM, ожидает синхронизации.' : 'Saved in UTM, waiting for sync.'}{String((item.extensions![GOOGLE_SAVE_EXTENSION] as { blocked?: string }).blocked ?? '')}</p>}
         </ItemSection>
         </>}
-      {error && <p className="editor-error error" role="alert">{error}</p>}
       {googleConflict && <Button disabled={saving} onClick={async () => {
         const link = googleBaseline.external; if (!link || !googlePreferences) return;
         try {

@@ -142,11 +142,26 @@ export function applyQuickEntryEditorText(item: UniversalItem, text: string, now
     });
   const hidden = source.match(editorDefaultReminders)?.[0];
   const expanded = hidden && !editorDefaultReminders.test(text) && !parseEntry(text, now).noDefaultReminders ? text.trimEnd() + hidden : text;
-  return applyQuickEntryText(item, expanded, now);
+  return applyQuickEntryText(item, expanded, now, { preserveUnspecifiedSchedule: true });
 }
 
-export function applyQuickEntryText(item: UniversalItem, text: string, now: Date): { item: UniversalItem; draft: Draft } {
+export function parseQuickEntryForItem(text: string, now: Date, item?: UniversalItem): Draft {
   const draft = parseEntry(text, now);
+  if (!item) return draft;
+  const hasStart = Boolean(item.schedule?.startAt);
+  const hasEnd = Boolean(item.schedule?.endAt);
+  // Travel commands can rely on the existing event bounds when editing a
+  // title. The standalone parser still reports these as errors for new items.
+  draft.errors = draft.errors.filter(error => !(hasStart && [
+    'Для дороги нужно время начала.',
+    'Для напоминания до начала нужно время event opens.',
+  ].includes(error)) && !(hasEnd && error === 'Для дороги обратно нужно время конца события.'));
+  return draft;
+}
+
+export function applyQuickEntryText(item: UniversalItem, text: string, now: Date, options: { preserveUnspecifiedSchedule?: boolean } = {}): { item: UniversalItem; draft: Draft } {
+  const preserveUnspecifiedSchedule = options.preserveUnspecifiedSchedule === true;
+  const draft = parseQuickEntryForItem(text, now, preserveUnspecifiedSchedule ? item : undefined);
   if (draft.errors.length) throw new Error(draft.errors.join(' '));
   const within = extractWithinRelations(text);
   const organization = extractOrganization(within.text);
@@ -157,16 +172,20 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   const previous = extractOrganization(quickEntrySource(item)?.text ?? '');
   const memberships = (current: string[], old: string[], next: string[]) => [...new Set([...current.filter(name => !old.includes(name)), ...next])];
   const schedule = { timezone: item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...item.schedule };
-  if (draft.due) schedule.dueAt = draft.due; else delete schedule.dueAt;
-  if (draft.plannedDate) schedule.plannedDate = draft.plannedDate; else delete schedule.plannedDate;
-  if (draft.start) schedule.startAt = draft.start; else delete schedule.startAt;
-  if (draft.end) schedule.endAt = draft.end; else delete schedule.endAt;
-  if (draft.durationMinutes !== null) schedule.estimatedDuration = minutesDuration(draft.durationMinutes); else delete schedule.estimatedDuration;
-  if (draft.travelMinutes !== null) schedule.travelDuration = minutesDuration(draft.travelMinutes); else delete schedule.travelDuration;
-  if (draft.travelBackMinutes !== undefined) schedule.travelBackDuration = minutesDuration(draft.travelBackMinutes); else delete schedule.travelBackDuration;
+  if (draft.due) schedule.dueAt = draft.due; else if (!preserveUnspecifiedSchedule) delete schedule.dueAt;
+  if (draft.plannedDate) {
+    schedule.plannedDate = draft.plannedDate;
+    delete schedule.startAt; delete schedule.endAt; delete schedule.estimatedDuration; delete schedule.allDay;
+  } else if (!preserveUnspecifiedSchedule || draft.start) delete schedule.plannedDate;
+  if (draft.start) { schedule.startAt = draft.start; delete schedule.allDay; }
+  else if (!preserveUnspecifiedSchedule) delete schedule.startAt;
+  if (draft.end) schedule.endAt = draft.end; else if (!preserveUnspecifiedSchedule) delete schedule.endAt;
+  if (draft.durationMinutes !== null) schedule.estimatedDuration = minutesDuration(draft.durationMinutes); else if (!preserveUnspecifiedSchedule) delete schedule.estimatedDuration;
+  if (draft.travelMinutes !== null) schedule.travelDuration = minutesDuration(draft.travelMinutes); else if (!preserveUnspecifiedSchedule) delete schedule.travelDuration;
+  if (draft.travelBackMinutes !== undefined) schedule.travelBackDuration = minutesDuration(draft.travelBackMinutes); else if (!preserveUnspecifiedSchedule) delete schedule.travelBackDuration;
   return {
     item: {
-      ...item, title: draft.title, schedule, reminders: reminderItems(draft),
+      ...item, title: draft.title, schedule, reminders: preserveUnspecifiedSchedule && draft.reminders.length === 0 ? item.reminders : reminderItems(draft),
       relations: [...item.relations.filter(r => r.type !== 'scheduled_within' || !previousWithin.includes(r.targetId)), ...within.ids.filter(id => id !== item.id && !item.relations.some(r => r.type === 'scheduled_within' && r.targetId === id && !previousWithin.includes(id))).map(targetId => item.relations.find(r => r.type === 'scheduled_within' && r.targetId === targetId) ?? ({ id: createId(), targetId, type: 'scheduled_within' as const }))],
       ...(draft.isNote ? { isNote: true, canBeCompleted: false } : {}),
       areas: memberships(item.areas, previous.areas, draft.areas ?? []),

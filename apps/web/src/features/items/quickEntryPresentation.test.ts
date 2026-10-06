@@ -3,6 +3,15 @@ import { applyQuickEntryEditorText } from './quickEntry';
 import { applyQuickEntryText, createQuickEntryItem, formatQuickEntryForEditor, quickEntrySource, syncQuickEntrySource } from './quickEntry';
 
 describe('quick entry presentation', () => {
+  it('preserves existing schedule fields when editing only the title and validates travel against existing event bounds', () => {
+    const now = new Date('2026-09-23T12:00:00Z');
+    const item = createQuickEntryItem('Event start 24.09.2026 10:00 end 24.09.2026 11:30 duration 90m', now);
+    const previousSchedule = { ...item.schedule };
+    const edited = applyQuickEntryEditorText(item, 'Updated event ttb 45m', now).item;
+    expect(edited.title).toBe('Updated event');
+    expect(edited.schedule).toMatchObject({ ...previousSchedule, travelBackDuration: 'PT45M' });
+  });
+
   it('hides departure defaults without deleting reminder properties, and recalculates after travel edits', () => {
     const now = new Date(2026, 8, 25, 8);
     const item = createQuickEntryItem('Даша 29.09.2026 16:00 дорога 60м обратно 60м', now);

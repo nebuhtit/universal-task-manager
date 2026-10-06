@@ -57,6 +57,7 @@ describe('duration utilities', () => {
     expect(withoutEnd.endAt).toBeUndefined();
     expect(withoutEnd.estimatedDuration).toBe('PT90M');
     expect(scheduleWithDuration(withoutEnd, { amount: 2, unit: 'hours' })).toMatchObject({ estimatedDuration: 'PT2H' });
-    expect(scheduleWithDuration(withoutEnd, { amount: 2, unit: 'hours' }).endAt).toBeUndefined();
+    expect(scheduleWithDuration(withoutEnd, { amount: 2, unit: 'hours' }).endAt).toBe('2026-09-26T20:00:00.000Z');
+    expect(scheduleWithDuration({ timezone: 'UTC', startAt: '2026-09-26T18:00:00.000Z' }, { amount: 1, unit: 'hours' }).endAt).toBe('2026-09-26T19:00:00.000Z');
   });
 });

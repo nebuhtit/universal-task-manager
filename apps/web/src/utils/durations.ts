@@ -60,7 +60,7 @@ export const scheduleWithDuration = (schedule: Schedule, duration?: { amount: nu
   }
   next.estimatedDuration = toIsoDuration(duration.amount, duration.unit);
   const start = next.startAt ? Date.parse(next.startAt) : Number.NaN;
-  if (schedule.endAt && Number.isFinite(start)) next.endAt = new Date(start + calendarDurationMs(duration.amount, duration.unit)).toISOString();
+  if (Number.isFinite(start)) next.endAt = new Date(start + calendarDurationMs(duration.amount, duration.unit)).toISOString();
   return next;
 };
 

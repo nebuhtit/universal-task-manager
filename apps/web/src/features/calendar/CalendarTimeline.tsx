@@ -145,6 +145,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, pl
       onPointerDown={event => {
         cancelHold();
         if (!onCreateAt || !event.isPrimary || event.button !== 0 || !(event.target instanceof Element) || event.target.closest('button, input, textarea, a, [role="button"]')) return;
+        if (event.target.closest('.timeline-tick')) event.preventDefault();
         const y = event.clientY - event.currentTarget.getBoundingClientRect().top;
         const tick = event.target.closest<HTMLElement>('[data-timeline-hour]');
         const segment = segments.find(part => y >= part.top && y < part.top + part.height);

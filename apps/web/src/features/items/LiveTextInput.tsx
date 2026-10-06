@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { orderedOrganizationNames, orderedTagEntries, type WorkspaceDocument } from '@utm/core';
 import { organizationSuggestions } from '../../../quick-entry-lab/organization';
-import { dateValueExpression, parseLiveEntry as parseEntry, suggest, type Draft } from '../../../quick-entry-lab/parser';
+import { dateValueExpression, suggest, type Draft } from '../../../quick-entry-lab/parser';
 import { Button, Input, Textarea } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { saveLiveTextReport } from './liveTextReports';
@@ -11,7 +11,7 @@ import { measureProfile } from '../../services/performanceProfile';
 import './live-text.css';
 import { withinSuggestions, extractWithinRelations, joinWithinText } from '../../../quick-entry-lab/relations';
 import { withinPlacementWorkspace, withinTargets, withinPlacementInfo, type UniversalItem } from '@utm/core';
-import { createQuickEntryItem, applyQuickEntryText } from './quickEntry';
+import { createQuickEntryItem, applyQuickEntryText, parseQuickEntryForItem } from './quickEntry';
 
 export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, workspaceId, workspace, previewItem, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, viewedTimelineDate, timeZone, onSubmit, onFocus, onBlur }: {
   value: string; onChange: (value: string) => void; workspaceId: string; suggestionsEnabled?: boolean;
@@ -65,12 +65,12 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   // update. Deferring them prevents a large workspace from delaying each key.
   const deferredValue = useDeferredValue(value);
   const analysisCurrent = deferredValue === value;
-  const parsed = useMemo(() => ({ ...parseEntry(deferredValue, referenceTime), withinIds: references.ids }), [deferredValue, referenceTime, references]);
+  const parsed = useMemo(() => ({ ...parseQuickEntryForItem(deferredValue, referenceTime, previewItem), withinIds: references.ids }), [deferredValue, referenceTime, references, previewItem]);
   const relationItems = useMemo(() => workspace ? Object.values(workspace.items).filter(i => i.id !== previewItem?.id && !i.deletedAt && i.state !== 'archived' && i.state !== 'cancelled') : [], [workspace, previewItem?.id]);
   const withinPreview = useMemo(() => {
     if (!workspace || !parsed.withinIds?.length || !focused || !open || parsed.errors.length) return null;
     const text = joinWithinText(deferredValue, references.tokens);
-    const draft = previewItem ? applyQuickEntryText(previewItem, text, referenceTime).item : createQuickEntryItem(text, referenceTime, undefined, [], workspace);
+    const draft = previewItem ? applyQuickEntryText(previewItem, text, referenceTime, { preserveUnspecifiedSchedule: true }).item : createQuickEntryItem(text, referenceTime, undefined, [], workspace);
     const projected = withinPlacementWorkspace({ ...workspace, items: { ...workspace.items, [draft.id]: draft } }, referenceTime).items[draft.id];
     const info = projected ? withinPlacementInfo(projected) : undefined;
     return projected?.schedule?.startAt ? { start: projected.schedule.startAt, end: projected.schedule.endAt, names: (info?.targets ?? withinTargets(draft)).map(id => workspace.items[id]?.title ?? id).join(', '), fallback: info?.fallback } : null;

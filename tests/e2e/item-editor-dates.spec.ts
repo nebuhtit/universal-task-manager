@@ -75,6 +75,25 @@ test('event end and duration stay linked in both directions and allow clearing',
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
 });
 
+test('editing a title with a travel-back command keeps the existing event schedule', async ({ page }) => {
+  await createWorkspaceAndItem(page);
+  const opens = page.getByLabel('Event opens', { exact: true });
+  const ends = page.getByLabel('Event ends', { exact: true });
+  const start = await page.evaluate(() => {
+    const date = new Date();
+    date.setSeconds(0, 0);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
+  await opens.fill(start);
+  await page.getByLabel('Duration preset').selectOption('1h');
+  const originalEnd = await ends.inputValue();
+  await page.getByLabel('Title', { exact: true }).fill('Meeting ттб 45м');
+  await expect(opens).toHaveValue(start);
+  await expect(ends).toHaveValue(originalEnd);
+  await page.getByRole('button', { name: 'Save item' }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+});
+
 test('clearing a timed end and start persists without silently restoring either date', async ({ page }) => {
   await createWorkspaceAndItem(page);
   await page.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00');
