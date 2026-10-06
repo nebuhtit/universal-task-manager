@@ -129,7 +129,7 @@ export const itemJsonSchema = {
     relations: {
       type: 'array', items: {
         type: 'object', additionalProperties: false, required: ['id', 'targetId', 'type'],
-        properties: { id: { type: 'string' }, targetId: { type: 'string' }, type: { enum: ['parent', 'blocks', 'blocked_by', 'related', 'duplicate', 'custom'] }, label: { type: 'string' } },
+        properties: { id: { type: 'string' }, targetId: { type: 'string' }, type: { enum: ['parent', 'blocks', 'blocked_by', 'related', 'duplicate', 'custom', 'scheduled_within'] }, label: { type: 'string' } },
       },
     },
     attachments: {

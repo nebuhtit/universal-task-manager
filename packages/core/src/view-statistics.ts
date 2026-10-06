@@ -1,6 +1,7 @@
 import { calendarDateKey, compileQuery, schedulePeriodBounds, type QueryTemporalOptions, type SchedulePeriod } from './dsl.js';
 import { actualTimeMs } from './item-history.js';
 import { projectOccurrences } from './calendar.js';
+import { withinPlacementWorkspace } from './within-placement.js';
 import { effectiveItemDurationMs, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
 import { durationToMs, type SavedView, type UniversalItem, type WorkspaceDocument } from './types.js';
 
@@ -271,6 +272,9 @@ export function viewStatisticsItems(workspace: WorkspaceDocument, view: SavedVie
 }
 
 export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: SavedView, matchingItems: Iterable<UniversalItem>, now = new Date(), matchesForStatistics?: (item: UniversalItem) => boolean): ViewTimeMetrics {
+  const placed = withinPlacementWorkspace(workspace, now);
+  matchingItems = [...matchingItems].map(item => placed.items[item.id] && placed.items[item.id] !== workspace.items[item.id] ? placed.items[item.id]! : item);
+  workspace = placed;
   const items = viewStatisticsItems(workspace, view, matchingItems, now, matchesForStatistics);
   const period = inferViewPeriod(view, now, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
   const accumulator = createViewTimeMetricsAccumulator(period ?? undefined);

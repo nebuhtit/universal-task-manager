@@ -26,3 +26,4 @@ export * from './item-deletion.js';
 export * from './calendar-organization.js';
 export * from './event-program.js';
 export * from './recovery-snapshot.js';
+export * from './within-placement.js';

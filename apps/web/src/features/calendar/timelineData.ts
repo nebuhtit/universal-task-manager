@@ -8,6 +8,7 @@ import { planUndatedTasks } from './timelinePlanning';
 import { isCompletelyUndated, showUndatedItem, showOverdueToday } from './calendarVisibility';
 import { calendarProjectionPadding, type CalendarProjectionCache } from './calendarProjectionCache';
 import { beginProfileSpan } from '../../services/performanceProfile';
+import { withinPlacementWorkspace } from '@utm/core';
 
 /** Visibility until Due is distinct from fixed occupancy ending at Event ends. */
 export function timelineActiveRangeBounds(item: UniversalItem) {
@@ -20,6 +21,7 @@ export function timelineActiveRangeBounds(item: UniversalItem) {
 }
 
 export function prepareTimelineData(workspace: WorkspaceDocument, key: string, now: Date, cache?: CalendarProjectionCache) {
+  workspace = withinPlacementWorkspace(workspace, now);
   const finish = beginProfileSpan('calendar.timeline-prepare');
   const preferences = workspace.calendarPreferences;
   const day = dayBounds(key, preferences.timezone);

@@ -9,13 +9,23 @@ import { createLiveDayPreview } from './liveDayPreview';
 import { buildSegments, positionAt } from '../calendar/timelineLayout';
 import { measureProfile } from '../../services/performanceProfile';
 import './live-text.css';
+import { withinSuggestions, extractWithinRelations, joinWithinText } from '../../../quick-entry-lab/relations';
+import { withinPlacementWorkspace, withinTargets, withinPlacementInfo, type UniversalItem } from '@utm/core';
+import { createQuickEntryItem, applyQuickEntryText } from './quickEntry';
 
-export function LiveTextInput({ value, onChange, workspaceId, workspace, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, viewedTimelineDate, timeZone, onSubmit, onFocus, onBlur }: {
+export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, workspaceId, workspace, previewItem, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, viewedTimelineDate, timeZone, onSubmit, onFocus, onBlur }: {
   value: string; onChange: (value: string) => void; workspaceId: string; suggestionsEnabled?: boolean;
   inputRef?: RefObject<HTMLInputElement | null>; multiline?: boolean; overlaySuggestions?: boolean; placeholder?: string; ariaLabel?: string; now: Date; error?: string; id?: string; autoFocus?: boolean; language?: string; onViewCalendarDate?: (dateKey: string) => void; viewedTimelineDate?: string | undefined; timeZone?: string;
   onSubmit?: (text: string) => void; onFocus?: () => void; onBlur?: () => void;
   workspace?: WorkspaceDocument;
+  previewItem?: UniversalItem;
 }) {
+  const references = useMemo(() => extractWithinRelations(sourceValue), [sourceValue]);
+  const value = references.displayText;
+  const onChange = (text: string) => {
+    const added = extractWithinRelations(text);
+    onSourceChange(joinWithinText(added.displayText, [...references.tokens, ...added.tokens]));
+  };
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
   const touchStartY = useRef<number | null>(null);
   const lastTouchSelection = useRef(0);
@@ -27,8 +37,8 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const lastSubmit = useRef({ value: '', at: 0 });
   useEffect(() => { if (!value) lastSubmit.current = { value: '', at: 0 }; }, [value]);
   const submitControl = (element: HTMLInputElement | HTMLTextAreaElement) => {
-    const text = element.value;
-    if (!text.trim() || (lastSubmit.current.value === text && performance.now() - lastSubmit.current.at < 500)) return;
+    const text = joinWithinText(element.value, references.tokens);
+    if (!element.value.trim() || (lastSubmit.current.value === text && performance.now() - lastSubmit.current.at < 500)) return;
     lastSubmit.current = { value: text, at: performance.now() };
     if (onSubmit) onSubmit(text); else element.form?.requestSubmit();
   };
@@ -42,7 +52,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     };
     element.addEventListener('beforeinput', beforeInput);
     return () => element.removeEventListener('beforeinput', beforeInput);
-  }, [onSubmit, multiline, overlaySuggestions]);
+  }, [onSubmit, multiline, overlaySuggestions, sourceValue]);
   const id = useId();
   const [focused, setFocused] = useState(false), [open, setOpen] = useState(false), [caret, setCaret] = useState(value.length), [selected, setSelected] = useState(-1);
   const pendingCaret = useRef<number | null>(null);
@@ -55,7 +65,16 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   // update. Deferring them prevents a large workspace from delaying each key.
   const deferredValue = useDeferredValue(value);
   const analysisCurrent = deferredValue === value;
-  const parsed = useMemo(() => parseEntry(deferredValue, referenceTime), [deferredValue, referenceTime]);
+  const parsed = useMemo(() => ({ ...parseEntry(deferredValue, referenceTime), withinIds: references.ids }), [deferredValue, referenceTime, references]);
+  const relationItems = useMemo(() => workspace ? Object.values(workspace.items).filter(i => i.id !== previewItem?.id && !i.deletedAt && i.state !== 'archived' && i.state !== 'cancelled') : [], [workspace, previewItem?.id]);
+  const withinPreview = useMemo(() => {
+    if (!workspace || !parsed.withinIds?.length || !focused || !open || parsed.errors.length) return null;
+    const text = joinWithinText(deferredValue, references.tokens);
+    const draft = previewItem ? applyQuickEntryText(previewItem, text, referenceTime).item : createQuickEntryItem(text, referenceTime, undefined, [], workspace);
+    const projected = withinPlacementWorkspace({ ...workspace, items: { ...workspace.items, [draft.id]: draft } }, referenceTime).items[draft.id];
+    const info = projected ? withinPlacementInfo(projected) : undefined;
+    return projected?.schedule?.startAt ? { start: projected.schedule.startAt, end: projected.schedule.endAt, names: (info?.targets ?? withinTargets(draft)).map(id => workspace.items[id]?.title ?? id).join(', '), fallback: info?.fallback } : null;
+  }, [workspace, previewItem, deferredValue, referenceTime, focused, open, parsed]);
   const highlight = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState(false);
   const highlighted = !composing && analysisCurrent && Boolean(parsed.commandSpans?.length);
@@ -105,8 +124,8 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
   const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: orderedTagEntries(workspace).filter((tag): tag is string => tag !== null), projectAreas: Object.fromEntries(orderedOrganizationNames(workspace, 'project').map(name => [name, [...new Set([...(workspace.projectDefinitions[name]?.areas ?? []), ...(workspace.projectDefinitions[name]?.area ? [workspace.projectDefinitions[name]!.area!] : []), ...Object.values(workspace.items).filter(item => !item.deletedAt && (item.projects?.includes(name) || item.project === name)).flatMap(item => [...(item.areas ?? []), ...(item.area ? [item.area] : [])])])]])) } : { area: [], project: [], tag: [] }, [workspace]);
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => {
     const position = Math.min(caret, deferredValue.length);
-    return measureProfile('editor.suggestions', () => organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
-  }, [deferredValue, caret, referenceTime, language, catalog]);
+    return measureProfile('editor.suggestions', () => withinSuggestions(deferredValue, position, relationItems.filter(item => !references.ids.includes(item.id))) ?? organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
+  }, [deferredValue, caret, referenceTime, language, catalog, relationItems, references]);
   const [optionLimit, setOptionLimit] = useState(30);
   useEffect(() => { setOptionLimit(30); }, [value, caret]);
   useEffect(() => { if (selected >= optionLimit) setOptionLimit(selected + 30); }, [selected, optionLimit]);
@@ -119,9 +138,9 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
     control()?.focus(); control()?.setSelectionRange(position, position);
   }, [value]);
   const replace = (start: number, end: number, insert: string) => {
-    pendingCaret.current = start + insert.length;
+    pendingCaret.current = extractWithinRelations(value.slice(0, start) + insert).displayText.length;
     onChange(value.slice(0, start) + insert + value.slice(end));
-    setCaret(start + insert.length); setSelected(-1); setOpen(true);
+    setCaret(pendingCaret.current); setSelected(-1); setOpen(true);
   };
   const choose = (index: number) => {
     const option = suggestions.options[index]; if (!option) return;
@@ -195,6 +214,7 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
       {calendarDate && !visiblePreview && <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { calendarTouchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (calendarTouchStartY.current !== null && endY !== undefined && Math.abs(endY - calendarTouchStartY.current) < 10) { event.preventDefault(); lastCalendarTouch.current = Date.now(); viewCalendarDate(); } calendarTouchStartY.current = null; }} onTouchCancel={() => { calendarTouchStartY.current = null; }} onClick={() => { if (Date.now() - lastCalendarTouch.current > 500) viewCalendarDate(); }}>{/[а-яё]/i.test(value) ? 'Посмотреть в календаре' : 'View in calendar'}</Button>}
       <Button size="compact" variant="ghost" onPointerDown={(event) => event.preventDefault()} onClick={() => { setReport({ input: value, parsed, referenceTime: referenceTime.toISOString() }); setExpected(''); setReportError(''); }}>Сообщить о неточности</Button>
       {notice && <small role="status">{notice}</small>}
+      {withinPreview && <small role="status">Выполняется внутри: {withinPreview.names} · {new Date(withinPreview.start).toLocaleString(language, { timeZone })}{withinPreview.end ? ` — ${new Date(withinPreview.end).toLocaleTimeString(language, { timeZone, hour: '2-digit', minute: '2-digit' })}` : ''}{withinPreview.fallback ? ' · Нет общего пересечения; выбран первый доступный блок' : ''}</small>}
       {expanded && <div id={`${id}-options`} role="listbox" aria-label="Подсказки Live text" className="live-text-options">
         {suggestions.options.length > optionLimit && <Button type="button" onPointerDown={event => event.preventDefault()} onClick={() => setOptionLimit(limit => limit + 30)}>{language === 'ru' ? 'Ещё варианты' : 'More suggestions'}</Button>}
         {suggestions.options.slice(0, optionLimit).map((option, index) => ({ option, index })).reverse().map(({ option, index }) => <div key={`${index}-${option.label}`} id={`${id}-option-${index}`} role="option" aria-selected={selected === index} onPointerDown={(event) => event.preventDefault()} onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={(event) => { const endY = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && endY !== undefined && Math.abs(endY - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); choose(index); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) choose(index); }}><strong>{option.label}</strong><small>{option.detail}</small></div>)}
@@ -202,6 +222,12 @@ export function LiveTextInput({ value, onChange, workspaceId, workspace, languag
       </div>
     </div>;
   return <div className="live-text-input" ref={root}>
+    {references.tokens.length > 0 && <div className="live-text-relations" aria-label="Выполняется внутри">{references.tokens.map(token => {
+      const target = extractWithinRelations(token).ids[0]!;
+      const label = workspace?.items[target]?.title ?? /\[([^\]]*)\]/.exec(token)?.[1] ?? 'Item';
+      const remove = () => { onSourceChange(joinWithinText(value, references.tokens.filter(entry => extractWithinRelations(entry).ids[0] !== target))); control()?.focus(); };
+      return <Button key={target} size="compact" variant="secondary" aria-label={`Убрать связь: ${label}`} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onTouchStart={event => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={event => { const y = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && y !== undefined && Math.abs(y - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); remove(); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) remove(); }}>{label} ×</Button>;
+    })}</div>}
     {!overlaySuggestions && !multiline && suggestionPanel}
     {multiline ? <Textarea {...common} ref={textarea} rows={3} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint={overlaySuggestions ? 'done' : 'go'} />}
     {(overlaySuggestions || multiline) && suggestionPanel}

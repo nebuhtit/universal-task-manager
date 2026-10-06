@@ -1,6 +1,7 @@
-import { createId, createItem, durationToMs, type UniversalItem } from '@utm/core';
+import { createId, createItem, durationToMs, withinDay, withinTargets, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { bareDurationInsertion, dateValueExpression, duration, parseDate, parseLiveEntry as parseEntry, type Draft } from '../../../quick-entry-lab/parser';
 import { extractOrganization } from '../../../quick-entry-lab/organization';
+import { extractWithinRelations } from '../../../quick-entry-lab/relations';
 
 export const QUICK_ENTRY_SOURCE = 'utm:quickEntrySource';
 const QUICK_REMINDER_FOLLOWUPS = 'utm:quickReminderFollowups';
@@ -147,9 +148,12 @@ export function applyQuickEntryEditorText(item: UniversalItem, text: string, now
 export function applyQuickEntryText(item: UniversalItem, text: string, now: Date): { item: UniversalItem; draft: Draft } {
   const draft = parseEntry(text, now);
   if (draft.errors.length) throw new Error(draft.errors.join(' '));
-  const organization = extractOrganization(text);
+  const within = extractWithinRelations(text);
+  const organization = extractOrganization(within.text);
   const metadata = [...organization.areas.map(name => `area:${JSON.stringify(name)}`), ...organization.projects.map(name => `project:${JSON.stringify(name)}`), ...organization.tags.map(name => `#${JSON.stringify(name)}`)];
-  const normalizedText = [materializeQuickEntryText(organization.text, now), ...metadata].join(' ');
+  const references = within.tokens;
+  const normalizedText = [materializeQuickEntryText(organization.text, now), ...metadata, ...references].join(' ');
+  const previousWithin = extractWithinRelations(quickEntrySource(item)?.text ?? '').ids;
   const previous = extractOrganization(quickEntrySource(item)?.text ?? '');
   const memberships = (current: string[], old: string[], next: string[]) => [...new Set([...current.filter(name => !old.includes(name)), ...next])];
   const schedule = { timezone: item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...item.schedule };
@@ -163,6 +167,7 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   return {
     item: {
       ...item, title: draft.title, schedule, reminders: reminderItems(draft),
+      relations: [...item.relations.filter(r => r.type !== 'scheduled_within' || !previousWithin.includes(r.targetId)), ...within.ids.filter(id => id !== item.id && !item.relations.some(r => r.type === 'scheduled_within' && r.targetId === id && !previousWithin.includes(id))).map(targetId => item.relations.find(r => r.type === 'scheduled_within' && r.targetId === targetId) ?? ({ id: createId(), targetId, type: 'scheduled_within' as const }))],
       ...(draft.isNote ? { isNote: true, canBeCompleted: false } : {}),
       areas: memberships(item.areas, previous.areas, draft.areas ?? []),
       projects: memberships(item.projects, previous.projects, draft.projects ?? []),
@@ -172,7 +177,20 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   };
 }
 
-export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate?: string, defaultReminderMinutes: number[] = [120, 1440]): UniversalItem {
+export function createQuickEntryItem(text: string, now: Date, defaultPlannedDate?: string, defaultReminderMinutes: number[] = [120, 1440], workspace?: WorkspaceDocument): UniversalItem {
+  const item = createQuickEntryItemInternal(text, now, defaultPlannedDate, defaultReminderMinutes);
+  if (workspace && withinTargets(item).length && !item.schedule?.plannedDate && !item.schedule?.startAt && !item.schedule?.endAt && !item.schedule?.dueAt) {
+    const day = withinDay(workspace, item);
+    if (day) {
+      item.schedule = { timezone: workspace.calendarPreferences.timezone, ...item.schedule, plannedDate: day };
+      const source = quickEntrySource(item);
+      item.extensions = { ...item.extensions, 'utm:withinNotBefore': now.toISOString(), ...(source ? { [QUICK_ENTRY_SOURCE]: { ...source, text: `${source.text} ${day.split('-').reverse().join('.')}` } } : {}) };
+    }
+  }
+  return item;
+}
+
+function createQuickEntryItemInternal(text: string, now: Date, defaultPlannedDate?: string, defaultReminderMinutes: number[] = [120, 1440]): UniversalItem {
   let original = text.trim();
   if (!original) throw new Error('Добавьте название.');
   const initial = parseEntry(original, now);
@@ -246,6 +264,10 @@ function replaceCapture(text: string, match: RegExpExecArray, group: number, rep
 export function syncQuickEntrySource(previous: UniversalItem, next: UniversalItem): UniversalItem {
   const source = quickEntrySource(previous);
   if (!source) return next;
+  if (JSON.stringify(previous.relations) !== JSON.stringify(next.relations)) {
+    const extensions = { ...next.extensions }; delete extensions[QUICK_ENTRY_SOURCE];
+    return { ...next, extensions };
+  }
   const followupIds = previous.extensions?.[QUICK_REMINDER_FOLLOWUPS];
   if (Array.isArray(followupIds) && (previous.schedule?.dueAt !== next.schedule?.dueAt || previous.schedule?.plannedDate !== next.schedule?.plannedDate || previous.schedule?.startAt !== next.schedule?.startAt)) {
     const ids = new Set(followupIds.filter((value): value is string => typeof value === 'string'));

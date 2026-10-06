@@ -1,4 +1,5 @@
 import {
+  withinPlacementWorkspace,
   compileQuery,
   expressionDependsOnCurrentTime,
   parseSortSource,
@@ -125,6 +126,7 @@ function evaluateCalendarRangeInternal(
   now: Date,
   cache?: EvaluationCache,
 ): CalendarRangeEvaluation {
+  workspace = withinPlacementWorkspace(workspace, now);
   const timeZone = workspace.calendarPreferences.timezone;
   const today = calendarDateKey(now, timeZone);
   const rangeStart = zonedDateStart(rangeStartKey, timeZone);

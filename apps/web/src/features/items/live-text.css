@@ -55,3 +55,9 @@
 .live-text-report-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .quick-capture .live-text-panel button { width: auto; height: auto; min-height: var(--control-height-compact); padding: var(--space-1) var(--space-2); font-family: inherit; background: transparent; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
 .quick-capture .live-text-panel .live-day-preview { width: 100%; background: var(--color-capture-active); color: var(--color-text); }
+.live-text-relations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}

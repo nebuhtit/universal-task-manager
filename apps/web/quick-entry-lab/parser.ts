@@ -1,10 +1,12 @@
 /** Standalone experiment. No UTM imports, storage, network or execution of input. */
 import { en, ru } from 'chrono-node';
 import { extractOrganization } from './organization';
+import { extractWithinRelations } from './relations';
 import { commandGuide, quickCommandAliases } from './commandGuide';
 export type Anchor = 'due' | 'start' | 'leave' | 'now';
 export interface ReminderDraft { anchor: Anchor; minutes: number; at: string | null; automatic?: boolean; delivery?: 'notification' | 'alarm' }
 export interface Draft {
+  withinIds?: string[];
   noDateDefaults?: boolean;
   noDefaultReminders?: boolean;
   commandSpans?: Array<{ start: number; end: number }>;
@@ -824,8 +826,10 @@ export function bareDurationInsertion(input: string): number {
 }
 
 export function parseLiveEntry(input: string, now: Date): Draft {
+  const within = extractWithinRelations(input);
+  input = within.text;
   const organization = extractOrganization(input);
-  const fields = { areas: organization.areas, projects: organization.projects, tags: organization.tags };
+  const fields = { withinIds: within.ids, areas: organization.areas, projects: organization.projects, tags: organization.tags };
   if (/^\.(?:\s|$)/.test(organization.text)) return { ...fields, commandSpans: organization.commandSpans, isNote: true, title: organization.text.slice(1).trim(), start: null, end: null, due: null, leave: null, durationMinutes: null, travelMinutes: null, reminders: [], errors: [], warnings: [] };
   input = organization.maskedText;
   const flagSpans: Array<{ start: number; end: number }> = [];

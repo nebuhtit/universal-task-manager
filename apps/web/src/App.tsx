@@ -1365,7 +1365,7 @@ export default function App() {
     try {
       const reminderDefaults = workspace.calendarPreferences.liveTextDefaultReminders;
       persistQuickItem(createQuickEntryItem(text.trim(), currentWorkspaceNow(), page === 'calendar' ? calendarCaptureDate : undefined,
-        reminderDefaults?.enabled === false ? [] : reminderDefaults?.minutesBefore));
+        reminderDefaults?.enabled === false ? [] : reminderDefaults?.minutesBefore, workspace));
       setQuick(''); setQuickError('');
     }
     catch (reason) { setQuickError(reason instanceof Error ? reason.message : String(reason)); }

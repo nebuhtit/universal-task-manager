@@ -16,6 +16,28 @@ async function activateControl(control: Locator, touch: boolean) {
   if (touch) await control.tap(); else await control.click();
 }
 const now = new Date('2026-09-22T12:00:00Z');
+for (const theme of ['light', 'dark'] as const) test(`within relation suggestions support selection and focus in ${theme}`, async ({ page }, testInfo) => {
+  await setup(page);
+  await page.evaluate(theme => document.documentElement.setAttribute('data-theme', theme), theme);
+  const input = page.getByPlaceholder('Add new item');
+  await input.fill('Wash рр Over');
+  const option = page.getByRole('option').filter({ hasText: 'Overlap 0' });
+  await expect(option).toBeVisible();
+  await activateControl(option, testInfo.project.use.hasTouch === true);
+  await expect(input).toHaveValue(/^Wash\s*$/);
+  await expect(page.getByRole('button', { name: 'Убрать связь: Overlap 0', exact: true })).toBeVisible();
+  await expect(input).toBeFocused();
+  await input.fill((await input.inputValue()) + ' rr Over');
+  await expect(page.getByRole('option').filter({ hasText: 'Overlap 0' })).toHaveCount(0);
+  await expect(page.getByRole('option').filter({ hasText: 'Overlap 1' })).toBeVisible();
+  await input.press('ArrowDown');
+  await input.press('Space');
+  await expect(input).toHaveValue(/^Wash\s*$/);
+  await expect(page.getByRole('button', { name: 'Убрать связь: Overlap 1', exact: true })).toBeVisible();
+  await activateControl(page.getByRole('button', { name: 'Убрать связь: Overlap 0', exact: true }), testInfo.project.use.hasTouch === true);
+  await expect(page.getByRole('button', { name: 'Убрать связь: Overlap 0', exact: true })).toHaveCount(0);
+  await expect(input).toBeFocused();
+});
 async function setup(page: Page, filter = 'true', quickSource = false) {
   const w = createWorkspace('Timeline', now); w.calendarPreferences.timezone = 'UTC';
   w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = filter;

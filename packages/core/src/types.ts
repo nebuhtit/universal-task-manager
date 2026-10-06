@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '3.5.6';
-export const APP_RELEASED_AT = '2026-10-06T11:29:03.308Z';
+export const APP_VERSION = '4.6.0';
+export const APP_RELEASED_AT = '2026-10-06T13:50:35.518Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -203,7 +203,7 @@ export function removeDuplicateReminders(item: UniversalItem): number {
   return removed;
 }
 
-export type RelationType = 'parent' | 'blocks' | 'blocked_by' | 'related' | 'duplicate' | 'custom';
+export type RelationType = 'parent' | 'blocks' | 'blocked_by' | 'related' | 'duplicate' | 'custom' | 'scheduled_within';
 export interface ItemRelation { id: string; targetId: string; type: RelationType; label?: string }
 export interface LinkAttachment { id: string; url: string; title?: string; mimeType?: string }
 export interface ItemTimerSession {
