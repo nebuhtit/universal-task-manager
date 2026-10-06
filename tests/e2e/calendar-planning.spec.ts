@@ -368,33 +368,25 @@ test('reference conflict, queue, reload and unpin leave original items unchanged
   expect((await read()).items).toEqual(before); expect(googleRequests).toEqual([]);
 });
 
-test('keyboard reorder shared with Timeline, two reset confirmations and off switch', async ({ page }) => {
+test('temporary List order survives mode switching, leaves Timeline unchanged and resets without writes', async ({ page }) => {
   const { read } = await setup(page), before = (await read()).items;
-  const openReset = async () => {
-    const button = page.getByRole('button', { name: 'Reset day order', exact: true });
-    await button.evaluate(element => element.scrollIntoView({ block: 'center' }));
-    // A long Timeline ends near the fixed quick-add composer. Verify the actual
-    // hit target after sticky navigation and browser scroll anchoring settle.
-    await expect.poll(async () => button.evaluate(element => {
-      const rect = element.getBoundingClientRect();
-      return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
-    })).toBe(true);
-    await button.click();
-    await expect(page.getByRole('dialog', { name: 'Reset calendar order' })).toBeVisible();
-  };
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+  const originalInterval = await page.getByTestId('timeline-tentative').filter({ hasText: 'A task' }).getAttribute('aria-label');
+  await page.getByRole('button', { name: 'List', exact: true }).click();
   const handle = page.locator('[data-view-item-id="task"] .item-main');
   await handle.focus(); await handle.press('ArrowDown');
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
+  expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   await expect(handle).toBeFocused();
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', /11:30–12:00/);
-  await openReset();
-  const dialog = page.getByRole('dialog', { name: 'Reset calendar order' });
-  await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await expect(dialog).toContainText('2026-09-24');
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  expect((await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
-  await openReset(); await dialog.getByRole('button', { name: 'Continue', exact: true }).click(); await dialog.getByRole('button', { name: 'Confirm reset', exact: true }).click();
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toBeUndefined();
+  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', originalInterval!);
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
+  const reset = page.getByRole('button', { name: 'Reset list order', exact: true });
+  await reset.focus(); await reset.press('Enter');
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'task');
+  await expect(reset).toBeDisabled();
+  expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   expect((await read()).items).toEqual(before);
   await navigate(page, 'Settings');
   await page.getByText('Manual order and temporary references', { exact: true }).evaluate(el => { const details = el.closest('details'); if (details) details.open = true; });
@@ -456,7 +448,7 @@ test('same-time reference expires without touching the source; vertical scroll d
   expect((await read()).items).toEqual(before);
 });
 
-test('pointer reorder changes only the day order and supports dark mode', async ({ page }) => {
+test('pointer reorder changes only the temporary List order and supports dark mode', async ({ page }) => {
   const { read } = await setup(page), before = (await read()).items;
   const handle = page.locator('[data-view-item-id="task"] .item-main');
   const target = page.locator('[data-view-item-id="event"]');
@@ -479,7 +471,8 @@ test('pointer reorder changes only the day order and supports dark mode', async 
   await page.mouse.move(destination.x + 24, destination.y + destination.height * 0.65, { steps: 8 });
   await expect(target.locator('.card-reorder-surface')).toHaveClass(/is-drop-target/);
   await page.mouse.up();
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
+  expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   expect((await read()).items).toEqual(before);
   await navigate(page, 'Settings');
   const theme = page.locator('select').filter({ has: page.locator('option[value="dark"]') });
@@ -507,23 +500,27 @@ test('List moves a fixed event without changing its Timeline interval', async ({
   const { read } = await setup(page), before = (await read()).items;
   const eventHandle = page.locator('[data-view-item-id="event"] .item-main');
   await eventHandle.press('ArrowUp');
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
+  expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Reorder B event', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('timeline-event').filter({ hasText: 'B event' })).toBeVisible();
   expect((await read()).items).toEqual(before);
 });
 
-test('active-range ordering follows List below the event and capacity has only one heading', async ({ page }) => {
+test('active-range Timeline ignores temporary List order and capacity has only one heading', async ({ page }) => {
   const { read } = await setup(page, true, w => {
     w.items.task!.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: '2026-09-25T18:00:00Z', estimatedDuration: 'PT1H' };
   });
   const before = (await read()).items;
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
+  const originalInterval = await page.getByTestId('timeline-active-range').getAttribute('aria-label');
+  await page.getByRole('button', { name: 'List', exact: true }).click();
   await page.locator('[data-view-item-id="event"] .item-main').press('ArrowUp');
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   const range = page.getByTestId('timeline-active-range');
-  await expect(range).toHaveAttribute('aria-label', /11:30–11:50/);
+  await expect(range).toHaveAttribute('aria-label', originalInterval!);
   await expect(range).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(page.locator('.timeline-planning-summary strong')).toHaveCount(0);
   expect((await read()).items).toEqual(before);
@@ -536,19 +533,20 @@ test('late anchor can reach the first row even if the remaining task has no free
   });
   const before = (await read()).items;
   await page.locator('[data-view-item-id="event"] .item-main').press('ArrowUp');
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['event', 'task']);
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
   await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
   await expect(page.locator('.calendar-page')).not.toContainText('No continuous free slot');
   expect((await read()).items).toEqual(before);
 });
 
-test('moving an event cannot put an active-range task after its future Due', async ({ page }) => {
+test('temporary List order permits an event before an active-range task without changing its Due', async ({ page }) => {
   const { read } = await setup(page, true, w => {
     w.items.task!.schedule = { timezone: 'UTC', startAt: '2026-09-23T08:00:00Z', dueAt: '2026-09-24T10:00:00Z', estimatedDuration: 'PT1H' };
   });
   const before = (await read()).items;
   await page.locator('[data-view-item-id="event"] .item-main').press('ArrowUp');
-  await expect(page.locator('.calendar-page')).toContainText('A task: Placement does not fit before Due.');
+  await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
+  await expect(page.locator('.calendar-page')).not.toContainText('A task: Placement does not fit before Due.');
   expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   expect((await read()).items).toEqual(before);
 });

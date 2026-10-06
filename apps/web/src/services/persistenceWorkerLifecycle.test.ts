@@ -3,13 +3,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace, encodeRecoverySnapshot, workspaceForExport, type WorkspaceDocument } from '@utm/core';
 import { createAutomergeDocument } from '@utm/sdk';
 
-const ports = vi.hoisted(() => ({ prepare: vi.fn(async (binary: Uint8Array) => ({ binary })), commit: vi.fn(async (): Promise<void> => undefined) }));
+const ports = vi.hoisted(() => ({ prepare: vi.fn(async (binary: Uint8Array, _exportSafe?: Uint8Array, _key?: Uint8Array, _mode?: string) => ({ binary })), commit: vi.fn(async (): Promise<void> => undefined) }));
 vi.mock('@utm/sdk', async original => ({ ...await original<typeof import('@utm/sdk')>(), prepareLocalWorkspaceSaveFromVerifiedBinaries: ports.prepare, commitPreparedLocalWorkspaceSave: ports.commit }));
 beforeEach(() => { vi.resetModules(); ports.prepare.mockClear(); ports.commit.mockClear(); });
 afterEach(() => vi.unstubAllGlobals());
 
 it('shares adjacent pending saves but waits for the durable write and retries after completion', async () => {
-  workerFixture();
+  const Worker = workerFixture();
   const { persistWorkspace } = await import('./workspacePersistence');
   const session = { document: createAutomergeDocument(createWorkspace('test')), dataKey: new Uint8Array(32) };
   let release!: () => void;
@@ -26,11 +26,13 @@ it('shares adjacent pending saves but waits for the durable write and retries af
   await duplicate;
   await persistWorkspace(session);
   expect(ports.commit).toHaveBeenCalledTimes(2);
+  expect(ports.prepare).toHaveBeenCalledTimes(2); // Fresh encryption/verification, not a skipped write.
+  expect(Worker.instances[0]!.posts).toBe(1);
   Automerge.free(session.document);
 });
 
 it('preserves A B A order and does not share writes across keys or storage modes', async () => {
-  workerFixture();
+  const Worker = workerFixture();
   const { persistWorkspace } = await import('./workspacePersistence');
   const a = createAutomergeDocument(createWorkspace('test'));
   const b = Automerge.change(Automerge.clone(a), draft => { draft.name = 'changed'; });
@@ -44,6 +46,9 @@ it('preserves A B A order and does not share writes across keys or storage modes
   ];
   await Promise.all(writes);
   expect(ports.commit).toHaveBeenCalledTimes(5);
+  expect(ports.prepare).toHaveBeenCalledTimes(5);
+  expect(Worker.instances[0]!.posts).toBe(3);
+  expect(ports.prepare.mock.lastCall![3]).toBe('plaintext');
   const heads = ports.prepare.mock.calls.slice(0, 3).map(([binary]) => {
     const loaded = Automerge.load(binary);
     const result = Automerge.getHeads(loaded);
@@ -54,8 +59,30 @@ it('preserves A B A order and does not share writes across keys or storage modes
   Automerge.free(a); Automerge.free(b);
 });
 
+it('uses the current key on a cached snapshot and never caches failed preparation', async () => {
+  const Worker = workerFixture();
+  const { persistWorkspace } = await import('./workspacePersistence');
+  const document = createAutomergeDocument(createWorkspace('test'));
+  const dataKey = new Uint8Array(32).fill(1);
+  ports.prepare.mockRejectedValueOnce(new Error('verification failed'));
+  await expect(persistWorkspace({ document, dataKey })).rejects.toThrow();
+  expect(ports.commit).not.toHaveBeenCalled();
+  await persistWorkspace({ document, dataKey });
+  dataKey.fill(2);
+  ports.prepare.mockImplementationOnce(async (binary, _exportSafe, key) => {
+    expect(key).toEqual(new Uint8Array(32).fill(2));
+    expect(key).not.toBe(dataKey);
+    return { binary };
+  });
+  await persistWorkspace({ document, dataKey });
+  expect(Worker.instances.reduce((sum, worker) => sum + worker.posts, 0)).toBe(2);
+  expect(ports.commit).toHaveBeenCalledTimes(2);
+  expect(dataKey).toEqual(new Uint8Array(32).fill(2));
+  Automerge.free(document);
+});
+
 it('rejects every shared caller on write failure and permits a fresh retry', async () => {
-  workerFixture();
+  const Worker = workerFixture();
   const { persistWorkspace } = await import('./workspacePersistence');
   const session = { document: createAutomergeDocument(createWorkspace('test')), dataKey: new Uint8Array(32) };
   ports.commit.mockRejectedValueOnce(new Error('write failed'));
@@ -67,6 +94,7 @@ it('rejects every shared caller on write failure and permits a fresh retry', asy
   await persistWorkspace(session);
   expect(ports.prepare).toHaveBeenCalledTimes(2);
   expect(ports.commit).toHaveBeenCalledTimes(2);
+  expect(Worker.instances[0]!.posts).toBe(1); // Retry the write without re-exporting history.
   Automerge.free(session.document);
 });
 
@@ -78,8 +106,10 @@ function workerFixture() {
     onmessageerror?: () => void;
     terminate = vi.fn();
     failNext = false;
+    posts = 0;
     constructor() { FakeWorker.instances.push(this); }
     postMessage(request: { id: number; binary: Uint8Array; snapshotJson: string }, transfer: Transferable[]) {
+      this.posts++;
       const copy = structuredClone(request, { transfer });
       queueMicrotask(() => {
         if (this.failNext) { this.onerror?.(); return; }

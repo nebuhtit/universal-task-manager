@@ -50,23 +50,25 @@ for (const planning of [false, true]) test(`calendar List hold and drag, plannin
     // A swipe before the hold threshold must not turn into a delayed drag.
     await source.dispatchEvent('pointerdown', { isPrimary: true, pointerType: 'touch', pointerId: 9, clientX: x, clientY: y });
     const scrollingAllowed = await page.evaluate(({ x, y }) => {
-      const touch = new Touch({ identifier: 9, target: document.body, clientX: x, clientY: y + 40 });
-      const move = new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [touch] });
+      // WebKit does not expose a constructible Touch. The handlers read only
+      // coordinates from touches, so provide those on a synthetic DOM event.
+      const move = new Event('touchmove', { bubbles: true, cancelable: true });
+      Object.defineProperty(move, 'touches', { value: [{ identifier: 9, target: document.body, clientX: x, clientY: y + 40 }] });
       document.dispatchEvent(move); return !move.defaultPrevented;
     }, { x, y });
     expect(scrollingAllowed).toBe(true);
     await page.waitForTimeout(1100);
     await expect(source).not.toHaveClass(/is-dragging/);
-    await page.evaluate(() => document.dispatchEvent(new TouchEvent('touchcancel', { bubbles: true, touches: [] })));
+    await page.evaluate(() => document.dispatchEvent(new Event('touchcancel', { bubbles: true })));
     await source.dispatchEvent('pointerdown', { isPrimary: true, pointerType: 'touch', pointerId: 1, clientX: x, clientY: y });
     await expect(source).toHaveClass(/is-dragging/, { timeout: 2000 });
     const prevented = await page.evaluate(({ x, y }) => {
-      const touch = new Touch({ identifier: 1, target: document.body, clientX: x, clientY: y });
-      const move = new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [touch] });
+      const move = new Event('touchmove', { bubbles: true, cancelable: true });
+      Object.defineProperty(move, 'touches', { value: [{ identifier: 1, target: document.body, clientX: x, clientY: y }] });
       document.dispatchEvent(move); return move.defaultPrevented;
     }, { x, y: target.y + target.height - 2 });
     expect(prevented).toBe(true);
-    await page.evaluate(() => document.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [] })));
+    await page.evaluate(() => document.dispatchEvent(new Event('touchend', { bubbles: true })));
   } else {
     await page.mouse.move(x, y); await page.mouse.down();
     await expect(source).toHaveClass(/is-dragging/, { timeout: 2000 });

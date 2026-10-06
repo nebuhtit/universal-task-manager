@@ -26,6 +26,57 @@ const evaluate = (cache: ReturnType<typeof createCalendarEvaluator>, workspace: 
 const reference = (workspace: WorkspaceDocument, at = now) => evaluateCalendarRange(workspace, start, end, workspace.calendarPreferences.dayView, at);
 
 describe('incremental calendar computation', () => {
+  it('keeps a whole visible week warm instead of evicting its first days on every refresh', () => {
+    const workspace = fixture();
+    workspace.items['day-21'] = makeSeries(workspace.items['day-21']!, 'FREQ=DAILY');
+    const cache = createCalendarProjectionCache();
+    // Navigator boundaries, range evaluation, then the seven padded day queries.
+    const ranges = [
+      [zonedDateStart(start, 'UTC'), zonedDateStart(end, 'UTC')],
+      [new Date('2026-09-20T00:00:00Z'), new Date('2026-09-29T00:00:00Z')],
+      ...Array.from({ length: 7 }, (_, index) => [
+        new Date(Date.UTC(2026, 8, 20 + index)), new Date(Date.UTC(2026, 8, 23 + index)),
+      ]),
+    ];
+    const first = ranges.map(([a, b]) => cache.project(workspace, a!, b!));
+    const builds = { ...cache.counters };
+    expect(builds.projections).toBe(9);
+    for (let refresh = 0; refresh < 3; refresh++) {
+      ranges.forEach(([a, b], index) => expect(cache.project(workspace, a!, b!)).toBe(first[index]));
+    }
+    expect(cache.counters).toEqual(builds);
+    const edited = structuredClone(workspace);
+    edited.items['day-21']!.schedule!.endAt = '2026-09-21T16:00:00Z';
+    ranges.forEach(([a, b]) => expect(cache.project(edited, a!, b!)).toEqual(projectOccurrences(cache.workspaceFor(edited), a!, b!)));
+    expect(cache.counters.groupProjections).toBeGreaterThan(builds.groupProjections);
+  });
+
+  it('bounds cached ranges and evicts large overlapping results instead of retaining a growing history', () => {
+    const empty = fixture(); empty.items = {};
+    const cache = createCalendarProjectionCache();
+    const firstStart = new Date('2026-09-21T00:00:00Z');
+    const firstEnd = new Date('2026-09-22T00:00:00Z');
+    cache.project(empty, firstStart, firstEnd);
+    for (let offset = 1; offset <= 10; offset++) cache.project(empty, new Date(+firstStart + offset), firstEnd);
+    cache.project(empty, firstStart, firstEnd);
+    expect(cache.counters.projections).toBe(12);
+
+    const dense = fixture();
+    const item = dense.items['day-23']!;
+    dense.items = Object.fromEntries(Array.from({ length: 4_000 }, (_, index) => {
+      const id = `dense-${index}`;
+      return [id, { ...item, id }];
+    }));
+    const denseCache = createCalendarProjectionCache();
+    const a = new Date('2026-09-23T00:00:00Z'), b = new Date('2026-09-24T00:00:00Z');
+    const first = denseCache.project(dense, a, b);
+    expect(first).toHaveLength(4_000);
+    for (let offset = 1; offset <= 2; offset++) denseCache.project(dense, new Date(+a + offset), b);
+    expect(denseCache.project(dense, a, b)).toEqual(first);
+    expect(denseCache.counters.projections).toBe(4);
+    expect(denseCache.counters.groupProjections).toBe(4);
+  });
+
   it('accepts immutable Automerge snapshots and invalidates deletions and series edits', () => {
     const workspace = fixture();
     workspace.items['day-21'] = makeSeries(workspace.items['day-21']!, 'FREQ=DAILY');
@@ -77,6 +128,46 @@ describe('incremental calendar computation', () => {
     moved.items['day-25']!.schedule!.endAt = '2026-09-26T19:00:00Z';
     expect(evaluate(cache, moved)).toEqual(reference(moved));
     expect(cache.counters.dayCalculations).toBe(10);
+  });
+
+  it('retains untouched day and card identities while rebuilding only the edited date bucket', () => {
+    const workspace = fixture(), cache = createCalendarEvaluator();
+    workspace.items.neighbour = { ...structuredClone(workspace.items['day-25']!), id: 'neighbour' };
+    const before = evaluate(cache, workspace);
+    const count = cache.projections.counters.groupProjections;
+    const changed = structuredClone(workspace);
+    changed.items['day-25']!.schedule!.endAt = '2026-09-25T16:00:00Z';
+    const after = evaluate(cache, changed);
+    expect(after).toEqual(reference(changed));
+    expect(cache.projections.counters.groupProjections - count).toBe(1);
+    expect(after.days['2026-09-25']!.evaluation.items.find(item => item.id === 'neighbour')).toBe(before.days['2026-09-25']!.evaluation.items.find(item => item.id === 'neighbour'));
+    for (const key of Object.keys(before.days)) {
+      if (key === '2026-09-25') expect(after.days[key]).not.toBe(before.days[key]);
+      else {
+        expect(after.days[key]).toBe(before.days[key]);
+        expect(after.days[key]!.evaluation.items).toBe(before.days[key]!.evaluation.items);
+      }
+    }
+    const moved = structuredClone(changed);
+    moved.items['day-25']!.schedule!.startAt = '2026-09-26T18:00:00Z';
+    moved.items['day-25']!.schedule!.endAt = '2026-09-26T19:00:00Z';
+    const result = evaluate(cache, moved);
+    expect(result).toEqual(reference(moved));
+    expect(result.days['2026-09-24']).toBe(after.days['2026-09-24']);
+    expect(result.days['2026-09-25']).not.toBe(after.days['2026-09-25']);
+    expect(result.days['2026-09-26']).not.toBe(after.days['2026-09-26']);
+  });
+
+  it('refreshes title-dependent filters and sorts instead of hiding content edits in the cache', () => {
+    const workspace = fixture(), cache = createCalendarEvaluator();
+    workspace.calendarPreferences.dayView.filter.source = 'title != "hidden"';
+    workspace.calendarPreferences.dayView.sortSource = 'title asc nulls last';
+    const before = evaluate(cache, workspace);
+    const changed = structuredClone(workspace); changed.items['day-25']!.title = 'hidden';
+    const after = evaluate(cache, changed);
+    expect(after).toEqual(reference(changed));
+    expect(after.days['2026-09-25']!.evaluation.items).toHaveLength(0);
+    expect(after.days['2026-09-24']).toBe(before.days['2026-09-24']);
   });
 
   it('refreshes only today remaining capacity on a tick', () => {

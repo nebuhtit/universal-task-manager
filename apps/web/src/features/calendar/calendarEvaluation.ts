@@ -36,7 +36,7 @@ import { measureProfile, recordProfileCache } from '../../services/performancePr
 
 type EvaluationCache = {
   projections: CalendarProjectionCache;
-  rows: WeakMap<ProjectedOccurrence, { source: UniversalItem; item: UniversalItem }>;
+  rows: Map<string, { row: ProjectedOccurrence; source: UniversalItem; item: UniversalItem }>;
   source?: WorkspaceDocument;
   workspace?: WorkspaceDocument;
   context: string;
@@ -46,7 +46,7 @@ type EvaluationCache = {
 
 /** Independent instance per Calendar; never writes into persisted workspace data. */
 export function createCalendarEvaluator() {
-  const cache: EvaluationCache = { projections: createCalendarProjectionCache(), rows: new WeakMap(), context: '', days: new Map(), counters: { dayCalculations: 0, indexBuilds: 0 } };
+  const cache: EvaluationCache = { projections: createCalendarProjectionCache(), rows: new Map(), context: '', days: new Map(), counters: { dayCalculations: 0, indexBuilds: 0 } };
   return { projections: cache.projections, counters: cache.counters,
     evaluate: (workspace: WorkspaceDocument, start: string, end: string, settings: CalendarDayViewPreferences, now: Date) => evaluateCalendarRange(workspace, start, end, settings, now, cache),
   };
@@ -133,13 +133,16 @@ function evaluateCalendarRangeInternal(
   const projected = (cache ? cache.projections.project(workspace, rangeStart, rangeEnd) : projectOccurrences(calendarWorkspace, rangeStart, rangeEnd))
     .map((row) => {
       const source = calendarWorkspace.items[row.materializedItemId ?? row.sourceItemId];
-      const prior = cache?.rows.get(row);
-      const item = prior && prior.source === source ? prior.item : itemForRow(calendarWorkspace, row);
-      if (cache && source && item) cache.rows.set(row, { source, item });
+      const prior = cache?.rows.get(row.id);
+      // An edited neighbour can rebuild the date/series projection bucket.
+      // Keep this card when its source AND projected interval are unchanged.
+      const item = prior && prior.source === source && (prior.row === row || JSON.stringify(prior.row) === JSON.stringify(row)) ? prior.item : itemForRow(calendarWorkspace, row);
+      if (cache && source && item) cache.rows.set(row.id, { row, source, item });
       return { row, item };
     })
     .filter((entry): entry is CalendarProjectedEntry => Boolean(entry.item));
   const projectedIds = new Set(projected.map(entry => entry.item.id));
+  if (cache) for (const id of cache.rows.keys()) if (!projectedIds.has(id)) cache.rows.delete(id);
   for (const item of Object.values(calendarWorkspace.items)) {
     const key = plannedDateForDisplay(item, now, timeZone);
     const overdue = today >= rangeStartKey && today < rangeEndKey && showOverdueToday(item, today, now, timeZone, item.occurrence ? calendarWorkspace.items[item.occurrence.seriesId] : undefined);
@@ -304,9 +307,17 @@ function evaluateCalendarRangeInternal(
     if (prior?.signature === signature) {
       recordProfileCache('calendar.day', true, 'unchanged');
       const currentItems = new Map(bucket.entries.map(({ item }) => [item.id, item]));
-      const items = prior.value.evaluation.items.map(item => currentItems.get(item.id) ?? item);
-      const entries = prior.value.entries.map(entry => ({ ...entry, item: currentItems.get(entry.item.id) ?? entry.item }));
-      return [key, { ...prior.value, entries, reservedItems: prior.value.reservedItems.map(item => currentItems.get(item.id) ?? item), evaluation: { ...prior.value.evaluation, items, now } }];
+      const reuse = <T,>(before: T[], after: T[]) => before.length === after.length && before.every((value, i) => value === after[i]) ? before : after;
+      const items = reuse(prior.value.evaluation.items, prior.value.evaluation.items.map(item => currentItems.get(item.id) ?? item));
+      const entries = reuse(prior.value.entries, prior.value.entries.map(entry => {
+        const item = currentItems.get(entry.item.id) ?? entry.item;
+        return item === entry.item ? entry : { ...entry, item };
+      }));
+      const reservedItems = reuse(prior.value.reservedItems, [...bucket.reserveCandidates.values()]);
+      const unchanged = items === prior.value.evaluation.items && entries === prior.value.entries && reservedItems === prior.value.reservedItems && +prior.value.evaluation.now === +now;
+      const value = unchanged ? prior.value : { ...prior.value, entries, reservedItems, evaluation: { ...prior.value.evaluation, items, now } };
+      cache!.days.set(key, { signature, value });
+      return [key, value];
     }
     if (cache) recordProfileCache('calendar.day', false, prior ? 'day-signature' : 'empty', bucket.entries.length);
     const items = sortViewItems(projectedWorkspace, bucket.view, bucket.entries.map(({ item }) => item), now);

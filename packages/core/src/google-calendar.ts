@@ -246,6 +246,12 @@ export function mergeGoogleCalendarCopies(workspace: WorkspaceDocument): void {
 export function googleCalendarProjection(item: UniversalItem): UniversalItem {
   const link = item.external;
   if (item.extensions?.['utm:googleSave']) return item;
+  // An event's explicit dates are its current local booking. The link's dates
+  // are the last confirmed Google baseline, which can remain older on stored
+  // cycles after a series edit. Projecting that baseline would undo the edit
+  // visually (and shift the recurrence anchor) without changing the editor.
+  // Tasks without an event booking still need their separate Google occupancy.
+  if (item.preset === 'event' && item.schedule?.startAt && item.schedule.endAt) return item;
   if (!link || link.readOnly || !link.startAt || !link.endAt) return item;
   return { ...item, schedule: { ...item.schedule, startAt: link.startAt, endAt: link.endAt, allDay: link.allDay ?? false, timezone: link.timezone ?? item.schedule?.timezone ?? 'UTC' } };
 }

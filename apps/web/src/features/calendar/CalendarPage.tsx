@@ -137,6 +137,9 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const [planningMessage, setPlanningMessage] = useState('');
   const repairedSignature = useRef('');
   const [resetStep, setResetStep] = useState(0);
+  // Presentation only: never feed this temporary order into planning or storage.
+  const [listOrders, setListOrders] = useState<Record<string, string[]>>({});
+  useEffect(() => { setListOrders({}); }, [workspace.workspaceId]);
   const pendingOrderFocus = useRef<string | null>(null);
   useLayoutEffect(() => {
     const id = pendingOrderFocus.current;
@@ -145,7 +148,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
     const row = [...document.querySelectorAll<HTMLElement>('.calendar-page [data-view-item-id]')].find(node => node.dataset.viewItemId === id);
     const handle = row?.querySelector<HTMLButtonElement>('.view-drag-handle') ?? [...document.querySelectorAll<HTMLButtonElement>('.calendar-page [data-calendar-handle-id]')].find(node => node.dataset.calendarHandleId === id);
     (handle ?? row?.querySelector<HTMLElement>('.item-main'))?.focus({ preventScroll: true });
-  }, [workspace]);
+  }, [workspace, listOrders]);
   useEffect(() => { setResetStep(0); setPlanningMessage(''); }, [selectedDate]);
   const [allDayOpen, setAllDayOpen] = useState(() => readUiBoolean('calendar:all-day', true));
   const dayPanelRef = useRef<HTMLDivElement>(null);
@@ -227,9 +230,15 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const unsortedUndatedItems = calendarListOrder(sortViewItems(workspace, selected.view, allUndatedItems.filter(item => !selectedIds.has(item.id) || (plan?.movable.has(item.id) && !plan.pins.has(item.id))), now), preferences.planning?.orders?.[selectedDate]);
   const undatedItems = plan ? [...unsortedUndatedItems].sort((a, b) => plan.ids.indexOf(a.id) - plan.ids.indexOf(b.id)) : unsortedUndatedItems;
   const undatedIds = new Set(undatedItems.map(item => item.id));
-  const orderProps = { onReorder: reorder, reorderIds: [...new Set([...selected.evaluation.items, ...undatedItems].map(item => item.id))], referenceIds: plan ? new Set(plan.pins.keys()) : undefined };
-  const manuallyOrdered = Boolean(plan && preferences.planning?.orders?.[selectedDate]?.length);
-  const categoryLabels = new Map(selected.evaluation.items.flatMap(item => {
+  const temporaryOrder = listOrders[selectedDate];
+  const listItems = [...new Map([...selected.evaluation.items, ...undatedItems].map(item => [item.id, item])).values()];
+  const listEvaluation = temporaryOrder ? { ...selected.evaluation, items: calendarListOrder(listItems, temporaryOrder) } : selected.evaluation;
+  const orderProps = { onReorder: (ids: string[], movedId: string) => {
+    pendingOrderFocus.current = movedId;
+    setListOrders(current => ({ ...current, [selectedDate]: [...ids] }));
+  }, reorderIds: calendarListOrder(listItems, temporaryOrder).map(item => item.id), referenceIds: plan ? new Set(plan.pins.keys()) : undefined };
+  const manuallyOrdered = Boolean(temporaryOrder || (plan && preferences.planning?.orders?.[selectedDate]?.length));
+  const categoryLabels = new Map(listItems.flatMap(item => {
     const label = overdueIds.has(item.id) ? (preferences.language === 'ru' ? 'Просрочено' : 'Overdue') : allDayIds.has(item.id) ? (preferences.language === 'ru' ? 'Весь день' : 'All day') : undatedIds.has(item.id) ? (preferences.language === 'ru' ? 'Без даты' : 'No date') : '';
     return label ? [[item.id, label] as const] : [];
   }));
@@ -347,13 +356,14 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
         <Button size="compact" aria-pressed={timelineSettings.showUndated === true} onClick={() => setTimelineSetting({ showUndated: timelineSettings.showUndated !== true })}>{preferences.language === 'ru' ? 'Без даты' : 'No date'}{undatedItems.length ? ` · ${undatedItems.length}` : ''}</Button>
         {allDayIds.size > 0 && <Button size="compact" aria-pressed={allDayOpen} onClick={() => { const next = !allDayOpen; persistUiBoolean('calendar:all-day', next); setAllDayOpen(next); }}>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</Button>}
       </div><Surface className="calendar-day-list">
-        {manuallyOrdered ? <ViewResults {...orderProps} itemLabels={categoryLabels} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !plan?.pins.has(item.id) && ((overdueIds.has(item.id) && timelineSettings.showOverdue === false) || (allDayIds.has(item.id) && !allDayOpen) || (undatedIds.has(item.id) && timelineSettings.showUndated !== true))).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /> : <>
+        {manuallyOrdered ? <ViewResults {...orderProps} itemLabels={categoryLabels} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={listEvaluation} hiddenItemIds={new Set(listEvaluation.items.filter(item => !plan?.pins.has(item.id) && ((overdueIds.has(item.id) && timelineSettings.showOverdue === false) || (allDayIds.has(item.id) && !allDayOpen) || (undatedIds.has(item.id) && timelineSettings.showUndated !== true))).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /> : <>
         {overdueIds.size > 0 && timelineSettings.showOverdue !== false && <div className="calendar-overdue"><h2>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
         {allDayIds.size > 0 && allDayOpen && <div className="calendar-all-day"><h2>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
         <ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id) || undatedIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
         {timelineSettings.showUndated === true && undatedItems.length > 0 && <div className="calendar-no-date"><h2>{preferences.language === 'ru' ? 'Без даты' : 'No date'} · {undatedItems.length}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={workspace} evaluation={{ items: undatedItems, metrics: null, now }} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
       </>}</Surface></>}
-    {(planning || Boolean(preferences.planning?.orders?.[selectedDate]?.length)) && <Button size="compact" onClick={() => setResetStep(1)} disabled={!preferences.planning?.orders?.[selectedDate]?.length}>{preferences.language === 'ru' ? 'Сбросить порядок дня' : 'Reset day order'}</Button>}
+    {displayMode === 'list' ? <Button size="compact" disabled={!temporaryOrder} onClick={() => setListOrders(current => { const next = { ...current }; delete next[selectedDate]; return next; })}>{preferences.language === 'ru' ? 'Сбросить порядок списка' : 'Reset list order'}</Button>
+      : (planning || Boolean(preferences.planning?.orders?.[selectedDate]?.length)) && <Button size="compact" onClick={() => setResetStep(1)} disabled={!preferences.planning?.orders?.[selectedDate]?.length}>{preferences.language === 'ru' ? 'Сбросить порядок дня' : 'Reset day order'}</Button>}
     {planningMessage && <p role="status">{planningMessage}</p>}
     <ResponsiveDialog open={resetStep > 0} onOpenChange={open => { if (!open) setResetStep(0); }} title={preferences.language === 'ru' ? 'Сброс порядка' : 'Reset order'} ariaLabel="Reset calendar order">
       <p>{resetStep === 1 ? (preferences.language === 'ru' ? 'Вернуть исходную сортировку? Закрепления и items останутся без изменений.' : 'Restore the initial sorting? Pins and items will not change.') : `${preferences.language === 'ru' ? 'Подтвердите сброс порядка только для' : 'Confirm resetting order only for'} ${selectedLabel} (${selectedDate}).`}</p>

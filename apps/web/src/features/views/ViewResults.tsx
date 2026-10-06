@@ -12,6 +12,7 @@ import { ProjectResultLink } from './ProjectResultLink';
 import { evaluateView } from './viewSelectors';
 import { longListClass } from '../../performance/longList';
 import { canQuickChangeDue } from '../items/dueQuickActions';
+import { cardWorkspaceUnchanged } from './itemCardDependencies';
 
 export const VIEW_LIVE_TICK_MS = 1_000;
 const ViewItemCard = memo(function ViewItemCard({ onEditItem, onStateItem, accent, ...props }: Omit<ComponentProps<typeof ItemCard>, 'onEdit' | 'onState'> & {
@@ -20,6 +21,14 @@ const ViewItemCard = memo(function ViewItemCard({ onEditItem, onStateItem, accen
   accent: string;
 }) {
   return <ItemCard {...props} onEdit={() => onEditItem(props.item)} onState={state => onStateItem(props.item, state, accent)} />;
+}, (before, after) => {
+  const keys = Object.keys(before) as Array<keyof typeof before>;
+  return keys.length === Object.keys(after).length && keys.every(key => {
+    if (key === 'workspace') return cardWorkspaceUnchanged(before.workspace, after.workspace, after.fields);
+    if (key === 'now') return before.now?.getTime() === after.now?.getTime();
+    if (key === 'fields') return before.fields === after.fields || Boolean(before.fields && after.fields && before.fields.length === after.fields.length && before.fields.every((field, i) => field === after.fields![i]));
+    return before[key] === after[key];
+  });
 });
 const noViewScripts: NonNullable<ComponentProps<typeof ItemCard>['viewScripts']> = [];
 export const viewNeedsLiveClock = (view: Pick<SavedView, 'fields'> & Partial<Pick<SavedView, 'scripts'>>, workspace?: WorkspaceDocument) => workspace

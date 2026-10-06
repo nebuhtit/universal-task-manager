@@ -3,6 +3,32 @@ import { createItem, createWorkspace, itemJsonSchema } from '@utm/core';
 import { displayViewValue, isItemTemplate, readItemField, relationContext, viewFieldLabel, viewFieldOptions } from './fieldDisplay';
 
 describe('item field display helpers', () => {
+  it('resolves labels exactly like the editor catalog, including duplicates and renamed definitions', () => {
+    const workspace = createWorkspace('Labels');
+    workspace.customFields.score = { id: 'score', key: 'score', label: 'Score', kind: 'number', required: false };
+    for (const [id, label] of [['a', 'First'], ['b', 'Second']] as const) {
+      const item = createItem(id);
+      item.scripts = [{ id, key: 'shared', label, source: '1', resultKind: 'number' }];
+      workspace.items[id] = item;
+    }
+    const scripts = [{ id: 'view', key: 'shared', label: 'View value', source: '1', resultKind: 'number' as const }];
+    const renamed = structuredClone(workspace);
+    renamed.customFields.score!.label = 'New score';
+    renamed.items.a!.scripts![0]!.label = 'New first';
+    for (const document of [workspace, renamed]) {
+      const options = viewFieldOptions(document, scripts);
+      for (const path of [...options.map(option => option.path), 'missing', 'script.missing', 'custom.missing']) {
+        expect(viewFieldLabel(document, path, scripts)).toBe(options.find(option => option.path === path)?.label ?? path);
+      }
+    }
+  });
+
+  it('does not scan workspace items to label a built-in field on first render', () => {
+    const workspace = createWorkspace('Labels');
+    Object.defineProperty(workspace, 'items', { get: () => { throw new Error('Unexpected item scan'); } });
+    expect(viewFieldLabel(workspace, 'title')).toBe('Title');
+    expect(viewFieldLabel(workspace, 'bodyMarkdown')).toBe('Description');
+  });
   it('formats compound and seconds durations without substituting seven days', () => {
     expect(displayViewValue('PT5H45M', 'schedule.estimatedDuration')).toBe('5 h 45 min');
     expect(displayViewValue('PT20700S', 'schedule.estimatedDuration')).toBe('5 h 45 min');

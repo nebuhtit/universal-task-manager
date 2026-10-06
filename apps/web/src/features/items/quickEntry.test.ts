@@ -139,6 +139,14 @@ describe('quick entry item integration', () => {
     expect(item.schedule?.startAt).toBeUndefined();
     expect(quickEntrySource(item)?.text).toContain('до ср 23.09.2026 09:00');
   });
+  it('creates a due-only item when a weekday precedes a clock deadline and title', () => {
+    const tuesday = new Date(2026, 8, 22, 16);
+    const item = createQuickEntryItem('пн до 18 помочь', tuesday);
+    expect(item.title).toBe('помочь');
+    expect(item.schedule?.dueAt).toBe(new Date(2026, 8, 28, 18).toISOString());
+    expect(item.schedule?.startAt).toBeUndefined();
+    expect(parseEntry(quickEntrySource(item)!.text, new Date(2026, 9, 5))).toMatchObject({ title: 'помочь', due: item.schedule?.dueAt, errors: [] });
+  });
   it('stores a same-day clock-only срок alongside the event start', () => {
     const afternoon = new Date(2026, 8, 22, 14, 55);
     const item = createQuickEntryItem('На залив сегодня 09:00 срок 18:00', afternoon);

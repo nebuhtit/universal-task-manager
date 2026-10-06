@@ -115,7 +115,18 @@ export const viewFieldOptions = (workspace: WorkspaceDocument, viewScripts: read
   ];
 };
 
-export const viewFieldLabel = (workspace: WorkspaceDocument, path: string, viewScripts: readonly ItemScriptField[] = []) => viewFieldOptions(workspace, viewScripts).find((field) => field.path === path)?.label ?? path;
+const builtInLabels = new Map(builtInViewFields.map(field => [field.path, field.label]));
+// Cards need one label, not the complete editor catalog. Preserve first-match
+// precedence without allocating every field/script option for every card.
+export const viewFieldLabel = (workspace: WorkspaceDocument, path: string, viewScripts: readonly ItemScriptField[] = []) => {
+  const builtIn = builtInLabels.get(path);
+  if (builtIn !== undefined) return builtIn;
+  if (path.startsWith('custom.')) return Object.values(workspace.customFields).find(field => `custom.${field.key}` === path)?.label ?? path;
+  if (path.startsWith('script.')) return getWorkspaceIndex(workspace).scripts.allItemDefinitions.find(script => `script.${script.key}` === path)?.label ?? path;
+  if (path === 'view_scripts' && viewScripts.length) return 'View script results';
+  if (path.startsWith('view_script.')) return viewScripts.find(script => `view_script.${script.key}` === path)?.label ?? path;
+  return path;
+};
 
 export const exampleViewFieldValue = (path: string): string => {
   if (path.startsWith('custom.')) return 'Example value';

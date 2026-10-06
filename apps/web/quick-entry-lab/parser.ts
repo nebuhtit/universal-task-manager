@@ -252,6 +252,22 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
     consume(naturalTravel.index, naturalTravel[0].length);
   }
   // “до <date>” is a due deadline. Ordinary prose with “до” remains a title.
+  // A weekday may also precede a clock-only due: “пн до 18 помочь”. In that
+  // form the weekday supplies the date for the deadline instead of becoming
+  // an event start, and the hour means the top of that hour.
+  const weekdayClockDue = new RegExp(`(?:^|\\s)(${dayExpression})\\s+(?:до|by)\\s+(\\d{1,2})(?::(\\d{2}))?(?=\\s|$)`, 'gi');
+  for (const match of [...text.matchAll(weekdayClockDue)]) {
+    if (consumed.slice(match.index!, match.index! + match[0].length).some(Boolean)) continue;
+    once('due');
+    const day = parseDate(match[1]!, now);
+    const hour = Number(match[2]); const minute = Number(match[3] ?? 0);
+    if (!day || hour > 23 || minute > 59) result.errors.push(`Не разобран срок «${match[0].trim()}».`);
+    else {
+      const due = new Date(day.iso); due.setHours(hour, minute, 0, 0);
+      result.due = due.toISOString();
+    }
+    consume(match.index!, match[0].length);
+  }
   const duePhrase = new RegExp(`(?:^|\\s)(?:до|by)\\s+(${dateValueExpression})(?=\\s|$)`, 'gi');
   for (const match of [...text.matchAll(duePhrase)]) {
     once('due');

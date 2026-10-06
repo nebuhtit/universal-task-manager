@@ -8,6 +8,56 @@ import { saveGoogleItem, type GoogleSaveOperation } from './googleItemSave';
 import { createOccurrence } from '@utm/core';
 import { selectHeaderAgenda } from '../components/layout/headerAgendaModel';
 import { prepareTimelineData } from '../features/calendar/timelineData';
+import { createCalendarProjectionCache } from '../features/calendar/calendarProjectionCache';
+import { itemEditorSource } from '../features/items/editor/itemEditorSource';
+import { buildSegments, layoutEvents } from '../features/calendar/timelineLayout';
+
+it.each([
+  { scope: 'this_and_future' as const, split: false },
+  { scope: 'this_and_future' as const, split: true },
+  { scope: 'this_occurrence' as const, split: false },
+])('resizes linked recurring Timeline blocks after $scope (split: $split)', ({ scope, split }) => {
+  const now = new Date('2026-10-05T07:00:00Z');
+  const workspace = createWorkspace('Recurring geometry', now);
+  workspace.calendarPreferences.timezone = 'Europe/Moscow';
+  workspace.calendarPreferences.dayView.filter.source = 'true';
+  const series = createItem('Weekly event', 'event', now);
+  series.role = 'series_template'; series.canBeCompleted = false;
+  series.schedule = { timezone: 'Europe/Moscow', startAt: '2026-10-11T08:00:00.000Z', endAt: '2026-10-11T09:00:00.000Z', estimatedDuration: 'PT60M' };
+  series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'Europe/Moscow', anchor: 'schedule', autoRenew: true, activationOffset: 'PT0M', closeAt: 'next_activation', rdates: [], exdates: [] };
+  const first = createOccurrence(series, new Date(series.schedule.startAt!), 0);
+  const next = createOccurrence(series, new Date('2026-10-18T08:00:00.000Z'), 1);
+  for (const item of [series, first, next]) {
+    item.external = { provider: 'google_calendar', readOnly: false, connectionId: 'connection', calendarId: 'calendar', eventId: item.id, sourceUrl: '', syncedAt: now.toISOString(), startAt: item.schedule!.startAt!, endAt: item.schedule!.endAt!, etag: 'original' };
+    workspace.items[item.id] = item;
+  }
+  const baseline = structuredClone(next.external);
+  const cache = createCalendarProjectionCache();
+  const before = prepareTimelineData(workspace, '2026-10-18', now, cache);
+  const selected = split ? next : first;
+  const selectedDay = split ? '2026-10-18' : '2026-10-11';
+  const past = structuredClone(first);
+  const edited = structuredClone(itemEditorSource(workspace, selected));
+  edited.schedule!.startAt = `${selectedDay}T07:30:00.000Z`;
+  edited.schedule!.endAt = `${selectedDay}T09:31:00.000Z`;
+  edited.schedule!.estimatedDuration = 'PT121M';
+  const saved = structuredClone(workspace);
+  saveItemInWorkspace(saved, edited, { recurrenceEdit: { occurrenceId: selected.id, scope } }, now);
+  for (const day of ['2026-10-11', '2026-10-18', '2026-10-25']) {
+    const changed = scope === 'this_occurrence' ? day === selectedDay : day >= selectedDay;
+    const prepared = prepareTimelineData(saved, day, now, cache);
+    expect(prepared.events).toHaveLength(1);
+    expect(prepared.events[0]!.end - prepared.events[0]!.start).toBe((changed ? 121 : 60) * 60_000);
+    expect(prepared.events[0]!.start).toBe(Date.parse(`${day}T${changed ? '07:30' : '08:00'}:00.000Z`));
+    const segments = buildSegments(prepared.day, []);
+    const block = layoutEvents(prepared.events, prepared.day, segments, 2).events[0]!;
+    const previous = layoutEvents(before.events, before.day, buildSegments(before.day, []), 2).events[0]!;
+    if (changed) expect(block.height).toBeGreaterThan(previous.height);
+    else expect(block.height).toBe(previous.height);
+  }
+  if (!split) expect(saved.items[next.id]!.external).toEqual(baseline);
+  else expect(saved.items[first.id]).toEqual(past);
+});
 
 it('completes the selected weekly active-range cycle once while keeping the edited series open', () => {
   const now = new Date('2026-09-27T00:00:00Z');

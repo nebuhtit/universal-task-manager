@@ -9,7 +9,7 @@ import {
 import { type WorkspaceDocument } from '@utm/core';
 import { persistObsidianWorkspace } from './obsidianBridge';
 import { beginPersistenceTrace } from './syncTrace';
-import { beginProfileSpan, currentProfileActionId, recordProfileSpan, recordWorkerProfileSpan } from './performanceProfile';
+import { beginProfileSpan, currentProfileActionId, recordProfileCache, recordProfileSpan, recordWorkerProfileSpan } from './performanceProfile';
 type SaveTrace = ReturnType<typeof beginPersistenceTrace>['trace'];
 
 type PersistenceResponse =
@@ -22,6 +22,21 @@ let worker: Worker | undefined;
 let nextRequestId = 1;
 const requests = new Map<number, { trace: SaveTrace; actionId: number | null; resolve: (value: { binary: Uint8Array; exportSafeBinary?: Uint8Array }) => void; reject: (reason: Error) => void }>();
 const WORKER_PREPARE_TIMEOUT_MS = 15_000;
+type VerifiedBinaries = { binary: Uint8Array; exportSafeBinary?: Uint8Array };
+// One immutable snapshot only, weakly held and bounded in bytes. Never retain
+// keys or treat a cache hit as a durable write. Large documents still save normally.
+const MAX_PREPARATION_CACHE_BYTES = 16 * 1024 * 1024;
+let preparedSnapshots = new WeakMap<UnlockedWorkspace['document'], VerifiedBinaries>();
+
+async function encryptSnapshot(verified: VerifiedBinaries, session: UnlockedWorkspace, trace: SaveTrace) {
+  const dataKey = session.dataKey.slice();
+  try {
+    trace('encrypt-start');
+    const result = await prepareLocalWorkspaceSaveFromVerifiedBinaries(verified.binary, verified.exportSafeBinary, dataKey, session.storageMode);
+    trace('encrypt-end');
+    return result;
+  } finally { dataKey.fill(0); }
+}
 
 const resetWorkspaceWorker = (reason: Error) => {
   requests.forEach(({ reject }) => reject(reason));
@@ -75,6 +90,11 @@ const workspaceWorker = (actionId: number | null): Worker | undefined => {
 };
 
 async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveTrace, actionId: number | null): Promise<PreparedLocalWorkspaceSave> {
+  const cached = preparedSnapshots.get(session.document);
+  recordProfileCache('save.snapshot', Boolean(cached), cached ? 'unchanged' : 'workspace-reference');
+  if (cached) return encryptSnapshot(cached, session, syncTrace);
+  // Evict even on failure: A -> B -> A must not accumulate old snapshots.
+  preparedSnapshots = new WeakMap();
   let target: Worker | undefined;
   try { target = workspaceWorker(actionId); } catch { target = undefined; }
   if (!target) { syncTrace('storage-fallback'); return await prepareLocalWorkspaceSave(session.document, session.dataKey, session.storageMode); }
@@ -89,7 +109,6 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
   syncTrace('snapshot-start');
   const snapshotJson = JSON.stringify(session.document);
   syncTrace('snapshot-end', { items: Object.keys(session.document.items).length });
-  const dataKey = session.dataKey.slice();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     syncTrace('storage-worker-start');
@@ -115,14 +134,8 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
     });
     if (timeout) clearTimeout(timeout);
     syncTrace('storage-worker-end');
-    syncTrace('encrypt-start');
-    const prepared = await prepareLocalWorkspaceSaveFromVerifiedBinaries(
-      verified.binary,
-      verified.exportSafeBinary,
-      dataKey,
-      session.storageMode,
-    );
-    syncTrace('encrypt-end');
+    const prepared = await encryptSnapshot(verified, session, syncTrace);
+    if (verified.binary.byteLength + (verified.exportSafeBinary?.byteLength ?? 0) <= MAX_PREPARATION_CACHE_BYTES) preparedSnapshots.set(session.document, verified);
     return prepared;
   } catch (reason) {
     syncTrace('storage-fallback');
@@ -132,8 +145,6 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
     // persistence queue retain the unsaved document for an explicit retry.
     resetWorkspaceWorker(new Error('Workspace persistence worker stopped'));
     throw new Error('Workspace save preparation failed. Existing saved data is retained; retry saving.');
-  } finally {
-    dataKey.fill(0);
   }
 }
 

@@ -36,6 +36,12 @@ it('treats a clock-only до as the next due time, not an event start', () => {
   expect(parseEntry(frozen, new Date(2026, 8, 25))).toMatchObject({ title: 'Пук', start: null, due: iso(2026, 8, 23, 9, 0), errors: [] });
 });
 
+it('uses a leading weekday as the date for a clock-only due', () => {
+  expect(parseEntry('пн до 18 помочь', now)).toMatchObject({ title: 'помочь', start: null, due: iso(2026, 8, 28, 18, 0), errors: [] });
+  const frozen = materializeQuickEntryText('пн до 18 помочь', now);
+  expect(parseEntry(frozen, new Date(2026, 9, 5))).toMatchObject({ title: 'помочь', start: null, due: iso(2026, 8, 28, 18, 0), errors: [] });
+});
+
 it('reads and suggests a clock-only срок without swallowing Enter', () => {
   const afternoon = new Date(2026, 8, 22, 14, 55);
   const text = 'На залив сегодня 09:00 срок 18:00';
