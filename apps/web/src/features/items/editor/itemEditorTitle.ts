@@ -1,6 +1,5 @@
 import type { UniversalItem } from '@utm/core';
-import { parseLiveEntry as parseEntry } from '../../../../quick-entry-lab/parser';
-import { applyQuickEntryText, parseQuickEntryForItem, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
+import { applyQuickEntryEditorText, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
 
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
 
@@ -10,12 +9,11 @@ const commaList = (value: string) => value.split(',').map((part) => part.trim())
  * every keystroke, while Save still applies the exact latest text synchronously.
  */
 export function applyEditorTitleDraft(current: UniversalItem, initial: UniversalItem, text: string, tags: string, now: Date): UniversalItem {
-  const parsed = parseEntry(text, now);
-  const contextualErrors = parseQuickEntryForItem(text, now, current).errors;
-  if (contextualErrors.length) throw new Error(contextualErrors.join(' '));
-  if (quickEntrySource(initial)) return applyQuickEntryText({ ...current, tags: commaList(tags) }, text, now, { preserveUnspecifiedSchedule: true }).item;
-
-  const interpreted = applyQuickEntryText(current, text, now, { preserveUnspecifiedSchedule: true }).item;
+  // Use the same editor parser for validation and application: it restores
+  // compact dates and hidden reminders before checking existing event bounds.
+  const fromSource = Boolean(quickEntrySource(initial));
+  const { item: interpreted, draft: parsed } = applyQuickEntryEditorText(fromSource ? { ...current, tags: commaList(tags) } : current, text, now);
+  if (fromSource) return interpreted;
   // Plain-title drafts retain fields that were edited elsewhere in the form.
   // Commands explicitly present in the draft still update their own fields.
   const schedule = { ...interpreted.schedule!, ...current.schedule };

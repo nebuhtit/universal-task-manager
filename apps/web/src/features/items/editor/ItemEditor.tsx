@@ -25,7 +25,7 @@ import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
 import { formatQuickEntryForEditor, applyQuickEntryEditorText as applyQuickEntryText, parseQuickEntryForItem, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
 import { LiveTextInput } from '../LiveTextInput';
-import { parseLiveEntry as parseEntry } from '../../../../quick-entry-lab/parser';
+import { recordItemTitleFailure } from './itemEditorDiagnostics';
 import { ItemSection } from './ItemSection';
 import { QuickItemTimer } from './QuickItemTimer';
 import { DateTimeField } from './fields/DateTimeField';
@@ -69,20 +69,25 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
 
 function EditorTitleInput({ initialValue, inputRef, id, autoFocus, workspace, previewItem, now, onDraft, onCommit }: {
   initialValue: string; inputRef: RefObject<HTMLInputElement | null>; id: string; autoFocus: boolean;
-  workspace: WorkspaceDocument; now: Date; onDraft: (value: string, edited: boolean) => void; onCommit: (value: string) => void;
+  workspace: WorkspaceDocument; now: Date; onDraft: (value: string, edited: boolean) => void; onCommit: (value: string) => boolean;
   previewItem: UniversalItem;
 }) {
   const [value, setValue] = useState(initialValue);
   const focused = useRef(false);
+  const dirty = useRef(false);
+  const latestValue = useRef(initialValue);
   useEffect(() => {
-    if (focused.current) return;
+    // A rejected blur must retain the draft even when the parent clock, error
+    // message or date fields rerender the editor with its old (possibly empty) title.
+    if (focused.current || dirty.current) return;
+    latestValue.current = initialValue;
     setValue(initialValue);
     onDraft(initialValue, false);
   }, [initialValue, onDraft]);
   return <LiveTextInput multiline id={id} inputRef={inputRef} previewItem={previewItem} autoFocus={autoFocus} ariaLabel="Title" value={value}
-    onChange={(next) => { setValue(next); onDraft(next, true); }}
+    onChange={(next) => { dirty.current = true; latestValue.current = next; setValue(next); onDraft(next, true); }}
     onFocus={() => { focused.current = true; }}
-    onBlur={() => { focused.current = false; onCommit(value); }}
+    onBlur={() => { focused.current = false; if (dirty.current && onCommit(latestValue.current)) dirty.current = false; }}
     workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language}
     suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} overlaySuggestions now={now} placeholder="What needs to happen?" />;
 }
@@ -185,7 +190,9 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   });
   const commitTitleDraft = (text: string, current = item) => {
     if (!titleEdited.current) return current;
-    const interpreted = applyEditorTitleDraft(current, initial, text, tags, now);
+    let interpreted: UniversalItem;
+    try { interpreted = applyEditorTitleDraft(current, initial, text, tags, now); }
+    catch (reason) { recordItemTitleFailure('commit', current, text, reason); throw reason; }
     setItem(interpreted);
     setTags(interpreted.tags.join(', '));
     return interpreted;
@@ -414,7 +421,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
     if (sourceEditing) { setError('Примените или отмените правку строки быстрого ввода перед сохранением.'); return; }
     if (titleEdited.current) {
       const titleErrors = parseQuickEntryForItem(titleDraft.current, now, item).errors;
-      if (titleErrors.length) { setError(titleErrors.join(' ')); return; }
+      if (titleErrors.length) { recordItemTitleFailure('save-validation', item, titleDraft.current, titleErrors.join(' ')); setError(titleErrors.join(' ')); return; }
     }
     if (timezoneDraft !== (item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone)) { setError('Выберите действительный часовой пояс.'); return; }
     if (!programValid) { setError(workspace.calendarPreferences.language === 'ru' ? 'Исправьте текст программы перед сохранением.' : 'Correct the program text before saving.'); return; }
@@ -505,9 +512,9 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
             if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? titleDraft.current)); setSourceEditing(true); setError(''); return; }
             try { const updated = applyQuickEntryText(item, sourceDraft, now).item; setItem(updated); titleDraft.current = updated.title; setSourceDraft(quickEntrySource(updated)?.text ?? ''); setSourceEditing(false); setError(''); }
-            catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+            catch (reason) { recordItemTitleFailure('source', item, sourceDraft, reason); setError(reason instanceof Error ? reason.message : String(reason)); }
           }}>{sourceEditing ? (workspace.calendarPreferences.language === 'ru' ? 'Применить строку' : 'Apply line') : (workspace.calendarPreferences.language === 'ru' ? 'Быстрый ввод' : 'Quick entry')}</Button>}{!sourceEditing && canManuallyComplete(item) && item.state === 'open' && workspace.items[item.id] && <button type="button" className="state-toggle editor-complete" aria-label={workspace.calendarPreferences.language === 'ru' ? 'Выполнить item' : 'Complete item'} title={workspace.calendarPreferences.language === 'ru' ? 'Выполнить и сохранить' : 'Complete and save'} disabled={saving} onPointerDown={event => event.preventDefault()} onClick={() => void save({ complete: true, dismissKeyboard: true })} />}{!sourceEditing && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
-          {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseEntry(sourceDraft, now).errors.length ? <p className="editor-error error">{parseEntry(sourceDraft, now).errors.join(' ')}</p> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseEntry(sourceDraft, now).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntrySource(item)?.text ?? item.title)} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }} />}
+          {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseQuickEntryForItem(sourceDraft, now, item).errors.length ? <p className="editor-error error">{parseQuickEntryForItem(sourceDraft, now, item).errors.join(' ')}</p> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseQuickEntryForItem(sourceDraft, now, item).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntrySource(item)?.text ?? item.title)} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); return true; } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return false; } }} />}
           {item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
         {error && <p className="editor-error error" role="alert">{error}</p>}

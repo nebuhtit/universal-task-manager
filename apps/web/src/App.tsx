@@ -1,4 +1,5 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
+import { safeItemTitleFailureDetails } from './features/items/editor/itemEditorDiagnostics';
 import { readSyncTrace } from './services/syncTrace';
 import { currentProfileActionId, labelProfileAction, readPerformanceProfiles, recordProfileCommit } from './services/performanceProfile';
 import { QuickTimerDialog } from './features/items/QuickTimerDialog';
@@ -104,6 +105,10 @@ const downloadText = async (content: string, filename: string, type = 'applicati
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
 const exportSafeDiagnostics = () => [...readPerformanceProfiles().map(profile => ({ at: profile.at, kind: 'usage' as const, message: 'Performance profile', operation: 'Performance profile v1', details: JSON.stringify(profile) })), ...readSyncTrace().map(entry => ({ at: entry.at, kind: 'result' as const, message: `Sync trace ${entry.event}`, operation: 'Sync trace v1', details: JSON.stringify(entry) })), ...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
+  if (entry.operation === 'Item title validation') {
+    const safeDetails = safeItemTitleFailureDetails(details);
+    return { ...entry, ...(safeDetails ? { details: safeDetails } : {}) };
+  }
   if (entry.operation === 'Render page' || entry.operation === 'Render application') {
     const safeDetails = safeRenderFailureDetails(details);
     return { ...entry, ...(safeDetails ? { details: safeDetails } : {}) };

@@ -146,17 +146,11 @@ export function applyQuickEntryEditorText(item: UniversalItem, text: string, now
 }
 
 export function parseQuickEntryForItem(text: string, now: Date, item?: UniversalItem): Draft {
-  const draft = parseEntry(text, now);
-  if (!item) return draft;
-  const hasStart = Boolean(item.schedule?.startAt);
-  const hasEnd = Boolean(item.schedule?.endAt);
-  // Travel commands can rely on the existing event bounds when editing a
-  // title. The standalone parser still reports these as errors for new items.
-  draft.errors = draft.errors.filter(error => !(hasStart && [
-    'Для дороги нужно время начала.',
-    'Для напоминания до начала нужно время event opens.',
-  ].includes(error)) && !(hasEnd && error === 'Для дороги обратно нужно время конца события.'));
-  return draft;
+  const schedule = item?.schedule;
+  return parseEntry(text, now, schedule ? {
+    start: schedule.startAt, end: schedule.endAt, due: schedule.dueAt,
+    travelMinutes: schedule.travelDuration ? durationToMs(schedule.travelDuration) / 60_000 : undefined,
+  } : undefined);
 }
 
 export function applyQuickEntryText(item: UniversalItem, text: string, now: Date, options: { preserveUnspecifiedSchedule?: boolean } = {}): { item: UniversalItem; draft: Draft } {

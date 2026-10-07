@@ -23,6 +23,27 @@ async function reopenItem(page: Page) {
   await page.getByRole('dialog').waitFor({ state: 'visible' });
 }
 
+test('travel title draft survives rejected blur and saves after event bounds are supplied', async ({ page }, testInfo) => {
+  await createWorkspaceAndItem(page);
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const title = editor.getByRole('combobox', { name: 'Title', exact: true });
+  await title.fill('Test ttb 45m');
+  await editor.getByLabel('Event opens', { exact: true }).focus();
+  await expect(editor.locator('.editor-error').first()).toContainText('Для дороги нужно время начала.');
+  // Include parent clock rerenders after the unsuccessful blur.
+  await page.waitForTimeout(2200);
+  await expect(title).toHaveValue('Test ttb 45m');
+  const incident = await page.evaluate(() => JSON.parse(localStorage.getItem('utm:diagnostics:v1') ?? '[]').findLast((e: { operation: string }) => e.operation === 'Item title validation'));
+  expect(JSON.parse(incident.details)).toMatchObject({ stage: 'commit', hasStart: false, hasEnd: false, draftLength: 12 });
+  expect(incident.details).not.toContain('Test');
+  await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00');
+  await editor.getByLabel('Event ends', { exact: true }).fill('2030-09-23T13:00');
+  await expect(title).toHaveValue('Test ttb 45m');
+  const save = editor.getByRole('button', { name: 'Save item', exact: true });
+  if (testInfo.project.use.hasTouch) await save.tap(); else await save.click();
+  await expect(editor).toBeHidden();
+});
+
 test('reminder number can be cleared before replacement', async ({ page }) => {
   await createWorkspaceAndItem(page);
   const reminders = page.locator('details').filter({ has: page.locator(':scope > summary').filter({ hasText: /^Reminders/ }) });

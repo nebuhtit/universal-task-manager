@@ -165,7 +165,9 @@ function normalizeSeparators(input: string): string {
   return chars.join('');
 }
 
-export function parseEntry(input: string, now: Date, defaults = true): Draft {
+export interface EntryContext { start?: string | undefined; end?: string | undefined; due?: string | undefined; travelMinutes?: number | undefined }
+
+export function parseEntry(input: string, now: Date, defaults = true, context?: EntryContext): Draft {
   input = relaxedCommands(normalizeSeparators(input));
   const result: Draft = { title: '', start: null, due: null, end: null, travelMinutes: null, durationMinutes: null, leave: null, reminders: [], errors: [], warnings: [] };
   if (input.length > 2000) { result.errors.push('Максимум 2000 символов.'); return result; }
@@ -478,7 +480,14 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
   result.title = input.split('').map((char, i) => consumed[i] ? ' ' : char).join('').replace(/"([^"\n]*)"|«([^»\n]*)»/g, (_, a, b) => a ?? b).replace(/\s+/g, ' ').trim();
   if (!result.title && /^(?:сейчас|now)\s*$/i.test(input.trim())) result.title = 'Сейчас';
   if (!result.title) result.errors.push('Добавьте название.');
-  if (result.travelMinutes !== null && !result.start) result.errors.push('Для дороги нужно время начала.');
+  // Form values anchor travel/reminders but are not explicit commands in the
+  // text. Keep result.start/end unchanged so editing a title cannot rewrite dates.
+  const inherited = result.dateOnlyStart ? undefined : context;
+  const effectiveStart = result.start ?? inherited?.start;
+  const effectiveDue = result.due ?? inherited?.due;
+  const effectiveTravel = result.travelMinutes ?? inherited?.travelMinutes;
+  if (result.travelMinutes !== null && !effectiveStart) result.errors.push('Для дороги нужно время начала.');
+  if (effectiveStart && effectiveTravel !== undefined) result.leave = addMinutes(effectiveStart, -effectiveTravel);
   if (result.start) {
     if (result.travelMinutes !== null) result.leave = addMinutes(result.start, -result.travelMinutes);
     if (defaults && result.durationMinutes === null && !result.end) result.durationMinutes = 60;
@@ -491,13 +500,13 @@ export function parseEntry(input: string, now: Date, defaults = true): Draft {
     if (new Date(result.start) < now) result.warnings.push('Начало уже в прошлом. Дата не перенесена автоматически.');
   }
   if (defaults && result.due && !result.start && result.durationMinutes === null) result.durationMinutes = 10;
-  if (result.travelBackMinutes !== undefined && !result.end) result.errors.push('Для дороги обратно нужно время конца события.');
+  if (result.travelBackMinutes !== undefined && !(result.end ?? inherited?.end)) result.errors.push('Для дороги обратно нужно время конца события.');
   if (result.start && result.end && result.end <= result.start) result.errors.push('Event ends должен быть позже event opens.');
   if (result.due && result.due.includes('T') && new Date(result.due) < now) result.warnings.push('Due уже в прошлом. Дата не перенесена автоматически.');
   for (const reminder of pending) {
-    if (reminder.delivery === 'alarm' && reminder.anchor === 'auto' && reminder.minutes === 0 && !result.start && !result.due) { result.errors.push('Для будильника укажите Event opens или Due.'); continue; }
-    const anchor = reminder.anchor === 'auto' ? result.start ? reminder.preferDeparture && result.leave ? 'leave' : 'start' : result.due ? 'due' : 'now' : reminder.anchor;
-    const base = anchor === 'now' ? now.toISOString() : anchor === 'leave' ? result.leave : anchor === 'due' ? result.due?.includes('T') ? result.due : null : result.start;
+    if (reminder.delivery === 'alarm' && reminder.anchor === 'auto' && reminder.minutes === 0 && !effectiveStart && !effectiveDue) { result.errors.push('Для будильника укажите Event opens или Due.'); continue; }
+    const anchor = reminder.anchor === 'auto' ? effectiveStart ? reminder.preferDeparture && result.leave ? 'leave' : 'start' : effectiveDue ? 'due' : 'now' : reminder.anchor;
+    const base = anchor === 'now' ? now.toISOString() : anchor === 'leave' ? result.leave : anchor === 'due' ? effectiveDue?.includes('T') ? effectiveDue : null : effectiveStart;
     const minutes = reminder.anchor === 'auto' && anchor === 'now' ? Math.abs(reminder.minutes) : reminder.minutes;
     const at = base ? addMinutes(base, minutes) : null;
     if (!at) result.errors.push(anchor === 'leave' ? 'Для напоминания до выезда нужны event opens и дорога.' : anchor === 'due' ? 'Для напоминания от due укажите дату и время due.' : 'Для напоминания до начала нужно время event opens.');
@@ -825,7 +834,7 @@ export function bareDurationInsertion(input: string): number {
   return trailing.index + 1;
 }
 
-export function parseLiveEntry(input: string, now: Date): Draft {
+export function parseLiveEntry(input: string, now: Date, context?: EntryContext): Draft {
   const within = extractWithinRelations(input);
   input = within.text;
   const organization = extractOrganization(input);
@@ -844,7 +853,7 @@ export function parseLiveEntry(input: string, now: Date): Draft {
   const insertion = 'длительность ';
   const normalized = insertAt >= 0 ? input.slice(0, insertAt) + insertion + input.slice(insertAt) : input;
   const withoutDatePreposition = normalized.replace(new RegExp(`"[^"\\n]*"|«[^»\\n]*»|(^|\\s)(?:(?:в|во|на|on)\\s+(?:эту\\s+|этот\\s+|this\\s+)?)?(?:эту\\s+|this\\s+)?(?=${dateValueExpression}(?=\\s|$))|(^|\\s)на\\s+(?=длительность\\s)`, 'gi'), (match, leading: string | undefined, durationLeading: string | undefined) => leading === undefined && durationLeading === undefined ? match : ' '.repeat(match.length));
-  const result = { ...parseEntry(withoutDatePreposition, now, !noDateDefaults), ...fields, noDateDefaults, noDefaultReminders };
+  const result = { ...parseEntry(withoutDatePreposition, now, !noDateDefaults, context), ...fields, noDateDefaults, noDefaultReminders };
   const spans = (result.commandSpans ?? []).filter(span => insertAt < 0 || span.end <= insertAt || span.start >= insertAt + insertion.length).map(span => insertAt >= 0 && span.start >= insertAt + insertion.length ? { start: span.start - insertion.length, end: span.end - insertion.length } : span);
   result.commandSpans = [...organization.commandSpans, ...flagSpans, ...(result.errors.length ? [] : spans)].sort((a, b) => a.start - b.start);
   if (!result.dateOnlyStart || !result.start) return result;
