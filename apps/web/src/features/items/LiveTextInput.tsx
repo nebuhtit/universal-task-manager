@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { orderedOrganizationNames, orderedTagEntries, type WorkspaceDocument } from '@utm/core';
+import { type WorkspaceDocument } from '@utm/core';
 import { organizationSuggestions } from '../../../quick-entry-lab/organization';
 import { dateValueExpression, suggest, type Draft } from '../../../quick-entry-lab/parser';
 import { Button, Input, Textarea } from '../../components/ui/primitives';
@@ -10,7 +10,8 @@ import { buildSegments, positionAt } from '../calendar/timelineLayout';
 import { measureProfile } from '../../services/performanceProfile';
 import './live-text.css';
 import { withinSuggestions, extractWithinRelations, joinWithinText } from '../../../quick-entry-lab/relations';
-import { withinPlacementWorkspace, withinTargets, withinPlacementInfo, type UniversalItem } from '@utm/core';
+import { withinTargets, withinPlacementInfo, type UniversalItem } from '@utm/core';
+import { liveTextIndex, withinPreviewWorkspace } from './liveTextIndex';
 import { createQuickEntryItem, applyQuickEntryText, parseQuickEntryForItem } from './quickEntry';
 
 export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, workspaceId, workspace, previewItem, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, viewedTimelineDate, timeZone, onSubmit, onFocus, onBlur }: {
@@ -22,10 +23,10 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
 }) {
   const references = useMemo(() => extractWithinRelations(sourceValue), [sourceValue]);
   const value = references.displayText;
-  const onChange = (text: string) => {
+  const onChange = (text: string) => measureProfile('editor.input', () => {
     const added = extractWithinRelations(text);
     onSourceChange(joinWithinText(added.displayText, [...references.tokens, ...added.tokens]));
-  };
+  });
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
   const touchStartY = useRef<number | null>(null);
   const lastTouchSelection = useRef(0);
@@ -65,13 +66,12 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   // update. Deferring them prevents a large workspace from delaying each key.
   const deferredValue = useDeferredValue(value);
   const analysisCurrent = deferredValue === value;
-  const parsed = useMemo(() => ({ ...parseQuickEntryForItem(deferredValue, referenceTime, previewItem), withinIds: references.ids }), [deferredValue, referenceTime, references, previewItem]);
-  const relationItems = useMemo(() => workspace ? Object.values(workspace.items).filter(i => i.id !== previewItem?.id && !i.deletedAt && i.state !== 'archived' && i.state !== 'cancelled') : [], [workspace, previewItem?.id]);
+  const parsed = useMemo(() => measureProfile('editor.parse', () => ({ ...parseQuickEntryForItem(deferredValue, referenceTime, previewItem), withinIds: references.ids })), [deferredValue, referenceTime, references, previewItem]);
   const withinPreview = useMemo(() => {
     if (!workspace || !parsed.withinIds?.length || !focused || !open || parsed.errors.length) return null;
     const text = joinWithinText(deferredValue, references.tokens);
     const draft = previewItem ? applyQuickEntryText(previewItem, text, referenceTime, { preserveUnspecifiedSchedule: true }).item : createQuickEntryItem(text, referenceTime, undefined, [], workspace);
-    const projected = withinPlacementWorkspace({ ...workspace, items: { ...workspace.items, [draft.id]: draft } }, referenceTime).items[draft.id];
+    const projected = measureProfile('editor.within-preview', () => withinPreviewWorkspace(workspace, draft, referenceTime), value => ({ scanned: Object.keys(value.items).length })).items[draft.id];
     const info = projected ? withinPlacementInfo(projected) : undefined;
     return projected?.schedule?.startAt ? { start: projected.schedule.startAt, end: projected.schedule.endAt, names: (info?.targets ?? withinTargets(draft)).map(id => workspace.items[id]?.title ?? id).join(', '), fallback: info?.fallback } : null;
   }, [workspace, previewItem, deferredValue, referenceTime, focused, open, parsed]);
@@ -121,11 +121,12 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   const visiblePreview = dayPreview && calendarDate !== viewedTimelineDate;
   const dayPreviewEvents = useMemo(() => dayPreview?.events.filter(event => !event.tentative && !event.invalid && !event.travel)
     .sort((left, right) => left.start - right.start || left.item.id.localeCompare(right.item.id)) ?? [], [dayPreview]);
-  const catalog = useMemo(() => workspace ? { area: orderedOrganizationNames(workspace, 'area'), project: orderedOrganizationNames(workspace, 'project'), tag: orderedTagEntries(workspace).filter((tag): tag is string => tag !== null), projectAreas: Object.fromEntries(orderedOrganizationNames(workspace, 'project').map(name => [name, [...new Set([...(workspace.projectDefinitions[name]?.areas ?? []), ...(workspace.projectDefinitions[name]?.area ? [workspace.projectDefinitions[name]!.area!] : []), ...Object.values(workspace.items).filter(item => !item.deletedAt && (item.projects?.includes(name) || item.project === name)).flatMap(item => [...(item.areas ?? []), ...(item.area ? [item.area] : [])])])]])) } : { area: [], project: [], tag: [] }, [workspace]);
+  const catalog = useMemo(() => workspace && focused && open && suggestionsEnabled ? measureProfile('editor.catalog', () => liveTextIndex(workspace).catalog) : { area: [], project: [], tag: [] }, [workspace, focused, open, suggestionsEnabled]);
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => {
     const position = Math.min(caret, deferredValue.length);
-    return measureProfile('editor.suggestions', () => withinSuggestions(deferredValue, position, relationItems.filter(item => !references.ids.includes(item.id))) ?? organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
-  }, [deferredValue, caret, referenceTime, language, catalog, relationItems, references]);
+    if (!focused || !open || !suggestionsEnabled) return { start: position, end: position, options: [] };
+    return measureProfile('editor.suggestions', () => withinSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).candidates.filter(item => item.id !== previewItem?.id && !references.ids.includes(item.id)) : []) ?? organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
+  }, [deferredValue, caret, referenceTime, language, catalog, workspace, previewItem?.id, references, focused, open, suggestionsEnabled]);
   const [optionLimit, setOptionLimit] = useState(30);
   useEffect(() => { setOptionLimit(30); }, [value, caret]);
   useEffect(() => { if (selected >= optionLimit) setOptionLimit(selected + 30); }, [selected, optionLimit]);

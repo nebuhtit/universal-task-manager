@@ -122,6 +122,20 @@ function workerFixture() {
   return FakeWorker;
 }
 
+it('reuses verified preparation across equivalent Automerge wrappers but still encrypts and writes', async () => {
+  const Worker = workerFixture();
+  const { persistWorkspace } = await import('./workspacePersistence');
+  const document = createAutomergeDocument(createWorkspace('same history'));
+  const clone = Automerge.clone(document);
+  const dataKey = new Uint8Array(32);
+  await persistWorkspace({ document, dataKey });
+  await persistWorkspace({ document: clone, dataKey });
+  expect(Worker.instances[0]!.posts).toBe(1);
+  expect(ports.prepare).toHaveBeenCalledTimes(2);
+  expect(ports.commit).toHaveBeenCalledTimes(2);
+  Automerge.free(clone); Automerge.free(document);
+});
+
 it('reuses the JSON worker across saves and preserves the latest Automerge history', async () => {
   const Worker = workerFixture();
   const { persistWorkspace } = await import('./workspacePersistence');

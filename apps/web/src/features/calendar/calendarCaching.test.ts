@@ -26,6 +26,14 @@ const evaluate = (cache: ReturnType<typeof createCalendarEvaluator>, workspace: 
 const reference = (workspace: WorkspaceDocument, at = now) => evaluateCalendarRange(workspace, start, end, workspace.calendarPreferences.dayView, at);
 
 describe('incremental calendar computation', () => {
+  it('shares an exact snapshot result and does not reuse it across time changes', () => {
+    const workspace = fixture(), cache = createCalendarEvaluator();
+    const first = evaluate(cache, workspace);
+    expect(evaluate(cache, workspace, new Date(+now))).toBe(first);
+    const later = new Date(+now + 1);
+    expect(evaluate(cache, workspace, later)).toEqual(reference(workspace, later));
+    expect(evaluate(cache, workspace, later)).not.toBe(first);
+  });
   it('keeps a whole visible week warm instead of evicting its first days on every refresh', () => {
     const workspace = fixture();
     workspace.items['day-21'] = makeSeries(workspace.items['day-21']!, 'FREQ=DAILY');

@@ -47,7 +47,7 @@ const dayCache = new Map<string, { signature: string; items: UniversalItem[] }>(
 const placementInfo = new WeakMap<UniversalItem, { targets: string[]; fallback: boolean }>();
 export const withinPlacementInfo = (item: UniversalItem) => placementInfo.get(item);
 /** Read-only display projection. Never pass this snapshot to persistence or Google writes. */
-export function withinPlacementWorkspace(workspace: WorkspaceDocument, now = new Date()): WorkspaceDocument {
+export function withinPlacementWorkspace(workspace: WorkspaceDocument, now = new Date(), options: { transient?: boolean } = {}): WorkspaceDocument {
   workspace = originals.get(workspace) ?? workspace;
   const cached = snapshots.get(workspace);
   if (cached && +now >= cached.from && +now < cached.until) return cached.result;
@@ -123,8 +123,12 @@ export function withinPlacementWorkspace(workspace: WorkspaceDocument, now = new
       return result;
     });
     for (const item of results) items[item.id] = item;
-    if (dayCache.size >= 90) dayCache.delete(dayCache.keys().next().value!);
-    dayCache.set(key, { signature, items: results });
+    // Editor previews must not evict the full calendar's day result with a
+    // temporary subset of items on every keystroke.
+    if (!options.transient) {
+      if (dayCache.size >= 90) dayCache.delete(dayCache.keys().next().value!);
+      dayCache.set(key, { signature, items: results });
+    }
   }
   const result = { ...workspace, items };
   snapshots.set(workspace, { result, from: +now, until });

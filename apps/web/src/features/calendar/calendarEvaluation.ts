@@ -34,22 +34,34 @@ import { isItemTemplate } from '../items/fieldDisplay';
 import { attentionSortValues, sortViewItems, viewItemForEvaluation, type ViewEvaluation } from '../views/viewSelectors';
 import { createCalendarProjectionCache, type CalendarProjectionCache } from './calendarProjectionCache';
 import { measureProfile, recordProfileCache } from '../../services/performanceProfile';
+import { createCalendarDependencyTokens } from './calendarDependencyTokens';
 
 type EvaluationCache = {
+  token: ReturnType<typeof createCalendarDependencyTokens>;
   projections: CalendarProjectionCache;
   rows: Map<string, { row: ProjectedOccurrence; source: UniversalItem; item: UniversalItem }>;
   source?: WorkspaceDocument;
   workspace?: WorkspaceDocument;
   context: string;
+  generation: number;
   days: Map<string, { signature: string; value: CalendarDayEvaluation }>;
   counters: { dayCalculations: number; indexBuilds: number };
 };
 
 /** Independent instance per Calendar; never writes into persisted workspace data. */
 export function createCalendarEvaluator() {
-  const cache: EvaluationCache = { projections: createCalendarProjectionCache(), rows: new Map(), context: '', days: new Map(), counters: { dayCalculations: 0, indexBuilds: 0 } };
+  const cache: EvaluationCache = { token: createCalendarDependencyTokens(), projections: createCalendarProjectionCache(), rows: new Map(), context: '', generation: 0, days: new Map(), counters: { dayCalculations: 0, indexBuilds: 0 } };
+  let last: { workspace: WorkspaceDocument; start: string; end: string; settings: CalendarDayViewPreferences; at: number; value: CalendarRangeEvaluation } | undefined;
   return { projections: cache.projections, counters: cache.counters,
-    evaluate: (workspace: WorkspaceDocument, start: string, end: string, settings: CalendarDayViewPreferences, now: Date) => evaluateCalendarRange(workspace, start, end, settings, now, cache),
+    evaluate: (workspace: WorkspaceDocument, start: string, end: string, settings: CalendarDayViewPreferences, now: Date) => {
+      // Repeated consumers of the identical immutable input need no bucket or
+      // signature preparation. Never round time: boundary-sensitive views must
+      // still update at the exact instant supplied by their clock.
+      if (last?.workspace === workspace && last.start === start && last.end === end && last.settings === settings && last.at === +now) return last.value;
+      const value = evaluateCalendarRange(workspace, start, end, settings, now, cache);
+      last = { workspace, start, end, settings, at: +now, value };
+      return value;
+    },
   };
 }
 
@@ -164,6 +176,7 @@ function evaluateCalendarRangeInternal(
     if (cache.source === workspace && prior && Object.keys(prior.items).length === projected.length && projected.every(({ item }) => prior.items[item.id] === item)) projectedWorkspace = prior;
     else { cache.workspace = projectedWorkspace; cache.counters.indexBuilds++; }
     if (cache.source !== workspace) {
+      cache.generation++;
       const { items: _items, updatedAt: _updatedAt, calendarPreferences, ...rest } = workspace;
       // Timeline/List and other presentation-only preferences belong to the UI
       // revision. They must not invalidate the expensive calendar evaluation.
@@ -295,16 +308,16 @@ function evaluateCalendarRangeInternal(
     attentionSort = rules.some(rule => rule.expression === 'attentionOrder');
     timeSort = rules.some(rule => expressionDependsOnCurrentTime(rule.expression));
   } catch { /* Keep invalid sort behavior unchanged. */ }
+  // Unknown DSL functions/scripts may inspect other items or time. Only proven
+  // local expressions can reuse a day's result across workspace changes.
+  const localNames = new Set(['true', 'false', 'null', 'state', 'role', 'title', 'bodyMarkdown', 'schedule', 'startAt', 'endAt', 'dueAt', 'plannedDate', 'availableFrom', 'estimatedDuration', 'asc', 'desc', 'nulls', 'first', 'last', 'attentionOrder', 'organizationOrder', 'durationOrder', 'completionOrder', 'createdAt']);
+  const names = `${filterSource}\n${sortSource}`.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '').match(/[A-Za-z_$][\w$]*/g) ?? [];
+  const unknownDependencies = names.some(name => !localNames.has(name));
   const days = Object.fromEntries([...buckets].map(([key, bucket]) => {
-    const contentSensitive = /\b(title|body|bodyMarkdown|description|tags|contexts|areas|projects)\b/i.test(`${filterSource}\n${sortSource}`);
-    const compactItem = (item: UniversalItem) => contentSensitive ? item : {
-      id: item.id,
-      state: item.state,
-      schedule: item.schedule,
-      occurrence: item.occurrence,
-      external: item.external ? { transparency: item.external.transparency, startAt: item.external.startAt, endAt: item.external.endAt } : undefined,
-    };
-    const signature = cache ? measureProfile('calendar.signature', () => JSON.stringify([cache.context, bucket.view, bucket.entries.map(({ item, row }) => ({ row, item: compactItem(item) })), bucket.metricItems.map(compactItem), [...bucket.reserveCandidates].map(([id, item]) => [id, compactItem(item)]), bucket.reservedDurationMs, bucket.reservedIntervals, timeSort ? now.getTime() : null, attentionSort ? bucket.entries.map(({ item }) => attentionSortValues(viewItemForEvaluation(item), now)) : null]), () => ({ rows: bucket.entries.length })) : '';
+    // Include all item fields: arbitrary DSL/scripts can depend on more than
+    // the familiar title/schedule fields. Stable objects serialize only once.
+    const itemToken = (item: UniversalItem) => cache!.token('item:' + item.id, item);
+    const signature = cache ? measureProfile('calendar.signature', () => JSON.stringify([cache.context, unknownDependencies ? cache.generation : null, bucket.view, bucket.entries.map(({ item, row }) => [cache.token('row:' + row.id, row), itemToken(item)]), bucket.metricItems.map(itemToken), [...bucket.reserveCandidates].map(([id, item]) => [id, itemToken(item)]), bucket.reservedDurationMs, bucket.reservedIntervals, timeSort || unknownDependencies ? now.getTime() : null, attentionSort ? bucket.entries.map(({ item }) => attentionSortValues(viewItemForEvaluation(item), now)) : null]), () => ({ rows: bucket.entries.length })) : '';
     const prior = cache?.days.get(key);
     if (prior?.signature === signature) {
       recordProfileCache('calendar.day', true, 'unchanged');

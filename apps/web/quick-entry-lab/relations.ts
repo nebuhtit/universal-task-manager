@@ -17,13 +17,13 @@ export function extractWithinRelations(input: string) {
 
 export const joinWithinText = (text: string, tokens: string[]) => tokens.length ? `${text}\n${tokens.join('\n')}` : text;
 
-export function withinSuggestions(input: string, caret: number, items: Array<{ id: string; title: string }>) {
+export function withinSuggestions(input: string, caret: number, items: Array<{ id: string; title: string }> | (() => Array<{ id: string; title: string }>)) {
   const match = /(?:^|\s)(rr|рр)\s+([^\[\]\n]*)$/iu.exec(input.slice(0, caret));
   if (!match || /^\d/.test(match[2]!.trim())) return null; // legacy numeric rr alarm shorthand
   const query = match[2]!.toLocaleLowerCase();
   const chosen = new Set(extractWithinRelations(input).ids);
   const start = match.index + match[0].indexOf(match[1]!);
-  return { start, end: caret, ordered: true, options: items.filter(i => !chosen.has(i.id) && i.title.toLocaleLowerCase().includes(query)).sort((a, b) => Number(b.title.toLocaleLowerCase().startsWith(query)) - Number(a.title.toLocaleLowerCase().startsWith(query)) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id)).slice(0, 30).map(i => ({
+  return { start, end: caret, ordered: true, options: (typeof items === 'function' ? items() : items).filter(i => !chosen.has(i.id) && i.title.toLocaleLowerCase().includes(query)).sort((a, b) => Number(b.title.toLocaleLowerCase().startsWith(query)) - Number(a.title.toLocaleLowerCase().startsWith(query)) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id)).slice(0, 30).map(i => ({
     label: i.title || 'Untitled item', insert: `rr [${i.title.replace(/[\]\n]/g, ' ')}](item:${encodeURIComponent(i.id)}) `,
     detail: `Выполняется внутри · ${i.id.slice(-8)}`,
   })) };

@@ -27,6 +27,7 @@ type VerifiedBinaries = { binary: Uint8Array; exportSafeBinary?: Uint8Array };
 // keys or treat a cache hit as a durable write. Large documents still save normally.
 const MAX_PREPARATION_CACHE_BYTES = 16 * 1024 * 1024;
 let preparedSnapshots = new WeakMap<UnlockedWorkspace['document'], VerifiedBinaries>();
+let lastPrepared: { document: WeakRef<UnlockedWorkspace['document']>; heads: string } | undefined;
 
 async function encryptSnapshot(verified: VerifiedBinaries, session: UnlockedWorkspace, trace: SaveTrace) {
   const dataKey = session.dataKey.slice();
@@ -90,11 +91,17 @@ const workspaceWorker = (actionId: number | null): Worker | undefined => {
 };
 
 async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveTrace, actionId: number | null): Promise<PreparedLocalWorkspaceSave> {
-  const cached = preparedSnapshots.get(session.document);
+  const heads = JSON.stringify(Automerge.getHeads(session.document).sort());
+  const previous = lastPrepared?.heads === heads ? lastPrepared.document.deref() : undefined;
+  // Equal Automerge heads identify the same immutable history, including when
+  // recovery/activation returned another JS wrapper. Encryption and commit still
+  // run for every write, with the current key and storage mode.
+  const cached = preparedSnapshots.get(session.document) ?? (previous ? preparedSnapshots.get(previous) : undefined);
   recordProfileCache('save.snapshot', Boolean(cached), cached ? 'unchanged' : 'workspace-reference');
   if (cached) return encryptSnapshot(cached, session, syncTrace);
   // Evict even on failure: A -> B -> A must not accumulate old snapshots.
   preparedSnapshots = new WeakMap();
+  lastPrepared = undefined;
   let target: Worker | undefined;
   try { target = workspaceWorker(actionId); } catch { target = undefined; }
   if (!target) { syncTrace('storage-fallback'); return await prepareLocalWorkspaceSave(session.document, session.dataKey, session.storageMode); }
@@ -135,7 +142,10 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
     if (timeout) clearTimeout(timeout);
     syncTrace('storage-worker-end');
     const prepared = await encryptSnapshot(verified, session, syncTrace);
-    if (verified.binary.byteLength + (verified.exportSafeBinary?.byteLength ?? 0) <= MAX_PREPARATION_CACHE_BYTES) preparedSnapshots.set(session.document, verified);
+    if (verified.binary.byteLength + (verified.exportSafeBinary?.byteLength ?? 0) <= MAX_PREPARATION_CACHE_BYTES) {
+      preparedSnapshots.set(session.document, verified);
+      lastPrepared = { document: new WeakRef(session.document), heads };
+    }
     return prepared;
   } catch (reason) {
     syncTrace('storage-fallback');
