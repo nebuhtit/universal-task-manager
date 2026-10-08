@@ -481,19 +481,9 @@ test('pointer reorder changes only the temporary List order and supports dark mo
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await page.getByTestId('timeline-tentative').filter({ hasText: 'A task' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('calendar-order-dark.png') });
-  const timelineHandle = page.getByRole('button', { name: 'Reorder A task', exact: true });
-  const anchor = page.getByTestId('timeline-event').filter({ hasText: 'B event' });
-  // scrollIntoViewIfNeeded considers an element underneath the sticky header
-  // visible. Center it and flush the fixture clock before reading drag geometry.
-  await timelineHandle.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
-  await page.clock.runFor(500);
-  await page.waitForTimeout(350); // Wait for CSS height/width motion before measuring pointer targets.
-  await page.clock.runFor(100);
-  const sourceBox = await timelineHandle.boundingBox(), anchorBox = await anchor.boundingBox();
-  await expect.poll(() => page.evaluate(point => document.elementFromPoint(point.x, point.y)?.closest('[data-calendar-handle-id]')?.getAttribute('data-calendar-handle-id'), { x: sourceBox!.x + sourceBox!.width / 2, y: sourceBox!.y + sourceBox!.height / 2 })).toBe('task');
-  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2); await page.mouse.down();
-  await page.mouse.move(anchorBox!.x + anchorBox!.width / 2, anchorBox!.y + 4, { steps: 8 }); await page.mouse.up();
-  await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['task', 'event']);
+  await expect(page.getByRole('button', { name: 'Reorder A task', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reorder B event', exact: true })).toHaveCount(0);
+  expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
 });
 
 test('List moves a fixed event without changing its Timeline interval', async ({ page }) => {
