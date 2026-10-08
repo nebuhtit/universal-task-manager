@@ -1,4 +1,4 @@
-export type EntryStage = 'decrypt' | 'load' | 'storage-preparation';
+export type EntryStage = 'read' | 'decrypt' | 'load' | 'storage-preparation';
 export type EntryProgress = { stage: EntryStage; phase: 'started' | 'completed'; bytes?: number };
 let observer: ((progress: EntryProgress) => void) | undefined;
 

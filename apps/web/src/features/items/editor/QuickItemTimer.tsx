@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useClockMilliseconds } from '../../../hooks/useClock';
 import { playTimerIntervalSound, prepareTimerAlarm, startTimerAlarm } from '../../../hooks/useUiSounds';
 import { cancelNativeTimer, isNativeReminderAvailable, scheduleNativeTimer } from '../../../services/nativeReminders';
+import { diagnosticFailureCode, recordDiagnostic } from '../../../services/diagnostics';
+import { recordProfileSpan } from '../../../services/performanceProfile';
 import { Button, Checkbox, Input, Select } from '../../../components/ui/primitives';
 import type { ItemTimerSession, UniversalItem } from '@utm/core';
 import './quick-item-timer.css';
@@ -89,11 +91,22 @@ export function QuickItemTimer({ expanded = false, soundEnabled = true, defaultD
     const session = record(duration, startedAt + duration);
     setElapsedBeforeStart(duration);
     setRunning(false);
-    persistActive(session ? { id: session.id, mode: session.mode, startedAt: session.startedAt, stoppedAt: session.endedAt, durationSeconds: session.durationSeconds, ...(session.targetSeconds ? { targetSeconds: session.targetSeconds } : {}) } : undefined);
     if (session && isNativeReminderAvailable() && onSaveCompletion) {
+      // Keep the durable running timer until history and its removal commit
+      // together. A killed WebView can then reconcile it on the next launch.
       setCounting(true);
-      void persistenceRef.current.then(() => onSaveCompletion({ ...session, automatic: true })).then(() => setCounted(true)).catch(reason => setCountError(String(reason))).finally(() => setCounting(false));
-    }
+      const completionStarted = performance.now();
+      persistenceRef.current = persistenceRef.current.then(() => onSaveCompletion({ ...session, automatic: true })).then(() => {
+        setCounted(true);
+        recordProfileSpan('timer.completion', performance.now() - completionStarted, { calls: 1 });
+        recordDiagnostic({ kind: 'result', operation: 'Timer automatic completion', outcome: 'succeeded', message: 'Timer completion committed' });
+      });
+      void persistenceRef.current.catch(reason => {
+        setCountError(String(reason));
+        recordProfileSpan('timer.completion', performance.now() - completionStarted, { failed: 1 });
+        recordDiagnostic({ kind: 'error', operation: 'Timer automatic completion', outcome: 'failed', message: 'Timer completion failed; running journal retained for recovery', details: diagnosticFailureCode(reason) });
+      }).finally(() => setCounting(false));
+    } else persistActive(session ? { id: session.id, mode: session.mode, startedAt: session.startedAt, stoppedAt: session.endedAt, durationSeconds: session.durationSeconds, ...(session.targetSeconds ? { targetSeconds: session.targetSeconds } : {}) } : undefined);
     stopAlarmRef.current();
     stopAlarmRef.current = startTimerAlarm(soundEnabled && !isNativeReminderAvailable());
     notifyFinished();
@@ -104,7 +117,18 @@ export function QuickItemTimer({ expanded = false, soundEnabled = true, defaultD
 
   const stopAlarm = () => { stopAlarmRef.current(); stopAlarmRef.current = () => undefined; setAlarming(false); };
   const persistActive = (value: RunningTimer | undefined) => {
-    persistenceRef.current = persistenceRef.current.then(() => onActiveTimerChange?.(value)).then(() => undefined).catch((reason) => setCountError(String(reason)));
+    const saveStarted = performance.now();
+    // A new explicit action can retry after failure, but consumers of this
+    // particular write must see rejection rather than assume it was saved.
+    persistenceRef.current = persistenceRef.current.catch(() => undefined).then(() => onActiveTimerChange?.(value)).then(() => {
+      recordProfileSpan('timer.state', performance.now() - saveStarted, { calls: 1 });
+      recordDiagnostic({ kind: 'result', operation: 'Timer state save', outcome: 'succeeded', message: value ? 'Timer state accepted' : 'Timer state cleared' });
+    });
+    void persistenceRef.current.catch(reason => {
+      recordProfileSpan('timer.state', performance.now() - saveStarted, { failed: 1 });
+      setCountError(String(reason));
+      recordDiagnostic({ kind: 'error', operation: 'Timer state save', outcome: 'failed', message: 'Timer state save failed', details: diagnosticFailureCode(reason) });
+    });
   };
   const record = (durationMilliseconds: number, endedAt = Date.now()): ItemTimerSession | undefined => {
     if (durationMilliseconds <= 0) return undefined;
@@ -164,7 +188,7 @@ export function QuickItemTimer({ expanded = false, soundEnabled = true, defaultD
       <Select aria-label="Interval sound unit" value={intervalUnit} disabled={!intervalSoundEnabled} onChange={(event) => setIntervalUnit(event.target.value as 'minutes' | 'seconds')}><option value="minutes">min</option><option value="seconds">sec</option></Select>
     </div>
     <div className="quick-item-timer-actions">
-      {!running && recorded && onSaveCompletion && <Button size="compact" variant="secondary" disabled={counted || counting} onClick={() => { setCounting(true); setCountError(''); void persistenceRef.current.then(() => onSaveCompletion(recorded)).then(() => setCounted(true)).catch((reason) => setCountError(String(reason))).finally(() => setCounting(false)); }}>{counted ? 'Completion saved' : counting ? 'Saving…' : 'Save completion'}</Button>}
+      {!running && recorded && onSaveCompletion && <Button size="compact" variant="secondary" disabled={counted || counting} onClick={() => { setCounting(true); setCountError(''); persistenceRef.current = persistenceRef.current.catch(() => undefined).then(() => onSaveCompletion(recorded)).then(() => setCounted(true)); void persistenceRef.current.catch((reason) => setCountError(String(reason))).finally(() => setCounting(false)); }}>{counted ? 'Completion saved' : counting ? 'Saving…' : 'Save completion'}</Button>}
       {countError && <small role="alert">{countError}</small>}
       {notificationError && <small role="alert">{notificationError}</small>}
       {alarming ? <Button size="compact" onClick={stopAlarm}>Stop sound</Button> : <Button size="compact" onClick={toggle}>{running ? 'Stop' : finished || recorded ? 'Restart' : 'Start'}</Button>}

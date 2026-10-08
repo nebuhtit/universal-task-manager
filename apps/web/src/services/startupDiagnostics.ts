@@ -5,7 +5,7 @@ import { PENDING_SAVE_KEY } from './workspaceWriter';
 export const STARTUP_LOG_KEY = 'utm:startup-log:v1';
 export const STARTUP_PENDING_KEY = 'utm:startup-pending:v1';
 export const STARTUP_DURABLE_PENDING_KEY = 'utm:startup-last-pending:v1';
-type Stage = 'entry' | 'decrypt' | 'load' | 'storage-preparation' | 'migration' | 'recurrence' | 'apply-recurrence' | 'preparation' | 'persistence' | 'render';
+type Stage = 'entry' | 'read' | 'decrypt' | 'load' | 'storage-preparation' | 'migration' | 'recurrence' | 'apply-recurrence' | 'preparation' | 'persistence' | 'render' | 'first-frame';
 type Phase = 'started' | 'completed' | 'failed';
 type Source = 'local' | 'backup' | 'automatic' | 'safe';
 type Entry = { at: string; attempt: string; version: string; build: string; source: Source; stage: Stage; phase: Phase; elapsedMs: number; bytes?: number; items?: number };
@@ -21,7 +21,7 @@ export function readStartupLog(): Entry[] {
       if (!entry || typeof entry !== 'object' || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(entry.at) || !/^[\da-f-]{36}$/.test(entry.attempt) || !/^\d+\.\d+\.\d+$/.test(entry.version)
         || !/^(?:local|[a-f\d]{7,40})$/.test(entry.build)
         || !['local', 'backup', 'automatic', 'safe'].includes(entry.source)
-        || !['entry', 'decrypt', 'load', 'storage-preparation', 'migration', 'recurrence', 'apply-recurrence', 'preparation', 'persistence', 'render'].includes(entry.stage)
+        || !['entry', 'read', 'decrypt', 'load', 'storage-preparation', 'migration', 'recurrence', 'apply-recurrence', 'preparation', 'persistence', 'render', 'first-frame'].includes(entry.stage)
         || !['started', 'completed', 'failed'].includes(entry.phase) || !Number.isFinite(entry.elapsedMs)) return [];
       const safe: Entry = { at: entry.at, attempt: entry.attempt, version: entry.version, build: entry.build, source: entry.source, stage: entry.stage, phase: entry.phase, elapsedMs: Math.max(0, Math.floor(entry.elapsedMs)) };
       for (const key of ['bytes', 'items'] as const) if (typeof entry[key] === 'number' && Number.isFinite(entry[key]) && entry[key] >= 0) safe[key] = Math.floor(entry[key]);

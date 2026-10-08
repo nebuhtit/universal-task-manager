@@ -118,8 +118,21 @@ describe('timeline time geometry', () => {
     const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
     expect(html).toContain('timeline-past-event timeline-travel');
     expect(html).toContain('30 min');
+    const travelMarkup = html.match(/<button[^>]*data-testid="timeline-travel"[^>]*>(.*?)<\/button>/s)?.[1] ?? '';
+    expect(travelMarkup).toContain('<strong>30 min</strong>');
+    expect(travelMarkup).not.toContain('Meeting');
+    expect(travelMarkup).not.toMatch(/Travel|В пути|Обратно/);
     expect(html).toContain('data-testid="timeline-event"');
     expect(JSON.stringify(w)).toBe(before);
+  });
+  it('does not expose Timeline reordering handles or draggable targets', () => {
+    const event = item('Movable event', { startAt: iso(10), endAt: iso(11) });
+    const w = workspace(event);
+    const plan = buildCalendarPlan(w, '2026-09-22', prepareTimelineData(w, '2026-09-22', now), now);
+    const html = renderToStaticMarkup(<CalendarTimeline plan={plan} workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);
+    expect(html).not.toContain('calendar-order-handle');
+    expect(html).not.toContain('data-calendar-handle-id');
+    expect(html).not.toContain('data-calendar-order-id');
   });
   it('shows the previous-day portion of travel even when the event starts tomorrow', () => {
     const w = workspace(item('Tomorrow', { startAt: '2026-09-23T00:15:00Z', endAt: '2026-09-23T01:00:00Z', travelDuration: 'PT30M' }));
@@ -200,7 +213,7 @@ describe('timeline data and UI', () => {
     const w = workspace(event); w.calendarPreferences.dayView.fields = ['title', 'tags'];
     const html = renderToStaticMarkup(<CalendarTimeline workspace={w} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onState={() => {}} onPreferences={() => {}} />);
     expect(html).toContain('item-card state-open'); expect(html).toContain('item-main');
-    expect(html).toContain('Visible tag'); expect(html).not.toContain('Complete All day title');
+    expect(html).not.toContain('Visible tag'); expect(html).not.toContain('Complete All day title');
   });
   it('shows active-range outlines on each day and hides only the completed cycle', () => {
     const series = item('range', { startAt: iso(9), dueAt: iso(81), estimatedDuration: 'PT1H' });

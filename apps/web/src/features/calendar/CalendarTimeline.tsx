@@ -1,5 +1,4 @@
 import type { buildCalendarPlan } from './calendarPlanning';
-import { CalendarOrderHandle } from './CalendarOrderHandle';
 import { WeatherTimeline } from '../weather/WeatherTimeline';
 import { calendarTimelineFields } from './calendarCardFields';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type TouchEvent } from 'react';
@@ -40,9 +39,9 @@ export function TimelineNow({ workspace, segments, suppliedNow }: { workspace: W
   return <div className={`timeline-now${segment.hidden ? ' is-hidden-time' : ''}`} style={{ top }} data-testid="timeline-now" aria-label={`Current time ${timeLabel(at, workspace.calendarPreferences.timezone)}`}><span>{timeLabel(at, workspace.calendarPreferences.timezone)}</span></div>;
 }
 
-export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, plan, onReorder, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
+export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, plan, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
   preparedDay?: ReturnType<typeof prepareTimelineData> | undefined;
-  plan?: ReturnType<typeof buildCalendarPlan> | undefined; onReorder?: ((ids: string[], movedId: string) => void) | undefined;
+  plan?: ReturnType<typeof buildCalendarPlan> | undefined;
   workspace: WorkspaceDocument; dateKey: string; now: Date; suppliedNow?: Date | undefined;
   capacityLabel?: string; allDayOpen?: boolean; onAllDayChange?: (open: boolean) => void;
   reservedItems?: UniversalItem[];
@@ -58,7 +57,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, pl
   const ru = workspace.calendarPreferences.language === 'ru';
   const zone = workspace.calendarPreferences.timezone;
   const settings = workspace.calendarPreferences.timeline ?? { mode: 'timeline' as const, hideSleep: false };
-  const cardFields = calendarTimelineFields(workspace.calendarPreferences.dayView);
+  const cardFields = calendarTimelineFields(workspace.calendarPreferences.dayView).filter(field => field !== 'tags');
   allDayOpen ??= readUiBoolean('calendar:all-day', true);
   const [more, setMore] = useState<UniversalItem[]>([]);
   const swipeStart = useRef<{ x: number; y: number; at: number } | null>(null);
@@ -176,7 +175,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, pl
           if (plan?.activeRanges.has(event.item.id)) {
             const share = activeRangeDailyDuration(event.item, viewPeriodBoundsForDates(dateKey, dateKey, zone)) ?? 0;
             const label = `${plan.parallel.has(event.item.id) ? '↗ ' : ''}${ru ? 'Активный диапазон' : 'Active range'} · ${event.item.title} · ${durationLabel(share)}${ru ? ' на день' : ' per day'} · ${timeLabel(event.start, zone)}–${timeLabel(event.end, zone)}`;
-            return <button type="button" data-calendar-order-id={event.item.id} data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} className="timeline-active-range" key={event.item.id} data-testid="timeline-active-range" style={columnStyle(event)} title={label} aria-label={label} onClick={() => open(event.item)}><span>{plan.parallel.has(event.item.id) && '↗ '}{event.item.title}</span><small>{durationLabel(share)}{ru ? ' / день' : ' / day'}</small></button>;
+            return <button type="button" data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} className="timeline-active-range" key={event.item.id} data-testid="timeline-active-range" style={columnStyle(event)} title={label} aria-label={label} onClick={() => open(event.item)}><span>{plan.parallel.has(event.item.id) && '↗ '}{event.item.title}</span><small>{durationLabel(share)}{ru ? ' / день' : ' / day'}</small></button>;
           }
           const organization = event.item.extensions?.['utm:calendarOrganization'] as { color?: string; tag?: string } | undefined;
           const calendar = workspace.calendarPreferences.googleCalendar?.calendars.find(value => value.id === event.item.external?.calendarId);
@@ -187,19 +186,20 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, pl
             return { field, text: displayViewValue(value, field, workspace.calendarPreferences.language) };
           }).filter(entry => entry.text) : [];
           const interval = `${timeLabel(event.start, zone)}${event.point ? '' : `–${timeLabel(event.end, zone)}`}`;
-          const travelLabel = event.travel ? `${event.travelBack ? (ru ? 'Обратно' : 'Travel back') : (ru ? 'В пути' : 'Travel')} · ${displayViewValue(`PT${Math.round((event.end - event.start) / 1000)}S`, 'schedule.travelDuration', workspace.calendarPreferences.language)}` : '';
+          const travelLabel = event.travel ? displayViewValue(`PT${Math.round((event.end - event.start) / 1000)}S`, 'schedule.travelDuration', workspace.calendarPreferences.language) : '';
           const tentativeLabel = plan?.parallel.has(event.item.id) ? (ru ? 'Параллельная ссылка · ' : 'Parallel reference · ') : event.tentative ? (ru ? 'Предварительно · ' : 'Tentative · ') : '';
           const overdue = event.item.state === 'open' && event.item.schedule?.plannedDate && event.item.schedule.plannedDate < calendarDateKey(now, zone);
           const pastEvent = !event.item.schedule?.dueAt && event.end <= now.getTime();
-          const label = `${tentativeLabel}${travelLabel ? `${travelLabel} · ` : ''}${event.item.title} · ${interval}`;
-          return <button type="button" data-calendar-order-id={event.item.id} data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travelBack ? 'travel-back' : event.travel ? 'travel' : 'event'}`} className={`timeline-event${safeColor && !event.tentative ? ' timeline-calendar-tinted' : ''}${pastEvent ? ' timeline-past-event' : ''}${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}${event.tentativeOverdue ? ' timeline-tentative-overdue' : ''}`} style={{ ...columnStyle(event), ...(safeColor && !event.tentativeOverdue ? { ...(!pastEvent ? { borderColor: safeColor } : {}), '--timeline-calendar-color': safeColor } : {}) } as CSSProperties} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travelBack ? 'timeline-travel-back' : event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
-            <strong>{(plan?.pins.has(event.item.id) || plan?.parallel.has(event.item.id)) && '↗ '}{(event.invalid || overdue) && '⚠ '}{event.continuedBefore && '← '}{travelLabel ? `${travelLabel} · ` : ''}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
-            {overdue && event.height >= 72 && <small>{ru ? 'Не выполнено в плановый день' : 'Planned day missed'}: {event.item.schedule?.plannedDate}</small>}
-            {event.tentative && event.height >= 54 && <small>{tentativeLabel.trim()}</small>}{extra.map(({ field, text }, i) => <small className="timeline-property" key={i} style={safeColor && (field === 'tags' || field === 'external.calendarId') ? { color: safeColor } : undefined}><FieldIcon path={field} label={viewFieldLabel(workspace, field)} />{text}</small>)}
+          const label = event.travel ? travelLabel : `${tentativeLabel}${event.item.title} · ${interval}`;
+          return <button type="button" data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travelBack ? 'travel-back' : event.travel ? 'travel' : 'event'}`} className={`timeline-event${safeColor && !event.tentative ? ' timeline-calendar-tinted' : ''}${pastEvent ? ' timeline-past-event' : ''}${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}${event.tentativeOverdue ? ' timeline-tentative-overdue' : ''}`} style={{ ...columnStyle(event), ...(safeColor && !event.tentativeOverdue ? { ...(!pastEvent ? { borderColor: safeColor } : {}), '--timeline-calendar-color': safeColor } : {}) } as CSSProperties} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travelBack ? 'timeline-travel-back' : event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
+            {event.travel ? <strong>{travelLabel}</strong> : <>
+              <strong>{(plan?.pins.has(event.item.id) || plan?.parallel.has(event.item.id)) && '↗ '}{(event.invalid || overdue) && '⚠ '}{event.continuedBefore && '← '}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
+              {overdue && event.height >= 72 && <small>{ru ? 'Не выполнено в плановый день' : 'Planned day missed'}: {event.item.schedule?.plannedDate}</small>}
+              {event.tentative && event.height >= 54 && <small>{tentativeLabel.trim()}</small>}{extra.map(({ field, text }, i) => <small className="timeline-property" key={i}><FieldIcon path={field} label={viewFieldLabel(workspace, field)} />{text}</small>)}
+            </>}
             {!event.travel && event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
           </button>;
         })}
-        {plan && onReorder && layout.events.filter(event => plan.movable.has(event.item.id) && !event.travel).map(event => <CalendarOrderHandle key={event.item.id} id={event.item.id} title={event.item.title} ids={plan.ids} onReorder={onReorder} style={{ position: 'absolute', top: event.top, left: `${event.column / event.columns * 100}%` }} />)}
         {layout.more.map((block, i) => <button type="button" key={i} className="timeline-event timeline-more" style={columnStyle(block)} onClick={() => setMore(block.items)}>More · {block.items.length}</button>)}
       </div>
       <TimelineNow workspace={workspace} segments={segments} suppliedNow={suppliedNow} />

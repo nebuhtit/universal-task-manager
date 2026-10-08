@@ -15,6 +15,16 @@ describe('durable startup checkpoints', () => {
     Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: new MemoryStorage() });
     Object.defineProperty(globalThis, 'window', { configurable: true, value: new EventTarget() });
   });
+  it('distinguishes storage read and first frame from the recovery stability window', () => {
+    beginStartup('automatic');
+    startupCheckpoint('read', 'started');
+    startupCheckpoint('read', 'completed');
+    startupCheckpoint('first-frame', 'completed');
+    expect(readStartupLog().map(value => value.stage)).toEqual(['entry', 'read', 'read', 'first-frame']);
+    expect(interruptedStartup()).toBe(true);
+    finishStartup();
+    expect(interruptedStartup()).toBe(false);
+  });
   it('keeps fast checkpoints and detects an interrupted launch after session loss', () => {
     beginStartup('local');
     startupCheckpoint('load', 'started', { bytes: 120 });

@@ -17,7 +17,11 @@ export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
     let disposed = false;
     let generation = 0;
     let calculation: AbortController | undefined;
+    let initial: number | undefined;
+    let idle: number | undefined;
     const sync = (force = false) => {
+      if (idle !== undefined) { window.cancelIdleCallback(idle); idle = undefined; }
+      if (initial !== undefined) { window.clearTimeout(initial); initial = undefined; }
       const request = ++generation;
       calculation?.abort();
       const controller = new AbortController(); calculation = controller;
@@ -42,11 +46,16 @@ export function HeaderAgenda({ workspace }: { workspace?: WorkspaceDocument }) {
     }).catch(reason => { if (!disposed && request === generation && !controller.signal.aborted) recordDiagnostic({ kind: 'error', operation: 'Agenda widget', message: 'Widget snapshot transfer failed', details: JSON.stringify({ code: reason instanceof Error ? reason.message : 'native_bridge_failure' }) }); }); };
     const visible = () => { if (document.visibilityState === 'visible') sync(true); };
     const changed = () => { widgetSent.current = ''; sync(true); };
-    sync();
+    // Widget refresh is secondary to the first interactive screen. Keep the
+    // previous native snapshot visible; foreground/settings events still sync
+    // immediately. Critical reminder delivery is owned by the controller.
+    const startSync = () => { initial = undefined; idle = undefined; if (!disposed) sync(); };
+    if (window.requestIdleCallback) idle = window.requestIdleCallback(startSync, { timeout: 1500 });
+    else initial = window.setTimeout(startSync, 250);
     const refresh = window.setInterval(visible, 30 * 60_000);
     window.addEventListener('utm-agenda-widget-change', changed);
     document.addEventListener('visibilitychange', visible);
-    return () => { disposed = true; calculation?.abort(); window.clearInterval(refresh); window.removeEventListener('utm-agenda-widget-change', changed); document.removeEventListener('visibilitychange', visible); };
+    return () => { disposed = true; if (idle !== undefined) window.cancelIdleCallback(idle); window.clearTimeout(initial); calculation?.abort(); window.clearInterval(refresh); window.removeEventListener('utm-agenda-widget-change', changed); document.removeEventListener('visibilitychange', visible); };
     // The key covers agenda inputs only; backup/sync timestamps do not restart work.
   }, [input?.key]);
   const now = useWorkspaceNow(workspace).getTime();

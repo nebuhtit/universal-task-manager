@@ -1,5 +1,6 @@
 import { Children, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { LONG_LIST_VIRTUALIZATION_THRESHOLD } from './longList';
+import { recordProfileSpan } from '../services/performanceProfile';
 import './windowed-list.css';
 
 const CHUNK_SIZE = 20;
@@ -34,7 +35,12 @@ function WindowChunk({ children, observer }: { children: ReactNode[]; observer: 
   useLayoutEffect(() => {
     if (!mounted || !element.current) return;
     const target = element.current;
-    const measure = () => { const value = target.getBoundingClientRect().height; if (value > 0) height.current = value; };
+    const measure = () => {
+      const started = performance.now();
+      const value = target.getBoundingClientRect().height;
+      if (value > 0) height.current = value;
+      recordProfileSpan('list.measure', performance.now() - started, { rows: children.length });
+    };
     measure();
     const resize = new ResizeObserver(measure); resize.observe(target);
     if (focusPending.current) {

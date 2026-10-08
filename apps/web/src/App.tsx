@@ -1,7 +1,7 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
 import { safeItemTitleFailureDetails } from './features/items/editor/itemEditorDiagnostics';
 import { readSyncTrace } from './services/syncTrace';
-import { currentProfileActionId, labelProfileAction, readPerformanceProfiles, recordProfileCommit } from './services/performanceProfile';
+import { currentProfileActionId, labelProfileAction, readPerformanceProfiles, recordProfileCommit, recordProfileSpan } from './services/performanceProfile';
 import { QuickTimerDialog } from './features/items/QuickTimerDialog';
 import { quickSessionCommand } from '../quick-entry-lab/commandGuide';
 import { PageErrorBoundary } from './components/layout/PageErrorBoundary';
@@ -52,6 +52,7 @@ import './features/recovery/recovery.css';
 import { canQuickChangeDue, dueDateOnlyToIso, itemTimeZone } from './features/items/dueQuickActions';
 import { reminderSnoozedUntil, type ReminderSnoozeOption } from './services/reminderSnooze';
 import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, googleCalendarFailureDetails, readDiagnostics, recordDiagnostic, safeGoogleCalendarFailureDetails, setDiagnosticsEnabled, type DiagnosticEntry, type GoogleCalendarSyncStage } from './services/diagnostics';
+import { activeTimerDeadlines, watchTimerDeadlines } from './services/workspaceTimers';
 import { applyViewCreationDefaults } from './features/views/applyCreationDefaults';
 import { SettingsReleaseInfo } from './features/settings/SettingsReleaseInfo';
 import { itemEditorSource } from './features/items/editor/itemEditorSource';
@@ -764,24 +765,34 @@ export default function App() {
   useEffect(() => {
     // The editor owns its pending timer journal. Never overwrite its unsaved state.
     if (!workspace || recovery || editor || !isNativeReminderAvailable() || workspace.calendarPreferences.testClock?.enabled) return;
-    const reconcile = () => {
+    const watcher = watchTimerDeadlines(activeTimerDeadlines(workspace), (ids, now) => {
       const current = getCurrentWorkspace();
-      const now = Date.now();
-      if (!current || !Object.values(current.items).some(item => !itemDeletionTime(current, item) && item.activeTimer?.mode === 'timer' && !item.activeTimer.stoppedAt && (item.activeTimer.targetSeconds ?? 0) > 0 && Date.parse(item.activeTimer.startedAt) + item.activeTimer.targetSeconds! * 1000 <= now)) return;
+      if (!current) return;
+      const started = performance.now();
+      let completed = 0;
       const saved = commit('Record completed iOS timers', draft => {
-        for (const item of Object.values(draft.items)) {
-          if (itemDeletionTime(draft, item) || !recordExpiredItemTimer(item, now)) continue;
+        for (const id of ids) {
+          const item = draft.items[id];
+          if (!item || itemDeletionTime(draft, item) || !recordExpiredItemTimer(item, now)) continue;
+          completed += 1;
           syncCompletionCounter(item);
           item.revision += 1; item.updatedAt = new Date(now).toISOString();
         }
       });
-      if (saved) void flushPersistence().catch(reason => setToast(String(reason)));
-    };
-    reconcile();
-    const visible = () => { if (!document.hidden) reconcile(); };
+      if (saved) void flushPersistence().then(() => {
+        recordProfileSpan('timer.reconcile', performance.now() - started, { scanned: ids.length, matched: completed });
+        recordDiagnostic({ kind: 'result', operation: 'Timer reconciliation', outcome: 'succeeded', message: `Completed timers saved: ${completed}`, durationMs: Math.round(performance.now() - started) });
+      }).catch(reason => {
+        recordProfileSpan('timer.reconcile', performance.now() - started, { scanned: ids.length, failed: 1 });
+        recordDiagnostic({ kind: 'error', operation: 'Timer reconciliation', outcome: 'failed', message: 'Timer completion save failed; workspace queue retains changes', details: diagnosticFailureCode(reason) });
+        setToast(String(reason));
+      });
+    });
+    const visible = () => { if (!document.hidden) watcher.resume(); };
     document.addEventListener('visibilitychange', visible);
-    const timer = window.setInterval(visible, 1000);
-    return () => { document.removeEventListener('visibilitychange', visible); window.clearInterval(timer); };
+    window.addEventListener('pageshow', visible);
+    window.addEventListener('focus', visible);
+    return () => { document.removeEventListener('visibilitychange', visible); window.removeEventListener('pageshow', visible); window.removeEventListener('focus', visible); watcher.cancel(); };
   }, [workspace, recovery, editor, commit, flushPersistence, getCurrentWorkspace]);
   useEffect(() => workspace ? weatherService.start() : undefined, [Boolean(workspace)]);
   const saveServiceRef = useRef<ReturnType<typeof createWorkspaceSaveService> | null>(null);

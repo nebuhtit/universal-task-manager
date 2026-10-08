@@ -292,9 +292,14 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
 
   useEffect(() => {
     if (boot !== 'ready') return;
+    // Two frames let the mounted screen paint. This measures readiness without
+    // removing the separate ten-second crash/recovery stability guard.
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => startupCheckpoint('first-frame', 'completed'));
+    });
     // Leave the attempt pending through first paint and immediate mount effects.
     const timer = window.setTimeout(finishStartup, 10_000);
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); window.cancelAnimationFrame(frame); };
   }, [boot]);
 
   useEffect(() => {

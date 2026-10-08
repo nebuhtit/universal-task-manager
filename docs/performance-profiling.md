@@ -136,6 +136,17 @@ Focused tests: `performanceProfile.test.ts`, `inputLatency.test.ts`, `syncTrace.
 Local verification on 2026-09-30: 123 focused unit/integration tests and two production-build browser scenarios passed (desktop Chromium and iPhone-viewport Chromium, **not** physical Safari). Workspace typechecks, web/native packaging and the three scale/history behavior baselines passed. The dedicated cache suite still has a pre-existing failure in `reuses an unchanged series projection when an unrelated item changes`: a title-only edit reuses an old projected title. Reproduced with the exact `HEAD` cache implementation without profiling; neither its behavior nor its assertion was changed in this instrumentation step.
 
 Keep behavior baselines unchanged: `pnpm performance:baseline`, `pnpm performance:history`. They check 100/1,000/10,000-item and history-bearing fixtures; they do not establish iPhone interaction latency. Do not silently change a failing behavior hash or a cache test to make instrumentation pass.
+## Local 4.6.3 timer and startup checkpoints
+
+- `timer.index`: builds active countdown deadlines on workspace changes, not every second. `matched` counts eligible timers. One wakeup targets the nearest deadline; focus/pageshow/visibility reconcile wall time after suspension. The editor still owns its pending journal while open.
+- `timer.state`, `timer.completion`, `timer.reconcile`: queued save duration, failure count, and reconciled item count. Successful samples use the existing bounded in-memory profiler and batch flush; errors use the existing incident log. No item titles, IDs, or timer labels are exported in these metrics.
+- Native automatic completion commits history and removal of the running timer together, without first persisting a stopped-only intermediate state. Manual stopwatch/stop-and-count behavior is unchanged. A rejected timer write remains rejected to dependent completion work; a later explicit action can retry.
+- Startup `read` separates local storage retrieval from decrypt/load. `first-frame` is the two-animation-frame opportunity after the ready screen mounts, not proof of physical iPhone interactivity. `render completed` still includes the ten-second recovery stability guard; do not interpret that guard as rendering time.
+- Initial native widget refresh yields to idle (bounded to 1.5 seconds, 250 ms fallback). Existing native contents remain; reminders, recovery checks and persistence are not deferred. Foreground/settings changes still request refresh immediately.
+- `list.measure` measures bounding-box reads for mounted chunks, not total React rendering. Windowing behavior, drag, focus and completion pinning are unchanged. Run `tests/e2e/long-lists.spec.ts` in isolation for wall-time comparisons; competing builds distort results.
+
+Device follow-up: start a one-minute timer on a saved item, lock for two minutes, reopen, then fully restart. Expect exactly one completion with one minute of actual time. Repeat with the editor open and closed. Browser wall-clock-jump tests do not establish iOS background execution or native alarm delivery.
+
 # Private item/view change journal
 
 Settings → Diagnostics → Record private item / view JSON enables an optional, separate encrypted local journal. The ordinary diagnostic export remains content-free. Export private JSON explicitly decrypts it; the resulting file contains personal content and must not be uploaded automatically.
