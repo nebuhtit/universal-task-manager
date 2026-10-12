@@ -12,7 +12,8 @@ export type QuickEntrySource = { text: string; timezone: string; grammarVersion?
 
 export function quickEntryCalendar(item: UniversalItem): CalendarSelection | undefined {
   const value = item.extensions?.[QUICK_ENTRY_CALENDAR] as Partial<CalendarSelection> | undefined;
-  return value && typeof value.id === 'string' && typeof value.name === 'string' ? { id: value.id, name: value.name } : undefined;
+  if (!value || typeof value.id !== 'string' || typeof value.name !== 'string') return undefined;
+  return { id: value.id, name: value.name };
 }
 
 /** Keep the ordinary calendar picker and Live Text selection in agreement. */
@@ -25,10 +26,20 @@ export function withQuickEntryCalendar(item: UniversalItem, selection?: Calendar
   return { ...item, extensions };
 }
 
-export function quickEntryEditorText(item: UniversalItem): string {
+/** On editor opening, the durable outbox/current Google link is authoritative.
+ * Call only at opening: a new unsaved cc selection must remain a local intent.
+ */
+export function reconcileQuickEntryCalendar(item: UniversalItem, calendars: readonly CalendarSelection[] = [], destination = item.external?.calendarId): UniversalItem {
+  const selection = quickEntryCalendar(item);
+  if (!selection || !destination) return item;
+  return withQuickEntryCalendar(item, calendars.find(calendar => calendar.id === destination) ?? { id: destination, name: selection.id === destination ? selection.name : destination });
+}
+
+export function quickEntryEditorText(item: UniversalItem, calendars: readonly CalendarSelection[] = []): string {
   const text = quickEntrySource(item)?.text ?? item.title;
   const calendar = extractCalendarSelection(text);
-  return joinCalendarText(calendar.displayText, quickEntryCalendar(item) ?? calendar.selection);
+  const selection = quickEntryCalendar(item) ?? calendar.selection;
+  return joinCalendarText(calendar.displayText, selection ? calendars.find(candidate => candidate.id === selection.id) ?? selection : undefined);
 }
 
 const days = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];

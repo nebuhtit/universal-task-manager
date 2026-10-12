@@ -3,7 +3,7 @@ import { createItem, createWorkspace } from '@utm/core';
 import { calendarSuggestions, calendarToken, extractCalendarSelection } from '../../../quick-entry-lab/calendars';
 import { parseLiveEntry } from '../../../quick-entry-lab/parser';
 import { withinSuggestions } from '../../../quick-entry-lab/relations';
-import { applyQuickEntryEditorText, applyQuickEntryText, createQuickEntryItem, formatQuickEntryForEditor, quickEntryCalendar, quickEntryEditorText, quickEntrySource, withQuickEntryCalendar } from './quickEntry';
+import { applyQuickEntryEditorText, applyQuickEntryText, createQuickEntryItem, formatQuickEntryForEditor, quickEntryCalendar, quickEntryEditorText, quickEntrySource, withQuickEntryCalendar, reconcileQuickEntryCalendar } from './quickEntry';
 import { applyEditorTitleDraft } from './editor/itemEditorTitle';
 import { liveTextIndex } from './liveTextIndex';
 
@@ -101,4 +101,24 @@ it('shares writable calendar choices and invalidates the index after permission 
   const changed = structuredClone(workspace);
   changed.calendarPreferences.googleCalendar!.calendars[0]!.accessRole = 'reader';
   expect(liveTextIndex(changed).calendars.map(calendar => calendar.id)).not.toContain(home.id);
+});
+
+it('respects a later move in Google while retaining a newly chosen local destination until acknowledgement', () => {
+  const item = createQuickEntryItem(`Meeting tomorrow 15:00 ${calendarToken(work)}`, now);
+  const link = { provider: 'google_calendar' as const, calendarId: work.id, connectionId: 'test', eventId: 'event', sourceUrl: 'https://calendar.google.com/event?eid=test', syncedAt: now.toISOString(), readOnly: false };
+  item.external = link;
+  const moved = { ...item, external: { ...link, calendarId: home.id } };
+  const reopened = reconcileQuickEntryCalendar(moved, [home, work]);
+  expect(quickEntryCalendar(reopened)).toEqual(home);
+  const text = quickEntryEditorText(reopened);
+  expect(extractCalendarSelection(text).selection).toEqual(home);
+  expect(quickEntryCalendar(applyQuickEntryEditorText(reopened, text, now).item)?.id).toBe(home.id);
+  const explicit = withQuickEntryCalendar(reopened, work);
+  expect(quickEntryCalendar(explicit)).toEqual(work);
+  // An offline move already in the outbox must not revert to the old link.
+  expect(quickEntryCalendar(reconcileQuickEntryCalendar(explicit, [home, work], work.id))).toEqual(work);
+  const acknowledged = { ...explicit, external: { ...link, calendarId: work.id } };
+  expect(quickEntryCalendar(reconcileQuickEntryCalendar(acknowledged, [home, work]))).toEqual(work);
+  const movedBack = { ...acknowledged, external: { ...link, calendarId: home.id } };
+  expect(quickEntryCalendar(reconcileQuickEntryCalendar(movedBack, [home, work]))).toEqual(home);
 });

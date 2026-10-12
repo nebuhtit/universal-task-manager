@@ -24,7 +24,7 @@ import { useWorkspaceNow } from '../../../hooks/useClock';
 import { inferredPreset, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
-import { formatQuickEntryForEditor, parseQuickEntryForItem, quickEntrySource, syncQuickEntrySource, quickEntryCalendar, quickEntryEditorText, withQuickEntryCalendar } from '../quickEntry';
+import { formatQuickEntryForEditor, parseQuickEntryForItem, quickEntrySource, syncQuickEntrySource, quickEntryCalendar, quickEntryEditorText, withQuickEntryCalendar, reconcileQuickEntryCalendar } from '../quickEntry';
 import { LiveTextInput } from '../LiveTextInput';
 import { recordItemTitleFailure } from './itemEditorDiagnostics';
 import { ItemSection } from './ItemSection';
@@ -113,7 +113,8 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
       next.schedule = scheduleWithDuration({ ...next.schedule, timezone: next.schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone }, { amount: 1, unit: 'hours' });
     }
     initializeItemHistory(next);
-    return next;
+    const pending = initial.extensions?.[GOOGLE_SAVE_EXTENSION] as { desiredDestination?: string; destination?: string } | undefined;
+    return reconcileQuickEntryCalendar(next, workspace.calendarPreferences.googleCalendar?.calendars, pending?.desiredDestination || pending?.destination || next.external?.calendarId);
   });
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -144,8 +145,8 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const [repeatIntervalDraft, setRepeatIntervalDraft] = useState('1');
   const [error, setError] = useState('');
   const [sourceEditing, setSourceEditing] = useState(false);
-  const [sourceDraft, setSourceDraft] = useState(() => formatQuickEntryForEditor(quickEntryEditorText(initial)));
-  const initialTitleText = formatQuickEntryForEditor(quickEntryEditorText(initial));
+  const [sourceDraft, setSourceDraft] = useState(() => formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars)));
+  const initialTitleText = formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars));
   const titleDraft = useRef(initialTitleText);
   const titleEdited = useRef(false);
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(initial, null, 2));
@@ -516,11 +517,11 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
     }}>
         <div className="item-title-field">
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
-            if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntryEditorText(item))); setSourceEditing(true); setError(''); return; }
-            try { const updated = applyEditorTitleDraft(item, item, sourceDraft, tags, now, workspace); setItem(updated); titleDraft.current = formatQuickEntryForEditor(quickEntryEditorText(updated)); titleEdited.current = false; setSourceDraft(quickEntryEditorText(updated)); setSourceEditing(false); setError(''); }
+            if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars))); setSourceEditing(true); setError(''); return; }
+            try { const updated = applyEditorTitleDraft(item, item, sourceDraft, tags, now, workspace); setItem(updated); titleDraft.current = formatQuickEntryForEditor(quickEntryEditorText(updated, googlePreferences?.calendars)); titleEdited.current = false; setSourceDraft(quickEntryEditorText(updated, googlePreferences?.calendars)); setSourceEditing(false); setError(''); }
             catch (reason) { recordItemTitleFailure('source', item, sourceDraft, reason); setError(reason instanceof Error ? reason.message : String(reason)); }
           }}>{sourceEditing ? (workspace.calendarPreferences.language === 'ru' ? 'Применить строку' : 'Apply line') : (workspace.calendarPreferences.language === 'ru' ? 'Быстрый ввод' : 'Quick entry')}</Button>}{!sourceEditing && canManuallyComplete(item) && item.state === 'open' && workspace.items[item.id] && <button type="button" className="state-toggle editor-complete" aria-label={workspace.calendarPreferences.language === 'ru' ? 'Выполнить item' : 'Complete item'} title={workspace.calendarPreferences.language === 'ru' ? 'Выполнить и сохранить' : 'Complete and save'} disabled={saving} onPointerDown={event => event.preventDefault()} onClick={() => void save({ complete: true, dismissKeyboard: true })} />}{!sourceEditing && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
-          {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseQuickEntryForItem(sourceDraft, now, item).errors.length ? <WarningNotice language={workspace.calendarPreferences.language} message={parseQuickEntryForItem(sourceDraft, now, item).errors.join(' ')} /> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseQuickEntryForItem(sourceDraft, now, item).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntryEditorText(item))} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); return true; } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return false; } }} />}
+          {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseQuickEntryForItem(sourceDraft, now, item).errors.length ? <WarningNotice language={workspace.calendarPreferences.language} message={parseQuickEntryForItem(sourceDraft, now, item).errors.join(' ')} /> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseQuickEntryForItem(sourceDraft, now, item).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars))} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); return true; } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return false; } }} />}
           {item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
         {error && <WarningNotice message={error} onDismiss={() => setError('')} language={workspace.calendarPreferences.language} />}
