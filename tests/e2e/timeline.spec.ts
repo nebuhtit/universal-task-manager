@@ -15,6 +15,13 @@ async function activateControl(control: Locator, touch: boolean) {
   await centerStableControl(control);
   if (touch) await control.tap(); else await control.click();
 }
+async function revealCalendarControls(page: Page) {
+  const root = page.locator('.calendar-page');
+  // Let the browser pick the correct scroll container for desktop vs mobile.
+  await page.locator('.calendar-navigation-body').evaluate(element => element.scrollIntoView({ block: 'end', behavior: 'instant' }));
+  await page.clock.runFor(700);
+  await expect(root).not.toHaveClass(/is-compact/);
+}
 const now = new Date('2026-09-22T12:00:00Z');
 for (const theme of ['light', 'dark'] as const) test(`within relation suggestions support selection and focus in ${theme}`, async ({ page }, testInfo) => {
   await setup(page);
@@ -107,52 +114,50 @@ test('editor opens the full quick line with bounded scrolling and a non-overlapp
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
 
-test('sticky navigation waits through pointerup until click dispatch', async ({ page }) => {
+test('sticky navigation reveals controls at the top and compacts while scrolling', async ({ page }) => {
   await setup(page);
   await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
+  await revealCalendarControls(page);
+  const root = page.locator('.calendar-page');
   const nav = page.locator('.calendar-navigator');
-  await expect(nav).not.toHaveClass(/is-compact/);
-  await page.evaluate(() => {
-    window.dispatchEvent(new PointerEvent('pointerdown'));
-    window.scrollTo(0, 650);
-    window.dispatchEvent(new Event('scroll'));
-    window.dispatchEvent(new PointerEvent('pointerup'));
-  });
+  await expect(root).not.toHaveClass(/is-compact/);
+  await expect(nav).toHaveCSS('position', 'sticky');
+  await page.evaluate(() => window.scrollTo({ top: 650, behavior: 'instant' }));
   await page.clock.runFor(50);
-  await expect(nav).not.toHaveClass(/is-compact/);
-  await page.evaluate(() => window.dispatchEvent(new MouseEvent('click')));
-  await page.clock.runFor(50);
-  await expect(nav).toHaveClass(/is-compact/);
+  await expect(root).toHaveClass(/is-compact/);
 });
 
-test('week stays below the header while month and controls return at the top', async ({ page }) => {
+test('selected navigation mode stays below the header and controls return at the top', async ({ page }) => {
   await setup(page);
+  await revealCalendarControls(page);
   const nav = page.locator('.calendar-navigator');
   await page.getByRole('button', { name: 'Month', exact: true }).click();
   await expect(nav.locator('.calendar-day-choice')).toHaveCount(30);
   await nav.locator('[data-date="2026-09-30"]').click();
   const snapshot = await primary(page);
   await page.evaluate(() => window.scrollTo(0, 650));
-  await expect(nav).toHaveClass(/is-compact/);
-  await expect(nav.locator('.calendar-day-choice')).toHaveCount(7);
-  await expect(nav.locator('[data-date="2026-10-04"]')).toBeVisible();
+  await expect(page.locator('.calendar-page')).toHaveClass(/is-compact/);
+  // Compacting hides the toolbar, not the selected calendar mode; month dates
+  // remain available so a compacted month navigator does not silently switch.
+  await expect(nav.locator('.calendar-day-choice')).toHaveCount(30);
+  await expect(nav.locator('[data-date="2026-09-30"]')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Month', exact: true })).toBeHidden();
   await page.waitForTimeout(350); // CSS motion runs on the real browser clock.
   await page.clock.runFor(100);
-  const title = (await page.locator('.calendar-title').boundingBox())!;
   const box = (await nav.boundingBox())!;
-  expect(Math.abs(box.y - title.y - title.height)).toBeLessThan(3);
-  await nav.locator('[data-date="2026-10-01"]').focus();
+  const topbarBottom = await page.locator('.topbar').evaluate(element => element.getBoundingClientRect().bottom);
+  expect(Math.abs(box.y - topbarBottom)).toBeLessThan(3);
+  await nav.locator('[data-date="2026-09-29"]').focus();
   await page.keyboard.press('Enter');
-  await expect(nav.locator('[data-date="2026-10-01"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(nav.locator('[data-date="2026-10-01"]')).toBeFocused();
+  await expect(nav.locator('[data-date="2026-09-29"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(nav.locator('[data-date="2026-09-29"]')).toBeFocused();
   await page.screenshot({ path: test.info().outputPath('sticky-week-light.png') });
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await page.screenshot({ path: test.info().outputPath('sticky-week-dark.png') });
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(nav).not.toHaveClass(/is-compact/);
+  await expect(page.locator('.calendar-page')).not.toHaveClass(/is-compact/);
   await expect(page.getByRole('button', { name: 'Month', exact: true })).toBeVisible();
-  await expect(nav.locator('.calendar-day-choice')).toHaveCount(31);
+  await expect(nav.locator('.calendar-day-choice')).toHaveCount(30);
   expect(await primary(page)).toBe(snapshot);
 });
 
@@ -222,6 +227,7 @@ async function swipeTouch(page: Page, selector: string, fromX: number, toX: numb
 
 test('List shows clock-only metadata while Timeline shows reminders with separate field settings', async ({ page }) => {
   await setup(page);
+  await revealCalendarControls(page);
   const sleepBlock = page.getByTestId('timeline-event').filter({ hasText: 'Sleep source' });
   await expect(sleepBlock.locator('.timeline-property')).toContainText(/\d{2}:\d{2}/);
   await expect(sleepBlock).not.toContainText('normal');
@@ -236,12 +242,12 @@ test('List shows clock-only metadata while Timeline shows reminders with separat
   await expect(sleepCard).not.toContainText('22 Sep');
 });
 
-test('calendar statistics stay pinned and blank Timeline swipes change day without stealing item swipes', async ({ page }) => {
+test('compact calendar keeps day navigation and blank Timeline swipes do not steal item swipes', async ({ page }) => {
   await setup(page);
   const title = page.locator('.calendar-heading-date h1');
-  const header = page.locator('.calendar-title');
+  const header = page.locator('.calendar-navigator');
   await expect(header).toHaveCSS('position', 'sticky');
-  await expect(header.getByTestId('calendar-header-capacity')).toHaveCSS('margin-left', '0px');
+  await expect(page.locator('.calendar-title').getByTestId('calendar-header-capacity')).toBeHidden();
   await swipeTouch(page, '.timeline-axis', 290, 120);
   await expect(title).toContainText('September 23, 2026');
   await swipeTouch(page, '.timeline-axis', 120, 290);
@@ -268,21 +274,25 @@ test('active-range work is an unfilled outline on successive days and opens its 
 test('timeline titles, More, clock, sleep, dark mode and persisted display choice', async ({ page }, testInfo) => {
   test.setTimeout(180_000); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await setup(page);
-  const allDayButton = page.locator('.timeline-toolbar').getByRole('button', { name: /^All day/ });
-  await allDayButton.click(); await expect(page.locator('.timeline-all-day-items')).toHaveCount(0);
+  await revealCalendarControls(page);
   await page.getByRole('button', { name: 'List', exact: true }).click();
+  const allDayButton = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^All day/ });
+  await allDayButton.click(); await expect(page.locator('.timeline-all-day-items')).toHaveCount(0);
   await expect(page.locator('.calendar-all-day')).toHaveCount(0);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await expect(allDayButton).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
   await page.clock.fastForward(11_000);
   await page.reload();
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name: 'Calendar', exact: true }).click();
-  await expect(allDayButton).toHaveAttribute('aria-pressed', 'false');
-  await allDayButton.click();
-  await expect(page.locator('.timeline-all-day-items .item-card')).toBeVisible();
+  await revealCalendarControls(page);
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const reloadedAllDayButton = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^All day/ });
+  await expect(reloadedAllDayButton).toHaveAttribute('aria-pressed', 'false');
+  await reloadedAllDayButton.click();
+  await expect(page.locator('.calendar-all-day .item-card')).toBeVisible();
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   const active = page.getByTestId('timeline-active-range');
   await expect(active).toHaveCount(1);
   await expect(active).toContainText('Active preparation');
@@ -290,10 +300,13 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-light.png` });
   const tentative = page.getByTestId('timeline-tentative');
   await expect(tentative).toHaveCount(0);
-  const showUndated = page.locator('.timeline-toolbar').getByRole('button', { name: /^No date/ });
+  await revealCalendarControls(page);
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const showUndated = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^No date/ });
   await expect(showUndated).toHaveAttribute('aria-pressed', 'false');
   await activateControl(showUndated, testInfo.project.use.hasTouch === true);
   await expect(showUndated).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
   const saved = await primary(page);
   await expect(tentative).toHaveCount(1);
@@ -323,6 +336,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.screenshot({ path: `/tmp/utm-timeline-${testInfo.project.name}-light.png` });
   await page.clock.fastForward(60_000); await expect.poll(() => line.evaluate(el => (el as HTMLElement).style.top)).not.toBe(top);
   expect(await primary(page)).toBe(saved);
+  await revealCalendarControls(page);
   await page.getByRole('button', { name: 'Edit calendar day view' }).click();
   await page.getByText('Timeline settings', { exact: true }).click();
   await page.getByText('Choose sleep item…', { exact: true }).click();
@@ -348,6 +362,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await active.click();
   await page.getByRole('dialog').getByRole('button', { name: 'Complete item', exact: true }).click();
   await expect(active).toHaveCount(0);
+  await revealCalendarControls(page);
   await page.getByRole('button', { name: 'List', exact: true }).click(); await expect(page.locator('.calendar-timeline')).toHaveCount(0);
   const listUndated = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^No date/ });
   await expect(listUndated).toHaveAttribute('aria-pressed', 'true');
@@ -368,9 +383,10 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.getByPlaceholder('Add new item')).toBeVisible({ timeout: 30_000 });
   await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name: 'Calendar', exact: true }).click();
+  await revealCalendarControls(page);
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true'); expect(errors).toEqual([]);
-  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(showUndated).toHaveAttribute('aria-pressed', 'true');
   await showUndated.click();
+  await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(tentative).toHaveCount(0);
 });

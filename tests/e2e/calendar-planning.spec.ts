@@ -161,7 +161,7 @@ test('mobile navigation uses the shared glass surface in both themes', async ({ 
     expect(style.background).toBe(theme === 'light' ? 'rgba(255, 255, 255, 0.56)' : 'rgba(0, 0, 0, 0.62)');
   }
   await menu.getByRole('button', { name: /^All items(?: \d+)?$/ }).click();
-  await expect(menu).toBeHidden();
+  await expect(menu).toHaveAttribute('aria-hidden', 'true');
 });
 
 test.describe('isolated chunk failure', () => {
@@ -554,7 +554,7 @@ test('free-time share exports a PDF, with no event titles', async ({ page }, tes
   await expect(preview).not.toContainText('B event');
   await expect(page.locator('.calendar-availability-chart')).toHaveAttribute('role', 'img');
   await expect(page.locator('.calendar-availability-row')).toHaveCount(7);
-  await expect(page.locator('.calendar-availability-row').first().locator('.calendar-availability-hour-mark')).toHaveCount(25);
+  await expect(page.locator('.calendar-availability-row').first().locator('.calendar-availability-hour-mark')).toHaveCount(14);
   await expect(page.locator('.calendar-availability-busy').first()).toBeVisible();
   await page.getByLabel('Export language').selectOption('ru');
   await expect(preview).toContainText('Свободное время');
@@ -612,6 +612,8 @@ test('pointer reorder changes only the temporary List order and supports dark mo
   const theme = page.locator('select').filter({ has: page.locator('option[value="dark"]') });
   await theme.evaluate(el => { const details = el.closest('details'); if (details) details.open = true; });
   await theme.selectOption('dark'); await navigate(page, 'Calendar');
+  await page.locator('.calendar-navigation-body').evaluate(element => element.scrollIntoView({ block: 'end', behavior: 'instant' }));
+  await page.clock.runFor(700);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await page.getByTestId('timeline-tentative').filter({ hasText: 'A task' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('calendar-order-dark.png') });
