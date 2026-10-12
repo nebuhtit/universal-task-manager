@@ -312,12 +312,11 @@ test('calendar opens collapsed, reveals controls with a downward pull and has no
   expect((await filters.boundingBox())!.x).toBeGreaterThan((await modes.boundingBox())!.x);
   const noDate = filters.getByRole('button', { name: /^No date/ });
   await expect(noDate).toHaveAttribute('aria-pressed', 'true');
-  const activeFill = await noDate.evaluate(el => getComputedStyle(el).backgroundColor);
+  await expect(noDate).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await noDate.click();
   await expect(noDate).toHaveAttribute('aria-pressed', 'false');
   expect(await noDate.evaluate(el => getComputedStyle(el).borderTopWidth)).toBe('0px');
-  await page.clock.runFor(300);
-  expect(await noDate.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(activeFill);
+  await expect(noDate).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await page.screenshot({ path: test.info().outputPath('expanded-compact-calendar.png') });
   await page.evaluate(() => window.scrollTo(0, 650));
   await page.clock.runFor(500);
@@ -403,6 +402,10 @@ test('old order is repaired and persisted without mutating active-range original
   });
   await expect.poll(async () => (await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['task', 'other', 'event']);
   const before = (await read()).items;
+  const notice = page.locator('.dismissible-toast');
+  if (await notice.isVisible()) await notice.getByRole('button', { name: 'Dismiss message', exact: true }).click();
+  await page.locator('.calendar-navigation-body').evaluate(element => element.scrollIntoView({ block: 'end', behavior: 'instant' }));
+  await page.clock.runFor(400);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(page.getByTestId('timeline-active-range')).toHaveCount(2);
   await settledReload(page);

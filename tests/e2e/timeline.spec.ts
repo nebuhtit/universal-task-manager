@@ -244,6 +244,9 @@ test('List shows clock-only metadata while Timeline shows reminders with separat
 
 test('compact calendar keeps day navigation and blank Timeline swipes do not steal item swipes', async ({ page }) => {
   await setup(page);
+  await page.evaluate(() => window.scrollTo({ top: 650, behavior: 'instant' }));
+  await page.clock.runFor(400);
+  await expect(page.locator('.calendar-page')).toHaveClass(/is-compact/);
   const title = page.locator('.calendar-heading-date h1');
   const header = page.locator('.calendar-navigator');
   await expect(header).toHaveCSS('position', 'sticky');
