@@ -1,28 +1,64 @@
 import type { Schedule } from '@utm/core';
 
-export type FriendlyDurationUnit = 'minutes' | 'hours' | 'days' | 'weeks';
+export type FriendlyDurationUnit = 'seconds' | 'minutes' | 'hours' | 'days' | 'weeks';
 export type ReminderDurationUnit = 'seconds' | 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'years';
+
+const friendlyUnitAliases: Record<FriendlyDurationUnit, string> = {
+  seconds: 's|sec|secs|second|seconds|с|сек|секунда|секунды|секунд',
+  minutes: 'm|min|mins|minute|minutes|м|мин|минута|минуты|минут',
+  hours: 'h|hr|hrs|hour|hours|ч|час|часа|часов|часы',
+  days: 'd|day|days|д|дн|день|дня|дни|дней|сутки|суток',
+  weeks: 'w|wk|wks|week|weeks|нед|неделя|недели|недель',
+};
+
+export function parseFriendlyDurationInput(value: string, fallbackUnit: FriendlyDurationUnit = 'minutes'): { amount: number; unit: FriendlyDurationUnit } | undefined {
+  const trimmed = value.trim().toLowerCase().replace(',', '.').replace(/\.$/, '');
+  if (!trimmed) return undefined;
+  const match = /^(\d+(?:\.\d+)?)\s*([\p{L}]*)$/u.exec(trimmed);
+  if (!match) return undefined;
+  let amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  const alias = match[2]!;
+  const resolvedUnit = alias ? (Object.entries(friendlyUnitAliases) as Array<[FriendlyDurationUnit, string]>).find(([, aliases]) => aliases.split('|').includes(alias))?.[0] : fallbackUnit;
+  if (!resolvedUnit) return undefined;
+  let unit: FriendlyDurationUnit = resolvedUnit;
+  // Stored ISO durations use whole units. Resolve fractions into smaller units
+  // before changing the schedule (1.5 hours becomes 90 minutes).
+  const smaller: Partial<Record<FriendlyDurationUnit, { unit: FriendlyDurationUnit; factor: number }>> = {
+    weeks: { unit: 'days', factor: 7 }, days: { unit: 'hours', factor: 24 },
+    hours: { unit: 'minutes', factor: 60 }, minutes: { unit: 'seconds', factor: 60 },
+  };
+  while (Math.abs(amount - Math.round(amount)) > 1e-8 && unit !== 'seconds') {
+    const next: { unit: FriendlyDurationUnit; factor: number } = smaller[unit]!;
+    amount *= next.factor; unit = next.unit;
+  }
+  amount = Math.round(amount);
+  if (!Number.isSafeInteger(amount) || amount <= 0) return undefined;
+  return { amount, unit };
+}
 
 export const reminderIsoDuration = (amount: number, unit: ReminderDurationUnit) => unit === 'seconds' ? `PT${amount}S` : unit === 'minutes' ? `PT${amount}M` : unit === 'hours' ? `PT${amount}H` : unit === 'days' ? `P${amount}D` : unit === 'weeks' ? `P${amount}W` : unit === 'months' ? `P${amount}M` : `P${amount}Y`;
 export const parseReminderDuration = (value?: string): { amount: number; unit: ReminderDurationUnit; before: boolean } => { const before = (value ?? '').startsWith('-'); const match = /^(?:-)?(?:P(\d+)([DWMY])|PT(\d+)([HMS]))$/.exec(value ?? ''); if (!match) return { amount: 1, unit: 'hours', before: false }; const amount = Number(match[1] ?? match[3]); const code = match[2] ?? match[4]; return { amount, before, unit: code === 'S' ? 'seconds' : code === 'M' ? (match[3] ? 'minutes' : 'months') : code === 'H' ? 'hours' : code === 'W' ? 'weeks' : code === 'Y' ? 'years' : 'days' }; };
 export const parseFriendlyDuration = (value?: string): { amount: number; unit: FriendlyDurationUnit } => {
-  const match = /^(?:P(\d+)([DW])|PT(\d+)([HM]))$/.exec(value ?? '');
+  const match = /^(?:P(\d+)([DW])|PT(\d+)([HMS]))$/.exec(value ?? '');
   if (!match) return { amount: 7, unit: 'days' };
   const amount = Number(match[1] ?? match[3]);
   const code = match[2] ?? match[4];
-  return { amount, unit: code === 'W' ? 'weeks' : code === 'H' ? 'hours' : code === 'M' ? 'minutes' : 'days' };
+  return { amount, unit: code === 'W' ? 'weeks' : code === 'H' ? 'hours' : code === 'S' ? 'seconds' : code === 'M' ? 'minutes' : 'days' };
 };
-export const toIsoDuration = (amount: number, unit: FriendlyDurationUnit) => unit === 'weeks' ? `P${amount}W` : unit === 'days' ? `P${amount}D` : unit === 'hours' ? `PT${amount}H` : `PT${amount}M`;
+export const toIsoDuration = (amount: number, unit: FriendlyDurationUnit) => unit === 'weeks' ? `P${amount}W` : unit === 'days' ? `P${amount}D` : unit === 'hours' ? `PT${amount}H` : unit === 'seconds' ? `PT${Math.round(amount)}S` : `PT${amount}M`;
 export const parseEstimateDuration = (value?: string): { amount: number; unit: FriendlyDurationUnit } => {
-  const timed = /^PT(?:(\d+)H)?(?:(\d+)M)?$/.exec(value ?? '');
-  if (timed && (timed[1] || timed[2])) {
-    const minutes = Number(timed[1] ?? 0) * 60 + Number(timed[2] ?? 0);
+  const timed = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(value ?? '');
+  if (timed && (timed[1] || timed[2] || timed[3])) {
+    const seconds = Number(timed[1] ?? 0) * 3600 + Number(timed[2] ?? 0) * 60 + Number(timed[3] ?? 0);
+    if (seconds > 0 && seconds % 60 !== 0) return { amount: seconds, unit: 'seconds' };
+    const minutes = seconds / 60;
     return minutes % 60 === 0 ? { amount: minutes / 60, unit: 'hours' } : { amount: minutes, unit: 'minutes' };
   }
   return parseFriendlyDuration(value);
 };
 export const parseOptionalEstimateDuration = (value?: string): { amount: number; unit: FriendlyDurationUnit } | undefined => {
-  if (!/^(?:P\d+[DW]|PT(?=\d)(?:(?:\d+)H)?(?:(?:\d+)M)?)$/.test(value ?? '')) return undefined;
+  if (!/^(?:P\d+[DW]|PT(?=\d)(?:(?:\d+)H)?(?:(?:\d+)M)?(?:(?:\d+)S)?)$/.test(value ?? '')) return undefined;
   const parsed = parseEstimateDuration(value);
   return Number.isFinite(parsed.amount) && parsed.amount > 0 ? parsed : undefined;
 };
@@ -39,6 +75,7 @@ export const calendarDuration = (startAt?: string, endAt?: string): { amount: nu
   return { amount: minutes, unit: 'minutes' };
 };
 export const calendarDurationMs = (amount: number, unit: FriendlyDurationUnit) => {
+  if (unit === 'seconds') return amount * 1_000;
   const minutes = unit === 'weeks' ? amount * 7 * 24 * 60 : unit === 'days' ? amount * 24 * 60 : unit === 'hours' ? amount * 60 : amount;
   return minutes * 60_000;
 };

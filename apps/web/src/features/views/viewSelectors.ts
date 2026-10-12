@@ -3,6 +3,8 @@ import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { isItemTemplate } from '../items/fieldDisplay';
 import { googleCalendarProjection, viewStatisticsItems, evaluateExpression, parseExpression } from '@utm/core';
 import { projectResults, type ViewResult } from './projectResults';
+import { activeWithinBlockIds, withinTargetsFor } from '@utm/core';
+import { itemIsExcludedBySource } from './viewItemExclusions';
 import { beginProfileSpan, measureProfile } from '../../services/performanceProfile';
 
 export const COMPLETION_EXIT_MS = 200;
@@ -11,6 +13,26 @@ const completionHolds = new Map<string, CompletionHold>();
 const completionHoldListeners = new Set<() => void>();
 let completionHoldVersion = 0;
 export const MANUAL_ORDER_EXTENSION = 'utm:manualOrder';
+
+function viewQueryContext(workspace: WorkspaceDocument, view: SavedView, now: Date) {
+  const index = getWorkspaceIndex(workspace);
+  const enabled = /\bwithinReservedBlockWhenSet\b/.test(view.query.source);
+  const visible = enabled ? compileQuery(view.query.source, (item, at) => index.queryContextFor(item, at), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn }) : undefined;
+  const hidden = enabled ? (view.statistics?.reservedItemIds ?? []).filter(id => {
+    const block = workspace.items[id];
+    if (!block || !itemIsExcludedBySource(block, view.query.source)) return false;
+    const queryItem = index.queryItemFor(block);
+    const candidate = block.role === 'series_template' ? { ...queryItem, occurrence: { seriesId: block.id, recurrenceId: block.schedule?.startAt ?? block.createdAt, sequence: 0, templateRevision: block.revision } } : queryItem;
+    // An exclusion in an OR branch must not gate tasks if the block is visible.
+    return !visible?.(candidate, now);
+  }) : [];
+  const hiddenSet = new Set(hidden);
+  const active = new Set(enabled ? activeWithinBlockIds(workspace, hidden, now) : []);
+  return (item: UniversalItem, at: Date = now) => {
+    const targets = enabled ? withinTargetsFor(workspace, item).filter(id => hiddenSet.has(id)) : [];
+    return { ...index.queryContextFor(item, at), ...(enabled ? { withinReservedBlockWhenSet: !targets.length || targets.some(id => active.has(id)) } : {}) };
+  };
+}
 
 export const subscribeCompletionHolds = (listener: () => void) => { completionHoldListeners.add(listener); return () => completionHoldListeners.delete(listener); };
 export const completionHoldsSnapshot = () => completionHoldVersion;
@@ -161,7 +183,7 @@ function evaluateViewInternal(workspace: WorkspaceDocument, view: SavedView, now
   if (view.statistics?.includeHiddenCompleted) {
     const index = getWorkspaceIndex(workspace);
     try {
-      const query = compileQuery(view.query.source || 'true', (item, at) => index.queryContextFor(item, at), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
+      const query = compileQuery(view.query.source || 'true', viewQueryContext(workspace, view, now), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
       matchesForStatistics = (item) => query(index.queryItemFor(item), now);
     } catch { matchesForStatistics = () => false; }
   }
@@ -326,7 +348,7 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
 
   let items: UniversalItem[];
   try {
-    const predicate = compileQuery(view.query.source || 'true', (item) => index.queryContextFor(item, now), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
+    const predicate = compileQuery(view.query.source || 'true', viewQueryContext(workspace, view, now), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
     const matchingRows = available.filter((item) => {
       const source = selectionSource(item);
       const queryItem = index.queryItemFor(source);

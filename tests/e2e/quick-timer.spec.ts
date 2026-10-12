@@ -49,7 +49,8 @@ test('native countdown completed while suspended is saved once after reopening',
   await openItem();
   const timer = editor.getByLabel('Quick timer and stopwatch', { exact: true });
   await expandTimer(timer);
-  await timer.getByLabel('Timer minutes').fill('1');
+  await timer.getByLabel('Timer minutes').fill('60 sec');
+  await expect(timer.locator('output')).toHaveText('01:00');
   await timer.getByRole('button', { name: 'Start', exact: true }).click();
   // Wait for the real persistence queue before simulating process suspension.
   await expect.poll(() => page.evaluate(() => {
@@ -90,10 +91,11 @@ test('short stopwatch record survives editor close and reload until saved', asyn
   const timer = editor.getByLabel('Quick timer and stopwatch', { exact: true });
   await expandTimer(timer);
   await timer.getByRole('checkbox', { name: 'Interval sound', exact: true }).check();
-  const interval = timer.getByLabel('Interval sound value');
+  const interval = timer.getByLabel('Interval sound value', { exact: true });
   await interval.fill('');
   await expect(interval).toHaveValue('');
-  await interval.fill('2');
+  await interval.fill('2 сек');
+  await expect(timer.getByLabel('Interval sound unit')).toHaveValue('seconds');
   await timer.getByLabel('Quick timer mode').selectOption('stopwatch');
   await timer.getByRole('button', { name: 'Start', exact: true }).click();
   await page.waitForTimeout(1200);

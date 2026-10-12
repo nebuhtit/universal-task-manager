@@ -1,5 +1,6 @@
 import { canManuallyComplete, buildRecurrenceRule, createId, createItem, makeSeries, removeDuplicateReminders, validateScriptDefinitions, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { inferredPreset } from '../fieldDisplay';
+import { clearCreationDefaultBounds } from '../creationDefaultBounds';
 import { syncEventProgramScript, validateEventProgram, programOverflow } from '@utm/core';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -85,5 +86,5 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   if (result.state === 'done' || result.state === 'cancelled') result.closure = { at: result.closure?.at ?? now.toISOString(), actor: result.closure?.actor ?? 'user', reason: result.state === 'cancelled' ? 'cancelled' : result.closure?.reason ?? 'manual' };
   else if (result.state === 'open') delete result.closure;
   if (result.habit) result.habit = { target: result.habit.target ?? result.progress?.target ?? 1, unit: result.habit.unit ?? 'times', streakMode: result.habit.streakMode ?? 'manual_only', completedDates: result.habit.completedDates ?? [], ...(result.habit.activeTimerStartedAt ? { activeTimerStartedAt: result.habit.activeTimerStartedAt } : {}), ...(result.habit.timerSessions?.length ? { timerSessions: result.habit.timerSessions } : {}) };
-  result.preset = inferredPreset(result); removeDuplicateReminders(result); return clean(result);
+  result.preset = inferredPreset(result); removeDuplicateReminders(result); return clean(clearCreationDefaultBounds(result));
 }

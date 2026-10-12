@@ -1,5 +1,6 @@
 import { Dialog } from '@base-ui/react/dialog';
-import type { ComponentProps, ReactNode, RefObject } from 'react';
+import { useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
+import { WarningNoticeHost } from './WarningNotice';
 
 export interface ResponsiveDialogProps {
   open: boolean;
@@ -35,6 +36,7 @@ export function ResponsiveDialog({
   closeLabel = 'Close dialog',
   ariaLabel,
 }: ResponsiveDialogProps) {
+  const [noticeHost, setNoticeHost] = useState<HTMLDivElement | null>(null);
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
       <Dialog.Backdrop className={['ui-dialog-backdrop', 'is-glass', backdropClassName].filter(Boolean).join(' ')} />
@@ -52,7 +54,8 @@ export function ResponsiveDialog({
             </div>
             <Dialog.Close className="ui-dialog-close" aria-label={closeLabel}>×</Dialog.Close>
           </header>
-          <div className="ui-dialog-content">{children}</div>
+          <div className="warning-notice-stack" ref={setNoticeHost} />
+          <WarningNoticeHost.Provider value={noticeHost}><div className="ui-dialog-content">{children}</div></WarningNoticeHost.Provider>
           {footer && <footer className="ui-dialog-footer">{footer}</footer>}
         </Dialog.Popup>
       </Dialog.Viewport>

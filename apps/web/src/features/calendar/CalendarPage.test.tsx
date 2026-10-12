@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace } from '@utm/core';
 import { CalendarPage } from './CalendarPage';
+import type { CalendarPageCache } from './calendarPageCache';
 
 const renderCalendar = (withItem = false) => {
   const now = new Date('2026-08-26T10:00:00.000Z');
@@ -25,6 +26,32 @@ const renderCalendar = (withItem = false) => {
 };
 
 describe('CalendarPage daily-list contract', () => {
+  it('reuses session calculations after remounting and refreshes edited items', () => {
+    const now = new Date('2026-08-26T10:00:00.000Z');
+    const workspace = createWorkspace('Calendar', now);
+    workspace.calendarPreferences.timezone = 'UTC';
+    const item = createItem('Before edit', 'task', now);
+    item.schedule = { timezone: 'UTC', startAt: now.toISOString(), endAt: '2026-08-26T10:30:00.000Z', estimatedDuration: 'PT30M' };
+    workspace.items[item.id] = item;
+    const cache: { current: CalendarPageCache | null } = { current: null };
+    const render = (source = workspace) => renderToStaticMarkup(<CalendarPage computationCache={cache} workspace={source} now={now} commit={vi.fn()} onEditItem={vi.fn()} onState={vi.fn()} createUiItem={(title, preset, at) => createItem(title ?? '', preset, at)} />);
+    expect(render()).toContain('Before edit');
+    const counters = { ...cache.current!.evaluator.counters };
+    expect(render()).toContain('Before edit');
+    expect(cache.current!.evaluator.counters).toEqual(counters);
+    const edited = structuredClone(workspace);
+    edited.items[item.id]!.title = 'After edit';
+    edited.items[item.id]!.schedule!.endAt = '2026-08-26T11:00:00.000Z';
+    edited.items[item.id]!.schedule!.estimatedDuration = 'PT1H';
+    const markup = render(edited);
+    expect(markup).toContain('After edit');
+    expect(markup).not.toContain('Before edit');
+    expect(cache.current!.evaluator.counters.dayCalculations).toBeGreaterThan(counters.dayCalculations);
+    const other = createWorkspace('Other', now);
+    other.calendarPreferences.timezone = 'UTC';
+    expect(render(other)).not.toContain('After edit');
+    expect(cache.current!.workspaceId).toBe(other.workspaceId);
+  });
   it('renders one selected day as the shared list view without a timeline', () => {
     const markup = renderCalendar(true);
     expect(markup).toContain('Timed item');

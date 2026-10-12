@@ -121,7 +121,7 @@ describe('Calendar organization and durable local data', () => {
     const { item } = fixture(); delete item.external;
     item.schedule = { timezone: 'UTC', estimatedDuration: 'PT1H' };
     item.actualTimeEntries = [{ id: 'time', durationSeconds: 600, comment: '', source: 'manual' }];
-    item.state = 'done'; recordCompletionTransition(item, 'open', '2030-01-01T12:00:00Z');
+    item.state = 'done'; item.closure = { at: '2030-01-01T12:00:00Z', actor: 'user', reason: 'manual' }; recordCompletionTransition(item, 'open', '2030-01-01T12:00:00Z');
     expect(item.actualTimeEntries[0]!.completionId).toBe(item.completionEntries![0]!.id);
     expect(item.schedule.estimatedDuration).toBe('PT1H');
   });

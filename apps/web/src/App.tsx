@@ -1,4 +1,5 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
+import type { CalendarPageCache } from './features/calendar/calendarPageCache';
 import { safeItemTitleFailureDetails } from './features/items/editor/itemEditorDiagnostics';
 import { readSyncTrace } from './services/syncTrace';
 import { currentProfileActionId, labelProfileAction, readPerformanceProfiles, recordProfileCommit, recordProfileSpan } from './services/performanceProfile';
@@ -27,6 +28,7 @@ import {
 } from './features/items';
 import { OrganizationManager, createParaStructurePackage } from './features/settings/OrganizationManager';
 import { applyQuickEntryText, createQuickEntryItem, syncQuickEntrySource } from './features/items/quickEntry';
+import { markCreationDefaultBounds } from './features/items/creationDefaultBounds';
 import { duplicateItemDraft } from './features/items/editor/itemEditorModel';
 import { LiveTextInput } from './features/items/LiveTextInput';
 import { AppShell, type AppNotice as Notice, type AppPage as Page } from './components/layout/AppShell';
@@ -97,6 +99,13 @@ const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date())
   const item = createItem(title, preset, now);
   const startAt = now.toISOString();
   item.schedule = { ...item.schedule, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, startAt, endAt: new Date(now.getTime() + 10 * 60_000).toISOString() };
+  return markCreationDefaultBounds(item);
+};
+const applyCalendarReminderDefaults = (item: UniversalItem, workspace: WorkspaceDocument) => {
+  const defaults = workspace.calendarPreferences.liveTextDefaultReminders;
+  if (defaults?.enabled === false || item.reminders.length > 0) return item;
+  const minutes = [...new Set(defaults?.minutesBefore ?? [120, 1440])].filter(value => Number.isInteger(value) && value > 0);
+  item.reminders = minutes.map(value => ({ id: createId(), mode: 'relative', relativeTo: 'start', offset: `-PT${value}M`, repeatUntilAcknowledged: false }));
   return item;
 };
 const safeFilename = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'universal';
@@ -724,7 +733,6 @@ export default function App() {
   const [rawNotices, setNotices] = useState<Notice[]>([]);
   const [popupNoticeIds, setPopupNoticeIds] = useState<string[]>([]);
   const [noticeCenterOpen, setNoticeCenterOpen] = useState(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [newViewRequest, setNewViewRequest] = useState(0);
   const [toast, setToast] = useToast();
   const [backupReminder, setBackupReminder] = useState(false);
@@ -751,6 +759,8 @@ export default function App() {
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string; backupPreview?: boolean | undefined; isolatedPreview?: boolean } | null>(null);
   const { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey } = useWorkspaceController({ onToast: setToast, setNotices });
+  const calendarComputationCache = useRef<CalendarPageCache | null>(null);
+  if (boot !== 'ready') calendarComputationCache.current = null;
   const notices = workspace ? visibleItemNotices(workspace, rawNotices) : rawNotices;
   useEffect(() => {
     if (!workspace) return;
@@ -882,16 +892,24 @@ export default function App() {
   useEffect(() => {
     if (!workspace || !isNativeReminderAvailable() || workspace.calendarPreferences.testClock?.enabled) return;
     const signature = `${workspace.workspaceId}:${workspace.updatedAt}`;
-    if (nativeReminderSignature.current === signature) return;
     let cancelled = false;
-    const timer = window.setTimeout(() => {
+    const sync = (force = false) => {
+      if (!force && nativeReminderSignature.current === signature) return;
       void syncNativeReminders(workspace).then((status) => {
         if (!cancelled) { nativeReminderSignature.current = signature; recordDiagnostic({ kind: 'result', operation: 'Native reminder sync', outcome: 'succeeded', message: `${status.scheduled ?? 0} iOS reminders scheduled` }); }
       }).catch((reason) => {
         if (!cancelled) { const message = reason instanceof Error ? reason.message : String(reason); recordDiagnostic({ kind: 'error', operation: 'Native reminder sync', outcome: 'failed', message }); setToast(message); }
       });
-    }, 500);
-    return () => { cancelled = true; window.clearTimeout(timer); };
+    };
+    let timer: number | undefined = window.setTimeout(() => { timer = undefined; sync(); }, 500);
+    const onForeground = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (timer !== undefined) { window.clearTimeout(timer); timer = undefined; }
+      sync(true);
+    };
+    document.addEventListener('visibilitychange', onForeground);
+    window.addEventListener('pageshow', onForeground);
+    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer); document.removeEventListener('visibilitychange', onForeground); window.removeEventListener('pageshow', onForeground); };
   }, [workspace]);
   const exportAfterFlush = (action: () => void | Promise<void>) => {
     void flushPersistence().then(action).catch((reason) => setToast(`Export stopped because the latest change could not be saved: ${reason instanceof Error ? reason.message : String(reason)}`));
@@ -998,7 +1016,7 @@ export default function App() {
       if (sessionStorage.getItem('utm:open-calendar-today') !== '1') return;
       const key = calendarDateKey(effectiveWorkspaceNow(workspace, clockService.now()), workspace.calendarPreferences.timezone);
       setPage('calendar'); setCalendarJump({ key, request: Date.now() });
-      setEditor(null); setMobileNavOpen(false); setNoticeCenterOpen(false);
+      setEditor(null); setNoticeCenterOpen(false);
       sessionStorage.removeItem('utm:open-calendar-today');
     };
     window.addEventListener('utm:open-calendar-today', open); open();
@@ -1400,12 +1418,12 @@ export default function App() {
   };
   const downloadDiagnostics = downloadDiagnosticsFile;
 
-  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} mobileNavOpen={mobileNavOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => { setMobileNavOpen(false); setNoticeCenterOpen((open) => !open); }} onToggleNavigation={() => { setNoticeCenterOpen(false); setMobileNavOpen((open) => !open); }} onCloseNavigation={() => setMobileNavOpen(false)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onCompleteNotice={(notice) => { const item = notice.itemId ? workspace.items[notice.itemId] : undefined; if (item && item.state === 'open' && canManuallyComplete(item)) changeItemState(item, 'done'); }} onSnoozeNotice={snoozeNotice} onQuickPin={planningEnabled(workspace) ? setQuickPinTarget : undefined} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
+  return <><AppShell page={page} onPage={setPage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => setNoticeCenterOpen((open) => !open)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onCompleteNotice={(notice) => { const item = notice.itemId ? workspace.items[notice.itemId] : undefined; if (item && item.state === 'open' && canManuallyComplete(item)) changeItemState(item, 'done'); }} onSnoozeNotice={snoozeNotice} onQuickPin={planningEnabled(workspace) ? setQuickPinTarget : undefined} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <PageErrorBoundary key={page} page={page} language={workspace.calendarPreferences.language} onDiagnostics={() => void downloadDiagnostics()}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
       <SaveStatusSubscription store={saveStatusStore}>{saveStatus => (saveStatus === 'saving' || saveStatus === 'error') && <p className={`save-status-banner${saveStatus === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : 'Не сохранено. Последние изменения пока только в памяти.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>}</SaveStatusSubscription>
       {page === 'home' && <><ViewsPage workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
-      {page === 'calendar' && <CalendarPage onPlanningNotice={setToast} onCreateItem={item => { setEditorIsNew(true); setFocusEditorId(item.id); setEditor(item); }} workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} {...(calendarCaptureDate ? { initialDate: calendarCaptureDate } : {})} onSelectedDateChange={setCalendarCaptureDate} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
+      {page === 'calendar' && <CalendarPage computationCache={calendarComputationCache} onPlanningNotice={setToast} onCreateItem={item => { applyCalendarReminderDefaults(item, workspace); setEditorIsNew(true); setFocusEditorId(item.id); setEditor(item); }} workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} {...(calendarCaptureDate ? { initialDate: calendarCaptureDate } : {})} onSelectedDateChange={setCalendarCaptureDate} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={openWorkspaceItem} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
       {page === 'automations' && <AutomationsPage workspace={workspace} commit={commit} />}
       {page === 'organization' && <section className="page-section organization-page"><div className="page-title"><div><p className="eyebrow">PARA ORGANIZATION</p><h1>Areas, Projects and Tags</h1></div></div><OrganizationManager workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onQuickAddItem={captureQuickViewItem} onExport={() => exportAfterFlush(() => exportParaStructure(workspace))} /></section>}
@@ -1422,7 +1440,7 @@ export default function App() {
     </AppShell>
     {quickPinTarget && planningEnabled(workspace) && <CalendarPinDialog workspace={workspace} target={quickPinTarget} onClose={() => setQuickPinTarget(null)} commit={commit} onFlush={flushPersistence} />}
     {quickDueTarget && quickDueItem && <ResponsiveDialog open onOpenChange={(open) => { if (!open && !quickDueSaving) setQuickDueTarget(null); }} title={quickDueItem.schedule?.plannedDate ? (workspace.calendarPreferences.language === 'ru' ? 'Перепланировать' : 'Reschedule') : (workspace.calendarPreferences.language === 'ru' ? 'Перенести срок' : 'Move Due')} ariaLabel="Quick Due" className="quick-due-dialog" backdropClassName="is-glass" footer={<Button className="glass-action-button" disabled={quickDueSaving} onClick={() => setQuickDueTarget(null)}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>}><p className="glass-item-reference" translate="no" data-utm-user-data>{quickDueItem.title}</p><DueQuickChoices key={quickDueTarget.itemId} item={quickDueItem} now={currentWorkspaceNow()} language={workspace.calendarPreferences.language} error={quickDueError} onChoose={(at) => void saveQuickDue(quickDueTarget, at)} /></ResponsiveDialog>}
-    <div className={`capture-dock${page === 'settings' || page === 'organization' ? ' capture-dock-nav-only' : ''}`}><QuickPageNav page={page} language={workspace.calendarPreferences.language} onPage={(target) => { setPage(target); setMobileNavOpen(false); setNoticeCenterOpen(false); }} />{page !== 'settings' && page !== 'organization' && <form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} placeholder={capturePlaceholder} error={quickError} timeZone={workspace.calendarPreferences.timezone} viewedTimelineDate={page === 'calendar' && workspace.calendarPreferences.timeline?.mode === 'timeline' ? calendarCaptureDate : undefined} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); commit('Open calendar Timeline', draft => { draft.calendarPreferences.timeline = { ...draft.calendarPreferences.timeline, mode: 'timeline', hideSleep: draft.calendarPreferences.timeline?.hideSleep ?? false }; }); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form>}</div>
+    <div className={`capture-dock${page === 'settings' || page === 'organization' ? ' capture-dock-nav-only' : ''}`}><QuickPageNav page={page} language={workspace.calendarPreferences.language} onPage={(target) => { setPage(target); setNoticeCenterOpen(false); }} />{page !== 'settings' && page !== 'organization' && <form className="quick-capture" data-quick-capture onSubmit={(event) => { event.preventDefault(); captureQuickItem(); }}><LiveTextInput inputRef={captureInputRef} value={quick} onSubmit={captureQuickItem} onChange={(value) => { setQuick(value); setQuickError(''); }} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={currentWorkspaceNow()} placeholder={capturePlaceholder} error={quickError} timeZone={workspace.calendarPreferences.timezone} viewedTimelineDate={page === 'calendar' && workspace.calendarPreferences.timeline?.mode === 'timeline' ? calendarCaptureDate : undefined} onViewCalendarDate={(key) => { setCalendarJump({ key, request: Date.now() }); setPage('calendar'); commit('Open calendar Timeline', draft => { draft.calendarPreferences.timeline = { ...draft.calendarPreferences.timeline, mode: 'timeline', hideSleep: draft.calendarPreferences.timeline?.hideSleep ?? false }; }); }} /><button type="submit" hidden aria-hidden="true" tabIndex={-1} /></form>}</div>
     {quickCompletion && <QuickCompletionInput
       open
       value={quickCompletion.completedAt}
@@ -1521,6 +1539,6 @@ export default function App() {
       }} />}</Suspense>
     {transfer && <TransferDialog session={session} onFlush={flushPersistence} onClose={() => setTransfer(false)} onBackupExported={() => { commit('Record encrypted backup', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), lastBackupAt: new Date().toISOString() }; }); setBackupReminder(false); setToast('Encrypted backup saved. Choose its folder in Files.'); }} onMerged={(next, message) => { void adoptSession(next).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} onReplaced={(next, message) => { void adoptSession(next, true).then(() => setToast(message)).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason))); }} />}
     {portableImportSource && <PortableImportDialog workspace={workspace} source={portableImportSource} onClose={() => setPortableImportSource(null)} onApply={(preview) => { commit('Import portable JSON package', (draft) => { const result = applyPortableImport(draft, preview); setToast(`Imported ${result.addedItems + result.copiedItems} items and ${result.addedViews + result.copiedViews} views`); }); setPortableImportSource(null); }} />}
-    <ShellNotices toast={toast} undoNotices={undoActions.map(({ id, label, expiresAt }) => ({ id, label, expiresAt }))} onUndo={runUndo} language={workspace.calendarPreferences.language} />
+    <ShellNotices toast={toast} onDismissToast={() => setToast('')} undoNotices={undoActions.map(({ id, label, expiresAt }) => ({ id, label, expiresAt }))} onUndo={runUndo} language={workspace.calendarPreferences.language} />
   </>;
 }

@@ -1,0 +1,5 @@
+.saved-view-slot { position: relative; }
+.saved-view-slot[data-reorder-dragging] { opacity: .35; }
+.saved-view-slot[data-reorder-drop]::after { content: ''; position: absolute; inset-inline: 0; height: var(--space-1); border-radius: var(--radius-pill); background: var(--color-accent); pointer-events: none; }
+.saved-view-slot[data-reorder-drop="before"]::after { top: 0; }
+.saved-view-slot[data-reorder-drop="after"]::after { bottom: 0; }

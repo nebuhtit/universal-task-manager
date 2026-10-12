@@ -15,7 +15,7 @@ it('preserves legacy behavior and opts local events in and out without deleting 
   const workspace = createWorkspace(); workspace.items[item.id] = item;
   expect(validateWorkspace(workspace).valid).toBe(true);
   expect(migrateWorkspace(workspace).value.items[item.id]?.canBeCompleted).toBe(true);
-  item.state = 'done'; recordCompletionTransition(item, 'open', '2026-09-22T11:00:00Z');
+  item.state = 'done'; item.closure = { at: '2026-09-22T11:00:00Z', actor: 'user', reason: 'manual' }; recordCompletionTransition(item, 'open', '2026-09-22T11:00:00Z');
   expect(item.completionEntries).toHaveLength(1);
   item.canBeCompleted = false; item.state = 'open';
   item.progress = { mode: 'counter', current: 0, target: 1 };

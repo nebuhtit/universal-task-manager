@@ -29,17 +29,23 @@ export function ensureActualTimeCompletion(item: UniversalItem, entry: NonNullab
   return completion;
 }
 
+/** Old auto-renew rows remain stored for compatibility, but are not user completions. */
+export function isRecordedCompletion(item: UniversalItem, completion: CompletionEntry): boolean {
+  return completion.kind !== 'automatic' || (item.actualTimeEntries ?? []).some((entry) =>
+    entry.completionId === completion.id && (entry.source === 'timer' || entry.source === 'stopwatch'));
+}
+
 /** Missing journals are legacy data; an empty journal is an intentional deletion. */
 export function initializeItemHistory(item: UniversalItem): void {
   if (!item.actualTimeEntries && item.schedule?.actualDuration) {
     item.actualTimeEntries = [{ id: `imported-time:${item.id}`, durationSeconds: actualTimeMs(item) / 1000, comment: 'Imported', source: 'imported', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) }];
   }
   if (!item.completionEntries && !item.external?.readOnly && !item.isNote && item.canBeCompleted !== false) {
-    const entries: CompletionEntry[] = (item.cycleHistory ?? []).filter((cycle) => cycle.state === 'done' || cycle.state === 'auto_closed').map((cycle) => ({ id: `cycle:${item.id}:${cycle.recurrenceId}`, at: cycle.closedAt, kind: cycle.state === 'auto_closed' || cycle.actor !== 'user' ? 'automatic' : 'manual', comment: '', recurrenceId: cycle.recurrenceId }));
+    const entries: CompletionEntry[] = (item.cycleHistory ?? []).filter((cycle) => cycle.state === 'done' && cycle.actor === 'user').map((cycle) => ({ id: `cycle:${item.id}:${cycle.recurrenceId}`, at: cycle.closedAt, kind: 'manual', comment: '', recurrenceId: cycle.recurrenceId }));
     for (const day of item.habit?.completedDates ?? []) {
       if (!entries.some((entry) => entry.recurrenceId?.slice(0, 10) === day)) entries.push({ id: `habit:${item.id}:${day}`, at: `${day}T00:00:00.000Z`, kind: 'manual', comment: 'Imported', recurrenceId: `${day}T00:00:00.000Z` });
     }
-    if ((item.state === 'done' || item.state === 'auto_closed') && item.closure && !entries.some((entry) => entry.recurrenceId === item.occurrence?.recurrenceId && entry.at === item.closure!.at)) entries.push({ id: `closure:${item.id}:${item.closure.at}`, at: item.closure.at, kind: item.closure.actor === 'user' && item.state === 'done' ? 'manual' : 'automatic', comment: '', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) });
+    if (item.state === 'done' && item.closure?.actor === 'user' && !entries.some((entry) => entry.recurrenceId === item.occurrence?.recurrenceId && entry.at === item.closure!.at)) entries.push({ id: `closure:${item.id}:${item.closure.at}`, at: item.closure.at, kind: 'manual', comment: '', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) });
     if (entries.length) item.completionEntries = entries;
   }
   const migratedSessions = new Set(Array.isArray(item.extensions?.['utm:habit-sessions-journal']) ? item.extensions['utm:habit-sessions-journal'] as string[] : []);
@@ -58,14 +64,14 @@ export function initializeItemHistory(item: UniversalItem): void {
 
 export function recordCompletionTransition(item: UniversalItem, previousState: UniversalItem['state'], now: string): void {
   if (item.external?.readOnly || item.isNote || item.canBeCompleted === false) return;
-  if ((item.state === 'done' || item.state === 'auto_closed') && item.state !== previousState) {
+  if (item.state === 'done' && item.state !== previousState && item.closure?.actor === 'user') {
     item.completionEntries ??= [];
     const at = item.closure?.at ?? now;
-    item.completionEntries.push({ id: `completion:${item.id}:${now}:${item.completionEntries.length}`, at, kind: item.state === 'auto_closed' || item.closure?.actor !== 'user' ? 'automatic' : 'manual', comment: '', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) });
+    item.completionEntries.push({ id: `completion:${item.id}:${now}:${item.completionEntries.length}`, at, kind: 'manual', comment: '', ...(item.occurrence ? { recurrenceId: item.occurrence.recurrenceId } : {}) });
     const completion = item.completionEntries[item.completionEntries.length - 1]!;
     for (const entry of item.actualTimeEntries ?? []) if (!entry.completionId && entry.recurrenceId === item.occurrence?.recurrenceId) entry.completionId = completion.id;
   } else if (item.state === 'open' && (previousState === 'done' || previousState === 'auto_closed')) {
-    const last = [...(item.completionEntries ?? [])].reverse().find((entry) => !entry.revokedAt && entry.recurrenceId === item.occurrence?.recurrenceId);
+    const last = [...(item.completionEntries ?? [])].reverse().find((entry) => !entry.revokedAt && isRecordedCompletion(item, entry) && entry.recurrenceId === item.occurrence?.recurrenceId);
     if (last) last.revokedAt = now;
   }
 }

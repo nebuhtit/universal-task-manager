@@ -1,7 +1,8 @@
 import type { Progress, UniversalItem } from './types.js';
+import { isRecordedCompletion } from './item-history.js';
 
 export function completionCount(item: UniversalItem): number {
-  return (item.completionEntries ?? []).filter((entry) => !entry.revokedAt).length;
+  return (item.completionEntries ?? []).filter((entry) => !entry.revokedAt && isRecordedCompletion(item, entry)).length;
 }
 
 /** Missing durations are unknown, not zero; revoked completions do not contribute. */
@@ -9,7 +10,7 @@ export function completionStatistics(items: readonly UniversalItem[]) {
   let count = 0, timedCount = 0, totalSeconds = 0;
   for (const item of items) {
     for (const completion of item.completionEntries ?? []) {
-      if (completion.revokedAt) continue;
+      if (completion.revokedAt || !isRecordedCompletion(item, completion)) continue;
       count++;
       const times = (item.actualTimeEntries ?? []).filter(entry => entry.completionId === completion.id && Number.isFinite(entry.durationSeconds) && entry.durationSeconds >= 0);
       if (!times.length) continue;

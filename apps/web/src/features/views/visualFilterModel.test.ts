@@ -5,6 +5,14 @@ import { compileQuery, createItem } from '@utm/core';
 import { defaultReminderPeriodValue, defaultSchedulePeriodValue, defaultVisualConditionForField, parseReminderPeriodValue, parseSchedulePeriodValue, parseVisualRows, reminderPeriodField, schedulePeriodField, serializeVisualRows, toSqlExpression, visualFieldKind, visualFilterValueLabel, visualOperators, visualOptionsForField } from './visualFilterModel';
 
 describe('visual filter model', () => {
+  it('exposes the linked hidden reserved block condition as a real boolean', () => {
+    const field = 'withinReservedBlockWhenSet';
+    expect(visualFieldKind(field)).toBe('boolean');
+    expect(visualOperators(field)).toEqual(['==', '!=']);
+    const source = serializeVisualRows([{ id: 'within', join: 'and', field, operator: '==', value: 'true' }]);
+    expect(parseVisualRows(pythonToFilter(filterToPython(source)))?.[0]?.field).toBe(field);
+    expect(compileQuery(source, () => ({ withinReservedBlockWhenSet: false }))(createItem('Task'))).toBe(false);
+  });
   it('commits a real boolean when changing presence to equality and round-trips both code formats', () => {
     const row = parseVisualRows('canComplete != null')![0]!;
     const next = changeVisualOperator(row, '==');

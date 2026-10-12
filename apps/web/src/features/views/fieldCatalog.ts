@@ -9,6 +9,7 @@ import {
 export type ViewFieldGroup = { name: string; fields: ViewFieldOption[] };
 
 const filterOnlyFields: ViewFieldOption[] = [
+  { path: 'withinReservedBlockWhenSet', label: 'Only during linked hidden reserved blocks (otherwise unrestricted)', group: 'Core' },
   { path: 'itemKind', label: 'Item kind', group: 'Item kind' },
   { path: 'canComplete', label: 'Can be completed', group: 'Core' },
 ];

@@ -12,15 +12,16 @@ function UndoCountdown({ expiresAt, language }: { expiresAt: number; language: W
   return <strong aria-label={t(`${secondsLeft} seconds remaining`)}>{secondsLeft}</strong>;
 }
 
-export function ShellNotices({ toast, undoNotices = [], onUndo, language = 'en' }: {
+export function ShellNotices({ toast, undoNotices = [], onUndo, onDismissToast, language = 'en' }: {
   toast: string;
   undoNotices?: UndoNotice[];
   onUndo?: (id: string) => void;
+  onDismissToast?: () => void;
   language?: WorkspaceLanguage;
 }) {
   const t = useTranslation(language);
   return <>
     {undoNotices.length > 0 && <div className="undo-toast-stack">{undoNotices.map((notice) => <div className="toast undo-toast" role="status" key={notice.id}><span>{t(notice.label)}</span><UndoCountdown expiresAt={notice.expiresAt} language={language} /><Button size="compact" onClick={() => onUndo?.(notice.id)}>{t('Undo')}</Button></div>)}</div>}
-    {toast && <div className="toast" role="status"><UserDataText>{toast}</UserDataText></div>}
+    {toast && <div className="toast dismissible-toast" role="status"><span><UserDataText>{toast}</UserDataText></span><Button size="compact" aria-label={language === 'ru' ? 'Закрыть сообщение' : 'Dismiss message'} onClick={onDismissToast}>×</Button></div>}
   </>;
 }

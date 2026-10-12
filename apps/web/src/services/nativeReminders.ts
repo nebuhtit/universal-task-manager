@@ -21,6 +21,7 @@ const handlerName = 'utmNativeReminders';
 const maximumPendingReminders = 60;
 const pending = new Map<string, { resolve: (status: NativeReminderStatus) => void; reject: (reason: Error) => void }>();
 let listening = false;
+let nativeSyncQueue: Promise<unknown> = Promise.resolve();
 
 const handler = () => {
   const webkit = window.webkit as { messageHandlers?: Record<string, { postMessage(message: unknown): void }> } | undefined;
@@ -103,7 +104,9 @@ export function syncNativeReminders(workspace: WorkspaceDocument, now = new Date
     return reminder.delivery === 'alarm' && at && Date.parse(at) <= now.getTime();
   }).map(reminder => `utm:${workspace.workspaceId}:${item.id}:${reminder.id}`));
   retainedAlarmIds.push(...items.filter(item => item.delivery === 'alarm').map(item => item.id));
-  return send({ id: requestId(), kind: 'reminders.sync', workspaceId: workspace.workspaceId, items, retainedAlarmIds });
+  const request = nativeSyncQueue.catch(() => undefined).then(() => send({ id: requestId(), kind: 'reminders.sync', workspaceId: workspace.workspaceId, items, retainedAlarmIds }));
+  nativeSyncQueue = request.then(() => undefined, () => undefined);
+  return request;
 }
 
 export function scheduleNativeTimer(timerId: string, title: string, at: string): Promise<NativeReminderStatus> {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createItem, createWorkspace, type SavedView } from './types.js';
-import { actualTimeMs, addTimerActualTime, initializeItemHistory, recordCompletionTransition, syncActualDuration } from './item-history.js';
+import { actualTimeMs, addTimerActualTime, initializeItemHistory, isRecordedCompletion, recordCompletionTransition, syncActualDuration } from './item-history.js';
+import { completionStatistics } from './completion-goals.js';
 import { migrateItem, migrateView, validateItem } from './schema.js';
 import { createOccurrence, reconcileRecurrences } from './recurrence.js';
 import { calculateViewTimeMetrics } from './view-statistics.js';
@@ -52,6 +53,23 @@ describe('item journals', () => {
     item.state = 'done'; item.closure.at = '2026-09-20T13:00:00Z'; recordCompletionTransition(item, 'open', item.closure.at);
     expect(item.completionEntries).toHaveLength(2); item.completionEntries![0]!.comment = 'Corrected'; expect(item.closure.at).toBe('2026-09-20T13:00:00Z');
   });
+  it('does not turn automatic recurrence closure or reopening into a completion', () => {
+    const item = createItem('Repeating'); item.role = 'occurrence';
+    item.occurrence = { seriesId: 'series', recurrenceId: '2026-09-20T12:00:00.000Z', sequence: 0, templateRevision: 1 };
+    item.cycleHistory = [{ recurrenceId: item.occurrence.recurrenceId, closedAt: '2026-09-21T12:00:00.000Z', state: 'auto_closed', actor: 'system', reason: 'auto_renew' }];
+    item.state = 'auto_closed'; item.closure = { at: '2026-09-21T12:00:00.000Z', actor: 'system', reason: 'auto_renew' };
+    initializeItemHistory(item);
+    expect(item.completionEntries).toBeUndefined();
+    recordCompletionTransition(item, 'open', item.closure.at);
+    item.state = 'open'; recordCompletionTransition(item, 'auto_closed', '2026-09-21T12:01:00.000Z');
+    expect(item.completionEntries).toBeUndefined();
+    const legacy = { id: 'legacy-auto', at: item.closure.at, kind: 'automatic' as const, comment: '', recurrenceId: item.occurrence.recurrenceId };
+    item.completionEntries = [legacy];
+    expect(isRecordedCompletion(item, legacy)).toBe(false);
+    expect(completionStatistics([item]).count).toBe(0);
+    addTimerActualTime(item, { id: 'timer', mode: 'timer', startedAt: '2026-09-21T12:00:00.000Z', endedAt: '2026-09-21T12:05:00.000Z', durationSeconds: 300, automatic: true });
+    expect(completionStatistics([item]).count).toBe(1);
+  });
   it('starts new occurrences with no inherited actual time or timers', () => {
     const series = createItem('Daily'); series.role = 'series_template'; series.schedule = { timezone: 'UTC', startAt: '2026-09-20T12:00:00Z', actualDuration: 'PT1H' }; series.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', autoRenew: true, anchor: 'scheduled', closeAt: 'next_activation', exdates: [], rdates: [] };
     initializeItemHistory(series); const next = createOccurrence(series, new Date('2026-09-21T12:00:00Z'), 1);
@@ -65,6 +83,8 @@ describe('item journals', () => {
     reconcileRecurrences(workspace, new Date('2026-09-21T13:00:00Z'));
     const next = Object.values(workspace.items).find((item) => item.role === 'occurrence')!;
     expect(next.actualTimeEntries?.some((entry) => entry.comment === 'Cycle one')).toBe(true); expect(actualTimeMs(next)).toBe(0);
+    expect(next.cycleHistory?.some((entry) => entry.state === 'auto_closed')).toBe(true);
+    expect(next.completionEntries?.some((entry) => entry.kind === 'automatic')).toBeFalsy();
   });
   it('keeps planned statistics separate, counts hidden completed once, and preserves backup journals', () => {
     const workspace = createWorkspace('Metrics'); ensureProjectDefinition(workspace, 'A'); ensureProjectDefinition(workspace, 'B');

@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { completionStatistics, createId, durationGoalResult, initializeItemHistory, syncActualDuration, syncCompletionCounter, type ActualTimeEntry, type CompletionEntry, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { completionStatistics, createId, durationGoalResult, initializeItemHistory, isRecordedCompletion, syncActualDuration, syncCompletionCounter, type ActualTimeEntry, type CompletionEntry, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { Button, Field, Input, Select, Textarea } from '../../../../components/ui/primitives';
 import { dateInput, fromDateInput, formatViewDate } from '../../../../utils/dates';
+import { calendarDurationMs } from '../../../../utils/durations';
+import { DurationInput } from '../fields/DurationInput';
+import { WarningNotice } from '../../../../components/ui/WarningNotice';
 import './item-history.css';
 
 const copy = (item: UniversalItem) => { const next = JSON.parse(JSON.stringify(item)) as UniversalItem; initializeItemHistory(next); return next; };
@@ -31,7 +34,7 @@ export function ItemHistoryJournals({ item, workspace, onChange, onOwnerChange }
   };
 
   const records = owners.flatMap((entry) => { const normalized = copy(entry); return (normalized.actualTimeEntries ?? []).map((record) => ({ owner: normalized, record })); }).sort((a, b) => (b.record.at ?? '').localeCompare(a.record.at ?? ''));
-  const completions = owners.flatMap((entry) => { const normalized = copy(entry); return (normalized.completionEntries ?? []).map((record) => ({ owner: normalized, record })); }).sort((a, b) => b.record.at.localeCompare(a.record.at));
+  const completions = owners.flatMap((entry) => { const normalized = copy(entry); return (normalized.completionEntries ?? []).filter((record) => isRecordedCompletion(normalized, record)).map((record) => ({ owner: normalized, record })); }).sort((a, b) => b.record.at.localeCompare(a.record.at));
   const cycle = (value?: string) => value ? <small>{t('Cycle', 'Повторение')}: {formatViewDate(value, true, workspace.calendarPreferences.language)}</small> : null;
   const sourceName = (source?: ActualTimeEntry['source']) => source ? ({ manual: '', timer: t('Timer', 'Таймер'), stopwatch: t('Stopwatch', 'Секундомер'), imported: t('Imported', 'Импортировано') })[source] : '';
   const linkedRecords = (recordOwner: UniversalItem, completionId: string) => records.filter((entry) => entry.owner.id === recordOwner.id && entry.record.completionId === completionId);
@@ -71,21 +74,18 @@ export function ItemHistoryJournals({ item, workspace, onChange, onOwnerChange }
     await apply(next);
   };
 
-  const setDurationPart = (unit: number, index: number, value: number) => {
-    if (!editing || value < 0 || !Number.isInteger(value) || index > 0 && value > 59) return;
-    const current = editing.time?.durationSeconds ?? 0;
-    const old = index === 0 ? Math.floor(current / unit) : Math.floor(current / unit) % 60;
-    const durationSeconds = current + (value - old) * unit;
+  const setDuration = (durationSeconds: number) => {
+    if (!editing || durationSeconds < 0 || !Number.isSafeInteger(durationSeconds)) return;
     const time = editing.time ?? { id: createId(), at: editing.completion.at, durationSeconds: 0, comment: '', source: 'manual' as const, completionId: editing.completion.id, ...(editing.completion.recurrenceId ? { recurrenceId: editing.completion.recurrenceId } : {}) };
     setEditing({ ...editing, time: { ...time, durationSeconds } });
   };
 
   const editor = editing && <div className="item-journal-form">
     <Field label={t('Date and time', 'Дата и время')}><Input aria-label={t('Entry date', 'Дата записи')} type="datetime-local" value={dateInput(editing.completion.at)} onChange={(event) => setEditing({ ...editing, completion: { ...editing.completion, at: fromDateInput(event.target.value) } })} /></Field>
-    <div className="item-journal-duration">{[3600, 60, 1].map((unit, index) => { const seconds = editing.time?.durationSeconds ?? 0; return <Field key={unit} label={[t('Hours', 'Часы'), t('Minutes', 'Минуты'), t('Seconds', 'Секунды')][index]}><Input type="number" min={0} step={1} max={index ? 59 : undefined} value={index === 0 ? Math.floor(seconds / unit) : Math.floor(seconds / unit) % 60} onChange={(event) => setDurationPart(unit, index, Number(event.target.value))} /></Field>; })}</div>
+    <Field label={t('Duration', 'Длительность')}><DurationInput label={t('Entry duration', 'Длительность записи')} allowZero showUnit duration={{ amount: editing.time?.durationSeconds ?? 0, unit: 'seconds' }} onChange={(next) => setDuration(next ? Math.round(calendarDurationMs(next.amount, next.unit) / 1000) : 0)} /></Field>
     <Field label={t('Comment', 'Комментарий')}><Textarea value={editing.completion.comment} onChange={(event) => setEditing({ ...editing, completion: { ...editing.completion, comment: event.target.value } })} /></Field>
     {editing.time && sourceName(editing.time.source) && <small>{t('Source', 'Источник')}: {sourceName(editing.time.source)}</small>}
-    {error && <p role="alert">{error}</p>}<div className="item-journal-actions"><Button onClick={() => setEditing(undefined)}>{t('Cancel', 'Отмена')}</Button><Button onClick={save}>{t('Apply', 'Применить')}</Button></div>
+    {error && <WarningNotice message={error} language={workspace.calendarPreferences.language} onDismiss={() => setError('')} />}<div className="item-journal-actions"><Button onClick={() => setEditing(undefined)}>{t('Cancel', 'Отмена')}</Button><Button onClick={save}>{t('Apply', 'Применить')}</Button></div>
   </div>;
 
   const orphanRecords = records.filter(({ owner: recordOwner, record }) => !record.completionId || !recordOwner.completionEntries?.some((entry) => entry.id === record.completionId));
@@ -93,7 +93,7 @@ export function ItemHistoryJournals({ item, workspace, onChange, onOwnerChange }
 
   return <fieldset className="item-journals" disabled={busy}>
     <p aria-label={t('Completion statistics', 'Статистика выполнений')}>{t('Completions', 'Выполнений')}: {statistics.count} · {t('Total time', 'Сумма времени')}: {elapsed(statistics.totalSeconds)} · {t('Average time', 'Среднее время')}: {statistics.averageSeconds === undefined ? '—' : elapsed(Math.round(statistics.averageSeconds))}<br /><small>{t('Average includes only completions with recorded time.', 'Среднее — только по выполнениям с записанным временем.')}</small></p>
-    {error && !editing && <p role="alert">{error}</p>}
+    {error && !editing && <WarningNotice message={error} language={workspace.calendarPreferences.language} onDismiss={() => setError('')} />}
     {owners.length > 1 && <Field label={t('Record for', 'Записать для')}><Select value={owner.id} onChange={(event) => { setOwnerId(event.target.value); setSelectedCycle(undefined); }}>{owners.map((entry) => <option key={entry.id} value={entry.id}>{entry.role === 'series_template' ? t('Series', 'Серия') : entry.occurrence?.recurrenceId ? formatViewDate(entry.occurrence.recurrenceId, true, workspace.calendarPreferences.language) : entry.title}</option>)}</Select></Field>}
     {cycles.length > 0 && <Field label={t('Cycle for new entries', 'Повторение для новых записей')}><Select value={recurrenceId ?? ''} onChange={(event) => setSelectedCycle(event.target.value)}><option value="">{t('No cycle', 'Без повторения')}</option>{cycles.map((value) => <option key={value} value={value}>{formatViewDate(value, true, workspace.calendarPreferences.language)}</option>)}</Select></Field>}
     <div><strong>{t('Completions', 'Выполнения')} · {completions.filter(({ record }) => !record.revokedAt).length}</strong><div className="item-journal-body">

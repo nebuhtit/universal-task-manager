@@ -9,6 +9,7 @@ struct AgendaWidgetRecord: Codable {
     let label: String
     let moment: String?
     let tomorrow: Bool?
+    let eventMoment: String?
 }
 struct AgendaWidgetSnapshot: Codable {
     let version: Int?

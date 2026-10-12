@@ -13,6 +13,8 @@ import { ViewStatisticsEditor } from '../views/ViewStatisticsEditor';
 import { ViewSortingEditor } from '../views/ViewSortingEditor';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { calendarListFields, calendarTimelineFields } from './calendarCardFields';
+import { CalendarAvailabilityShare } from './CalendarAvailabilityShare';
+import type { CalendarProjectionCache } from './calendarProjectionCache';
 import {
   parseVisualRows, serializeVisualRows,
   type VisualConditionRow,
@@ -28,11 +30,14 @@ const editorView = (settings: CalendarDayViewPreferences, fields: string[]): Sav
   statistics: settings.statistics ?? { showTime: true, reservedItemIds: [] },
 });
 
-export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }: {
+export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave, selectedDate, now = new Date(), projectionCache }: {
   open: boolean;
   workspace: WorkspaceDocument;
   onOpenChange: (open: boolean) => void;
   onSave: (settings: CalendarDayViewPreferences, timeline: NonNullable<WorkspaceDocument['calendarPreferences']['timeline']>) => void;
+  selectedDate: string;
+  now?: Date;
+  projectionCache?: CalendarProjectionCache;
 }) {
   const [draft, setDraft] = useState(() => clean(workspace.calendarPreferences.dayView));
   const [timelineDraft, setTimelineDraft] = useState(() => clean(workspace.calendarPreferences.timeline ?? { mode: 'list' as const, hideSleep: false }));
@@ -90,6 +95,7 @@ export function CalendarDayViewEditor({ open, workspace, onOpenChange, onSave }:
       </fieldset>
     </ViewEditorSection>
     <ViewEditorSection sectionKey="calendar-day-filter" title="Filter items"><FilterProgramEditor workspace={workspace} source={draft.filter.source} python={draft.filterPython} onValidityChange={setFilterValid} onChange={(source, python) => { const parsed = parseVisualRows(source, workspace.customFields); setRows(parsed ?? []); setVisualDirty(parsed === null); setDraft({ ...draft, filter: { source }, filterPython: python }); }} /></ViewEditorSection>
+    <ViewEditorSection sectionKey="calendar-day-share" title={workspace.calendarPreferences.language === 'ru' ? 'Поделиться свободным временем' : 'Share free time'}><CalendarAvailabilityShare workspace={workspace} initialDate={selectedDate} now={now} {...(projectionCache ? { projectionCache } : {})} /></ViewEditorSection>
     <ViewEditorSection sectionKey="calendar-day-list-fields" title="List card fields"><DisplayedFieldsEditor uiKeyPrefix="calendar-list-fields" workspace={workspace} view={view} onChange={(next) => setDraft(current => ({ ...current, listFields: next.fields }))} /></ViewEditorSection>
     <ViewEditorSection sectionKey="calendar-day-timeline-fields" title="Timeline card fields"><DisplayedFieldsEditor uiKeyPrefix="calendar-timeline-fields" workspace={workspace} view={timelineView} onChange={(next) => setDraft(current => ({ ...current, timelineFields: next.fields }))} /></ViewEditorSection>
     <ViewStatisticsEditor workspace={workspace} view={view} rows={rows} visualDirty={visualDirty} onViewChange={updateEditorView} onRowsChange={syncRows} fixedPeriodLabel="Selected calendar day" />

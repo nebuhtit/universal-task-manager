@@ -16,6 +16,7 @@ import { CloseIcon, LineIcon } from '../../../components/ui/icons';
 import { SearchableDisclosureList } from '../../../components/ui/SearchableDisclosureList';
 import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/primitives';
 import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
+import { WarningNotice } from '../../../components/ui/WarningNotice';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
 import { calendarDurationMs, parseOptionalEstimateDuration, toIsoDuration, parseFriendlyDuration, scheduleWithDue, scheduleWithLinkedEnd, scheduleWithStart, scheduleWithDuration, type FriendlyDurationUnit } from '../../../utils/durations';
@@ -23,7 +24,7 @@ import { useWorkspaceNow } from '../../../hooks/useClock';
 import { inferredPreset, stateNames } from '../fieldDisplay';
 import { FieldIcon, FieldIconLabel } from '../FieldIcon';
 import { normalizeItemForSave, withoutTemplateMarker } from './itemEditorModel';
-import { formatQuickEntryForEditor, applyQuickEntryEditorText as applyQuickEntryText, parseQuickEntryForItem, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
+import { formatQuickEntryForEditor, parseQuickEntryForItem, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
 import { LiveTextInput } from '../LiveTextInput';
 import { recordItemTitleFailure } from './itemEditorDiagnostics';
 import { ItemSection } from './ItemSection';
@@ -41,6 +42,8 @@ import { writableGoogleCalendars } from '../../../services/googleCalendarCreate'
 import { GOOGLE_SAVE_EXTENSION, itemGoogleBaseline, itemGoogleDraft, type GoogleSaveOptions } from '../../../services/googleItemSave';
 import { GoogleEditConflict, loadEditableGoogleEvent, rebaseGoogleEdit } from '../../../services/googleCalendarEdit';
 import { applyEditorTitleDraft } from './itemEditorTitle';
+import { hasWithinAvailabilityStart } from '@utm/core';
+import { clearCreationDefaultBounds, hasCreationDefaultBounds, markCreationDefaultBounds } from '../creationDefaultBounds';
 import { labelProfileAction, measureProfile, recordProfileCommit } from '../../../services/performanceProfile';
 
 type PortableFormat = 'json' | 'csv' | 'xlsx' | 'ics';
@@ -106,7 +109,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const now = suppliedNow ?? liveNow;
   const [item, setItem] = useState(() => {
     const next = clean(googleCalendarProjection(initial));
-    if (next.preset === 'event' && !next.external && !next.schedule?.allDay && next.schedule?.startAt && !next.schedule.endAt && !next.schedule.estimatedDuration) {
+    if (next.preset === 'event' && !next.external && !hasWithinAvailabilityStart(next) && !next.schedule?.allDay && next.schedule?.startAt && !next.schedule.endAt && !next.schedule.estimatedDuration) {
       next.schedule = scheduleWithDuration({ ...next.schedule, timezone: next.schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone }, { amount: 1, unit: 'hours' });
     }
     initializeItemHistory(next);
@@ -191,7 +194,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const commitTitleDraft = (text: string, current = item) => {
     if (!titleEdited.current) return current;
     let interpreted: UniversalItem;
-    try { interpreted = applyEditorTitleDraft(current, initial, text, tags, now); }
+    try { interpreted = applyEditorTitleDraft(current, initial, text, tags, now, workspace); }
     catch (reason) { recordItemTitleFailure('commit', current, text, reason); throw reason; }
     setItem(interpreted);
     setTags(interpreted.tags.join(', '));
@@ -227,7 +230,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const scheduledDuration = parseOptionalEstimateDuration(item.schedule?.estimatedDuration);
   const travelDuration = parseOptionalEstimateDuration(item.schedule?.travelDuration);
   const travelBackDuration = parseOptionalEstimateDuration(item.schedule?.travelBackDuration);
-  const transformSchedule = (transform: (schedule: Schedule) => Schedule) => {
+  const transformSchedule = (transform: (schedule: Schedule) => Schedule, explicitBounds = false) => {
     let next = { ...item, schedule: transform({ timezone: item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, ...item.schedule }) };
     if (item.eventProgram?.blocks.length) {
       if (!next.schedule.startAt || next.schedule.allDay) { setError('Remove the program before clearing Event opens or enabling All day.'); return; }
@@ -241,6 +244,8 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
         try { next = { ...next, eventProgram: trimEventProgram(next).eventProgram! }; } catch (reason) { setError(String(reason)); return; }
       }
     }
+    if (explicitBounds) next = clearCreationDefaultBounds(next) as typeof next;
+    else if (hasCreationDefaultBounds(item)) next = markCreationDefaultBounds(next) as typeof next;
     setItem(syncQuickEntrySource(item, next));
   };
   const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => scheduleWithDuration(schedule, amount === undefined ? undefined : { amount: Math.max(1, amount), unit }));
@@ -257,10 +262,10 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
       return { ...schedule, startAt: value, ...(schedule.endAt ? { endAt: new Date(Date.parse(schedule.endAt) + delta).toISOString() } : {}) };
     }
     const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; else delete next.plannedDate; return next;
-  }); };
+  }, true); };
   const patchScheduledEnd = (value?: string) => { if (!value && item.eventProgram?.blocks.length) { setError('Remove the event program before clearing Event ends.'); return; } transformSchedule((schedule) => {
     return scheduleWithLinkedEnd(schedule, value);
-  }); };
+  }, true); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => ({ ...scheduleWithDue(schedule, value), dueDateOnly: false }));
   const patchPlannedDate = (value?: string) => {
     if (!value && clearScheduleReason) { setError(clearScheduleReason); return; }
@@ -511,13 +516,13 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
         <div className="item-title-field">
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
             if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntrySource(item)?.text ?? titleDraft.current)); setSourceEditing(true); setError(''); return; }
-            try { const updated = applyQuickEntryText(item, sourceDraft, now).item; setItem(updated); titleDraft.current = updated.title; setSourceDraft(quickEntrySource(updated)?.text ?? ''); setSourceEditing(false); setError(''); }
+            try { const updated = applyEditorTitleDraft(item, item, sourceDraft, tags, now, workspace); setItem(updated); titleDraft.current = updated.title; setSourceDraft(quickEntrySource(updated)?.text ?? ''); setSourceEditing(false); setError(''); }
             catch (reason) { recordItemTitleFailure('source', item, sourceDraft, reason); setError(reason instanceof Error ? reason.message : String(reason)); }
           }}>{sourceEditing ? (workspace.calendarPreferences.language === 'ru' ? 'Применить строку' : 'Apply line') : (workspace.calendarPreferences.language === 'ru' ? 'Быстрый ввод' : 'Quick entry')}</Button>}{!sourceEditing && canManuallyComplete(item) && item.state === 'open' && workspace.items[item.id] && <button type="button" className="state-toggle editor-complete" aria-label={workspace.calendarPreferences.language === 'ru' ? 'Выполнить item' : 'Complete item'} title={workspace.calendarPreferences.language === 'ru' ? 'Выполнить и сохранить' : 'Complete and save'} disabled={saving} onPointerDown={event => event.preventDefault()} onClick={() => void save({ complete: true, dismissKeyboard: true })} />}{!sourceEditing && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
-          {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseQuickEntryForItem(sourceDraft, now, item).errors.length ? <p className="editor-error error">{parseQuickEntryForItem(sourceDraft, now, item).errors.join(' ')}</p> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseQuickEntryForItem(sourceDraft, now, item).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntrySource(item)?.text ?? item.title)} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); return true; } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return false; } }} />}
+          {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseQuickEntryForItem(sourceDraft, now, item).errors.length ? <WarningNotice language={workspace.calendarPreferences.language} message={parseQuickEntryForItem(sourceDraft, now, item).errors.join(' ')} /> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseQuickEntryForItem(sourceDraft, now, item).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntrySource(item)?.text ?? item.title)} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); return true; } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return false; } }} />}
           {item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
-        {error && <p className="editor-error error" role="alert">{error}</p>}
+        {error && <WarningNotice message={error} onDismiss={() => setError('')} language={workspace.calendarPreferences.language} />}
         {!sourceEditing && <>
         <QuickItemTimer soundEnabled defaultDurationSeconds={item.schedule?.estimatedDuration ? durationToMs(item.schedule.estimatedDuration) / 1000 : 600} timerTitle={item.title || 'Universal'} activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
           if (onTimerStateSave && workspace.items[(timerOwner ?? item).id]) await onTimerStateSave((timerOwner ?? item).id, runningTimer);
@@ -543,7 +548,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
           } else setItem(target);
         }} />
         {isNew && templates.length > 0 && <SearchableDisclosureList uiKey="item-editor:saved-templates" className="template-picker" summary={<><FieldIconLabel path="isTemplate" label="Choose a saved template" /> <span>Optional</span></>} items={templates} getSearchText={(template) => template.title} searchLabel="Search saved templates" searchPlaceholder="Search templates" description={<p className="schedule-explainer">Pick a template to prefill this new item. Nothing changes until you select one, and you can edit every field before saving.</p>} renderItem={(template) => <button type="button" className="template-option" key={template.id} onClick={(event) => { applyTemplate(template); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{template.title || 'Untitled template'}</button>} />}
-        <DatesSection item={item} workspace={workspace} now={now} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} {...(travelBackDuration ? { travelBackDuration } : {})} clearScheduleReason={clearScheduleReason} patchTravelBackDuration={patchTravelBackDuration} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchPlannedDate={patchPlannedDate} patchScheduledEnd={patchScheduledEnd} patchDateOnlyEnd={patchDateOnlyEnd} patchDateOnlyTimedEnd={patchDateOnlyTimedEnd} patchDateOnlyStartTimed={patchDateOnlyStartTimed} patchScheduledDue={patchScheduledDue} patchQuickDue={patchQuickDue} applyDurationPreset={applyDurationPreset}>
+        <DatesSection item={item} workspace={workspace} now={now} sectionMark={sectionMark} {...(scheduledDuration ? { scheduledDuration } : {})} {...(travelDuration ? { travelDuration } : {})} {...(travelBackDuration ? { travelBackDuration } : {})} clearScheduleReason={clearScheduleReason} patchTravelBackDuration={patchTravelBackDuration} patchScheduledDuration={patchScheduledDuration} patchTravelDuration={patchTravelDuration} patchScheduledStart={patchScheduledStart} patchPlannedDate={patchPlannedDate} patchScheduledEnd={patchScheduledEnd} patchDateOnlyEnd={patchDateOnlyEnd} patchDateOnlyTimedEnd={patchDateOnlyTimedEnd} patchDateOnlyStartTimed={patchDateOnlyStartTimed} patchScheduledDue={patchScheduledDue} patchQuickDue={patchQuickDue}>
           <RemindersSection language={workspace.calendarPreferences.language} item={item} now={now} sectionMark={sectionMark} patchItem={patchItem} />
           <RecurrenceSection item={item} workspace={workspace} sectionMark={sectionMark} recurring={recurring} setRecurring={setRecurring} patchRecurrence={patchRecurrence} repeatFrequency={repeatFrequency} repeatInterval={repeatInterval} repeatIntervalDraft={repeatIntervalDraft} setRepeatIntervalDraft={setRepeatIntervalDraft} repeatUnit={repeatUnit} repeatDays={repeatDays} updateRrule={updateRrule} activeRange={activeRange} activation={activation} />
           {canManuallyComplete(item) ? <details><summary><FieldIconLabel path="habit.completedDates" label={workspace.calendarPreferences.language === 'ru' ? 'Прогресс и выполнения' : 'Progress & completions'} /> {sectionMark(Boolean(item.progress || item.habit))}</summary><div className="details-body">
@@ -551,7 +556,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
             <CompletionGoalsSettings item={item} language={workspace.calendarPreferences.language} onChange={(progress) => patchItem({ progress })} />
             <Checkbox checked={Boolean(item.habit)} onChange={(event) => patchItem({ habit: event.target.checked ? { ...item.habit, target: item.progress?.target ?? item.habit?.target ?? 1, unit: item.habit?.unit ?? 'times', streakMode: item.habit?.streakMode ?? 'manual_only', completedDates: item.habit?.completedDates ?? [] } : undefined })} label="Daily habit: check off once per day" />
             <ItemHistoryJournals item={item} workspace={workspace} onChange={setItem} {...(onHistorySave ? { onOwnerChange: onHistorySave } : {})} />
-          </div></details> : <p className="hint">{workspace.calendarPreferences.language === 'ru' ? 'Чтобы отмечать выполнение и отслеживать прогресс, включите «Can be completed» рядом с Note. Прежняя история сохраняется.' : 'Enable “Can be completed” next to Note to track completion and progress. Existing history is retained.'}</p>}
+          </div></details> : null}
         <EventProgramSection onValidityChange={setProgramValid} item={item} onChange={setItem} language={workspace.calendarPreferences.language} now={now} occurrences={occurrences} onOpenOccurrence={onOpenOccurrence ? (target) => {
           if (JSON.stringify(item) !== JSON.stringify(initial) && !window.confirm(workspace.calendarPreferences.language === 'ru' ? 'Открыть отдельное повторение? Несохранённые изменения текущей формы будут отменены.' : 'Open an occurrence? Unsaved changes in this form will be discarded.')) return;
           onOpenOccurrence(target);

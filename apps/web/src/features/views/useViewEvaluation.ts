@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
-import { effectiveWorkspaceNow, type SavedView, type WorkspaceDocument } from '@utm/core';
+import { activeWithinBlockIds, effectiveWorkspaceNow, type SavedView, type WorkspaceDocument } from '@utm/core';
 import { clockService } from '../../services/clockService';
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { completionHoldsSnapshot, evaluateView, subscribeCompletionHolds, viewContinuouslyDependsOnCurrentTime, viewDependsOnCurrentTime, type ViewEvaluation } from './viewSelectors';
@@ -36,14 +36,16 @@ export function temporalEvaluationKey(boundaries: readonly number[], now: Date, 
  * changed snapshot when this View can produce a different result.
  */
 function useTemporalNow(workspace: WorkspaceDocument, dependsOnTime: boolean, continuous: boolean, identity: unknown, suppliedNow?: Date, extraBoundaries?: readonly number[]): Date {
+  const linkedBlockIds = useMemo(() => [...new Set(Object.values(workspace.views).filter(view => /\bwithinReservedBlockWhenSet\b/.test(view.query.source)).flatMap(view => view.statistics?.reservedItemIds ?? []))], [workspace]);
   const boundaries = useMemo(() => [...getWorkspaceIndex(workspace).workspaceBoundaries, ...(extraBoundaries ?? [])].sort((a, b) => a - b), [workspace, extraBoundaries]);
   const frozenNow = useMemo(() => suppliedNow ?? effectiveWorkspaceNow(workspace, clockService.now()), [identity, suppliedNow, workspace]);
   const snapshot = useCallback(() => {
     if (!dependsOnTime) return 'static';
     const now = effectiveWorkspaceNow(workspace, new Date(clockService.getSnapshot()));
     // Both sides matter: Due uses < now, while Event opens uses <= now.
-    return temporalEvaluationKey(boundaries, now, workspace.calendarPreferences.timezone, continuous);
-  }, [boundaries, continuous, dependsOnTime, workspace]);
+    const linked = linkedBlockIds.length ? activeWithinBlockIds(workspace, linkedBlockIds, now).join(',') : '';
+    return `${temporalEvaluationKey(boundaries, now, workspace.calendarPreferences.timezone, continuous)}:${linked}`;
+  }, [boundaries, continuous, dependsOnTime, workspace, linkedBlockIds]);
   const subscribe = useCallback((listener: () => void) => dependsOnTime ? clockService.subscribe(listener, 1_000) : () => undefined, [dependsOnTime]);
   const key = useSyncExternalStore(subscribe, snapshot, snapshot);
   return useMemo(() => suppliedNow ?? (dependsOnTime ? effectiveWorkspaceNow(workspace, new Date(clockService.getSnapshot())) : frozenNow), [dependsOnTime, frozenNow, key, suppliedNow, workspace]);

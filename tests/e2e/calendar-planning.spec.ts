@@ -6,7 +6,7 @@ import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wra
 const password = 'calendar-planning-fixture';
 test.use({ trace: 'retain-on-failure', screenshot: 'only-on-failure' });
 const now = new Date('2026-09-24T08:00:00Z');
-async function setup(page: Page, conflict = true, customize?: (workspace: WorkspaceDocument) => void, initialPage = 'Calendar') {
+async function setup(page: Page, conflict = true, customize?: (workspace: WorkspaceDocument) => void, initialPage = 'Calendar', keepCollapsed = false) {
   const w = createWorkspace('Planning', now); w.calendarPreferences.timezone = 'UTC';
   w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = 'true';
   w.calendarPreferences.dayView.sortSource = 'title asc'; w.calendarPreferences.dayView.sort = [{ expression: 'title', direction: 'asc', nulls: 'last' }];
@@ -34,7 +34,10 @@ async function setup(page: Page, conflict = true, customize?: (workspace: Worksp
     const doc = Automerge.load<WorkspaceDocument>(await decryptWithKey(block, key, 'utm:local:workspace:v1'));
     const value = Automerge.toJS(doc); Automerge.free(doc); return value;
   };
-  if (initialPage === 'Calendar') await expect(page.locator('.calendar-page')).toBeVisible();
+  if (initialPage === 'Calendar') {
+    await expect(page.locator('.calendar-page')).toBeVisible();
+    if (!keepCollapsed) { await page.evaluate(() => window.scrollTo(0, 0)); await page.clock.runFor(400); }
+  }
   return { read };
 }
 async function unlock(page: Page) {
@@ -58,6 +61,40 @@ async function settledReload(page: Page) {
   await expect.poll(() => page.evaluate(() => ['utm:pending-save:v1', 'utm:startup-last-pending:v1'].map(key => localStorage.getItem(key)))).toEqual([null, null]);
   await page.reload(); await unlock(page); await navigate(page, 'Calendar');
 }
+
+test('Home View dragging requires all collapsed or more than ten and shows a moving preview', async ({ page }, testInfo) => {
+  await page.addInitScript(() => { for (let index = 0; index < 10; index++) localStorage.setItem(`utm-ui:view:reorder-${index}`, '0'); });
+  await setup(page, false, workspace => {
+    workspace.views = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`reorder-${index}`, {
+      id: `reorder-${index}`, name: `View ${index}`, renderer: 'list' as const, query: { source: 'false' }, fields: ['title'], sort: [],
+    }]));
+    workspace.viewOrder = Object.keys(workspace.views);
+  }, 'Home');
+  const titles = page.locator('.views-stack .view-section-title');
+  await expect(titles).toHaveCount(12);
+  await expect(page.locator('.views-stack .is-reorder-surface')).toHaveCount(0);
+  await titles.nth(10).click();
+  await expect(page.locator('.views-stack .is-reorder-surface')).toHaveCount(11);
+  await titles.first().scrollIntoViewIfNeeded();
+  const source = await titles.first().boundingBox(), target = await titles.nth(1).boundingBox();
+  const x = source!.x + source!.width / 2, y = source!.y + source!.height / 2;
+  const endY = target!.y + target!.height - 2;
+  const touch = Boolean(testInfo.project.use.hasTouch);
+  if (touch) await titles.first().dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y });
+  else { await page.mouse.move(x, y); await page.mouse.down(); }
+  await page.clock.fastForward(400);
+  await expect(page.locator('.ui-reorder-preview')).toBeVisible();
+  if (touch) await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, cancelable: true })), { x, y: endY });
+  else await page.mouse.move(x, endY);
+  await expect(page.locator('.ui-reorder-preview')).toHaveCSS('transform', /matrix/);
+  await expect(page.locator('[data-reorder-drop="after"]')).toHaveCount(1);
+  if (touch) await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y })), { x, y: endY });
+  else await page.mouse.up();
+  await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
+  await expect(titles.first()).toContainText('View 1');
+  await expect(titles.nth(1)).toHaveAttribute('aria-expanded', 'false');
+  // The smaller-list all-collapsed branch is covered independently in unit tests.
+});
 
 test('glass quick navigation shares a bottom row and hides for the keyboard', async ({ page }) => {
   await setup(page);
@@ -202,8 +239,9 @@ test('calendar period swipes, conditional Today, vertical scrolling and keyboard
 
 test('short calendar list stays collapsed at its bottom', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 600 });
-  await setup(page, false);
+  await setup(page, false, undefined, 'Calendar', true);
   const root = page.locator('.calendar-page');
+  await expect(root).toHaveClass(/is-compact/);
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   for (let n = 0; n < 5; n++) {
     await page.clock.runFor(300);
@@ -213,6 +251,7 @@ test('short calendar list stays collapsed at its bottom', async ({ page }) => {
   await page.clock.runFor(1000);
   expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(top, 0);
   await page.evaluate(() => window.scrollTo(0, 0));
+  await root.dispatchEvent('wheel', { deltaY: -30 });
   await page.clock.runFor(700);
   await expect(root).not.toHaveClass(/is-compact/);
 });
@@ -221,18 +260,75 @@ for (const theme of ['light', 'dark'] as const) test(`calendar header compacts w
   await setup(page, false, w => { w.calendarPreferences.appearance.mode = theme; w.calendarPreferences.timeline!.mode = 'timeline'; });
   const root = page.locator('.calendar-page');
   const title = page.locator('.calendar-title');
-  const panel = page.locator('.calendar-day-panel');
-  const expanded = (await title.boundingBox())!.height + (await panel.boundingBox())!.height;
+  const body = page.locator('.calendar-navigation-body');
   await page.evaluate(() => window.scrollTo(0, 650));
   await page.clock.runFor(700);
   await expect(root).toHaveClass(/is-compact/);
-  await expect.poll(() => title.evaluate(el => el.getBoundingClientRect().height)).toBe(0);
-  await expect.poll(() => page.getByTestId('calendar-header-capacity').evaluate(el => el.getBoundingClientRect().height)).toBe(0);
-  expect((await title.boundingBox())!.height + (await panel.boundingBox())!.height).toBeLessThan(expanded);
+  const bodyHeight = await body.evaluate(el => el.getBoundingClientRect().height);
+  expect(bodyHeight).toBeGreaterThan(0);
+  await expect(page.locator('.calendar-day-panel.is-week')).toBeInViewport();
+  expect(await root.evaluate(el => el.style.minHeight)).toBe('');
   await page.evaluate(() => window.scrollTo(0, 0));
+  await root.dispatchEvent('wheel', { deltaY: -30 });
   await page.clock.runFor(700);
   await expect(root).not.toHaveClass(/is-compact/);
   await expect(title).toBeVisible();
+  expect(await body.evaluate(el => el.getBoundingClientRect().height)).toBe(bodyHeight);
+});
+
+test('calendar opens collapsed, reveals controls with a downward pull and has no artificial blank tail', async ({ page }) => {
+  await setup(page, false, w => { w.calendarPreferences.timeline!.mode = 'timeline'; }, 'Calendar', true);
+  const root = page.locator('.calendar-page');
+  const body = page.locator('.calendar-navigation-body');
+  await expect(root).toHaveClass(/is-compact/);
+  const bodyHeight = await body.evaluate(el => el.getBoundingClientRect().height);
+  expect(bodyHeight).toBeGreaterThan(0);
+  const week = page.locator('.calendar-day-panel.is-week');
+  await expect(week).toBeInViewport();
+  const glass = await page.locator('.calendar-navigator').evaluate(el => getComputedStyle(el).backdropFilter);
+  expect(glass).toContain('blur');
+  expect(await root.evaluate(el => getComputedStyle(el, '::after').content)).toBe('none');
+  // Native scrolling must move controls continuously, without changing their
+  // layout height or toggling visibility during intermediate swipe positions.
+  const startY = await page.evaluate(() => window.scrollY);
+  const startTop = await body.evaluate(el => el.getBoundingClientRect().top);
+  for (const delta of [20, 40, 60]) {
+    await page.evaluate(y => window.scrollTo(0, y), Math.max(0, startY - delta));
+    await page.clock.runFor(20);
+    expect(await body.evaluate(el => el.getBoundingClientRect().top)).toBeCloseTo(startTop + Math.min(delta, startY), 0);
+    expect(await body.evaluate(el => el.getBoundingClientRect().height)).toBe(bodyHeight);
+    await expect(week).toBeInViewport();
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.clock.runFor(500);
+  await expect(root).not.toHaveClass(/is-compact/);
+  await expect(page.getByRole('button', { name: 'Edit calendar day view' })).toBeVisible();
+  await expect(page.locator('.calendar-navigation-toggle')).toHaveCount(0);
+  await expect(page.locator('.calendar-navigator').getByRole('button', { name: 'Month', exact: true })).toBeVisible();
+  const capacity = week.locator('.view-metrics-summary').first();
+  expect(await capacity.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(0);
+  const filters = page.locator('.calendar-filter-controls');
+  const modes = page.getByRole('group', { name: 'Calendar display mode' });
+  expect((await filters.boundingBox())!.x).toBeGreaterThan((await modes.boundingBox())!.x);
+  const noDate = filters.getByRole('button', { name: /^No date/ });
+  await expect(noDate).toHaveAttribute('aria-pressed', 'true');
+  const activeFill = await noDate.evaluate(el => getComputedStyle(el).backgroundColor);
+  await noDate.click();
+  await expect(noDate).toHaveAttribute('aria-pressed', 'false');
+  expect(await noDate.evaluate(el => getComputedStyle(el).borderTopWidth)).toBe('0px');
+  await page.clock.runFor(300);
+  expect(await noDate.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(activeFill);
+  await page.screenshot({ path: test.info().outputPath('expanded-compact-calendar.png') });
+  await page.evaluate(() => window.scrollTo(0, 650));
+  await page.clock.runFor(500);
+  await expect(root).toHaveClass(/is-compact/);
+  expect(await body.evaluate(el => el.getBoundingClientRect().height)).toBe(bodyHeight);
+  await expect(week).toBeInViewport();
+  await week.locator('[data-date="2026-09-25"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(week.locator('.selected')).toHaveAttribute('data-date', '2026-09-25');
+  await expect(week).toBeInViewport();
+  await page.screenshot({ path: test.info().outputPath('compact-glass-week.png') });
 });
 
 for (const scope of ['this_occurrence', 'this_and_future'] as const) test(`editor saves recurrence scope ${scope}`, async ({ page }) => {
@@ -446,6 +542,44 @@ test('same-time reference expires without touching the source; vertical scroll d
   await page.clock.fastForward(40 * 3_600_000 + 1000);
   await expect(event).toHaveCount(0);
   expect((await read()).items).toEqual(before);
+});
+
+test('free-time share exports a PDF, with no event titles', async ({ page }, testInfo) => {
+  await setup(page, true, workspace => { workspace.calendarPreferences.appearance.mode = 'dark'; });
+  await page.getByRole('button', { name: 'Edit calendar day view' }).click();
+  await page.getByText('Share free time', { exact: true }).click();
+  await page.getByRole('button', { name: 'Show available time', exact: true }).click();
+  const preview = page.locator('.calendar-availability-text pre');
+  await expect(preview).toContainText('Available time');
+  await expect(preview).not.toContainText('B event');
+  await expect(page.locator('.calendar-availability-chart')).toHaveAttribute('role', 'img');
+  await expect(page.locator('.calendar-availability-row')).toHaveCount(7);
+  await expect(page.locator('.calendar-availability-row').first().locator('.calendar-availability-hour-mark')).toHaveCount(25);
+  await expect(page.locator('.calendar-availability-busy').first()).toBeVisible();
+  await page.getByLabel('Export language').selectOption('ru');
+  await expect(preview).toContainText('Свободное время');
+  await page.getByLabel('Export language').selectOption('es');
+  await expect(preview).toContainText('Tiempo disponible');
+  await expect(page.locator('.calendar-availability-date[data-weekend="true"]')).toHaveCount(2);
+  const previewHeight = await page.locator('.calendar-availability-chart').evaluate(element => element.getBoundingClientRect().height);
+  expect(previewHeight).toBeLessThanOrEqual(200);
+  await expect(page.getByRole('button', { name: 'Share PDF', exact: true })).toBeEnabled();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async (data: ShareData) => {
+      const file = data.files![0]!;
+      document.body.dataset.freeTimeShare = JSON.stringify({ keys: Object.keys(data), name: file.name, type: file.type, bytes: [...new Uint8Array(await file.arrayBuffer())] });
+    } });
+  });
+  await page.getByRole('button', { name: 'Share PDF', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.body.dataset.freeTimeShare)).toBeTruthy();
+  const shared = await page.evaluate(() => JSON.parse(document.body.dataset.freeTimeShare!));
+  expect(shared.keys).toEqual(['files']);
+  expect(shared.name).toBe('universal-free-time.pdf');
+  expect(shared.type).toBe('application/pdf');
+  const pdf = Buffer.from(shared.bytes);
+  expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  await testInfo.attach('availability.pdf', { body: pdf, contentType: 'application/pdf' });
 });
 
 test('pointer reorder changes only the temporary List order and supports dark mode', async ({ page }) => {

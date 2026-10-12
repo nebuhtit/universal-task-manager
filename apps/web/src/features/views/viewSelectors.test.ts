@@ -8,6 +8,26 @@ const view = (source = 'true'): SavedView => ({
 });
 
 describe('view selectors', () => {
+  it('optionally gates only tasks linked to explicitly hidden reserved blocks at their real boundaries', () => {
+    const workspace = createWorkspace('Within'); workspace.calendarPreferences.timezone = 'UTC';
+    const work = createItem('Work', 'event'); work.id = 'work';
+    work.schedule = { timezone: 'UTC', startAt: '2026-10-06T09:00:00Z', endAt: '2026-10-06T17:00:00Z' };
+    work.role = 'series_template'; work.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, exdates: [], rdates: [] };
+    const task = createItem('Related'); task.id = 'task'; task.relations = [{ id: 'r', targetId: 'work', type: 'scheduled_within' }];
+    const ordinary = createItem('Ordinary'); ordinary.id = 'ordinary';
+    workspace.items = { work, task, ordinary };
+    const filtered = view('occurrence.seriesId != "work" && withinReservedBlockWhenSet == true');
+    filtered.statistics = { showTime: false, reservedItemIds: ['work'] };
+    const ids = (at: string) => selectViewItems(workspace, filtered, new Date(at)).map(i => i.id);
+    expect(ids('2026-10-13T08:59:59Z')).toEqual(['ordinary']);
+    expect(ids('2026-10-13T09:00:00Z')).toContain('task');
+    expect(ids('2026-10-13T17:00:00Z')).toEqual(['ordinary']);
+    expect(viewDependsOnCurrentTime(workspace, filtered)).toBe(true);
+    filtered.query.source = '(occurrence.seriesId != "work" || true) && withinReservedBlockWhenSet == true';
+    expect(ids('2026-10-13T08:00:00Z')).toContain('task');
+    filtered.statistics.reservedItemIds = [];
+    expect(ids('2026-10-13T08:00:00Z')).toContain('task');
+  });
   it('shows the latest edited legacy cycle once, not the root plus its nested child', () => {
     const workspace = createWorkspace();
     const source = createItem('Legacy'); source.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00.000Z', dueAt: '2030-09-24T12:00:00.000Z', estimatedDuration: 'PT45M' };

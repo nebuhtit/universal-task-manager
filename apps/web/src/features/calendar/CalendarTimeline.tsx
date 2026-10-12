@@ -1,4 +1,5 @@
 import type { buildCalendarPlan } from './calendarPlanning';
+import { createPortal } from 'react-dom';
 import { WeatherTimeline } from '../weather/WeatherTimeline';
 import { calendarTimelineFields } from './calendarCardFields';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type TouchEvent } from 'react';
@@ -39,7 +40,8 @@ export function TimelineNow({ workspace, segments, suppliedNow }: { workspace: W
   return <div className={`timeline-now${segment.hidden ? ' is-hidden-time' : ''}`} style={{ top }} data-testid="timeline-now" aria-label={`Current time ${timeLabel(at, workspace.calendarPreferences.timezone)}`}><span>{timeLabel(at, workspace.calendarPreferences.timezone)}</span></div>;
 }
 
-export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, plan, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
+export const CalendarTimeline = memo(function CalendarTimeline({ toolbarHost, preparedDay, plan, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
+  toolbarHost?: HTMLElement | null;
   preparedDay?: ReturnType<typeof prepareTimelineData> | undefined;
   plan?: ReturnType<typeof buildCalendarPlan> | undefined;
   workspace: WorkspaceDocument; dateKey: string; now: Date; suppliedNow?: Date | undefined;
@@ -124,12 +126,13 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preparedDay, pl
   const open = (item: UniversalItem) => { setMore([]); onEdit(item); };
   const durationLabel = (ms: number) => displayViewValue(`PT${Math.round(Math.abs(ms) / 1000)}S`, 'schedule.estimatedDuration', workspace.calendarPreferences.language);
   const cards = (items: UniversalItem[]) => <div className="item-list">{items.map(item => <div key={item.id}>{plan?.pins.has(item.id) && <span className="calendar-reference-badge">↗ {ru ? 'Временная ссылка' : 'Temporary reference'}</span>}<ItemCard item={item} workspace={workspace} now={now} fields={cardFields} calendarTimeOnly onEdit={() => open(item)} onState={state => onState?.(item, state)} /></div>)}</div>;
-  return <section className="calendar-timeline" aria-label="Timeline">
-    <div className="timeline-toolbar">
+  const toolbar = <div className="timeline-toolbar">
       {data.overdue.length > 0 && <Button size="compact" aria-pressed={settings.showOverdue !== false} onClick={() => onPreferences({ ...settings, showOverdue: settings.showOverdue === false })}>{ru ? 'Просрочено' : 'Overdue'} · {data.overdue.length}</Button>}
       <Button size="compact" aria-pressed={settings.showUndated === true} onClick={() => onPreferences({ ...settings, showUndated: settings.showUndated !== true })}>{ru ? 'Без даты' : 'No date'}{undatedCount ? ` · ${undatedCount}` : ''}</Button>
       {data.allDay.length > 0 && <Button size="compact" aria-pressed={allDayOpen} onClick={() => { persistUiBoolean('calendar:all-day', !allDayOpen); onAllDayChange?.(!allDayOpen); }}>{ru ? 'Весь день' : 'All day'} · {data.allDay.length}</Button>}
-    </div>
+    </div>;
+  return <section className="calendar-timeline" aria-label="Timeline">
+    {toolbarHost === undefined ? toolbar : toolbarHost ? createPortal(toolbar, toolbarHost) : null}
     {data.sleepMissing && <p className="hint">{ru ? 'Нет интервала сна на этот день. Показаны полные сутки.' : 'No sleep interval for this day. Showing the full day.'}</p>}
     {data.projectionLimited && <p role="status">{ru ? 'Для повторений с длительностью более года показана ограниченная проекция.' : 'Recurrences longer than one year use a limited projection.'}</p>}
     {workspace.calendarPreferences.showExplanations && <div className="timeline-planning-summary" data-testid="timeline-planning-summary">

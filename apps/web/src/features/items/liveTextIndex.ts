@@ -1,4 +1,4 @@
-import { orderedOrganizationNames, orderedTagEntries, withinTargets, withinPlacementWorkspace, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { orderedOrganizationNames, orderedTagEntries, withinTargetsFor, withinPlacementWorkspace, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 // Separate from the evaluation index: opening a text field must not calculate
 // reminders, formulas or recurrence merely to offer organization names.
@@ -13,7 +13,7 @@ function buildIndex(workspace: WorkspaceDocument) {
     projectAreas.set(name, new Set([...(definition?.areas ?? []), ...(definition?.area ? [definition.area] : [])]));
   }
   for (const item of items) {
-    for (const target of withinTargets(item)) { const group = byTarget.get(target) ?? []; group.push(item); byTarget.set(target, group); }
+    for (const target of withinTargetsFor(workspace, item)) { const group = byTarget.get(target) ?? []; group.push(item); byTarget.set(target, group); }
     if (item.occurrence) { const group = occurrences.get(item.occurrence.seriesId) ?? []; group.push(item); occurrences.set(item.occurrence.seriesId, group); }
     if (item.deletedAt) continue;
     for (const name of new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])])) {
@@ -22,7 +22,7 @@ function buildIndex(workspace: WorkspaceDocument) {
     }
   }
   return {
-    candidates: items.filter(i => !i.deletedAt && i.state !== 'archived' && i.state !== 'cancelled'), byTarget, occurrences,
+    candidates: items.filter(i => !i.deletedAt && i.state !== 'archived' && i.state !== 'cancelled' && !(i.occurrence && workspace.items[i.occurrence.seriesId])), byTarget, occurrences,
     catalog: { area: orderedOrganizationNames(workspace, 'area'), project: [...projectAreas.keys()], tag: orderedTagEntries(workspace).filter((tag): tag is string => tag !== null), projectAreas: Object.fromEntries([...projectAreas].map(([name, areas]) => [name, [...areas]])) },
   };
 }
@@ -40,17 +40,17 @@ export function withinPreviewWorkspace(workspace: WorkspaceDocument, draft: Univ
   const index = liveTextIndex(workspace);
   const selected = new Set<string>([draft.id]);
   const targets = new Set<string>();
-  const queue = [...withinTargets(draft)];
+  const queue = [...withinTargetsFor(workspace, draft)];
   for (let i = 0; i < queue.length; i++) {
     const target = queue[i]!;
     if (targets.has(target)) continue;
     targets.add(target); selected.add(target);
     const block = workspace.items[target];
-    if (block) queue.push(...withinTargets(block));
+    if (block) queue.push(...withinTargetsFor(workspace, block));
     for (const item of index.occurrences.get(target) ?? []) selected.add(item.id);
     for (const item of index.byTarget.get(target) ?? []) {
       if (item.id === draft.id || item.deletedAt || item.state === 'archived' || item.state === 'cancelled') continue;
-      selected.add(item.id); queue.push(...withinTargets(item));
+      selected.add(item.id); queue.push(...withinTargetsFor(workspace, item));
     }
   }
   const items: WorkspaceDocument['items'] = {};

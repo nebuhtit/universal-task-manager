@@ -13,6 +13,33 @@ function fixture(duration = 'PT3H') {
   return { workspace, work, task };
 }
 describe('within placement', () => {
+  it('treats a related task opening without an end as availability and uses the next series occurrence', () => {
+    const { workspace, task, work } = fixture('PT30M');
+    work.role = 'series_template';
+    work.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, exdates: [], rdates: [] };
+    task.canBeCompleted = true;
+    task.schedule = { timezone: 'UTC', startAt: '2026-10-05T07:00:00Z', dueAt: '2026-10-18T06:00:00Z', estimatedDuration: 'PT30M' };
+    const old = createItem('Work old', 'task', now);
+    old.id = 'old'; old.occurrence = { seriesId: work.id, recurrenceId: '2026-09-29T09:00:00Z', sequence: 0, templateRevision: 1 }; old.role = 'occurrence';
+    workspace.items.old = old;
+    task.relations[0]!.targetId = old.id;
+    const projected = withinPlacementWorkspace(workspace, now).items.task!;
+    expect(projected.schedule?.startAt).toBe('2026-10-06T09:00:00.000Z');
+    expect(projected.schedule?.endAt).toBe('2026-10-06T09:30:00.000Z');
+    expect(task.schedule.endAt).toBeUndefined();
+    expect(task.schedule.startAt).toBe('2026-10-05T07:00:00Z');
+    const later = withinPlacementWorkspace(workspace, new Date('2026-10-06T17:00:00Z')).items.task!;
+    expect(later.schedule?.startAt).toBe('2026-10-13T09:00:00.000Z');
+  });
+
+  it('never places before an availability bound and leaves fixed events unchanged', () => {
+    const { workspace, task } = fixture('PT30M');
+    task.schedule = { timezone: 'UTC', startAt: '2026-10-06T12:00:00Z', dueAt: '2026-10-18T06:00:00Z', estimatedDuration: 'PT30M' };
+    expect(withinPlacementWorkspace(workspace, now).items.task?.schedule?.startAt).toBe('2026-10-06T12:00:00.000Z');
+    task.schedule.endAt = '2026-10-06T12:30:00Z';
+    const changed = { ...workspace, items: { ...workspace.items } };
+    expect(withinPlacementWorkspace(changed, now).items.task).toBe(task);
+  });
   beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(now); });
   afterEach(() => vi.useRealTimers());
   it('rolls a missed planned day into current or next Work without changing stored dates', () => {

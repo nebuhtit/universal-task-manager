@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { calendarDuration, calendarDurationMs, effectiveScheduleDuration, parseEstimateDuration, parseReminderDuration, reminderIsoDuration, scheduleWithDue, scheduleWithDuration, scheduleWithEnd, scheduleWithLinkedEnd, scheduleWithStart, toIsoDuration } from './durations';
+import { calendarDuration, calendarDurationMs, effectiveScheduleDuration, parseEstimateDuration, parseFriendlyDurationInput, parseReminderDuration, reminderIsoDuration, scheduleWithDue, scheduleWithDuration, scheduleWithEnd, scheduleWithLinkedEnd, scheduleWithStart, toIsoDuration } from './durations';
 
 describe('duration utilities', () => {
+  it('accepts English and Russian units with or without spaces', () => {
+    for (const value of ['1m', '1min', '1 m', '1 min', '1м', '1 мин', '1 мин.', '1 MIN']) expect(parseFriendlyDurationInput(value)).toEqual({ amount: 1, unit: 'minutes' });
+    for (const value of ['2h', '2 hour', '2 hours', '2ч', '2 часа', '2 часы']) expect(parseFriendlyDurationInput(value)).toEqual({ amount: 2, unit: 'hours' });
+    for (const value of ['3s', '3 sec', '3 seconds', '3 с', '3 сек']) expect(parseFriendlyDurationInput(value)).toEqual({ amount: 3, unit: 'seconds' });
+    for (const value of ['4d', '4 days', '4 д', '4 дня', '4 дни']) expect(parseFriendlyDurationInput(value)).toEqual({ amount: 4, unit: 'days' });
+    expect(parseFriendlyDurationInput('2 weeks')).toEqual({ amount: 2, unit: 'weeks' });
+    expect(parseFriendlyDurationInput('2', 'hours')).toEqual({ amount: 2, unit: 'hours' });
+    for (const value of ['', '0min', '-1h', '1mi', '1month', '1h junk']) expect(parseFriendlyDurationInput(value)).toBeUndefined();
+  });
+
+  it('round-trips fractions and seconds through the schedule without changing their duration', () => {
+    for (const [value, expectedMs] of [['1.5h', 5_400_000], ['1,5 мин', 90_000], ['30sec', 30_000]] as const) {
+      const duration = parseFriendlyDurationInput(value)!;
+      const startAt = '2026-10-08T10:00:00.000Z';
+      const saved = scheduleWithDuration({ timezone: 'UTC', startAt }, duration);
+      expect(Date.parse(saved.endAt!) - Date.parse(startAt)).toBe(expectedMs);
+      const reopened = effectiveScheduleDuration(saved)!;
+      expect(calendarDurationMs(reopened.amount, reopened.unit)).toBe(expectedMs);
+    }
+  });
   it('keeps calendar and reminder ISO units distinct', () => {
     expect(toIsoDuration(2, 'hours')).toBe('PT2H');
     expect(reminderIsoDuration(3, 'months')).toBe('P3M');

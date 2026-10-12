@@ -165,7 +165,7 @@ function normalizeSeparators(input: string): string {
   return chars.join('');
 }
 
-export interface EntryContext { start?: string | undefined; end?: string | undefined; due?: string | undefined; travelMinutes?: number | undefined }
+export interface EntryContext { start?: string | undefined; end?: string | undefined; due?: string | undefined; travelMinutes?: number | undefined; withinAvailability?: boolean }
 
 export function parseEntry(input: string, now: Date, defaults = true, context?: EntryContext): Draft {
   input = relaxedCommands(normalizeSeparators(input));
@@ -490,11 +490,11 @@ export function parseEntry(input: string, now: Date, defaults = true, context?: 
   if (effectiveStart && effectiveTravel !== undefined) result.leave = addMinutes(effectiveStart, -effectiveTravel);
   if (result.start) {
     if (result.travelMinutes !== null) result.leave = addMinutes(result.start, -result.travelMinutes);
-    if (defaults && result.durationMinutes === null && !result.end) result.durationMinutes = 60;
+    if (defaults && !context?.withinAvailability && result.durationMinutes === null && !result.end) result.durationMinutes = 60;
     if (result.durationMinutes !== null) {
       const computedEnd = addMinutes(result.start, result.durationMinutes);
       if (result.end && result.end !== computedEnd) result.errors.push('Event ends не совпадает с началом плюс длительность.');
-      else result.end = computedEnd;
+      else if (!context?.withinAvailability || result.end) result.end = computedEnd;
     }
     if (result.end && result.durationMinutes === null) result.durationMinutes = (new Date(result.end).getTime() - new Date(result.start).getTime()) / 60_000;
     if (new Date(result.start) < now) result.warnings.push('Начало уже в прошлом. Дата не перенесена автоматически.');

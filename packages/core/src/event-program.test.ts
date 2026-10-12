@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createItem, createWorkspace, evaluateItemScripts, expressionContinuouslyDependsOnCurrentTime, migrateItem, validateItem, toCanonicalJSON, fromCanonicalJSON, createOccurrence, makeSeries, applyGoogleCalendarSync, reconcileRecurrences } from './index.js';
-import { eventProgramStatus, programOverflow, syncEventProgramScript, trimEventProgram } from './event-program.js';
+import { eventProgramStatus, programOverflow, syncEventProgramScript, trimEventProgram, validateEventProgram } from './event-program.js';
 
 const fixture = () => {
   const item = createItem('School', 'event');
@@ -14,6 +14,13 @@ const fixture = () => {
 };
 const at = (time: string) => new Date(`2026-09-21T${time}:00.000Z`);
 describe('event program', () => {
+  it('identifies the exact block and distinguishes reversed times from fractional offsets', () => {
+    const item = fixture();
+    item.eventProgram!.blocks[1]!.endOffsetSeconds = 100;
+    expect(() => validateEventProgram(item)).toThrow('Program block 2 (Break): end must be after start');
+    item.eventProgram!.blocks[1]!.endOffsetSeconds = 3600.25;
+    expect(() => validateEventProgram(item)).toThrow('whole seconds');
+  });
   it('reports current blocks, gaps, simultaneous transitions and final completion', () => {
     const item = fixture();
     expect(eventProgramStatus(item, at('16:30'))).toBe('→ Lesson starts in 30m 0s');

@@ -9,6 +9,7 @@ struct AgendaEntry: TimelineEntry {
     let label: String
     var moment: String = ""
     var tomorrow: Bool = false
+    var eventMoment: String? = nil
     /// h/m values are timeline data; below ten minutes the native timer takes over.
     var compactRemaining: String? = nil
 }
@@ -40,14 +41,14 @@ struct AgendaProvider: TimelineProvider {
             .filter { $0.at > now.timeIntervalSince1970 && $0.at < snapshot.expires }
             .prefix(8)
         var result = ([previous].compactMap { $0 } + future).map { value in
-            AgendaEntry(date: Date(timeIntervalSince1970: max(now.timeIntervalSince1970, value.at)), current: value.current, title: value.title, target: value.target.map { Date(timeIntervalSince1970: $0) }, label: value.label, moment: value.moment ?? "", tomorrow: value.tomorrow ?? false)
+            AgendaEntry(date: Date(timeIntervalSince1970: max(now.timeIntervalSince1970, value.at)), current: value.current, title: value.title, target: value.target.map { Date(timeIntervalSince1970: $0) }, label: value.label, moment: value.moment ?? "", tomorrow: value.tomorrow ?? false, eventMoment: value.eventMoment)
         }
         let secondThresholds = result.enumerated().compactMap { index, entry -> AgendaEntry? in
             guard let target = entry.target else { return nil }
             let threshold = target.addingTimeInterval(-599.999)
             let end = index + 1 < result.count ? result[index + 1].date : Date(timeIntervalSince1970: snapshot.expires)
             guard snapshot.version != 2, threshold > entry.date, threshold > now, threshold < end else { return nil }
-            return AgendaEntry(date: threshold, current: entry.current, title: entry.title, target: target, label: entry.label, moment: entry.moment, tomorrow: entry.tomorrow)
+            return AgendaEntry(date: threshold, current: entry.current, title: entry.title, target: target, label: entry.label, moment: entry.moment, tomorrow: entry.tomorrow, eventMoment: entry.eventMoment)
         }
         result.append(contentsOf: secondThresholds)
         result.sort { $0.date < $1.date }
@@ -65,7 +66,7 @@ struct AgendaProvider: TimelineProvider {
         let minuteEnd = now.addingTimeInterval(max(0, minuteHorizon))
         while minute < minuteEnd && minuteEntries.count < 48 {
             if let source = result.last(where: { $0.date <= minute }), let target = source.target, target.timeIntervalSince(minute) >= 600 {
-                minuteEntries.append(AgendaEntry(date: minute, current: source.current, title: source.title, target: target, label: source.label, moment: source.moment, tomorrow: source.tomorrow, compactRemaining: AgendaCountdown.compact(remaining: target.timeIntervalSince(minute))))
+                minuteEntries.append(AgendaEntry(date: minute, current: source.current, title: source.title, target: target, label: source.label, moment: source.moment, tomorrow: source.tomorrow, eventMoment: source.eventMoment, compactRemaining: AgendaCountdown.compact(remaining: target.timeIntervalSince(minute))))
             }
             minute = minute.addingTimeInterval(fiveMinutes)
         }
@@ -121,12 +122,24 @@ struct AgendaWidgetView: View {
                 statusText(entry.current, font: .caption)
                     .padding(.horizontal, outerInset)
             }
-            HStack(spacing: 3) {
-                statusText(entry.title, font: .headline).layoutPriority(0)
-                if !entry.moment.isEmpty {
-                    Text("·").font(.caption)
-                    if entry.tomorrow { LucideTravelIcon(kind: .chevron).frame(width: 10, height: 10).accessibilityLabel("Tomorrow") }
-                    Text(entry.moment).font(.caption).fixedSize().layoutPriority(1)
+            Group {
+                if let eventMoment = entry.eventMoment {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 3) {
+                            if entry.tomorrow { LucideTravelIcon(kind: .chevron).frame(width: 10, height: 10).accessibilityLabel("Tomorrow") }
+                            (Text("\(entry.moment) · ") + Text(eventMoment).bold()).font(.caption)
+                        }
+                        statusText(entry.title, font: .headline)
+                    }
+                } else {
+                    HStack(spacing: 3) {
+                        statusText(entry.title, font: .headline).layoutPriority(0)
+                        if !entry.moment.isEmpty {
+                            Text("·").font(.caption)
+                            if entry.tomorrow { LucideTravelIcon(kind: .chevron).frame(width: 10, height: 10).accessibilityLabel("Tomorrow") }
+                            Text(entry.moment).font(.caption).fixedSize().layoutPriority(1)
+                        }
+                    }
                 }
             }
                 .frame(maxWidth: .infinity, alignment: .leading)

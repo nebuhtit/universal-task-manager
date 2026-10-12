@@ -1,9 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { formatProgramText, parseProgramText } from './programText';
+import { changeProgramBlockTime, formatProgramText, parseProgramText } from './programText';
 
 const origin = Date.parse('2030-09-21T14:00:00Z');
 const zone = 'Europe/Moscow';
 describe('program text', () => {
+  it('moves the end with the start, keeping duration, but never silently repairs an invalid end', () => {
+    const block = { id: 'one', title: 'Go', startOffsetSeconds: 0, endOffsetSeconds: 1800 };
+    expect(changeProgramBlockTime(block, 'startOffsetSeconds', 2460)).toEqual({ ...block, startOffsetSeconds: 2460, endOffsetSeconds: 4260 });
+    expect(changeProgramBlockTime(block, 'endOffsetSeconds', -60).endOffsetSeconds).toBe(-60);
+    expect(block.endOffsetSeconds).toBe(1800);
+  });
+  it.each([123, 999])('keeps whole-second offsets when the captured event origin has %i milliseconds', milliseconds => {
+    const blocks = parseProgramText('17:00–17:45 Lesson', origin + milliseconds, zone);
+    expect(blocks[0]).toMatchObject({ startOffsetSeconds: 0, endOffsetSeconds: 2700 });
+    expect(Number.isSafeInteger(blocks[0]!.endOffsetSeconds)).toBe(true);
+  });
   it('round trips parallel blocks, gaps, days, seconds and IDs', () => {
     const source = '17:00–17:45 Урок\n17:00:30-17:15:40 Параллельно\n18:15—21:00 Чай\n23:30–+1 00:15 Ночь\n+1 09:00–10:00 Завтрак';
     const blocks = parseProgramText(source, origin, zone);

@@ -4,7 +4,8 @@ import { Button, Disclosure, Field, Input } from '../../../../components/ui/prim
 import { programDateInput, programDateInstant } from './programDates';
 import './event-program.css';
 import { CodeEditor } from '../../../../components/ui/CodeEditor';
-import { formatProgramText, parseProgramText, programDay, programTimeParts } from './programText';
+import { changeProgramBlockTime, formatProgramText, parseProgramText, programDay, programOffsetSeconds, programTimeParts } from './programText';
+import { WarningNotice } from '../../../../components/ui/WarningNotice';
 import { FieldIconLabel } from '../../FieldIcon';
 
 export function EventProgramSection({ item, onChange, language, now, occurrences = [], onOpenOccurrence, onValidityChange }: { item: UniversalItem; onChange: (item: UniversalItem) => void; language: string; now: Date; occurrences?: UniversalItem[]; onValidityChange?: ((valid: boolean) => void) | undefined; onOpenOccurrence?: ((item: UniversalItem) => void) | undefined }) {
@@ -14,7 +15,6 @@ export function EventProgramSection({ item, onChange, language, now, occurrences
   const [mode, setMode] = useState<'blocks' | 'text'>('blocks');
   const [text, setText] = useState('');
   const [textValid, setTextValid] = useState(true);
-  const [dayFields, setDayFields] = useState<Set<string>>(() => new Set());
   const textOrigin = useRef<number>(NaN);
   const root = useRef<HTMLDivElement>(null);
   const autoEnd = useRef(!item.schedule?.endAt);
@@ -51,7 +51,7 @@ export function EventProgramSection({ item, onChange, language, now, occurrences
       if (item.schedule?.allDay && value.trim()) throw new Error(t('Switch off All day to add program blocks.', 'Выключите «Весь день», чтобы добавить блоки программы.'));
       const base = Number.isFinite(textOrigin.current) ? textOrigin.current : Number.isFinite(origin) ? origin : Math.floor(now.getTime() / 60000) * 60000;
       textOrigin.current = base;
-      const delta = Number.isFinite(origin) ? (origin - base) / 1000 : 0;
+      const delta = Number.isFinite(origin) ? programOffsetSeconds(origin, base) : 0;
       const previous = blocks.map((entry) => ({ ...entry, startOffsetSeconds: entry.startOffsetSeconds + delta, endOffsetSeconds: entry.endOffsetSeconds + delta }));
       const parsed = parseProgramText(value, base, zone, previous);
       const next = parsed.map((entry) => ({ ...entry, startOffsetSeconds: entry.startOffsetSeconds - delta, endOffsetSeconds: entry.endOffsetSeconds - delta }));
@@ -101,19 +101,26 @@ export function EventProgramSection({ item, onChange, language, now, occurrences
       <Field label={t('Block title', 'Название блока')}><Input data-program-title aria-label={`${t('Block title', 'Название блока')} ${index + 1}`} value={block.title} onChange={(event) => update(blocks.map((entry) => entry.id === block.id ? { ...entry, title: event.target.value } : entry))} /></Field>
       <div className="program-times">{(['startOffsetSeconds', 'endOffsetSeconds'] as const).map((key, position) => {
         const parts = programTimeParts(origin + block[key] * 1000, origin, zone);
-        const change = (day: number, time: string) => { const instant = programDateInstant(`${programDay(origin, zone, day)}T${time}`, zone); if (!Number.isFinite(instant)) { setError(t('Invalid time', 'Некорректное время')); return; } update(blocks.map((entry) => entry.id === block.id ? { ...entry, [key]: (instant - origin) / 1000 } : entry)); };
-        const fieldKey = `${block.id}:${key}`;
-        return <Field key={key} label={position ? t('End', 'Окончание') : t('Start', 'Начало')}><Input type="time" step="1" aria-label={`${position ? 'Block end' : 'Block start'} ${index + 1}`} value={parts.time} onChange={(event) => change(parts.day, event.target.value)} />{parts.day !== 0 || dayFields.has(fieldKey) ? <label className="program-day">{t('Day offset', 'Сдвиг дня')}<Input type="number" min={0} step={1} aria-label={`${position ? 'End day' : 'Start day'} ${index + 1}`} value={parts.day} onChange={(event) => { const raw = event.target.value; const day = Number(raw); if (!raw || day === 0) { setDayFields((current) => { const next = new Set(current); next.delete(fieldKey); return next; }); change(0, parts.time); return; } if (Number.isInteger(day) && day > 0 && day <= 36500) change(day, parts.time); }} /></label> : <Button size="compact" variant="ghost" onClick={() => { setDayFields((current) => new Set([...current, fieldKey])); change(1, parts.time); }}>{t('+1 day', '+1 день')}</Button>}</Field>;
+        const change = (day: number, time: string) => {
+          const instant = programDateInstant(`${programDay(origin, zone, day)}T${time}`, zone);
+          if (!Number.isFinite(instant)) { setError(t('Invalid time', 'Некорректное время')); return; }
+          const seconds = programOffsetSeconds(instant, origin);
+          if (key === 'endOffsetSeconds' && seconds <= block.startOffsetSeconds) { setError(t(`Block ${index + 1}: end must be after start. The previous end was retained.`, `Блок ${index + 1}: окончание должно быть позже начала. Прежнее окончание сохранено.`)); return; }
+          update(blocks.map((entry) => entry.id === block.id ? changeProgramBlockTime(entry, key, seconds) : entry));
+        };
+        const startParts = programTimeParts(origin + block.startOffsetSeconds * 1000, origin, zone);
+        return <Field key={key} label={position ? t('End', 'Окончание') : t('Start', 'Начало')}><Input type="time" step="1" min={position && parts.day === startParts.day ? startParts.time : undefined} aria-label={`${position ? 'Block end' : 'Block start'} ${index + 1}`} value={parts.time} onChange={(event) => change(parts.day, event.target.value)} />{parts.day !== 0 && <label className="program-day">{t('Day offset', 'Сдвиг дня')}<Input type="number" min={0} step={1} aria-label={`${position ? 'End day' : 'Start day'} ${index + 1}`} value={parts.day} onChange={(event) => { const raw = event.target.value; const day = Number(raw); if (!raw || day === 0) { change(0, parts.time); return; } if (Number.isInteger(day) && day > 0 && day <= 36500) change(day, parts.time); }} /></label>}</Field>;
       })}</div>
+      {block.endOffsetSeconds <= block.startOffsetSeconds && <WarningNotice language={language} message={t(`Block ${index + 1} “${block.title}”: choose an end after its start.`, `Блок ${index + 1} «${block.title}»: выберите окончание позже начала.`)} />}
       <Button className="program-remove" size="compact" aria-label={`${t('Delete block', 'Удалить блок')} ${index + 1}`} onClick={() => update(blocks.filter((entry) => entry.id !== block.id))}>×</Button>
     </div>)}
-    {outside && <div role="alert"><p>{t('Program blocks extend beyond the event. They are preserved until you confirm a change.', 'Блоки выходят за границы события. Они сохранены до подтверждения изменений.')}</p><Button onClick={extend}>{t('Extend event to the last block', 'Продлить событие до последнего блока')}</Button><Button onClick={() => {
+    {outside && <WarningNotice language={language} message={t('Program blocks extend beyond the event. They are preserved until you confirm a change.', 'Блоки выходят за границы события. Они сохранены до подтверждения изменений.')}><Button onClick={extend}>{t('Extend event to the last block', 'Продлить событие до последнего блока')}</Button><Button onClick={() => {
       const affected = programOverflow(item); const length = (Date.parse(item.schedule?.endAt ?? '') - origin) / 1000;
       const description = affected.map((block) => `${block.title}: ${block.startOffsetSeconds >= length ? t('delete', 'удалить') : t('shorten', 'сократить')}`).join('\n');
       if (window.confirm(`${t('Adjust program?', 'Скорректировать программу?')}\n${description}`)) { try { onChange(trimEventProgram(item)); } catch (reason) { setError(String(reason)); } }
-    }}>{t('Trim program', 'Сократить программу')}</Button></div>}
+    }}>{t('Trim program', 'Сократить программу')}</Button></WarningNotice>}
     <div className="program-actions"><Button disabled={mode === 'text' || item.schedule?.allDay || blocks.some((block) => !Number.isFinite(block.endOffsetSeconds))} onClick={add}>{t('Add block', 'Добавить блок')}</Button><Button onClick={apply}>{t('Apply', 'Применить')}</Button></div>
-    {error && <p role="alert">{error}</p>}
+    {error && <WarningNotice message={error} onDismiss={() => setError('')} language={language} />}
     {blocks.length > 0 && <output>{eventProgramStatus(item, now, language)}</output>}
     </div>
   </Disclosure>;

@@ -148,6 +148,7 @@ function compiledExpression(source: string): Expression {
 }
 
 const timeDependentVariables = new Set([
+  'withinReservedBlockWhenSet',
   'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue',
 ]);
 const timeDependentFunctions = new Set([
@@ -561,6 +562,7 @@ export function evaluateExpression(expression: Expression, context: EvaluationCo
 }
 
 export interface QueryRelationContext {
+  withinReservedBlockWhenSet?: boolean;
   isSubtask?: boolean;
   isParent?: boolean;
   parentDepth?: number;
@@ -578,6 +580,7 @@ export interface QueryRelationContext {
  * filters can be interpreted as the user's boolean intent.
  */
 export const NON_NULLABLE_QUERY_BOOLEAN_FIELDS = [
+  'withinReservedBlockWhenSet',
   'isNote', 'isHabit', 'isTemplate', 'isSavedTemplate', 'isSubtask', 'isParent', 'activeRange', 'activeRangeWhenSet', 'activeRangeWhenSetOrOverdue', 'activeDuration',
   'hasActiveReminders', 'eventToday', 'eventThisWeek', 'dueTodayOrOverdue', 'dueThisWeekOrOverdue', 'googleCalendarAllDay', 'isGoogleEvent',
 ] as const;
@@ -621,7 +624,7 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     const activeRangeWhenSetOrOverdue = activeRangeWhenSet || (due !== undefined && !Number.isNaN(due) && due < current.getTime());
     try {
       const relations = relationContext?.(item, current) ?? {};
-      const dueBuckets = relations.dueDateBuckets ?? dueDateBuckets(item, current, temporalOptions);
+      const dueBuckets = { ...(relations.dueDateBuckets ?? dueDateBuckets(item, current, temporalOptions)), withinReservedBlockWhenSet: relations.withinReservedBlockWhenSet ?? true };
       const hasActiveReminderValue = relations.hasActiveReminders ?? activeReminders(item).length > 0;
       const nextReminderAtValue = relations.remindersIndexed ? relations.nextReminderAt : nextActiveReminderAt(item);
       const isSavedTemplate = item.extensions?.['utm:template'] === true;

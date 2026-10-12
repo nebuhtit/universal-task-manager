@@ -160,7 +160,9 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     // schema migration. That temporary copy can exhaust mobile Safari after a
     // large calendar import; keep the repair path for old or invalid data.
     const currentIntegrity = sourceVersion === SCHEMA_VERSION ? validateWorkspace(unlocked.document) : null;
+    finishActivationStage('validation');
     const compacted = compactTechnicalOccurrenceGarbage(unlocked.document as Automerge.Doc<WorkspaceDocument>);
+    finishActivationStage('compaction');
     const activationDocument = writableWorkspaceDocument(compacted.document);
     if (compacted.removed) recordDiagnostic({ kind: 'result', message: 'Technical deleted recurrence cache compacted', operation: 'Activate workspace', outcome: 'succeeded', details: JSON.stringify({ removed: compacted.removed, retainedTombstones: Object.keys(activationDocument.tombstones).length }) });
     const now = effectiveWorkspaceNow(activationDocument as WorkspaceDocument);

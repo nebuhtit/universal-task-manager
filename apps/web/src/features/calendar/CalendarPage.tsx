@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   createOccurrence, effectiveWorkspaceNow, zonedDateStart,
   type ItemPreset, type ProjectedOccurrence, type UniversalItem, type WorkspaceDocument,
@@ -11,13 +11,13 @@ import { ViewResults } from '../views/ViewResults';
 import { clockService } from '../../services/clockService';
 import { completionHoldsSnapshot, sortViewItems, subscribeCompletionHolds } from '../views/viewSelectors';
 import { useCalendarNow, useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
-import { CalendarDayViewEditor } from './CalendarDayViewEditor';
+import { createCalendarPageCache, type CalendarPageCache } from './calendarPageCache';
 import { calendarListFields, calendarTimelineFields } from './calendarCardFields';
 import { CalendarTimeline } from './CalendarTimeline';
-import { calendarDayView, createCalendarEvaluator } from './calendarEvaluation';
-import { calendarVisibleCapacity, createCalendarCapacityCache } from './calendarCapacity';
+import { calendarDayView } from './calendarEvaluation';
+import { calendarVisibleCapacity } from './calendarCapacity';
 import { prepareTimelineData } from './timelineData';
-import { buildCalendarPlan, calendarListOrder, calendarPlanMetricItems, calendarReorderIssue, createCalendarPlanCache, planningEnabled, planningReason } from './calendarPlanning';
+import { buildCalendarPlan, calendarListOrder, calendarPlanMetricItems, calendarReorderIssue, planningEnabled, planningReason } from './calendarPlanning';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { calendarProjectionPadding } from './calendarProjectionCache';
 import { MoonPhase } from './MoonPhase';
@@ -28,6 +28,7 @@ import { labelProfileAction, recordProfileCommit } from '../../services/performa
 import './calendar.css';
 
 const DAY_MS = 86_400_000;
+const CalendarDayViewEditor = lazy(() => import('./CalendarDayViewEditor').then(module => ({ default: module.CalendarDayViewEditor })));
 const subscribeCapacityClock = (listener: () => void) => clockService.subscribe(listener, 60_000);
 type NavigatorMode = 'week' | 'month';
 
@@ -58,8 +59,9 @@ function weekStart(key: string, startsOn: 0 | 1): string {
   return shiftDateKey(key, -((weekday - startsOn + 7) % 7));
 }
 
-export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, onState, createUiItem, onCreateItem, celebrationColors = new Map(), requestedDate, initialDate, onSelectedDateChange, onPlanningNotice }: {
+export function CalendarPage({ workspace, computationCache, now: suppliedNow, commit, onEditItem, onState, createUiItem, onCreateItem, celebrationColors = new Map(), requestedDate, initialDate, onSelectedDateChange, onPlanningNotice }: {
   workspace: WorkspaceDocument;
+  computationCache?: { current: CalendarPageCache | null };
   now?: Date;
   commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => boolean | void;
   onEditItem: (item: UniversalItem) => void;
@@ -81,58 +83,38 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
   const movePeriod = (direction: -1 | 1) => setSelectedDate(current => navigatorMode === 'week' ? shiftDateKey(current, direction * 7) : shiftMonth(current, direction));
   const periodSwipe = useCalendarPeriodSwipe(movePeriod);
-  const [compactNavigator, setCompactNavigator] = useState(false);
+  const [compactNavigator, setCompactNavigator] = useState(true);
+  const [timelineToolbarHost, setTimelineToolbarHost] = useState<HTMLDivElement | null>(null);
   const calendarRoot = useRef<HTMLElement>(null);
-  const titleRef = useRef<HTMLElement>(null);
-  const navigatorStart = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const navigationScrollTarget = (collapsed: boolean) => {
+    const root = calendarRoot.current, controls = controlsRef.current;
+    if (!root || !controls) return window.scrollY;
+    const topbar = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+    return Math.max(0, window.scrollY + (collapsed ? controls.getBoundingClientRect().bottom : root.getBoundingClientRect().top) - topbar);
+  };
   useLayoutEffect(() => {
-    const title = titleRef.current, root = calendarRoot.current, start = navigatorStart.current;
-    if (!title || !root || !start) return;
-    root.style.minHeight = '';
-    root.style.removeProperty('--calendar-collapse-reserve');
-    let frame = 0, pointerActive = false, releaseTimer = 0;
-    const navigator = root.querySelector<HTMLElement>('.calendar-navigator');
-    let expandedHeight = 0;
-    const update = () => {
-      frame = 0;
-      root.style.setProperty('--calendar-title-height', `${title.getBoundingClientRect().height}px`);
-      const titleStyle = getComputedStyle(title);
-      const height = title.getBoundingClientRect().height + parseFloat(titleStyle.marginBottom) + (navigator?.getBoundingClientRect().height ?? 0);
-      if (!root.classList.contains('is-compact')) expandedHeight = Math.max(expandedHeight, height);
-      // Keep the document's scroll range while the sticky header shrinks.
-      // Otherwise a short list clamps scrollTop, expands the header, and loops.
-      root.style.setProperty('--calendar-collapse-reserve', `${Math.max(0, expandedHeight - height)}px`);
-      const top = parseFloat(titleStyle.top);
-      // Do not move a pressed card between pointerdown and click as the
-      // navigator collapses after scrolling (especially on touch WebKit).
-      // Hysteresis prevents subpixel/iOS rubber-band scroll from repeatedly
-      // expanding and collapsing at the sticky boundary.
-      if (!pointerActive) {
-        // The page origin is independent of the animated header's own height.
-        const scroll = Math.max(0, window.scrollY);
-        const boundary = Math.max(48, root.getBoundingClientRect().top + scroll - top);
-        const distance = boundary - scroll;
-        if (!root.classList.contains('is-compact') && distance < -4) root.style.minHeight = `${root.getBoundingClientRect().height}px`;
-        else if (distance >= 4) root.style.minHeight = '';
-        setCompactNavigator(current => current ? distance < 4 : distance < -4);
-      }
+    const root = calendarRoot.current;
+    if (!root) return;
+    const controls = controlsRef.current;
+    const measure = () => root.style.setProperty('--calendar-controls-height', `${controls?.getBoundingClientRect().height ?? 0}px`);
+    measure();
+    const observer = controls ? new ResizeObserver(measure) : undefined;
+    if (controls) observer?.observe(controls);
+    // Keep layout constant. The browser moves the controls with the finger;
+    // only the week strip sticks. Never resize the header in a scroll handler.
+    const scroll = () => {
+      const topbar = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+      const bounds = controlsRef.current?.getBoundingClientRect();
+      const reveal = bounds ? Math.max(0, Math.min(1, (bounds.bottom - topbar) / Math.max(1, bounds.height))) : 0;
+      root.style.setProperty('--calendar-reveal', String(reveal));
+      setCompactNavigator(reveal <= 0.01);
     };
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
-    const pointerStart = () => { window.clearTimeout(releaseTimer); pointerActive = true; };
-    const pointerEnd = () => { window.clearTimeout(releaseTimer); pointerActive = false; schedule(); };
-    // WebKit can paint between pointerup and its synthesized click. Keep the
-    // target still until click dispatch; a cancelled drag has no click to await.
-    const pointerUp = () => { releaseTimer = window.setTimeout(pointerEnd, 350); };
-    const observer = new ResizeObserver(schedule); observer.observe(title); if (navigator) observer.observe(navigator);
-    window.addEventListener('scroll', schedule, { passive: true, capture: true });
-    window.addEventListener('resize', schedule);
-    window.addEventListener('pointerdown', pointerStart, true);
-    window.addEventListener('pointerup', pointerUp, true);
-    window.addEventListener('click', pointerEnd, true);
-    window.addEventListener('pointercancel', pointerEnd, true);
-    update();
-    return () => { observer.disconnect(); cancelAnimationFrame(frame); window.clearTimeout(releaseTimer); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); window.removeEventListener('pointerdown', pointerStart, true); window.removeEventListener('pointerup', pointerUp, true); window.removeEventListener('click', pointerEnd, true); window.removeEventListener('pointercancel', pointerEnd, true); };
-  }, [selectedDate, navigatorMode, preferences.timeline?.mode]);
+    window.scrollTo({ top: navigationScrollTarget(true), behavior: 'instant' });
+    scroll();
+    window.addEventListener('scroll', scroll, { passive: true });
+    return () => { observer?.disconnect(); window.removeEventListener('scroll', scroll); };
+  }, []);
   const [editorOpen, setEditorOpen] = useState(false);
   const [planningMessage, setPlanningMessage] = useState('');
   const repairedSignature = useRef('');
@@ -155,9 +137,12 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const todayChoiceRef = useRef<HTMLButtonElement>(null);
   const completionVersion = useSyncExternalStore(subscribeCompletionHolds, completionHoldsSnapshot, completionHoldsSnapshot);
   const selectedDayView = useMemo(() => ({ ...calendarDayView(selectedDate, preferences.dayView), fields: [...new Set([...calendarListFields(preferences.dayView), ...calendarTimelineFields(preferences.dayView)])] }), [selectedDate, preferences.dayView]);
-  const evaluator = useMemo(() => createCalendarEvaluator(), []);
-  const capacityCache = useMemo(() => createCalendarCapacityCache(), []);
-  const planCache = useMemo(() => createCalendarPlanCache(), []);
+  const { evaluator, capacityCache, planCache } = useMemo(() => {
+    if (computationCache?.current?.workspaceId === workspace.workspaceId) return computationCache.current;
+    const cache = createCalendarPageCache(workspace.workspaceId);
+    if (computationCache) computationCache.current = cache;
+    return cache;
+  }, [workspace.workspaceId, computationCache]);
   const createAt = (at: number) => {
     const draft = createUiItem('', 'task', suppliedNow ?? new Date());
     draft.schedule = { timezone: preferences.timezone, startAt: new Date(at).toISOString(), endAt: new Date(at + 3_600_000).toISOString(), estimatedDuration: 'PT1H' };
@@ -278,7 +263,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   const formatDate = (key: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(preferences.language, { ...options, timeZone: 'UTC' }).format(dateFromKey(key));
   const selectedLabel = formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const weekdayOffset = navigatorMode === 'month' ? (dateFromKey(monthStart(selectedDate)).getUTCDay() - preferences.weekStartsOn + 7) % 7 : 0;
-  const showWeek = navigatorMode === 'week' || compactNavigator;
+  const showWeek = navigatorMode === 'week';
   const visibleDayKeys = dayKeys.filter(key => showWeek ? key >= selectedWeekStart && key < shiftDateKey(selectedWeekStart, 7) : key.slice(0, 7) === selectedDate.slice(0, 7));
   const labelWeek = weekStart('2026-08-31', preferences.weekStartsOn);
 
@@ -318,14 +303,29 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
   };
 
   return <section className={`calendar-page page-section${compactNavigator ? ' is-compact' : ''}`} ref={calendarRoot}>
-    <header className="calendar-title" ref={titleRef} inert={compactNavigator}>
+    <div className="calendar-navigation">
+    <div className="calendar-navigation-body" ref={controlsRef}><div className="calendar-navigation-inner">
+    <header className="calendar-title">
       <div><div className="calendar-heading-date"><h1>{selectedLabel}</h1><MoonPhase dateKey={selectedDate} zone={preferences.timezone} ru={preferences.language === 'ru'} /></div>{selected.view.statistics?.showTime !== false && <span className="view-metrics-summary" data-testid="calendar-header-capacity">{capacityLabel(selectedDate)}</span>}</div>
       <IconButton size="compact" variant="ghost" onClick={() => setEditorOpen(true)} aria-label="Edit calendar day view"><LineIcon name="settings" /></IconButton>
     </header>
 
-    <div ref={navigatorStart} className="calendar-navigator-start" aria-hidden="true" />
-    <Surface className={`calendar-navigator${compactNavigator ? ' is-compact' : ''}`}>
-      <div className="calendar-navigator-toolbar" hidden={compactNavigator}>
+    <div className="calendar-view-toolbar">
+    <div className="calendar-display-switch" role="group" aria-label="Calendar display mode">
+      <Button size="compact" aria-pressed={displayMode === 'list'} onClick={() => changeDisplayMode('list')}>{preferences.language === 'ru' ? 'Список' : 'List'}</Button>
+      <Button size="compact" aria-pressed={displayMode === 'timeline'} onClick={() => changeDisplayMode('timeline')}>Timeline</Button>
+    </div>
+    <div className={`calendar-filter-controls${displayMode === 'list' ? ' calendar-list-toolbar' : ''}`} ref={setTimelineToolbarHost}>
+      {displayMode === 'list' && <>
+        {overdueIds.size > 0 && <Button size="compact" variant="ghost" aria-pressed={timelineSettings.showOverdue !== false} onClick={() => setTimelineSetting({ showOverdue: timelineSettings.showOverdue === false })}>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</Button>}
+        <Button size="compact" variant="ghost" aria-pressed={timelineSettings.showUndated === true} onClick={() => setTimelineSetting({ showUndated: timelineSettings.showUndated !== true })}>{preferences.language === 'ru' ? 'Без даты' : 'No date'}{undatedItems.length ? ` · ${undatedItems.length}` : ''}</Button>
+        {allDayIds.size > 0 && <Button size="compact" variant="ghost" aria-pressed={allDayOpen} onClick={() => { const next = !allDayOpen; persistUiBoolean('calendar:all-day', next); setAllDayOpen(next); }}>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</Button>}
+      </>}
+    </div>
+    </div>
+    </div></div>
+    <Surface className="calendar-navigator">
+      <div className="calendar-navigator-toolbar-reveal" inert={compactNavigator}><div className="calendar-navigator-toolbar">
         <div className="calendar-period-switch" aria-label="Calendar navigation mode">
           {(['week', 'month'] as const).map((mode) => <Button size="compact" variant="ghost" aria-pressed={navigatorMode === mode} className={navigatorMode === mode ? 'active' : ''} key={mode} onClick={() => setNavigatorMode(mode)}>{mode === 'week' ? 'Week' : 'Month'}</Button>)}
         </div>
@@ -334,7 +334,7 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
           <IconButton size="compact" variant="ghost" aria-label="Previous period" onClick={() => movePeriod(-1)}>‹</IconButton>
           <IconButton size="compact" variant="ghost" aria-label="Next period" onClick={() => movePeriod(1)}>›</IconButton>
         </div>
-      </div>
+      </div></div>
       <div className={`calendar-day-panel is-${showWeek ? 'week' : 'month'}`} ref={dayPanelRef} {...periodSwipe}>
         {!showWeek && Array.from({ length: 7 }, (_, index) => <span className="calendar-weekday-label" key={index}>{formatDate(shiftDateKey(labelWeek, index), { weekday: 'short' })}</span>)}
         {!showWeek && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
@@ -344,32 +344,26 @@ export function CalendarPage({ workspace, now: suppliedNow, commit, onEditItem, 
         </button>)}
       </div>
     </Surface>
-
-    <div className="calendar-display-switch" role="group" aria-label="Calendar display mode">
-      <Button size="compact" aria-pressed={displayMode === 'list'} onClick={() => changeDisplayMode('list')}>{preferences.language === 'ru' ? 'Список' : 'List'}</Button>
-      <Button size="compact" aria-pressed={displayMode === 'timeline'} onClick={() => changeDisplayMode('timeline')}>Timeline</Button>
     </div>
     {displayMode === 'timeline'
-      ? <CalendarTimeline preparedDay={preparedDays?.[selectedDate]} listItems={selected.evaluation.items} plan={plan} onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
-      : <><div className="timeline-toolbar calendar-list-toolbar">
-        {overdueIds.size > 0 && <Button size="compact" aria-pressed={timelineSettings.showOverdue !== false} onClick={() => setTimelineSetting({ showOverdue: timelineSettings.showOverdue === false })}>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</Button>}
-        <Button size="compact" aria-pressed={timelineSettings.showUndated === true} onClick={() => setTimelineSetting({ showUndated: timelineSettings.showUndated !== true })}>{preferences.language === 'ru' ? 'Без даты' : 'No date'}{undatedItems.length ? ` · ${undatedItems.length}` : ''}</Button>
-        {allDayIds.size > 0 && <Button size="compact" aria-pressed={allDayOpen} onClick={() => { const next = !allDayOpen; persistUiBoolean('calendar:all-day', next); setAllDayOpen(next); }}>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</Button>}
-      </div><Surface className="calendar-day-list">
+      ? <CalendarTimeline toolbarHost={timelineToolbarHost} preparedDay={preparedDays?.[selectedDate]} listItems={selected.evaluation.items} plan={plan} onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
+      : <><Surface className="calendar-day-list">
         {manuallyOrdered ? <ViewResults {...orderProps} itemLabels={categoryLabels} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={listEvaluation} hiddenItemIds={new Set(listEvaluation.items.filter(item => !plan?.pins.has(item.id) && ((overdueIds.has(item.id) && timelineSettings.showOverdue === false) || (allDayIds.has(item.id) && !allDayOpen) || (undatedIds.has(item.id) && timelineSettings.showUndated !== true))).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /> : <>
         {overdueIds.size > 0 && timelineSettings.showOverdue !== false && <div className="calendar-overdue"><h2>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
         {allDayIds.size > 0 && allDayOpen && <div className="calendar-all-day"><h2>{preferences.language === 'ru' ? 'Весь день' : 'All day'} · {allDayIds.size}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !allDayIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
         <ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => overdueIds.has(item.id) || allDayIds.has(item.id) || undatedIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} />
         {timelineSettings.showUndated === true && undatedItems.length > 0 && <div className="calendar-no-date"><h2>{preferences.language === 'ru' ? 'Без даты' : 'No date'} · {undatedItems.length}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={workspace} evaluation={{ items: undatedItems, metrics: null, now }} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}
       </>}</Surface></>}
-    {displayMode === 'list' ? <Button size="compact" disabled={!temporaryOrder} onClick={() => setListOrders(current => { const next = { ...current }; delete next[selectedDate]; return next; })}>{preferences.language === 'ru' ? 'Сбросить порядок списка' : 'Reset list order'}</Button>
-      : (planning || Boolean(preferences.planning?.orders?.[selectedDate]?.length)) && <Button size="compact" onClick={() => setResetStep(1)} disabled={!preferences.planning?.orders?.[selectedDate]?.length}>{preferences.language === 'ru' ? 'Сбросить порядок дня' : 'Reset day order'}</Button>}
+    {displayMode === 'list' && <>
+      <Button size="compact" disabled={!temporaryOrder} onClick={() => setListOrders(current => { const next = { ...current }; delete next[selectedDate]; return next; })}>{preferences.language === 'ru' ? 'Сбросить порядок списка' : 'Reset list order'}</Button>
+      {(planning || Boolean(preferences.planning?.orders?.[selectedDate]?.length)) && <Button size="compact" onClick={() => setResetStep(1)} disabled={!preferences.planning?.orders?.[selectedDate]?.length}>{preferences.language === 'ru' ? 'Сбросить порядок дня' : 'Reset day order'}</Button>}
+    </>}
     {planningMessage && <p role="status">{planningMessage}</p>}
     <ResponsiveDialog open={resetStep > 0} onOpenChange={open => { if (!open) setResetStep(0); }} title={preferences.language === 'ru' ? 'Сброс порядка' : 'Reset order'} ariaLabel="Reset calendar order">
       <p>{resetStep === 1 ? (preferences.language === 'ru' ? 'Вернуть исходную сортировку? Закрепления и items останутся без изменений.' : 'Restore the initial sorting? Pins and items will not change.') : `${preferences.language === 'ru' ? 'Подтвердите сброс порядка только для' : 'Confirm resetting order only for'} ${selectedLabel} (${selectedDate}).`}</p>
       <Button onClick={() => { if (resetStep === 1) setResetStep(2); else { commit('Reset calendar day order', draft => { if (draft.calendarPreferences.planning?.orders) delete draft.calendarPreferences.planning.orders[selectedDate]; }); setResetStep(0); } }}>{resetStep === 1 ? (preferences.language === 'ru' ? 'Продолжить' : 'Continue') : (preferences.language === 'ru' ? 'Подтвердить сброс' : 'Confirm reset')}</Button>
       <Button onClick={() => setResetStep(0)}>{preferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button>
     </ResponsiveDialog>
-    <CalendarDayViewEditor open={editorOpen} workspace={workspace} onOpenChange={setEditorOpen} onSave={(dayView, timeline) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); draft.calendarPreferences.timeline = structuredClone(timeline); })} />
+    {editorOpen && <Suspense fallback={null}><CalendarDayViewEditor open={editorOpen} workspace={workspace} selectedDate={selectedDate} now={now} projectionCache={evaluator.projections} onOpenChange={setEditorOpen} onSave={(dayView, timeline) => commit('Save calendar day view', (draft) => { draft.calendarPreferences.dayView = structuredClone(dayView); draft.calendarPreferences.timeline = structuredClone(timeline); })} /></Suspense>}
   </section>;
 }

@@ -1,6 +1,13 @@
 import { createId, type EventProgramBlock } from '@utm/core';
 import { programDateInput, programDateInstant } from './programDates';
 
+export const programOffsetSeconds = (instant: number, origin: number) => Math.floor(instant / 1000) - Math.floor(origin / 1000);
+
+/** Moving a valid block's start preserves its duration; end edits stay explicit. */
+export function changeProgramBlockTime(block: EventProgramBlock, key: 'startOffsetSeconds' | 'endOffsetSeconds', seconds: number): EventProgramBlock {
+  return { ...block, [key]: seconds, ...(key === 'startOffsetSeconds' && block.endOffsetSeconds > block.startOffsetSeconds ? { endOffsetSeconds: seconds + block.endOffsetSeconds - block.startOffsetSeconds } : {}) };
+}
+
 export function programDay(origin: number, zone: string, day: number): string {
   const date = programDateInput(origin, zone).slice(0, 10);
   return new Date(Date.parse(`${date}T00:00:00Z`) + day * 86400000).toISOString().slice(0, 10);
@@ -27,7 +34,8 @@ export function parseProgramText(text: string, origin: number, zone: string, pre
     const start = programDateInstant(`${programDay(origin, zone, startDay)}T${match[2]}`, zone);
     const end = programDateInstant(`${programDay(origin, zone, endDay)}T${match[4]}`, zone);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new Error(`Line ${index + 1}: invalid time range`);
-    return [{ title: match[5]!.trim(), startOffsetSeconds: (start - origin) / 1000, endOffsetSeconds: (end - origin) / 1000 }];
+    // Captured starts may include milliseconds; program offsets use whole seconds.
+    return [{ title: match[5]!.trim(), startOffsetSeconds: programOffsetSeconds(start, origin), endOffsetSeconds: programOffsetSeconds(end, origin) }];
   });
   // Reserve exact matches first so inserting/reordering lines never steals an existing ID.
   const used = new Set<string>();

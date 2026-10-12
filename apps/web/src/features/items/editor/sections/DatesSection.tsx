@@ -6,6 +6,7 @@ import type { FriendlyDurationUnit } from '../../../../utils/durations';
 import { FieldIconLabel } from '../../FieldIcon';
 import { DateTimeField } from '../fields/DateTimeField';
 import { DurationField } from '../fields/DurationField';
+import { DurationInput } from '../fields/DurationInput';
 import { ItemSection } from '../ItemSection';
 import { DueQuickChoices } from '../../DueQuickChoices';
 import { canQuickChangeDue } from '../../dueQuickActions';
@@ -31,11 +32,10 @@ type Props = {
   patchDateOnlyStartTimed?: () => void;
   patchScheduledDue: (value?: string) => void;
   patchQuickDue?: (value: string) => void;
-  applyDurationPreset: (preset: string) => void;
   children?: ReactNode;
 };
 
-export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, travelBackDuration, patchTravelBackDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, clearScheduleReason, patchPlannedDate, patchScheduledEnd, patchDateOnlyEnd, patchDateOnlyTimedEnd, patchDateOnlyStartTimed, patchScheduledDue, patchQuickDue, applyDurationPreset, children }: Props) {
+export function DatesSection({ item, workspace, now = new Date(), sectionMark, scheduledDuration, travelDuration, travelBackDuration, patchTravelBackDuration, patchScheduledDuration, patchTravelDuration, patchScheduledStart, clearScheduleReason, patchPlannedDate, patchScheduledEnd, patchDateOnlyEnd, patchDateOnlyTimedEnd, patchDateOnlyStartTimed, patchScheduledDue, patchQuickDue, children }: Props) {
   const [quickDueOpen, setQuickDueOpen] = useState(false);
   const [dateOnlyMode, setDateOnlyMode] = useState(Boolean(item.schedule?.plannedDate));
   const [pendingDateOnly, setPendingDateOnly] = useState(false);
@@ -54,19 +54,18 @@ export function DatesSection({ item, workspace, now = new Date(), sectionMark, s
   const opensAt = item.schedule?.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
   const invalidEnd = Number.isFinite(opensAt) && Boolean(item.schedule?.endAt) && Date.parse(item.schedule!.endAt!) < opensAt;
   const invalidDue = Number.isFinite(opensAt) && Boolean(item.schedule?.dueAt) && Date.parse(item.schedule!.dueAt!) < opensAt;
-  const travelUnit = travelDuration?.unit === 'hours' ? 'hours' : 'minutes';
+  const travelUnit = travelDuration?.unit ?? 'minutes';
   const travelLabel = language === 'ru' ? 'Время в пути' : 'Travel time';
-  const travelSummary = travelDuration ? `${travelLabel} · ${travelDuration.amount} ${travelUnit === 'hours' ? (language === 'ru' ? 'ч' : 'h') : (language === 'ru' ? 'мин' : 'min')}` : travelLabel;
-  const backUnit = travelBackDuration?.unit === 'hours' ? 'hours' : 'minutes';
+  const durationLabels = language === 'ru' ? { seconds: 'сек', minutes: 'мин', hours: 'ч', days: 'д', weeks: 'нед' } : { seconds: 'sec', minutes: 'min', hours: 'h', days: 'd', weeks: 'wk' };
+  const travelSummary = travelDuration ? `${travelLabel} · ${travelDuration.amount} ${durationLabels[travelUnit]}` : travelLabel;
+  const backUnit = travelBackDuration?.unit ?? 'minutes';
   const backLabel = language === 'ru' ? 'Дорога обратно' : 'Travel back';
-  const backSummary = travelBackDuration ? `${backLabel} · ${travelBackDuration.amount} ${backUnit === 'hours' ? (language === 'ru' ? 'ч' : 'h') : (language === 'ru' ? 'мин' : 'min')}` : backLabel;
-  const presets = (onChoose: (amount: number, unit: FriendlyDurationUnit) => void) => <div className="program-actions">{[15, 30, 45, 60, 90, 120].map((minutes) => <Button key={minutes} size="compact" variant="ghost" onClick={() => onChoose(minutes, 'minutes')}>{minutes < 60 ? `${minutes} ${language === 'ru' ? 'мин' : 'min'}` : `${String(minutes / 60).replace('.', language === 'ru' ? ',' : '.')} ${language === 'ru' ? 'ч' : 'h'}`}</Button>)}</div>;
+  const backSummary = travelBackDuration ? `${backLabel} · ${travelBackDuration.amount} ${durationLabels[backUnit]}` : backLabel;
   return <ItemSection sectionKey="dates" title="Dates & time" iconPath="schedule" filledMark={sectionMark(Boolean(item.schedule?.plannedDate || item.schedule?.availableFrom || item.schedule?.startAt || item.schedule?.endAt || item.schedule?.dueAt || item.schedule?.estimatedDuration || item.schedule?.travelDuration || item.schedule?.allDay))}>
     <Disclosure uiKey="item-editor:date-guide" persist={false} summary="Date guide" className="date-guide"><p className="schedule-explainer">Scheduled time reserves a calendar block. A deadline is the latest completion time. Availability only says how early work may begin.</p><ul><li><strong>Event opens</strong> is when the item becomes active and starts its calendar block.</li><li><strong>Event ends</strong> is only the end of the calendar block.</li><li><strong>Due / Active range ends</strong> is the latest completion time and can close the active range.</li><li><strong>Available to work from</strong> is optional; it keeps reminders quiet before that time.</li></ul></Disclosure>
     <div className="form-grid two schedule-grid">
       {item.schedule?.startAt && !item.schedule.allDay && <Disclosure uiKey={`item-editor:${item.id}:travel-time`} persist={false} summary={travelSummary} className="travel-time-disclosure">
-        {presets(patchTravelDuration)}
-        <div className="travel-duration-control"><Input type="number" min="0" step="1" aria-label="Travel time amount" value={travelDuration?.amount ?? ''} placeholder="—" onChange={(event) => patchTravelDuration(event.target.value === '' || Number(event.target.value) <= 0 ? undefined : Number(event.target.value), travelUnit)} /><Select aria-label="Travel time unit" value={travelUnit} onChange={(event) => patchTravelDuration(travelDuration?.amount, event.target.value as FriendlyDurationUnit)}><option value="minutes">Minutes</option><option value="hours">Hours</option></Select></div><small>Reserved immediately before Event opens. It does not change the estimate.</small>
+        <div className="travel-duration-control"><DurationInput presets label="Travel time amount" duration={travelDuration} onChange={(next) => patchTravelDuration(next?.amount, next?.unit ?? travelUnit)} /><Select aria-label="Travel time unit" value={travelUnit} onChange={(event) => patchTravelDuration(travelDuration?.amount, event.target.value as FriendlyDurationUnit)}><option value="seconds">Seconds</option><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="weeks">Weeks</option></Select></div><small>Reserved immediately before Event opens. It does not change the estimate.</small>
       </Disclosure>}
       <Field label={<FieldIconLabel path="schedule.startAt" label="Event opens" />}>
         {patchPlannedDate && !item.external && <Select aria-label="Event opens precision" value={dateOnly ? 'date' : 'datetime'} onChange={event => {
@@ -79,15 +78,14 @@ export function DatesSection({ item, workspace, now = new Date(), sectionMark, s
         {clearScheduleReason && (item.schedule?.plannedDate || item.schedule?.startAt) && <small className="ui-field-hint">{clearScheduleReason}</small>}
         {pendingDateOnly && <div className="date-only-confirm" role="alert"><p>{language === 'ru' ? 'Время начала, окончания и дорога будут удалены. Оставить только дату?' : 'Start/end times and travel will be removed. Keep only the date?'}</p><Button size="compact" onClick={() => { patchPlannedDate?.(startDateKey()); setDateOnlyMode(true); setPendingDateOnly(false); }}>{language === 'ru' ? 'Оставить дату' : 'Keep date'}</Button><Button size="compact" variant="secondary" onClick={() => setPendingDateOnly(false)}>{language === 'ru' ? 'Отмена' : 'Cancel'}</Button></div>}
       </Field>
-      <Field label={<FieldIconLabel path="schedule.estimatedDuration" label="Estimated duration" />}><DurationField hasStart={Boolean(item.schedule?.startAt)} {...(scheduledDuration ? { duration: scheduledDuration } : {})} onDurationChange={patchScheduledDuration} onPreset={applyDurationPreset} /></Field>
+      <Field label={<FieldIconLabel path="schedule.estimatedDuration" label="Estimated duration" />}><DurationField {...(scheduledDuration ? { duration: scheduledDuration } : {})} onDurationChange={patchScheduledDuration} /></Field>
       {(item.schedule?.startAt || item.schedule?.plannedDate) && <Field label={<FieldIconLabel path="schedule.endAt" label="Event ends" />} error={invalidEnd ? 'Event ends cannot be earlier than Event opens.' : undefined}>
         {dateOnly && patchDateOnlyEnd && <Select aria-label="Event ends precision" value={endDateOnlyMode ? 'date' : 'datetime'} onChange={event => setEndDateOnlyMode(event.target.value === 'date')}><option value="date">{language === 'ru' ? 'Только дата' : 'Date only'}</option><option value="datetime">{language === 'ru' ? 'Дата и время' : 'Date and time'}</option></Select>}
         {dateOnly && endDateOnlyMode && patchDateOnlyEnd ? <div className="date-field-row"><Input type="date" aria-label="Event ends date" min={item.schedule?.plannedDate ?? (item.schedule?.startAt ? calendarDateKey(new Date(item.schedule.startAt), item.schedule.timezone) : undefined)} value={item.schedule?.allDay && item.schedule.endAt ? calendarDateKey(new Date(Date.parse(item.schedule.endAt) - 1), item.schedule.timezone) : ''} onChange={event => patchDateOnlyEnd(event.target.value || undefined)} /><Button size="compact" variant="ghost" className="date-clear" aria-label="Clear Event ends" disabled={!item.schedule?.endAt} onClick={() => patchDateOnlyEnd(undefined)}>Clear</Button></div> : <DateTimeField label="Event ends" value={dateOnly ? undefined : item.schedule?.endAt} language={language} onChange={dateOnly ? patchDateOnlyTimedEnd ?? patchScheduledEnd : patchScheduledEnd} onClear={dateOnly ? () => patchDateOnlyEnd?.(undefined) : undefined} canClear={dateOnly ? Boolean(item.schedule?.endAt) : undefined} minValue={item.schedule?.startAt} timeZone={item.schedule?.timezone ?? workspace.calendarPreferences.timezone} help={dateOnly ? (language === 'ru' ? 'При выборе времени начало станет 00:00 первого дня.' : 'Choosing a time sets the start to 00:00 on the first day.') : undefined} />}
         {clearScheduleReason && item.schedule?.endAt && <small className="ui-field-hint">{clearScheduleReason}</small>}
       </Field>}
       {patchTravelBackDuration && item.schedule?.startAt && !item.schedule?.allDay && <Disclosure uiKey={`item-editor:${item.id}:travel-back`} persist={false} summary={backSummary} className="travel-time-disclosure">
-        {presets(patchTravelBackDuration)}
-        <div className="travel-duration-control"><Input type="number" min="0" step="1" aria-label="Travel back amount" value={travelBackDuration?.amount ?? ''} placeholder="—" onChange={event => patchTravelBackDuration(event.target.value === '' || Number(event.target.value) <= 0 ? undefined : Number(event.target.value), backUnit)} /><Select aria-label="Travel back unit" value={backUnit} onChange={event => patchTravelBackDuration(travelBackDuration?.amount, event.target.value as FriendlyDurationUnit)}><option value="minutes">Minutes</option><option value="hours">Hours</option></Select></div>
+        <div className="travel-duration-control"><DurationInput presets label="Travel back amount" duration={travelBackDuration} onChange={(next) => patchTravelBackDuration(next?.amount, next?.unit ?? backUnit)} /><Select aria-label="Travel back unit" value={backUnit} onChange={event => patchTravelBackDuration(travelBackDuration?.amount, event.target.value as FriendlyDurationUnit)}><option value="seconds">Seconds</option><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="weeks">Weeks</option></Select></div>
         <small>{language === 'ru' ? 'Сразу после события. Учитывается как занятое время.' : 'Immediately after the event. Counts as busy time.'}</small>
       </Disclosure>}
       <div className="due-field-wrap"><Field label={<FieldIconLabel path="schedule.dueAt" label="Due / Active range ends" />} error={invalidDue ? 'Due / Active range ends cannot be earlier than Event opens.' : undefined}>{patchQuickDue && <Select aria-label="Due precision" value={dueDateOnlyMode ? 'date' : 'datetime'} onChange={event => {

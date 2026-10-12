@@ -372,9 +372,9 @@ function appendCycleHistory(item: UniversalItem, entry: CycleHistoryEntry): bool
   item.cycleHistory ??= [];
   if (item.cycleHistory.some((candidate) => candidate.recurrenceId === entry.recurrenceId)) return false;
   item.cycleHistory.push(entry);
-  if ((entry.state === 'done' || entry.state === 'auto_closed') && !item.completionEntries?.some((record) => record.recurrenceId === entry.recurrenceId && !record.revokedAt)) {
+  if (entry.state === 'done' && entry.actor === 'user' && !item.completionEntries?.some((record) => record.recurrenceId === entry.recurrenceId && !record.revokedAt)) {
     item.completionEntries ??= [];
-    item.completionEntries.push({ id: `cycle:${item.id}:${entry.recurrenceId}`, at: entry.closedAt, kind: entry.actor === 'user' && entry.state === 'done' ? 'manual' : 'automatic', comment: '', recurrenceId: entry.recurrenceId });
+    item.completionEntries.push({ id: `cycle:${item.id}:${entry.recurrenceId}`, at: entry.closedAt, kind: 'manual', comment: '', recurrenceId: entry.recurrenceId });
   }
   // Automerge list proxies intentionally do not expose Array#sort. Reorder the
   // list through splice and detached values so this helper works for both plain
@@ -588,12 +588,25 @@ export function consolidateHabitOccurrences(workspace: WorkspaceDocument, now = 
   let removed = 0;
   // Habit is a capability of a universal item, not a data type. Older items
   // may use the Task/Event preset while still carrying habit history.
-  const habits = Object.values(workspace.items).filter((item) => item.role === 'series_template' && item.habit && !item.deletedAt);
+  const items = Object.values(workspace.items);
+  const habits = items.filter(item => item.role === 'series_template' && item.habit && !item.deletedAt);
+  if (!habits.length) return 0;
+  const habitIds = new Set(habits.map(item => item.id));
+  const occurrencesBySeries = new Map<string, UniversalItem[]>();
+  for (const item of items) {
+    if (item.occurrence && habitIds.has(item.occurrence.seriesId)) {
+      const group = occurrencesBySeries.get(item.occurrence.seriesId);
+      if (group) group.push(item);
+      else occurrencesBySeries.set(item.occurrence.seriesId, [item]);
+    }
+  }
   for (const series of habits) {
     series.habit ??= { target: 1, unit: 'times', streakMode: 'manual_only', completedDates: [] };
     series.habit.completedDates ??= [];
-    const legacyOccurrences = Object.values(workspace.items).filter((item) => item.occurrence?.seriesId === series.id);
+    const legacyOccurrences = occurrencesBySeries.get(series.id) ?? [];
     for (const occurrence of legacyOccurrences) {
+      // Earlier legacy groups can remove a nested occurrence from the map.
+      if (!workspace.items[occurrence.id]) continue;
       if (occurrence.state === 'done') series.habit.completedDates.push(occurrence.occurrence!.recurrenceId.slice(0, 10));
       const history = retainedItemHistory(occurrence);
       if (history.timerHistory?.length) series.timerHistory = [...(series.timerHistory ?? []), ...history.timerHistory];
@@ -603,9 +616,12 @@ export function consolidateHabitOccurrences(workspace: WorkspaceDocument, now = 
       delete workspace.items[occurrence.id];
       removed += 1;
     }
-    series.habit.completedDates = [...new Set(series.habit.completedDates)].sort();
-    series.state = 'open';
-    delete series.closure;
+    const dates = [...new Set(series.habit.completedDates)].sort();
+    // Replacing an identical array creates CRDT operations and forces a full
+    // encrypted save during every launch. Preserve the existing list on no-op.
+    if (dates.length !== series.habit.completedDates.length || dates.some((date, index) => date !== series.habit!.completedDates[index])) series.habit.completedDates = dates;
+    if (series.state !== 'open') series.state = 'open';
+    if (series.closure) delete series.closure;
   }
   return removed;
 }

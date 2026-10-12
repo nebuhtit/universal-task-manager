@@ -23,13 +23,41 @@ async function reopenItem(page: Page) {
   await page.getByRole('dialog').waitFor({ state: 'visible' });
 }
 
+async function openDates(editor: import('@playwright/test').Locator) {
+  await editor.locator('[data-editor-section="dates"]').evaluate((element) => { (element as HTMLDetailsElement).open = true; });
+}
+
+test('duration unit suggestions remain visible and accept friendly input in the editor', async ({ page }, testInfo) => {
+  await createWorkspaceAndItem(page);
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const amount = editor.getByLabel('Calendar duration amount', { exact: true });
+  await amount.fill('1,5 h');
+  await expect(editor.getByLabel('Calendar duration unit', { exact: true })).toHaveValue('minutes');
+  const suggestions = editor.getByRole('group', { name: 'Calendar duration amount units', exact: true });
+  await expect(suggestions).toBeVisible();
+  const minutes = suggestions.getByRole('button', { name: '1,5 min', exact: true });
+  if (testInfo.project.use.hasTouch) await minutes.tap(); else await minutes.click();
+  await expect(amount).toHaveValue('1,5 min');
+  await expect(editor.getByLabel('Calendar duration unit', { exact: true })).toHaveValue('seconds');
+  await editor.getByLabel('Calendar duration unit', { exact: true }).focus();
+  await expect(amount).toHaveValue('90 sec');
+  await expect(suggestions).toBeHidden();
+  await amount.fill('30 мин');
+  await expect(editor.getByLabel('Calendar duration unit', { exact: true })).toHaveValue('minutes');
+  const inputBox = await amount.boundingBox();
+  const unitBox = await editor.getByLabel('Calendar duration unit', { exact: true }).boundingBox();
+  expect(inputBox!.width).toBeGreaterThan(unitBox!.width);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(suggestions).toBeVisible();
+});
+
 test('travel title draft survives rejected blur and saves after event bounds are supplied', async ({ page }, testInfo) => {
   await createWorkspaceAndItem(page);
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   const title = editor.getByRole('combobox', { name: 'Title', exact: true });
   await title.fill('Test ttb 45m');
   await editor.getByLabel('Event opens', { exact: true }).focus();
-  await expect(editor.locator('.editor-error').first()).toContainText('Для дороги нужно время начала.');
+  await expect(editor.locator('.warning-notice-stack').getByRole('alert').first()).toContainText('Для дороги нужно время начала.');
   // Include parent clock rerenders after the unsuccessful blur.
   await page.waitForTimeout(2200);
   await expect(title).toHaveValue('Test ttb 45m');
@@ -56,6 +84,48 @@ test('reminder number can be cleared before replacement', async ({ page }) => {
   await expect(amount).toHaveValue('25');
   await amount.fill(''); await page.getByLabel('Reminder 1 unit').focus();
   await expect(amount).toHaveValue('25');
+});
+
+test('reminder and travel presets commit the exact tapped choice without a keyboard blur race', async ({ page }, testInfo) => {
+  await createWorkspaceAndItem(page);
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const activate = async (control: import('@playwright/test').Locator) => {
+    if (testInfo.project.use.hasTouch) await control.tap(); else await control.click();
+  };
+
+  const reminders = page.locator('details').filter({ has: page.locator(':scope > summary').filter({ hasText: /^Reminders/ }) });
+  await reminders.evaluate(el => { (el as HTMLDetailsElement).open = true; });
+  await activate(editor.getByRole('button', { name: '+ Add reminder', exact: true }));
+  await editor.getByLabel('Reminder 1 mode', { exact: true }).selectOption('before');
+  const reminder = editor.getByLabel('Reminder 1 amount', { exact: true });
+  const reminderChoices = editor.getByRole('group', { name: 'Reminder 1 amount units', exact: true });
+  await reminder.focus();
+  await expect(reminderChoices).toBeVisible();
+  await activate(reminderChoices.getByRole('button', { name: '2 h', exact: true }));
+  await expect(reminder).toHaveValue('2 h');
+  await activate(reminderChoices.getByRole('button', { name: '45 min', exact: true }));
+  await expect(reminder).toHaveValue('45 min');
+
+  await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-23T12:00');
+  const travel = editor.locator('.travel-time-disclosure').first();
+  await travel.locator(':scope > summary').click();
+  const travelAmount = editor.getByLabel('Travel time amount', { exact: true });
+  const travelChoices = editor.getByRole('group', { name: 'Travel time amount units', exact: true });
+  await travelAmount.focus();
+  await expect(travelChoices).toBeVisible();
+  await activate(travelChoices.getByRole('button', { name: '3 h', exact: true }));
+  await expect(travelAmount).toHaveValue('3 h');
+
+  await activate(editor.getByRole('button', { name: 'Save item', exact: true }));
+  await expect(editor).toBeHidden();
+  await page.locator('.item-card').filter({ hasText: 'Calendar block' }).first().locator('.item-main').click();
+  await expect(editor).toBeVisible();
+  await openDates(editor);
+  await page.locator('details').filter({ has: page.locator(':scope > summary').filter({ hasText: /^Reminders/ }) }).evaluate(el => { (el as HTMLDetailsElement).open = true; });
+  await expect(editor.getByLabel('Reminder 1 amount', { exact: true })).toHaveValue('45 min');
+  await editor.locator('.travel-time-disclosure').first().locator(':scope > summary').click();
+  await expect(editor.getByLabel('Travel time amount', { exact: true })).toHaveValue('3');
+  await expect(editor.getByLabel('Travel time unit', { exact: true })).toHaveValue('hours');
 });
 
 test('event end and duration stay linked in both directions and allow clearing', async ({ page }) => {

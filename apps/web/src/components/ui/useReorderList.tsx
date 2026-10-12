@@ -1,4 +1,5 @@
-import { useId, useRef, type HTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type HTMLAttributes, type ReactNode } from 'react';
+import './reorder-preview.css';
 
 type DragState = { from: number; target: number; after: boolean };
 
@@ -12,16 +13,26 @@ function moveEntry<T>(items: T[], from: number, target: number, after = false) {
 }
 
 /** Pointer/touch reorder with an explicit handle; Arrow/Home/End keep it keyboard accessible. */
-export function useReorderList<T>(items: T[], onChange: (items: T[]) => void) {
+export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { enabled = true, visualPreview = false } = {}) {
   const listId = useId();
   const container = useRef<HTMLDivElement | null>(null);
   const drag = useRef<DragState | null>(null);
   const suppressClickUntil = useRef(0);
+  const cancelSurface = useRef<(() => void) | undefined>(undefined);
+  const preview = useRef<HTMLElement | null>(null);
+  const clearPreview = () => {
+    preview.current?.remove(); preview.current = null;
+    container.current?.querySelectorAll('[data-reorder-dragging], [data-reorder-drop]').forEach((row) => {
+      row.removeAttribute('data-reorder-dragging'); row.removeAttribute('data-reorder-drop');
+    });
+  };
+  useEffect(() => { if (!enabled) cancelSurface.current?.(); return () => cancelSurface.current?.(); }, [enabled]);
   const rowProps = (index: number): HTMLAttributes<HTMLDivElement> => ({
     'data-reorder-list': listId,
     'data-reorder-index': String(index),
-    onDragOver: (event) => { event.preventDefault(); updateDragTarget(event.clientY); },
+    onDragOver: (event) => { if (enabled) { event.preventDefault(); updateDragTarget(event.clientY); } },
     onDrop: (event) => {
+      if (!enabled) return;
       event.preventDefault();
       updateDragTarget(event.clientY);
       const current = drag.current;
@@ -46,33 +57,56 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void) {
     const bounds = row.getBoundingClientRect();
     drag.current.target = target;
     drag.current.after = clientY >= bounds.top + bounds.height / 2;
+    if (visualPreview) {
+      rows.forEach((candidate) => candidate.removeAttribute('data-reorder-drop'));
+      if (target !== drag.current.from) row.dataset.reorderDrop = drag.current.after ? 'after' : 'before';
+    }
   };
   const surface = (index: number): HTMLAttributes<HTMLElement> => ({
     onPointerDown: (event) => {
+      if (!enabled) return;
       if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      cancelSurface.current?.();
       const target = event.currentTarget;
       const startY = event.clientY;
+      const pointerId = event.pointerId;
       const timer = window.setTimeout(() => {
         drag.current = { from: index, target: index, after: false };
+        if (visualPreview) {
+          const bounds = target.getBoundingClientRect();
+          const clone = target.cloneNode(true) as HTMLElement;
+          clone.className = 'ui-reorder-preview';
+          clone.setAttribute('aria-hidden', 'true'); clone.setAttribute('tabindex', '-1');
+          clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'));
+          Object.assign(clone.style, { left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, color: getComputedStyle(target).color });
+          document.body.appendChild(clone); preview.current = clone;
+          target.closest<HTMLElement>('[data-reorder-index]')?.setAttribute('data-reorder-dragging', 'true');
+        }
         try { navigator.vibrate?.(15); } catch { /* Haptics are optional. */ }
       }, 350);
       const move = (pointerEvent: PointerEvent) => {
+        if (pointerEvent.pointerId !== pointerId) return;
         if (!drag.current && Math.abs(pointerEvent.clientY - startY) > 10) { window.clearTimeout(timer); cleanup(); return; }
         if (drag.current) pointerEvent.preventDefault();
+        if (preview.current) preview.current.style.transform = `translateY(${pointerEvent.clientY - startY}px)`;
         updateDragTarget(pointerEvent.clientY);
       };
       const finish = (pointerEvent: PointerEvent) => {
+        if (pointerEvent.pointerId !== pointerId) return;
         window.clearTimeout(timer); updateDragTarget(pointerEvent.clientY);
         const current = drag.current;
-        if (current && current.target !== current.from) { onChange(moveEntry(items, current.from, current.target, current.after)); suppressClickUntil.current = performance.now() + 500; }
+        if (current) suppressClickUntil.current = performance.now() + 500;
+        if (current && current.target !== current.from) onChange(moveEntry(items, current.from, current.target, current.after));
         drag.current = null; cleanup();
       };
       const cancel = () => { window.clearTimeout(timer); drag.current = null; cleanup(); };
-      const cleanup = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', cancel); };
-      window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', cancel);
-      target.setPointerCapture?.(event.pointerId);
+      const cleanup = () => { clearPreview(); cancelSurface.current = undefined; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', cancel); };
+      cancelSurface.current = cancel;
+      window.addEventListener('pointermove', move, { passive: false }); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', cancel);
+      try { target.setPointerCapture?.(event.pointerId); } catch { /* Window listeners also cover unavailable or cancelled capture. */ }
     },
     onClick: (event) => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } },
+    onTouchEnd: (event) => { if (performance.now() < suppressClickUntil.current) event.preventDefault(); },
   });
   const handle = (index: number, label: string): ReactNode => <button
     type="button"

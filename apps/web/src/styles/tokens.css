@@ -73,6 +73,13 @@
   --color-text-secondary: #676767;
   --color-border: #e5e5e5;
   --color-border-strong: #bdbdbd;
+  /* Availability images retain a readable light palette when shared. */
+  --color-export-background: #ffffff;
+  --color-export-text: #0d0d0d;
+  --color-export-secondary: #676767;
+  --color-export-grid: #e5e5e5;
+  --color-export-reserved: #bdbdbd;
+  --color-export-weekend: #b42318;
   --color-accent: #333333;
   --color-accent-hover: #1f1f1f;
   --color-accent-active: #111111;

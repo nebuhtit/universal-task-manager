@@ -1,1 +1,6 @@
+.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
+.reminder-row > select { min-width: 0; }
+.reminder-remove { justify-self: end; flex-shrink: 0; }
+.reminder-value { grid-column: 1 / -1; display: flex; gap: var(--space-2); min-width: 0; }
+.reminder-value > .duration-input, .reminder-value > input { flex: 1; min-width: 0; }
 .reminder-snoozed { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); color: var(--color-text-secondary); }

@@ -278,9 +278,11 @@ export async function disableFaceIdUnlock(): Promise<void> {
 export async function unlockLocalWorkspaceWithFaceId(): Promise<UnlockedWorkspace> {
   await ready();
   entryProgress({ stage: 'read', phase: 'started' });
-  const record = await getRecord<FaceIdUnlockRecord>(FACE_ID_KEY);
-  const metadata = await getRecord<LocalMetadata>(META_KEY);
-  const block = await getRecord<LocalBlock>(BLOCK_KEY);
+  const [record, metadata, block] = await Promise.all([
+    getRecord<FaceIdUnlockRecord>(FACE_ID_KEY),
+    getRecord<LocalMetadata>(META_KEY),
+    getRecord<LocalBlock>(BLOCK_KEY),
+  ]);
   entryProgress({ stage: 'read', phase: 'completed' });
   entryProgress({ stage: 'decrypt', phase: 'started' });
   if (!record || !metadata || !block || metadata.mode === 'plaintext' || isPlaintextBlock(block)) throw new Error('Face ID is not configured. Use your password instead.');
@@ -390,9 +392,11 @@ export async function unlockLocalWorkspace(password: string, options: { readOnly
 /** Opens an encrypted workspace only after this device was explicitly allowed to bypass the password prompt. */
 export async function unlockLocalWorkspaceWithoutPassword(): Promise<UnlockedWorkspace> {
   entryProgress({ stage: 'read', phase: 'started' });
-  const metadata = await getRecord<LocalMetadata>(META_KEY);
-  const block = await getRecord<LocalBlock>(BLOCK_KEY);
-  const bypass = await getRecord<PasswordBypassRecord>(PASSWORD_BYPASS_KEY);
+  const [metadata, block, bypass] = await Promise.all([
+    getRecord<LocalMetadata>(META_KEY),
+    getRecord<LocalBlock>(BLOCK_KEY),
+    getRecord<PasswordBypassRecord>(PASSWORD_BYPASS_KEY),
+  ]);
   entryProgress({ stage: 'read', phase: 'completed' });
   entryProgress({ stage: 'decrypt', phase: 'started' });
   if (!metadata || !block) throw new Error('No local workspace exists');

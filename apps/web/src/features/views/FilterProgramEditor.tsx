@@ -20,7 +20,7 @@ function FilterBlock({ node, onChange, workspace, projectScope = false, depth = 
   const ru = workspace.calendarPreferences.language === 'ru';
   const t = (en: string, russian: string) => ru ? russian : en;
   const localizedField = (field: { path: string; label: string; group: string }) => ru
-    ? ({ ...field, label: ({ itemKind: 'Тип item', isTemplate: 'Сохранённый шаблон item (устаревшее имя)', role: 'Техническая роль повторения' } as Record<string, string>)[field.path] ?? field.label, group: ({ 'Item kind': 'Тип item', Advanced: 'Дополнительно' } as Record<string, string>)[field.group] ?? field.group })
+    ? ({ ...field, label: ({ withinReservedBlockWhenSet: 'Только во время связанного закреплённого скрытого блока', itemKind: 'Тип item', isTemplate: 'Сохранённый шаблон item (устаревшее имя)', role: 'Техническая роль повторения' } as Record<string, string>)[field.path] ?? field.label, group: ({ 'Item kind': 'Тип item', Advanced: 'Дополнительно' } as Record<string, string>)[field.group] ?? field.group })
     : field;
   const child = (value: Expression, update: (next: Expression) => void) => <FilterBlock node={value} onChange={update} workspace={workspace} depth={depth + 1} projectScope={projectScope} />;
   const fields = filterFieldOptions(workspace).map(localizedField).filter((field) => !projectScope || ['project', 'area'].includes(field.path));

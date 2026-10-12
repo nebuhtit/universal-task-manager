@@ -9,7 +9,10 @@ export function validateEventProgram(item: UniversalItem): void {
     if (!block.id || ids.has(block.id)) throw new Error('Program block IDs must be unique.');
     ids.add(block.id);
     if (!block.title.trim()) throw new Error('Give every program block a title.');
-    if (!Number.isSafeInteger(block.startOffsetSeconds) || !Number.isSafeInteger(block.endOffsetSeconds) || block.startOffsetSeconds < 0 || block.endOffsetSeconds <= block.startOffsetSeconds) throw new Error('Every program block must end after its start.');
+    const label = `Program block ${ids.size} (${block.title})`;
+    if (!Number.isSafeInteger(block.startOffsetSeconds) || !Number.isSafeInteger(block.endOffsetSeconds)) throw new Error(`${label}: start and end offsets must be whole seconds.`);
+    if (block.startOffsetSeconds < 0) throw new Error(`${label}: start must not be before Event opens.`);
+    if (block.endOffsetSeconds <= block.startOffsetSeconds) throw new Error(`${label}: end must be after start. For an overnight block, set the end day explicitly.`);
   }
 }
 

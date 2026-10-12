@@ -1,4 +1,5 @@
-import { createId, createItem, durationToMs, withinDay, withinTargets, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { canManuallyComplete, createId, createItem, durationToMs, withinDay, withinTargets, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { clearCreationDefaultBounds, withoutCreationDefaultBounds } from './creationDefaultBounds';
 import { bareDurationInsertion, dateValueExpression, duration, parseDate, parseLiveEntry as parseEntry, type Draft } from '../../../quick-entry-lab/parser';
 import { extractOrganization } from '../../../quick-entry-lab/organization';
 import { extractWithinRelations } from '../../../quick-entry-lab/relations';
@@ -147,17 +148,22 @@ export function applyQuickEntryEditorText(item: UniversalItem, text: string, now
 
 export function parseQuickEntryForItem(text: string, now: Date, item?: UniversalItem): Draft {
   const schedule = item?.schedule;
-  return parseEntry(text, now, schedule ? {
-    start: schedule.startAt, end: schedule.endAt, due: schedule.dueAt,
-    travelMinutes: schedule.travelDuration ? durationToMs(schedule.travelDuration) / 60_000 : undefined,
-  } : undefined);
+  const withinAvailability = (extractWithinRelations(text).ids.length > 0 || Boolean(item && withinTargets(item).length)) && (!item || canManuallyComplete(item)) && !schedule?.endAt && !item?.external?.endAt;
+  return parseEntry(text, now, {
+    withinAvailability,
+    start: schedule?.startAt, end: schedule?.endAt, due: schedule?.dueAt,
+    travelMinutes: schedule?.travelDuration ? durationToMs(schedule.travelDuration) / 60_000 : undefined,
+  });
 }
 
 export function applyQuickEntryText(item: UniversalItem, text: string, now: Date, options: { preserveUnspecifiedSchedule?: boolean } = {}): { item: UniversalItem; draft: Draft } {
+  const within = extractWithinRelations(text);
+  const completable = canManuallyComplete(item);
+  if (within.ids.length) item = withoutCreationDefaultBounds(item);
   const preserveUnspecifiedSchedule = options.preserveUnspecifiedSchedule === true;
   const draft = parseQuickEntryForItem(text, now, preserveUnspecifiedSchedule ? item : undefined);
   if (draft.errors.length) throw new Error(draft.errors.join(' '));
-  const within = extractWithinRelations(text);
+  if (draft.start || draft.end) item = clearCreationDefaultBounds(item);
   const organization = extractOrganization(within.text);
   const metadata = [...organization.areas.map(name => `area:${JSON.stringify(name)}`), ...organization.projects.map(name => `project:${JSON.stringify(name)}`), ...organization.tags.map(name => `#${JSON.stringify(name)}`)];
   const references = within.tokens;
@@ -174,12 +180,26 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   if (draft.start) { schedule.startAt = draft.start; delete schedule.allDay; }
   else if (!preserveUnspecifiedSchedule) delete schedule.startAt;
   if (draft.end) schedule.endAt = draft.end; else if (!preserveUnspecifiedSchedule) delete schedule.endAt;
-  if (draft.durationMinutes !== null) schedule.estimatedDuration = minutesDuration(draft.durationMinutes); else if (!preserveUnspecifiedSchedule) delete schedule.estimatedDuration;
+  if (draft.durationMinutes !== null) {
+    schedule.estimatedDuration = minutesDuration(draft.durationMinutes);
+    // Editing Live Text on an existing calendar event keeps its form dates as
+    // context. When duration is explicitly changed, keep the paired end bound
+    // in sync unless the text supplied a new end itself. Availability tasks
+    // without an end remain end-less.
+    if (preserveUnspecifiedSchedule && !draft.end && schedule.startAt && schedule.endAt) {
+      schedule.endAt = new Date(Date.parse(schedule.startAt) + draft.durationMinutes * 60_000).toISOString();
+    }
+  } else if (!preserveUnspecifiedSchedule) delete schedule.estimatedDuration;
+  if (draft.end && !draft.durationMinutes && schedule.startAt) {
+    const span = Date.parse(draft.end) - Date.parse(schedule.startAt);
+    if (Number.isFinite(span) && span > 0) schedule.estimatedDuration = minutesDuration(span / 60_000);
+  }
   if (draft.travelMinutes !== null) schedule.travelDuration = minutesDuration(draft.travelMinutes); else if (!preserveUnspecifiedSchedule) delete schedule.travelDuration;
   if (draft.travelBackMinutes !== undefined) schedule.travelBackDuration = minutesDuration(draft.travelBackMinutes); else if (!preserveUnspecifiedSchedule) delete schedule.travelBackDuration;
   return {
     item: {
       ...item, title: draft.title, schedule, reminders: preserveUnspecifiedSchedule && draft.reminders.length === 0 ? item.reminders : reminderItems(draft),
+      ...(within.ids.length && item.canBeCompleted === undefined ? { canBeCompleted: completable } : {}),
       relations: [...item.relations.filter(r => r.type !== 'scheduled_within' || !previousWithin.includes(r.targetId)), ...within.ids.filter(id => id !== item.id && !item.relations.some(r => r.type === 'scheduled_within' && r.targetId === id && !previousWithin.includes(id))).map(targetId => item.relations.find(r => r.type === 'scheduled_within' && r.targetId === targetId) ?? ({ id: createId(), targetId, type: 'scheduled_within' as const }))],
       ...(draft.isNote ? { isNote: true, canBeCompleted: false } : {}),
       areas: memberships(item.areas, previous.areas, draft.areas ?? []),

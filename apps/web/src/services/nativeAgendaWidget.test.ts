@@ -59,6 +59,42 @@ describe('lock screen agenda projection', () => {
     expect(snapshot.entries[0]).toMatchObject({ title: '[[travel-to]] Задача', target: (now + 3600000) / 1000 });
     expect(snapshot.entries.find(entry => entry.at === (now + 3600000) / 1000)).toMatchObject({ current: '[[travel-road]] Задача', title: 'Задача' });
   });
+  it('adds the event clock only before outbound travel and keeps the departure countdown', () => {
+    const now = Date.parse('2026-10-09T18:00:00Z');
+    const workspace = createWorkspace('Travel clocks'); workspace.items = {};
+    workspace.calendarPreferences.timezone = 'Europe/Moscow';
+    const item = createItem('Событие');
+    item.schedule = { timezone: 'Europe/Moscow', startAt: '2026-10-09T18:40:00Z', endAt: '2026-10-09T19:40:00Z', travelDuration: 'PT20M', travelBackDuration: 'PT20M' };
+    workspace.items[item.id] = item;
+    const snapshot = agendaWidgetSnapshot(workspace, now);
+    const departure = Date.parse('2026-10-09T18:20:00Z') / 1000;
+    expect(snapshot.entries[0]).toMatchObject({ moment: '21:20', eventMoment: '21:40', target: departure, label: 'In' });
+    // Synthetic seconds boundaries must retain both clocks and the same target.
+    expect(snapshot.entries.find(entry => Math.abs(entry.at - (departure - 599.999)) < .001)).toMatchObject({ eventMoment: '21:40', target: departure });
+    expect(snapshot.entries.filter(entry => entry.at >= departure).every(entry => entry.eventMoment === undefined)).toBe(true);
+    delete item.schedule.travelDuration;
+    expect(agendaWidgetSnapshot(workspace, now).entries[0]).toMatchObject({ moment: '21:40', target: Date.parse(item.schedule.startAt!) / 1000 });
+    expect(agendaWidgetSnapshot(workspace, now).entries[0]).not.toHaveProperty('eventMoment');
+  });
+  it('counts down to return travel, then immediately targets the next event or Due, never the return end', () => {
+    const now = Date.parse('2026-10-09T18:00:00Z');
+    const workspace = createWorkspace('Return travel'); workspace.items = {};
+    workspace.calendarPreferences.timezone = 'UTC';
+    const event = createItem('Meeting');
+    event.schedule = { timezone: 'UTC', startAt: '2026-10-09T17:00:00Z', endAt: '2026-10-09T18:30:00Z', travelBackDuration: 'PT30M' };
+    const next = createItem('Next event');
+    next.schedule = { timezone: 'UTC', startAt: '2026-10-09T20:00:00Z', endAt: '2026-10-09T21:00:00Z' };
+    const due = createItem('Deadline');
+    due.schedule = { timezone: 'UTC', dueAt: '2026-10-09T19:30:00Z' };
+    for (const item of [event, next, due]) workspace.items[item.id] = item;
+    const returnStart = Date.parse(event.schedule.endAt!) / 1000;
+    const snapshot = agendaWidgetSnapshot(workspace, now);
+    expect(snapshot.entries[0]).toMatchObject({ current: 'Meeting', title: '[[travel-back-to]] Meeting', target: returnStart, moment: '18:30' });
+    expect(snapshot.entries.find(entry => entry.at === returnStart)).toMatchObject({ current: '', title: 'Deadline', target: Date.parse(due.schedule.dueAt!) / 1000, label: 'Due in' });
+    expect(snapshot.entries.filter(entry => entry.at >= returnStart).every(entry => !entry.title.includes('[[travel-back-to]]') && !entry.current.includes('Meeting'))).toBe(true);
+    delete workspace.items[due.id];
+    expect(agendaWidgetSnapshot(workspace, returnStart * 1000).entries[0]).toMatchObject({ title: 'Next event', target: Date.parse(next.schedule.startAt!) / 1000, label: 'In' });
+  });
   it('prepares transitions without changing or exporting full source items', () => {
     const now = Date.parse('2026-09-25T08:00:00Z');
     const workspace = createWorkspace('Private workspace'); workspace.items = {};

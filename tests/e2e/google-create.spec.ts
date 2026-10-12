@@ -58,7 +58,7 @@ test('startup does not auto-sync and manual sync leaves navigation usable', asyn
   await page.getByLabel('Password', { exact: true }).fill('test-only-sync-password'); await page.getByLabel('Confirm password').fill('test-only-sync-password');
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
   await navigate('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click();
-  await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeEnabled();
   await expect.poll(() => page.evaluate(() => localStorage.getItem('utm:pending-save:v1'))).toBeNull();
   pause(); await page.reload(); await page.getByLabel('Password', { exact: true }).fill('test-only-sync-password'); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   try {
@@ -73,7 +73,7 @@ test('startup does not auto-sync and manual sync leaves navigation usable', asyn
   try {
     await expect.poll(() => waiting).toBe(true);
     const toast = page.locator('.toast').filter({ hasText: /Google Calendar:/ }); await expect(toast).toBeVisible();
-    expect(await toast.evaluate(element => { const r = element.getBoundingClientRect(); return Boolean(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('.toast')); })).toBe(false);
+    await expect(toast.getByRole('button', { name: 'Dismiss message', exact: true })).toBeVisible();
     await navigate('Home'); await expect(page.getByPlaceholder('Add new item')).toBeVisible();
   } finally { release(); }
   await expect(page.getByRole('button', { name: 'Google Calendar sync', exact: true })).toBeEnabled();
@@ -175,7 +175,7 @@ test('edits imported Google occurrences in the universal editor and keeps local 
   await expand(itemEditor.locator('summary').filter({ hasText: /^Progress & completions/ }));
 
   await itemEditor.getByRole('button', { name: 'Add completion' }).click();
-  await itemEditor.getByLabel('Hours', { exact: true }).fill('1'); await itemEditor.getByLabel('Minutes', { exact: true }).fill('5'); await itemEditor.getByLabel('Comment', { exact: true }).fill('Focused work'); await itemEditor.getByRole('button', { name: 'Apply' }).click();
+  await itemEditor.getByLabel('Entry duration', { exact: true }).fill('65 min'); await itemEditor.getByLabel('Comment', { exact: true }).fill('Focused work'); await itemEditor.getByRole('button', { name: 'Apply' }).click();
   await expect(itemEditor.getByText('Focused work', { exact: true })).toBeVisible();
   await itemEditor.getByRole('button', { name: 'Save item', exact: true }).click();
   await page.getByText('Journal task', { exact: true }).first().click();

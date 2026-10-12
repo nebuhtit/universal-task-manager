@@ -307,8 +307,6 @@ label.check.completion-anchor-toggle { display: grid; grid-template-columns: aut
 .habit-timer-history { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
 .habit-timer-history li { display: flex; justify-content: space-between; gap: var(--space-3); }
 .habit-timer-history li > span { color: var(--color-text-secondary); }
-.reminder-row { display: grid; grid-template-columns: 1.15fr 1fr 1.1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
-@media (max-width: 640px) { .reminder-row { grid-template-columns: 1fr 1fr; } }
 .active-window-summary.incomplete > span { outline: 1px dashed #aaa; }
 /* Templates remain ordinary items. Recurrence sources are nevertheless shown
    as a compact system section so their schedule can be inspected and edited. */

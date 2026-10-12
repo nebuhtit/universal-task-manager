@@ -18,14 +18,15 @@ export function needsAgendaWidgetSync(status: Reply, signature: string, sent: st
 /** Minimal read-only projection. No passwords, item objects, or Google tokens. */
 export function agendaWidgetSnapshot(workspace: WorkspaceDocument, now = Date.now()) {
   const ru = workspace.calendarPreferences.language === 'ru';
-  const entries: Array<{ at: number; current: string; title: string; target: number | null; label: string; moment: string; tomorrow: boolean }> = [];
+  const entries: Array<{ at: number; current: string; title: string; target: number | null; label: string; moment: string; tomorrow: boolean; eventMoment?: string }> = [];
   const until = now + 48 * 3600_000;
   let at = now;
   for (let index = 0; index < 128 && at < until; index++) {
     const agenda = selectHeaderAgenda(workspace, at);
     const current = agenda.current ? agenda.current.title + (agenda.concurrent[0] ? ` (${agenda.concurrent[0].title}${agenda.additional > 1 ? ` +${agenda.additional - 1}` : ''})` : '') : '';
     const moment = agenda.next ? agendaMoment(agenda.next.at, at, workspace.calendarPreferences.timezone) : { text: '', tomorrow: false };
-    entries.push({ at: at / 1000, current: current.slice(0, 160), title: (agenda.next?.title ?? (ru ? 'Нет ближайших событий' : 'No upcoming events')).slice(0, 160), target: agenda.next ? agenda.next.at / 1000 : null, label: agenda.next?.kind === 'due' ? (ru ? 'До срока' : 'Due in') : (ru ? 'Через' : 'In'), moment: moment.text, tomorrow: moment.tomorrow });
+    const eventMoment = agenda.next?.eventAt === undefined ? undefined : agendaMoment(agenda.next.eventAt, at, workspace.calendarPreferences.timezone).text;
+    entries.push({ at: at / 1000, current: current.slice(0, 160), title: (agenda.next?.title ?? (ru ? 'Нет ближайших событий' : 'No upcoming events')).slice(0, 160), target: agenda.next ? agenda.next.at / 1000 : null, label: agenda.next?.kind === 'due' ? (ru ? 'До срока' : 'Due in') : (ru ? 'Через' : 'In'), moment: moment.text, tomorrow: moment.tomorrow, ...(eventMoment ? { eventMoment } : {}) });
     if (!Number.isFinite(agenda.validUntil) && !agenda.next) { at = until; break; }
     at = Math.max(at + 1, Math.min(agenda.validUntil, nextAgendaMidnight(at, workspace.calendarPreferences.timezone)));
   }

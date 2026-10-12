@@ -4,6 +4,12 @@ import { createItem, reminderTime } from '@utm/core';
 import { RemindersSection } from './RemindersSection';
 
 describe('RemindersSection snooze', () => {
+  it('resolves a zero before-start offset to the event start', () => {
+    const item = createItem('Meeting');
+    item.schedule = { timezone: 'UTC', startAt: '2026-10-10T16:00:00.000Z' };
+    item.reminders = [{ id: 'at-start', mode: 'relative', relativeTo: 'start', offset: '-PT0M', repeatUntilAcknowledged: false }];
+    expect(reminderTime(item, item.reminders[0]!)).toBe(item.schedule.startAt);
+  });
   it('shows the effective next alert separately from the original reminder time', () => {
     const item = createItem('Meeting');
     item.reminders = [{ id: 'reminder-1', mode: 'absolute', at: '2026-09-22T09:00:00Z', snoozedUntil: '2026-09-22T11:00:00Z', urgency: 'normal', repeatUntilAcknowledged: false }];

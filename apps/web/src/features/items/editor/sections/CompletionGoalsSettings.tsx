@@ -1,5 +1,8 @@
 import { countGoalResult, type Progress, type UniversalItem } from '@utm/core';
 import { Field, Input, Select } from '../../../../components/ui/primitives';
+import { calendarDurationMs } from '../../../../utils/durations';
+import { DurationInput } from '../fields/DurationInput';
+import { WarningNotice } from '../../../../components/ui/WarningNotice';
 
 export function CompletionGoalsSettings({ item, language, onChange }: { item: UniversalItem; language: string; onChange: (progress: Progress) => void }) {
   const t = (english: string, russian: string) => language === 'ru' ? russian : english;
@@ -28,10 +31,10 @@ export function CompletionGoalsSettings({ item, language, onChange }: { item: Un
     <details><summary>{t('Duration goal for each completion', 'Цель по длительности каждого выполнения')}</summary><div className="details-body">
       <Field label={t('Compare duration', 'Условие по времени')}><Select value={progress?.durationGoal?.comparison ?? ''} onChange={(event) => setComparison(event.target.value as NonNullable<Progress['durationGoal']>['comparison'] | '')}><option value="">{t('No duration goal', 'Без цели по времени')}</option><option value="at_least">{t('At least', 'Не меньше')}</option><option value="at_most">{t('At most', 'Не больше')}</option><option value="between">{t('Between', 'В пределах')}</option></Select></Field>
       {progress?.durationGoal && <div className="form-grid two">
-        {progress.durationGoal.comparison !== 'at_most' && <Field label={t('Minimum minutes', 'Минимум, мин')}><Input type="number" min={0} step="any" value={(progress.durationGoal.minSeconds ?? 0) / 60} onChange={(event) => updateDuration('minSeconds', Number(event.target.value))} /></Field>}
-        {progress.durationGoal.comparison !== 'at_least' && <Field label={t('Maximum minutes', 'Максимум, мин')}><Input type="number" min={0} step="any" value={(progress.durationGoal.maxSeconds ?? 0) / 60} onChange={(event) => updateDuration('maxSeconds', Number(event.target.value))} /></Field>}
+        {progress.durationGoal.comparison !== 'at_most' && <Field label={t('Minimum duration', 'Минимальная длительность')}><DurationInput label="Minimum duration" allowZero showUnit duration={{ amount: progress.durationGoal.minSeconds ?? 0, unit: 'seconds' }} onChange={(next) => updateDuration('minSeconds', next ? calendarDurationMs(next.amount, next.unit) / 60_000 : 0)} /></Field>}
+        {progress.durationGoal.comparison !== 'at_least' && <Field label={t('Maximum duration', 'Максимальная длительность')}><DurationInput label="Maximum duration" allowZero showUnit duration={{ amount: progress.durationGoal.maxSeconds ?? 0, unit: 'seconds' }} onChange={(next) => updateDuration('maxSeconds', next ? calendarDurationMs(next.amount, next.unit) / 60_000 : 0)} /></Field>}
       </div>}
-      {progress?.durationGoal?.comparison === 'between' && (progress.durationGoal.minSeconds ?? 0) > (progress.durationGoal.maxSeconds ?? 0) && <p role="alert">{t('Maximum must be at least the minimum.', 'Максимум должен быть не меньше минимума.')}</p>}
+      {progress?.durationGoal?.comparison === 'between' && (progress.durationGoal.minSeconds ?? 0) > (progress.durationGoal.maxSeconds ?? 0) && <WarningNotice language={language} message={t('Maximum must be at least the minimum.', 'Максимум должен быть не меньше минимума.')} />}
     </div></details>
   </>;
 }

@@ -4,6 +4,51 @@ const openDates = async (editor: Locator) => {
   await editor.locator('[data-editor-section="dates"]').evaluate((element) => { (element as HTMLDetailsElement).open = true; });
 };
 
+test('program start preserves duration and invalid end has a visible dismissible warning outside scrolling content', async ({ page }, testInfo) => {
+  const activate = async (control: Locator) => { if (testInfo.project.use.hasTouch) await control.tap(); else await control.click(); };
+  await page.goto('/');
+  await page.getByLabel('Workspace name').fill('Program warning');
+  await page.getByLabel('Password', { exact: true }).fill('program-test-password');
+  await page.getByLabel('Confirm password').fill('program-test-password');
+  await activate(page.getByRole('button', { name: 'Create encrypted workspace' }));
+  await page.getByPlaceholder('Add new item').fill('Program warning item');
+  await page.getByPlaceholder('Add new item').press('Enter');
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await openDates(editor);
+  await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-21T21:09');
+  await editor.getByLabel('Event ends', { exact: true }).fill('2030-09-21T23:00');
+  const program = editor.locator('.event-program');
+  await activate(program.locator(':scope > summary'));
+  await activate(program.getByRole('button', { name: 'Add block', exact: true }));
+  await program.getByLabel('Block title 1', { exact: true }).fill('Go');
+  await program.getByLabel('Block start 1', { exact: true }).fill('21:50');
+  await expect(program.getByLabel('Block end 1', { exact: true })).toHaveValue('22:20');
+  await expect(program.getByRole('button', { name: '+1 day', exact: true })).toHaveCount(0);
+  await program.getByLabel('Block end 1', { exact: true }).fill('21:09');
+  await expect(program.getByLabel('Block end 1', { exact: true })).toHaveValue('22:20');
+  const warning = editor.locator('.warning-notice-stack').getByRole('alert');
+  await expect(warning).toContainText('Block 1');
+  await expect(warning).toContainText('previous end was retained');
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await editor.locator('.ui-dialog-content').evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(warning).toBeVisible();
+    const box = await warning.boundingBox();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  }
+  await activate(warning.getByRole('button', { name: 'Dismiss warning' }));
+  await expect(warning).toHaveCount(0);
+  await program.getByLabel('Block end 1', { exact: true }).fill('21:50');
+  await expect(program.getByLabel('Block end 1', { exact: true })).toHaveValue('22:20');
+  const dismiss = editor.getByRole('button', { name: 'Dismiss warning' });
+  await dismiss.focus();
+  await page.keyboard.press('Enter');
+  await expect(editor.locator('.warning-notice-stack').getByRole('alert')).toHaveCount(0);
+  await activate(editor.getByRole('button', { name: 'Save item', exact: true }));
+  await expect(editor).toBeHidden();
+});
+
 test('infers missing event boundaries and generates the script on Save without Apply', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Workspace name').fill('Automatic program');
@@ -75,8 +120,9 @@ test('program edits, shifts, trims with confirmation and saves one managed scrip
   const travel = editor.locator('.travel-time-disclosure').first();
   await travel.locator(':scope > summary').click();
   await expect(travel.getByLabel('Travel time amount')).toHaveValue('');
-  await travel.getByRole('button', { name: '45 min', exact: true }).click();
-  await expect(travel.getByLabel('Travel time amount')).toHaveValue('45');
+  await travel.getByLabel('Travel time amount').fill('45 min');
+  await program.getByLabel('Block title 1', { exact: true }).focus();
+  await expect(travel.getByLabel('Travel time amount')).toHaveValue('45 min');
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme });
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
@@ -92,7 +138,7 @@ test('program edits, shifts, trims with confirmation and saves one managed scrip
   page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('Extend the event'); await dialog.accept(); });
   await editor.getByRole('button', { name: 'Save item', exact: true }).click();
   await expect(editor).toBeHidden();
-  await page.getByText('Program workshop', { exact: true }).first().click();
+  await page.locator('.item-card').filter({ hasText: 'Program workshop' }).first().locator('.item-main').click();
   await openDates(editor);
   await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('2030-09-22T19:00');
   await program.locator(':scope > summary').click();

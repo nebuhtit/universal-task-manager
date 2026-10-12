@@ -3,6 +3,13 @@ import { withinSuggestions, extractWithinRelations, joinWithinText } from '../..
 import { createQuickEntryItem, applyQuickEntryText, syncQuickEntrySource, quickEntrySource } from './quickEntry';
 const now = new Date('2026-10-06T07:00:00Z');
 describe('Live Text within relations', () => {
+  it('keeps an availability start plus duration without creating a fixed event end', () => {
+    const item = createQuickEntryItem('Task начало 06.10.2026 09:00 дл 30м rr [Work](item:work)', now);
+    expect(item.schedule?.startAt).toBeDefined();
+    expect(item.schedule?.endAt).toBeUndefined();
+    expect(item.schedule?.estimatedDuration).toBe('PT30M');
+    expect(applyQuickEntryText(item, quickEntrySource(item)!.text, now, { preserveUnspecifiedSchedule: true }).item.schedule?.endAt).toBeUndefined();
+  });
   it.each(['rr', 'рр'])('searches %s and preserves distinct IDs with the same title', command => {
     const input = `Помыть машину ${command} wo`;
     const result = withinSuggestions(input, input.length, [{ id: 'a', title: 'Work' }, { id: 'b', title: 'Work' }])!;

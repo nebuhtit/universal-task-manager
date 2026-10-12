@@ -1,6 +1,6 @@
 import { buildRecurrenceRule, createOccurrence, durationToMs, itemDeletionTime, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
-export type AgendaEntry = { id: string; title: string; at: number; kind: 'event' | 'program' | 'due' };
+export type AgendaEntry = { id: string; title: string; at: number; kind: 'event' | 'program' | 'due'; eventAt?: number };
 export const TRAVEL_TO = '[[travel-to]] ';
 export const TRAVEL_ROAD = '[[travel-road]] ';
 export const TRAVEL_BACK_TO = '[[travel-back-to]] ';
@@ -73,7 +73,7 @@ export function selectHeaderAgenda(workspace: WorkspaceDocument, now: number): H
     try { travel = durationToMs(item.schedule?.travelDuration ?? 'PT0S'); } catch { /* Invalid legacy duration is not an agenda boundary. */ }
     if (Number.isFinite(start) && Number.isFinite(travel) && travel > 0) {
       const departure = start - travel;
-      const entry: AgendaEntry = { ...event, at: departure, title: `${TRAVEL_TO}${item.title}` };
+      const entry: AgendaEntry = { ...event, at: departure, eventAt: start, title: `${TRAVEL_TO}${item.title}` };
       boundary(departure);
       if (departure > now) future.push(entry);
       else if (now < start) active.push({ entry: { ...entry, title: `${TRAVEL_ROAD}${item.title}` }, duration: travel, started: departure });
