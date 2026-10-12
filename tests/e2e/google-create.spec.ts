@@ -262,7 +262,11 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   // Receiving the PATCH is not the end of the durable write: wait until its
   // local acknowledgement has removed the outbox entry before starting a move.
   await expect(editor.getByText('Saved in UTM, waiting for sync.', { exact: true })).toHaveCount(0);
-  await editor.getByRole('combobox', { name: 'Google Calendar', exact: true }).selectOption('other');
+  await sourceLine.fill((await sourceLine.inputValue()) + ' cc Other');
+  await expect(editor.getByRole('listbox').getByRole('option').filter({ hasText: /^Other calendar/ })).toBeVisible();
+  await sourceLine.press('ArrowDown'); await sourceLine.press('Space');
+  await sourceLine.blur();
+  await expect(editor.getByRole('combobox', { name: 'Google Calendar', exact: true })).toHaveValue('other');
   await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden();
   await expect.poll(() => moves).toBe(1);
   expect(inserts).toBe(2);

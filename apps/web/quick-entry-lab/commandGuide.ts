@@ -19,6 +19,8 @@ export const commandGuide = [
   { ru: 'Будильник', en: 'Alarm', aliases: quickCommandAliases.alarm, ruExample: 'Встреча завтра 15:00 нн 30м; Встреча завтра 15:00 нн', enExample: 'Meeting tomorrow 15:00 alarm 30m; Meeting tomorrow 15:00 rr' },
   { ru: 'Интервалы напоминаний', en: 'Reminder intervals', aliases: ['через / in', 'начало / start', 'выезд / leave', 'срок / due', 'в / at'], ruExample: 'Задача н через 45м; Встреча завтра 15:00 нн выезд-30м', enExample: 'Task remind in 45m; Meeting tomorrow 15:00 alarm start-30m' },
   { ru: 'Организация', en: 'Organization', aliases: ['э', 'ar', 'area', 'область', 'п', 'p', 'project', 'проект', '#', 'tag', 'тег', 'тэг'], ruExample: 'Задача э "Работа" п "Релиз" #важное', enExample: 'Task area "Work" project "Release" #important' },
+  { ru: 'Выполняется внутри', en: 'Scheduled within', aliases: ['рр', 'rr'], ruExample: 'Задача рр → выбрать Work', enExample: 'Task rr → select Work' },
+  { ru: 'Календарь', en: 'Calendar', aliases: ['кк', 'cc'], ruExample: 'Встреча завтра 15:00 кк → выбрать календарь', enExample: 'Meeting tomorrow 15:00 cc → select a calendar' },
   { ru: 'Открыть таймер', en: 'Open timer', aliases: quickCommandAliases.timer, ruExample: 'т + Enter', enExample: 'timer + Enter' },
   { ru: 'Запустить секундомер', en: 'Start stopwatch', aliases: quickCommandAliases.stopwatch, ruExample: 'с + Enter; "с" — обычное название', enExample: 'stopwatch + Enter; "timer" is an ordinary title' },
 ];

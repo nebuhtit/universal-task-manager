@@ -5,6 +5,8 @@ import { orderedOrganizationNames, orderedTagEntries, withinTargetsFor, withinPl
 const indexes = new WeakMap<WorkspaceDocument, ReturnType<typeof buildIndex>>();
 function buildIndex(workspace: WorkspaceDocument) {
   const items = Object.values(workspace.items);
+  const reservedIds = new Set([...(workspace.calendarPreferences.dayView.statistics?.reservedItemIds ?? []), ...Object.values(workspace.views).flatMap(view => view.statistics?.reservedItemIds ?? [])]
+    .map(id => workspace.items[id]?.occurrence?.seriesId ?? id));
   const byTarget = new Map<string, UniversalItem[]>();
   const occurrences = new Map<string, UniversalItem[]>();
   const projectAreas = new Map<string, Set<string>>();
@@ -22,7 +24,10 @@ function buildIndex(workspace: WorkspaceDocument) {
     }
   }
   return {
-    candidates: items.filter(i => !i.deletedAt && i.state !== 'archived' && i.state !== 'cancelled' && !(i.occurrence && workspace.items[i.occurrence.seriesId])), byTarget, occurrences,
+    candidates: items.filter(i => !i.deletedAt && i.state !== 'archived' && i.state !== 'cancelled' && !(i.occurrence && workspace.items[i.occurrence.seriesId]))
+      .map(item => ({ id: item.id, title: item.title, preferred: reservedIds.has(item.id) })),
+    calendars: (workspace.calendarPreferences.googleCalendar?.calendars ?? []).filter(calendar => !calendar.accessRole || calendar.accessRole === 'owner' || calendar.accessRole === 'writer').map(calendar => ({ id: calendar.id, name: calendar.name })),
+    byTarget, occurrences,
     catalog: { area: orderedOrganizationNames(workspace, 'area'), project: [...projectAreas.keys()], tag: orderedTagEntries(workspace).filter((tag): tag is string => tag !== null), projectAreas: Object.fromEntries([...projectAreas].map(([name, areas]) => [name, [...areas]])) },
   };
 }

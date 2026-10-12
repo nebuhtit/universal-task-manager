@@ -1,6 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Locator } from '@playwright/test';
 import * as Automerge from '@automerge/automerge';
-import { createWorkspace, createItem, type WorkspaceDocument } from '../../packages/core/dist/index.js';
+import { createWorkspace, createItem, ensureAreaDefinition, type WorkspaceDocument } from '../../packages/core/dist/index.js';
 import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
 
 const password = 'calendar-planning-fixture';
@@ -61,6 +61,125 @@ async function settledReload(page: Page) {
   await expect.poll(() => page.evaluate(() => ['utm:pending-save:v1', 'utm:startup-last-pending:v1'].map(key => localStorage.getItem(key)))).toEqual([null, null]);
   await page.reload(); await unlock(page); await navigate(page, 'Calendar');
 }
+
+function liveTextSelectionsFixture(workspace: WorkspaceDocument) {
+  const work = createItem('Work', 'event', now); work.id = 'work';
+  work.schedule = { timezone: 'UTC', startAt: '2026-09-24T09:00:00Z', endAt: '2026-09-24T16:00:00Z' };
+  const ordinary = createItem('A Work reference', 'task', now); ordinary.id = 'ordinary';
+  workspace.items.work = work; workspace.items.ordinary = ordinary;
+  workspace.calendarPreferences.dayView.statistics = { showTime: true, reservedItemIds: ['work'] };
+  workspace.calendarPreferences.dayView.filter.source = 'id != "work"';
+  workspace.calendarPreferences.googleCalendar = { connectionId: 'fixture', syncTokens: {}, defaultCalendarId: 'personal', calendars: [
+    { id: 'personal', name: 'Personal', selected: true, accessRole: 'owner' },
+    { id: 'work-calendar', name: 'Work calendar', selected: true, accessRole: 'writer' },
+    { id: 'other-calendar', name: 'Other calendar', selected: true, accessRole: 'owner' },
+    { id: 'reader', name: 'Work read only', selected: true, accessRole: 'reader' },
+  ] };
+  ensureAreaDefinition(workspace, 'Work');
+}
+
+async function activateLiveTextControl(control: Locator, touch: boolean) {
+  await control.page().evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+  await control.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await control.page().clock.runFor(400);
+  if (touch) await control.tap(); else await control.click();
+}
+
+test('Live Text calendar and preferred rr blocks work in capture, item title and source editor', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const { read } = await setup(page, false, liveTextSelectionsFixture, 'Home');
+  const dock = page.locator('.capture-dock .live-text-input');
+  const capture = dock.getByRole('combobox');
+  const choose = async (root: ReturnType<Page['locator']>, id: string) => {
+    const option = root.getByRole('option').filter({ hasText: new RegExp(`Google Calendar · ${id}$`) });
+    await expect(option).toBeVisible();
+    if (testInfo.project.use.hasTouch) await option.tap(); else await option.click();
+  };
+  for (const command of ['rr', 'рр']) {
+    await capture.fill(`Selected task ${command}`);
+    await expect(dock.getByRole('option').last().locator('strong')).toHaveText('Work');
+  }
+  await capture.fill('Selected task рр W');
+  await capture.press('ArrowDown'); await capture.press('Space');
+  await expect(dock.getByRole('button', { name: 'Убрать связь: Work' })).toBeVisible();
+  await expect(capture).toBeFocused();
+  await capture.fill('Selected task cc W');
+  await expect(dock.getByRole('option')).toHaveCount(1);
+  await choose(dock, 'work-calendar');
+  await expect(capture).not.toHaveValue(/calendar:|work-calendar/);
+  await expect(dock.getByRole('button', { name: 'Remove calendar: Work calendar' })).toBeVisible();
+  await capture.press('Enter');
+  const editor = page.getByRole('dialog', { name: 'Item editor' });
+  const title = editor.getByRole('combobox', { name: 'Title', exact: true });
+  await expect(editor.getByLabel('Can be completed', { exact: true })).toBeChecked();
+  await expect(editor.getByRole('button', { name: 'Remove calendar: Work calendar' })).toBeVisible();
+  await title.fill('Selected task кк O');
+  await choose(editor, 'other-calendar');
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect.poll(async () => Object.values((await read()).items).find(item => item.title === 'Selected task')?.extensions?.['utm:quickEntryCalendar']).toEqual({ id: 'other-calendar', name: 'Other calendar' });
+  await navigate(page, 'All items');
+  await page.locator('.all-sections .item-main').getByText('Selected task', { exact: true }).first().click();
+  await editor.getByRole('button', { name: 'Quick entry', exact: true }).click();
+  const source = editor.getByRole('combobox', { name: 'Строка быстрого ввода', exact: true });
+  await source.fill('Selected task cc W');
+  await choose(editor, 'work-calendar');
+  await activateLiveTextControl(editor.getByRole('button', { name: 'Apply line', exact: true }), Boolean(testInfo.project.use.hasTouch));
+  await expect(editor.getByRole('button', { name: 'Apply line', exact: true })).toHaveCount(0);
+  await expect(editor.getByRole('button', { name: 'Remove calendar: Work calendar' })).toBeVisible();
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect.poll(async () => {
+    const item = Object.values((await read()).items).find(item => item.title === 'Selected task');
+    return { calendar: item?.extensions?.['utm:quickEntryCalendar'], targets: item?.relations.map(relation => relation.targetId), end: item?.schedule?.endAt };
+  }).toEqual({ calendar: { id: 'work-calendar', name: 'Work calendar' }, targets: ['work'], end: undefined });
+  await settledReload(page);
+  await navigate(page, 'All items');
+  await page.locator('.all-sections .item-main').getByText('Selected task', { exact: true }).first().click();
+  await expect(editor.getByRole('button', { name: 'Remove calendar: Work calendar' })).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'Убрать связь: Work' })).toBeVisible();
+});
+
+test('Live Text calendar selection reaches the Google picker and scoped PARA capture', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const { read } = await setup(page, false, liveTextSelectionsFixture, 'Home');
+  const choose = async (root: ReturnType<Page['locator']>, id: string) => {
+    const option = root.getByRole('option').filter({ hasText: new RegExp(`Google Calendar · ${id}$`) });
+    await expect(option).toBeVisible();
+    if (testInfo.project.use.hasTouch) await option.tap(); else await option.click();
+  };
+  const capture = page.locator('.capture-dock').getByRole('combobox');
+  await capture.fill('Selected meeting tomorrow 15:00 duration 1h кк W');
+  await choose(page.locator('.capture-dock'), 'work-calendar');
+  await capture.press('Enter');
+  const editor = page.getByRole('dialog', { name: 'Item editor' });
+  const details = editor.locator('[data-editor-section="calendar-details"]');
+  if (!(await details.evaluate((element: HTMLDetailsElement) => element.open))) await activateLiveTextControl(details.locator(':scope > summary'), Boolean(testInfo.project.use.hasTouch));
+  await expect(details).toHaveAttribute('open', '');
+  const picker = editor.getByRole('combobox', { name: 'Google Calendar', exact: true });
+  await expect(picker).toHaveValue('work-calendar');
+  await picker.selectOption('other-calendar');
+  await expect(editor.getByRole('button', { name: 'Remove calendar: Other calendar' })).toBeVisible();
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await navigate(page, 'PARA');
+  await page.locator('.organization-area-groups .organization-entity-link').getByText('Work', { exact: true }).first().click();
+  const scoped = page.locator('.view-quick-add').first();
+  const input = scoped.getByRole('combobox');
+  await input.fill('Scoped task rr');
+  await expect(scoped.getByRole('option').last().locator('strong')).toHaveText('Work');
+  await input.press('ArrowDown'); await input.press('Space');
+  await input.fill('Scoped task cc W');
+  await choose(scoped, 'work-calendar');
+  await input.press('Enter');
+  await expect(editor).toBeVisible();
+  await expect(editor.getByRole('button', { name: 'Remove calendar: Work calendar' })).toBeVisible();
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect.poll(async () => {
+    const item = Object.values((await read()).items).find(item => item.title === 'Scoped task');
+    return { calendar: item?.extensions?.['utm:quickEntryCalendar'], areas: item?.areas, targets: item?.relations.map(relation => relation.targetId) };
+  }).toEqual({ calendar: { id: 'work-calendar', name: 'Work calendar' }, areas: ['Work'], targets: ['work'] });
+});
 
 test('Home View dragging requires all collapsed or more than ten and shows a moving preview', async ({ page }, testInfo) => {
   await page.addInitScript(() => { for (let index = 0; index < 10; index++) localStorage.setItem(`utm-ui:view:reorder-${index}`, '0'); });

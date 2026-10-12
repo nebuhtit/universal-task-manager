@@ -10,6 +10,7 @@ import { buildSegments, positionAt } from '../calendar/timelineLayout';
 import { measureProfile } from '../../services/performanceProfile';
 import './live-text.css';
 import { withinSuggestions, extractWithinRelations, joinWithinText } from '../../../quick-entry-lab/relations';
+import { calendarSuggestions, extractCalendarSelection, joinCalendarText } from '../../../quick-entry-lab/calendars';
 import { withinTargets, withinPlacementInfo, type UniversalItem } from '@utm/core';
 import { liveTextIndex, withinPreviewWorkspace } from './liveTextIndex';
 import { createQuickEntryItem, applyQuickEntryText, parseQuickEntryForItem } from './quickEntry';
@@ -21,11 +22,13 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   workspace?: WorkspaceDocument;
   previewItem?: UniversalItem;
 }) {
-  const references = useMemo(() => extractWithinRelations(sourceValue), [sourceValue]);
+  const calendarReference = useMemo(() => extractCalendarSelection(sourceValue), [sourceValue]);
+  const references = useMemo(() => extractWithinRelations(calendarReference.displayText), [calendarReference]);
   const value = references.displayText;
   const onChange = (text: string) => measureProfile('editor.input', () => {
-    const added = extractWithinRelations(text);
-    onSourceChange(joinWithinText(added.displayText, [...references.tokens, ...added.tokens]));
+    const addedCalendar = extractCalendarSelection(text);
+    const added = extractWithinRelations(addedCalendar.displayText);
+    onSourceChange(joinCalendarText(joinWithinText(added.displayText, [...references.tokens, ...added.tokens]), addedCalendar.selection ?? calendarReference.selection));
   });
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
   const touchStartY = useRef<number | null>(null);
@@ -38,7 +41,7 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   const lastSubmit = useRef({ value: '', at: 0 });
   useEffect(() => { if (!value) lastSubmit.current = { value: '', at: 0 }; }, [value]);
   const submitControl = (element: HTMLInputElement | HTMLTextAreaElement) => {
-    const text = joinWithinText(element.value, references.tokens);
+    const text = joinCalendarText(joinWithinText(element.value, references.tokens), calendarReference.selection);
     if (!element.value.trim() || (lastSubmit.current.value === text && performance.now() - lastSubmit.current.at < 500)) return;
     lastSubmit.current = { value: text, at: performance.now() };
     if (onSubmit) onSubmit(text); else element.form?.requestSubmit();
@@ -66,15 +69,15 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   // update. Deferring them prevents a large workspace from delaying each key.
   const deferredValue = useDeferredValue(value);
   const analysisCurrent = deferredValue === value;
-  const parsed = useMemo(() => measureProfile('editor.parse', () => ({ ...parseQuickEntryForItem(deferredValue, referenceTime, previewItem), withinIds: references.ids })), [deferredValue, referenceTime, references, previewItem]);
+  const parsed = useMemo(() => measureProfile('editor.parse', () => ({ ...parseQuickEntryForItem(deferredValue, referenceTime, previewItem), withinIds: references.ids, ...(calendarReference.selection ? { calendarId: calendarReference.selection.id } : {}) })), [deferredValue, referenceTime, references, previewItem, calendarReference]);
   const withinPreview = useMemo(() => {
     if (!workspace || !parsed.withinIds?.length || !focused || !open || parsed.errors.length) return null;
-    const text = joinWithinText(deferredValue, references.tokens);
+    const text = joinCalendarText(joinWithinText(deferredValue, references.tokens), calendarReference.selection);
     const draft = previewItem ? applyQuickEntryText(previewItem, text, referenceTime, { preserveUnspecifiedSchedule: true }).item : createQuickEntryItem(text, referenceTime, undefined, [], workspace);
     const projected = measureProfile('editor.within-preview', () => withinPreviewWorkspace(workspace, draft, referenceTime), value => ({ scanned: Object.keys(value.items).length })).items[draft.id];
     const info = projected ? withinPlacementInfo(projected) : undefined;
     return projected?.schedule?.startAt ? { start: projected.schedule.startAt, end: projected.schedule.endAt, names: (info?.targets ?? withinTargets(draft)).map(id => workspace.items[id]?.title ?? id).join(', '), fallback: info?.fallback } : null;
-  }, [workspace, previewItem, deferredValue, referenceTime, focused, open, parsed]);
+  }, [workspace, previewItem, deferredValue, referenceTime, focused, open, parsed, calendarReference]);
   const highlight = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState(false);
   const highlighted = !composing && analysisCurrent && Boolean(parsed.commandSpans?.length);
@@ -125,7 +128,7 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => {
     const position = Math.min(caret, deferredValue.length);
     if (!focused || !open || !suggestionsEnabled) return { start: position, end: position, options: [] };
-    return measureProfile('editor.suggestions', () => withinSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).candidates.filter(item => item.id !== previewItem?.id && !references.ids.includes(item.id)) : []) ?? organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
+    return measureProfile('editor.suggestions', () => calendarSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).calendars : []) ?? withinSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).candidates.filter(item => item.id !== previewItem?.id && !references.ids.includes(item.id)) : []) ?? organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
   }, [deferredValue, caret, referenceTime, language, catalog, workspace, previewItem?.id, references, focused, open, suggestionsEnabled]);
   const [optionLimit, setOptionLimit] = useState(30);
   useEffect(() => { setOptionLimit(30); }, [value, caret]);
@@ -139,7 +142,7 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
     control()?.focus(); control()?.setSelectionRange(position, position);
   }, [value]);
   const replace = (start: number, end: number, insert: string) => {
-    pendingCaret.current = extractWithinRelations(value.slice(0, start) + insert).displayText.length;
+    pendingCaret.current = extractWithinRelations(extractCalendarSelection(value.slice(0, start) + insert).displayText).displayText.length;
     onChange(value.slice(0, start) + insert + value.slice(end));
     setCaret(pendingCaret.current); setSelected(-1); setOpen(true);
   };
@@ -223,10 +226,10 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
       </div>
     </div>;
   return <div className="live-text-input" ref={root}>
-    {references.tokens.length > 0 && <div className="live-text-relations" aria-label="Выполняется внутри">{references.tokens.map(token => {
+    {(references.tokens.length > 0 || calendarReference.selection) && <div className="live-text-relations" aria-label="Выбранные связи и календарь">{calendarReference.selection && <Button size="compact" variant="secondary" aria-label={`${language === 'ru' ? 'Убрать календарь' : 'Remove calendar'}: ${calendarReference.selection.name}`} onPointerDown={event => event.preventDefault()} onTouchStart={event => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={event => { const y = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && y !== undefined && Math.abs(y - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); onSourceChange(joinWithinText(value, references.tokens)); control()?.focus(); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) { onSourceChange(joinWithinText(value, references.tokens)); control()?.focus(); } }}>{calendarReference.selection.name} ×</Button>}{references.tokens.map(token => {
       const target = extractWithinRelations(token).ids[0]!;
       const label = workspace?.items[target]?.title ?? /\[([^\]]*)\]/.exec(token)?.[1] ?? 'Item';
-      const remove = () => { onSourceChange(joinWithinText(value, references.tokens.filter(entry => extractWithinRelations(entry).ids[0] !== target))); control()?.focus(); };
+      const remove = () => { onSourceChange(joinCalendarText(joinWithinText(value, references.tokens.filter(entry => extractWithinRelations(entry).ids[0] !== target)), calendarReference.selection)); control()?.focus(); };
       return <Button key={target} size="compact" variant="secondary" aria-label={`Убрать связь: ${label}`} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onTouchStart={event => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={event => { const y = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && y !== undefined && Math.abs(y - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); remove(); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) remove(); }}>{label} ×</Button>;
     })}</div>}
     {!overlaySuggestions && !multiline && suggestionPanel}

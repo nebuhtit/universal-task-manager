@@ -3,10 +3,33 @@ import { clearCreationDefaultBounds, withoutCreationDefaultBounds } from './crea
 import { bareDurationInsertion, dateValueExpression, duration, parseDate, parseLiveEntry as parseEntry, type Draft } from '../../../quick-entry-lab/parser';
 import { extractOrganization } from '../../../quick-entry-lab/organization';
 import { extractWithinRelations } from '../../../quick-entry-lab/relations';
+import { extractCalendarSelection, joinCalendarText, type CalendarSelection } from '../../../quick-entry-lab/calendars';
 
 export const QUICK_ENTRY_SOURCE = 'utm:quickEntrySource';
+export const QUICK_ENTRY_CALENDAR = 'utm:quickEntryCalendar';
 const QUICK_REMINDER_FOLLOWUPS = 'utm:quickReminderFollowups';
 export type QuickEntrySource = { text: string; timezone: string; grammarVersion?: 2 };
+
+export function quickEntryCalendar(item: UniversalItem): CalendarSelection | undefined {
+  const value = item.extensions?.[QUICK_ENTRY_CALENDAR] as Partial<CalendarSelection> | undefined;
+  return value && typeof value.id === 'string' && typeof value.name === 'string' ? { id: value.id, name: value.name } : undefined;
+}
+
+/** Keep the ordinary calendar picker and Live Text selection in agreement. */
+export function withQuickEntryCalendar(item: UniversalItem, selection?: CalendarSelection): UniversalItem {
+  const extensions = { ...item.extensions };
+  if (selection) extensions[QUICK_ENTRY_CALENDAR] = selection;
+  else delete extensions[QUICK_ENTRY_CALENDAR];
+  const source = quickEntrySource(item);
+  if (source) extensions[QUICK_ENTRY_SOURCE] = { ...source, text: joinCalendarText(extractCalendarSelection(source.text).displayText, selection) };
+  return { ...item, extensions };
+}
+
+export function quickEntryEditorText(item: UniversalItem): string {
+  const text = quickEntrySource(item)?.text ?? item.title;
+  const calendar = extractCalendarSelection(text);
+  return joinCalendarText(calendar.displayText, quickEntryCalendar(item) ?? calendar.selection);
+}
 
 const days = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const pad = (value: number) => String(value).padStart(2, '0');
@@ -99,6 +122,8 @@ function reminderItems(draft: Draft): UniversalItem['reminders'] {
 
 /** Presentation only: keep quoted titles and decimal commas untouched. */
 export function formatQuickEntryForEditor(text: string): string {
+  const calendar = extractCalendarSelection(text);
+  text = calendar.displayText;
   text = text.replace(editorDefaultReminders, '').trimEnd();
   // Compact only parser-recognized commands, and verify semantic parity. Never
   // rewrite a title, quoted text, dates, or an ambiguous/unfinished command.
@@ -119,15 +144,17 @@ export function formatQuickEntryForEditor(text: string): string {
     result += char;
     if (!quote && char === ',' && text[index + 1] && !/\s/.test(text[index + 1]!) && !(/\d/.test(text[index - 1] ?? '') && /\d/.test(text[index + 1]!))) result += ' ';
   }
-  return result.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(вс|пн|вт|ср|чт|пт|сб)\s+\d{2}\.\d{2}\.\d{4}(?=\s|$)/gi,
-    (match, leading: string | undefined, weekday: string | undefined) => weekday ? `${leading}${weekday}` : match);
+  return joinCalendarText(result.replace(/"[^"\n]*"|«[^»\n]*»|(^|\s)(вс|пн|вт|ср|чт|пт|сб)\s+\d{2}\.\d{2}\.\d{4}(?=\s|$)/gi,
+    (match, leading: string | undefined, weekday: string | undefined) => weekday ? `${leading}${weekday}` : match), calendar.selection);
 }
 
 const editorDefaultReminders = /\s+(?:напомнить|нап|н|remind|reminder|r)\s+(?:начало|start|выезд|leave)-120[мm],\s*(?:начало|start|выезд|leave)-1440[мm]\s*$/i;
 
 /** Hidden default reminder syntax remains part of the source, not the visible title. */
 export function applyQuickEntryEditorText(item: UniversalItem, text: string, now: Date) {
-  const source = quickEntrySource(item)?.text ?? '';
+  const calendar = extractCalendarSelection(text);
+  text = calendar.displayText;
+  const source = extractCalendarSelection(quickEntrySource(item)?.text ?? '').displayText;
   // Numeric dates stay in the canonical source and properties. Resolve unchanged
   // short weekday tokens against that source, never against a later opening day.
   const dates = new Map<string, string[]>();
@@ -143,7 +170,7 @@ export function applyQuickEntryEditorText(item: UniversalItem, text: string, now
     });
   const hidden = source.match(editorDefaultReminders)?.[0];
   const expanded = hidden && !editorDefaultReminders.test(text) && !parseEntry(text, now).noDefaultReminders ? text.trimEnd() + hidden : text;
-  return applyQuickEntryText(item, expanded, now, { preserveUnspecifiedSchedule: true });
+  return applyQuickEntryText(item, joinCalendarText(expanded, calendar.selection), now, { preserveUnspecifiedSchedule: true });
 }
 
 export function parseQuickEntryForItem(text: string, now: Date, item?: UniversalItem): Draft {
@@ -157,7 +184,8 @@ export function parseQuickEntryForItem(text: string, now: Date, item?: Universal
 }
 
 export function applyQuickEntryText(item: UniversalItem, text: string, now: Date, options: { preserveUnspecifiedSchedule?: boolean } = {}): { item: UniversalItem; draft: Draft } {
-  const within = extractWithinRelations(text);
+  const calendar = extractCalendarSelection(text);
+  const within = extractWithinRelations(calendar.text);
   const completable = canManuallyComplete(item);
   if (within.ids.length) item = withoutCreationDefaultBounds(item);
   const preserveUnspecifiedSchedule = options.preserveUnspecifiedSchedule === true;
@@ -167,7 +195,10 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
   const organization = extractOrganization(within.text);
   const metadata = [...organization.areas.map(name => `area:${JSON.stringify(name)}`), ...organization.projects.map(name => `project:${JSON.stringify(name)}`), ...organization.tags.map(name => `#${JSON.stringify(name)}`)];
   const references = within.tokens;
-  const normalizedText = [materializeQuickEntryText(organization.text, now), ...metadata, ...references].join(' ');
+  const normalizedText = joinCalendarText([materializeQuickEntryText(organization.text, now), ...metadata, ...references].join(' '), calendar.selection);
+  const extensions: NonNullable<UniversalItem['extensions']> = { ...item.extensions, [QUICK_ENTRY_SOURCE]: { text: normalizedText, timezone: item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, grammarVersion: 2 } satisfies QuickEntrySource };
+  if (calendar.selection) extensions[QUICK_ENTRY_CALENDAR] = calendar.selection;
+  else delete extensions[QUICK_ENTRY_CALENDAR];
   const previousWithin = extractWithinRelations(quickEntrySource(item)?.text ?? '').ids;
   const previous = extractOrganization(quickEntrySource(item)?.text ?? '');
   const memberships = (current: string[], old: string[], next: string[]) => [...new Set([...current.filter(name => !old.includes(name)), ...next])];
@@ -205,7 +236,7 @@ export function applyQuickEntryText(item: UniversalItem, text: string, now: Date
       areas: memberships(item.areas, previous.areas, draft.areas ?? []),
       projects: memberships(item.projects, previous.projects, draft.projects ?? []),
       tags: memberships(item.tags, previous.tags, draft.tags ?? []),
-      extensions: { ...item.extensions, [QUICK_ENTRY_SOURCE]: { text: normalizedText, timezone: schedule.timezone, grammarVersion: 2 } satisfies QuickEntrySource },
+      extensions,
     }, draft,
   };
 }

@@ -1,5 +1,5 @@
 import { withinDay, withinTargets, type UniversalItem, type WorkspaceDocument } from '@utm/core';
-import { applyQuickEntryEditorText, quickEntrySource, syncQuickEntrySource } from '../quickEntry';
+import { applyQuickEntryEditorText, quickEntrySource, syncQuickEntrySource, withQuickEntryCalendar, quickEntryCalendar } from '../quickEntry';
 import { clearCreationDefaultBounds, withoutCreationDefaultBounds } from '../creationDefaultBounds';
 import { extractWithinRelations } from '../../../../quick-entry-lab/relations';
 
@@ -54,5 +54,5 @@ export function applyEditorTitleDraft(current: UniversalItem, initial: Universal
   if (parsed.start || parsed.end) result = clearCreationDefaultBounds(result) as typeof result;
   // Keep selected IDs in the canonical source too, so reopening restores chips
   // and removing one can remove its relation instead of leaving a hidden link.
-  return anchor(hasWithinCommand ? { ...result, extensions: interpreted.extensions ?? {} } : syncQuickEntrySource(current, result));
+  return anchor(hasWithinCommand ? { ...result, extensions: interpreted.extensions ?? {} } : withQuickEntryCalendar(syncQuickEntrySource(current, result), quickEntryCalendar(interpreted)));
 }

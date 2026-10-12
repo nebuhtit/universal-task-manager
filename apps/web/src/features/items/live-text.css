@@ -23,7 +23,7 @@
 .live-text-panel-body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .live-text-panel > .live-day-preview { flex-shrink: 0; }
 .live-text-options { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-.live-text-options [role="option"] { padding: var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-secondary); }
+.live-text-options [role="option"] { max-width: 100%; overflow-wrap: anywhere; padding: var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-secondary); }
 .live-text-options [role="option"] { background: var(--color-capture-idle); outline: 1px solid var(--color-capture-border-idle); }
 .live-text-options [role="option"]:hover, .live-text-options [aria-selected="true"] { background: var(--color-capture-active); outline-color: var(--color-border-strong); }
 .live-text-options small { display: block; color: var(--color-text-secondary); font-size: var(--font-size-caption); }

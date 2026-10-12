@@ -2,10 +2,12 @@
 import { en, ru } from 'chrono-node';
 import { extractOrganization } from './organization';
 import { extractWithinRelations } from './relations';
+import { extractCalendarSelection } from './calendars';
 import { commandGuide, quickCommandAliases } from './commandGuide';
 export type Anchor = 'due' | 'start' | 'leave' | 'now';
 export interface ReminderDraft { anchor: Anchor; minutes: number; at: string | null; automatic?: boolean; delivery?: 'notification' | 'alarm' }
 export interface Draft {
+  calendarId?: string;
   withinIds?: string[];
   noDateDefaults?: boolean;
   noDefaultReminders?: boolean;
@@ -835,10 +837,12 @@ export function bareDurationInsertion(input: string): number {
 }
 
 export function parseLiveEntry(input: string, now: Date, context?: EntryContext): Draft {
+  const calendar = extractCalendarSelection(input);
+  input = calendar.text;
   const within = extractWithinRelations(input);
   input = within.text;
   const organization = extractOrganization(input);
-  const fields = { withinIds: within.ids, areas: organization.areas, projects: organization.projects, tags: organization.tags };
+  const fields = { ...(calendar.selection ? { calendarId: calendar.selection.id } : {}), withinIds: within.ids, areas: organization.areas, projects: organization.projects, tags: organization.tags };
   if (/^\.(?:\s|$)/.test(organization.text)) return { ...fields, commandSpans: organization.commandSpans, isNote: true, title: organization.text.slice(1).trim(), start: null, end: null, due: null, leave: null, durationMinutes: null, travelMinutes: null, reminders: [], errors: [], warnings: [] };
   input = organization.maskedText;
   const flagSpans: Array<{ start: number; end: number }> = [];
