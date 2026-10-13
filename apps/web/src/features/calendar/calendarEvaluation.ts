@@ -31,7 +31,7 @@ import {
 import { getWorkspaceIndex } from '../../services/workspaceIndex';
 import { showOverdueToday } from './calendarVisibility';
 import { isItemTemplate } from '../items/fieldDisplay';
-import { attentionSortValues, sortViewItems, viewItemForEvaluation, type ViewEvaluation } from '../views/viewSelectors';
+import { attentionSortValues, completionHoldsSnapshot, sortViewItems, viewItemForEvaluation, type ViewEvaluation } from '../views/viewSelectors';
 import { createCalendarProjectionCache, type CalendarProjectionCache } from './calendarProjectionCache';
 import { measureProfile, recordProfileCache } from '../../services/performanceProfile';
 import { createCalendarDependencyTokens } from './calendarDependencyTokens';
@@ -51,15 +51,18 @@ type EvaluationCache = {
 /** Independent instance per Calendar; never writes into persisted workspace data. */
 export function createCalendarEvaluator() {
   const cache: EvaluationCache = { token: createCalendarDependencyTokens(), projections: createCalendarProjectionCache(), rows: new Map(), context: '', generation: 0, days: new Map(), counters: { dayCalculations: 0, indexBuilds: 0 } };
-  let last: { workspace: WorkspaceDocument; start: string; end: string; settings: CalendarDayViewPreferences; at: number; value: CalendarRangeEvaluation } | undefined;
+  let last: { workspace: WorkspaceDocument; start: string; end: string; settings: CalendarDayViewPreferences; at: number; completionVersion: number; value: CalendarRangeEvaluation } | undefined;
   return { projections: cache.projections, counters: cache.counters,
     evaluate: (workspace: WorkspaceDocument, start: string, end: string, settings: CalendarDayViewPreferences, now: Date) => {
       // Repeated consumers of the identical immutable input need no bucket or
       // signature preparation. Never round time: boundary-sensitive views must
       // still update at the exact instant supplied by their clock.
-      if (last?.workspace === workspace && last.start === start && last.end === end && last.settings === settings && last.at === +now) return last.value;
+      // Undo/exit changes are UI dependencies even if the document and its
+      // boundary-based clock have not changed since the last calculation.
+      const completionVersion = completionHoldsSnapshot();
+      if (last?.workspace === workspace && last.start === start && last.end === end && last.settings === settings && last.at === +now && last.completionVersion === completionVersion) return last.value;
       const value = evaluateCalendarRange(workspace, start, end, settings, now, cache);
-      last = { workspace, start, end, settings, at: +now, value };
+      last = { workspace, start, end, settings, at: +now, completionVersion, value };
       return value;
     },
   };

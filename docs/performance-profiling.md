@@ -1,5 +1,106 @@
 # Performance profile v1
 
+## Prepared neighbouring calendar slides (local 4.6.6 follow-up)
+
+Week navigation and Timeline now keep at most the previous/current/next slide
+mounted. Offscreen slides are inert and hidden from accessibility navigation;
+their real content enters the clipped viewport while the finger moves. Stable
+date keys promote the prepared DOM instead of remounting it after touchend.
+
+The existing session Calendar page cache retains up to three evaluated range
+bundles and three prepared Timeline days. These reuse the existing evaluator,
+projection, planning and capacity caches, not a persisted snapshot or second
+scheduling algorithm. Entries require the exact immutable workspace, evaluation
+clock, capacity clock, completion-hold version and all-day visibility. Edits,
+sync, deletion, settings and time changes cannot serve an old neighbour. A cold
+or invalid neighbour falls back to the normal transition until prepared again.
+
+Two cancellable idle jobs dispatch preparation to a dedicated read-only Worker
+after the current slide paints. Idle scheduling alone was NOT sufficient: the
+original synchronous neighbour work measured about 183 ms for 1,000 items and
+1,827 ms for 10,000 on desktop. The Worker reuses the same Calendar page cache
+and domain algorithms; it does not share a queue with reminders or widgets.
+Automerge inputs are detached in cancellable batches of at most 32 items / a
+4 ms target (an individual large item can exceed that target), yielding between
+batches. The source document is transferred once per immutable snapshot, not
+per neighbour. Results omit the full workspace and rejoin its exact main-thread
+snapshot on acceptance. No plaintext data is persisted or sent over a network.
+Jobs defer while swiping/animating or typing, and abort/terminate on input
+identity changes, hiding or unmounting. Completion holds suspend prefetch until
+the existing completion generation changes. Unsupported/failed Workers disable
+optional prefetch instead of restoring a heavy synchronous fallback. Input
+deferral wakes on focusout rather than polling continuously.
+Preparation does not save a workspace, materialize stored occurrences, repair a
+future day's persisted order or create Google events. Preview clocks are frozen;
+weather uses the shared existing service and does not add forecast requests.
+
+Capacity retains its existing one-minute subscription. Optional prefetch render
+commits no longer resample that clock on an unrelated one-second tick and restart
+their own jobs. Existing performance stages measure calculations; preparation
+over 100 ms and optional failures emit content-free `Calendar adjacent slides`
+diagnostics. Run `UTM_PERF_BASELINE=1 pnpm exec vitest run
+apps/web/src/performance/calendarCachingBaseline.test.ts` to measure cold work,
+two neighbour jobs and exact prepared reads separately. These are desktop
+calculation timings, not browser rendering or physical iPhone measurements.
+The existing profiler now separates `calendar.prefetch-input` (main-thread
+snapshot batches) from `calendar.prefetch-worker` (background calculation).
+Only durations/counts are logged, not item data or IDs.
+Changing calendar periods also retains the exact evaluation clock if no
+boundary in the new period has been crossed. Crossing a real boundary,
+continuous time-dependent filters, edits, and supplied clocks still invalidate.
+
+First-time promotion also reuses the unfiltered event clock boundaries prepared
+by the Worker for all seven days of each adjacent week. Previously, adopting the
+ready week still called the main-thread recurrence projector for that new
+period and its padded selected day. Boundary arrays live in the same three
+range entries, not another persistent cache. They require the identical source
+document; unlike calculated membership, they are pure functions of that source
+and the requested dates, so minute/completion changes alone do not invalidate
+them. The cold fallback and Worker use the same projection helper. The opt-in
+`avoids cold main-thread boundary projection` benchmark compares the old cold
+projection cost with the prepared read and asserts exact timestamp equivalence.
+One local desktop run measured cold boundary preparation versus prepared reads
+at 20.047 / 0.050 ms for 1,000 items and 187.855 / 0.085 ms for 10,000 items.
+This isolates boundary preparation (including cold mapping), not total swipe
+latency, browser layout, Worker warmup or physical iPhone performance.
+
+## Calendar mapping after edits (local work based on 4.6.6 / d8cdcf3)
+
+The projection cache now reuses the existing exact dependency-token mechanism
+instead of serializing every full item and then every full date/series bucket
+on each workspace edit. Immutable source objects reuse their Google projection
+and content token. Cloned-but-equal objects can retain their prior identity;
+changed content invalidates the affected bucket even without a revision bump.
+Timezone and tombstone changes remain explicit dependencies. No persisted data,
+encryption, Google writes, recurrence rules or scheduling behavior changes.
+
+Local A/B measurements of **mapping preparation only**, with roughly 1 KB of
+notes per item, not total navigation/rendering latency:
+
+| Fixture | Before median | After median |
+| --- | ---: | ---: |
+| 1,000 real Automerge items, seven alternating A/B title edits | 9.34 ms | 1.48 ms |
+| 10,000 structurally shared plain items, five title edits | 61.08 ms | 22.60 ms |
+
+The reference implementation was the source at `d8cdcf3`. These desktop timings
+are observations, not iPhone measurements or assertions that the whole app is
+six times faster. Cold mapping still needs to read all items. Content-token
+eviction may conservatively rebuild a bucket, never reuse stale content.
+
+Run `pnpm performance:calendar` for the permanent projection-equivalence and
+immutability benchmark at 1,000/10,000 items, including real Automerge edits.
+The small cases run in the ordinary unit suite too. Calendar cache regressions
+cover unchanged-note serialization, same-revision nested edits, Google booking
+changes, deletion/restore, recurrence, timezone, filters, sorting and statistics.
+Existing `calendar.map` diagnostics retain `scanned`; `recalculated` now counts
+changed mapped source items instead of reporting every scanned item again.
+
+Browser verification also exposed a pre-existing exact-result cache omission:
+ending a completion hold did not invalidate the result if the workspace and
+boundary clock were unchanged. The exact-result key now includes the existing
+completion-hold version. The three-second hold and exit animation are unchanged;
+filtered completed cards leave afterward without waiting for another edit.
+
 ## 3.5.6: recurring header preparation
 
 Diagnostics 47 showed `agenda.header` up to 25,379 ms in iOS. That is worker

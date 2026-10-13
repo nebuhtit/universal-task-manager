@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  createOccurrence, effectiveWorkspaceNow, zonedDateStart,
+  createOccurrence, effectiveWorkspaceNow,
   type ItemPreset, type ProjectedOccurrence, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
@@ -9,20 +9,22 @@ import { Button, IconButton, Surface } from '../../components/ui/primitives';
 import { formatCompactRemainingDuration } from '../views/ViewMetricsSummary';
 import { ViewResults } from '../views/ViewResults';
 import { clockService } from '../../services/clockService';
-import { completionHoldsSnapshot, sortViewItems, subscribeCompletionHolds } from '../views/viewSelectors';
+import { completionHoldsSnapshot, hasCompletionHolds, sortViewItems, subscribeCompletionHolds } from '../views/viewSelectors';
 import { useCalendarNow, useWorkspaceBoundaryNow } from '../views/useViewEvaluation';
 import { createCalendarPageCache, type CalendarPageCache } from './calendarPageCache';
 import { calendarListFields, calendarTimelineFields } from './calendarCardFields';
 import { CalendarTimeline } from './CalendarTimeline';
 import { calendarDayView } from './calendarEvaluation';
-import { calendarVisibleCapacity } from './calendarCapacity';
-import { prepareTimelineData } from './timelineData';
-import { buildCalendarPlan, calendarListOrder, calendarPlanMetricItems, calendarReorderIssue, planningEnabled, planningReason } from './calendarPlanning';
+import { buildCalendarPlan, calendarListOrder, calendarReorderIssue, planningEnabled, planningReason } from './calendarPlanning';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
-import { calendarProjectionPadding } from './calendarProjectionCache';
+import { prepareCalendarProjectionBoundaries } from './calendarProjectionCache';
 import { MoonPhase } from './MoonPhase';
 import { useCalendarPeriodSwipe } from './useCalendarPeriodSwipe';
-import { calendarUndatedItems, showOverdueToday } from './calendarVisibility';
+import { useCalendarSwipeMotion } from './useCalendarSwipeMotion';
+import { CalendarSwipePages, type CalendarSwipePage } from './CalendarSwipePages';
+import { useCalendarAdjacentSlides } from './useCalendarAdjacentSlides';
+import { createCalendarSlidesRunner } from './calendarSlidesWorker';
+import { showOverdueToday } from './calendarVisibility';
 import { recordDiagnostic } from '../../services/diagnostics';
 import { labelProfileAction, recordProfileCommit } from '../../services/performanceProfile';
 import './calendar.css';
@@ -30,6 +32,7 @@ import './calendar.css';
 const DAY_MS = 86_400_000;
 const CalendarDayViewEditor = lazy(() => import('./CalendarDayViewEditor').then(module => ({ default: module.CalendarDayViewEditor })));
 const subscribeCapacityClock = (listener: () => void) => clockService.subscribe(listener, 60_000);
+const capacityClockSnapshot = () => Math.floor(clockService.getSnapshot() / 60_000);
 type NavigatorMode = 'week' | 'month';
 
 function localDateKey(date: Date, timeZone: string): string {
@@ -81,8 +84,10 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
   useEffect(() => { onSelectedDateChange?.(selectedDate); }, [selectedDate, onSelectedDateChange]);
   useEffect(() => { if (requestedDate) setSelectedDate(requestedDate.key); }, [requestedDate]);
   const [navigatorMode, setNavigatorMode] = useState<NavigatorMode>('week');
-  const movePeriod = (direction: -1 | 1) => setSelectedDate(current => navigatorMode === 'week' ? shiftDateKey(current, direction * 7) : shiftMonth(current, direction));
-  const periodSwipe = useCalendarPeriodSwipe(movePeriod);
+  const periodMotion = useCalendarSwipeMotion(`${navigatorMode}:${navigatorMode === 'week' ? weekStart(selectedDate, preferences.weekStartsOn) : selectedDate.slice(0, 7)}`);
+  const dayMotion = useCalendarSwipeMotion(selectedDate);
+  const movePeriod = (direction: -1 | 1) => periodMotion.navigate(direction, () => setSelectedDate(current => navigatorMode === 'week' ? shiftDateKey(current, direction * 7) : shiftMonth(current, direction)));
+  const periodSwipe = useCalendarPeriodSwipe(movePeriod, periodMotion);
   const [compactNavigator, setCompactNavigator] = useState(true);
   const [timelineToolbarHost, setTimelineToolbarHost] = useState<HTMLDivElement | null>(null);
   const calendarRoot = useRef<HTMLElement>(null);
@@ -137,34 +142,35 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
   const todayChoiceRef = useRef<HTMLButtonElement>(null);
   const completionVersion = useSyncExternalStore(subscribeCompletionHolds, completionHoldsSnapshot, completionHoldsSnapshot);
   const selectedDayView = useMemo(() => ({ ...calendarDayView(selectedDate, preferences.dayView), fields: [...new Set([...calendarListFields(preferences.dayView), ...calendarTimelineFields(preferences.dayView)])] }), [selectedDate, preferences.dayView]);
-  const { evaluator, capacityCache, planCache } = useMemo(() => {
+  const calculations = useMemo(() => {
     if (computationCache?.current?.workspaceId === workspace.workspaceId) return computationCache.current;
     const cache = createCalendarPageCache(workspace.workspaceId);
     if (computationCache) computationCache.current = cache;
     return cache;
   }, [workspace.workspaceId, computationCache]);
+  const { evaluator } = calculations;
   const createAt = (at: number) => {
     const draft = createUiItem('', 'task', suppliedNow ?? new Date());
     draft.schedule = { timezone: preferences.timezone, startAt: new Date(at).toISOString(), endAt: new Date(at + 3_600_000).toISOString(), estimatedDuration: 'PT1H' };
     onCreateItem?.(draft);
   };
-  const capacityClock = useSyncExternalStore(subscribeCapacityClock, clockService.getSnapshot, clockService.getSnapshot);
-  const capacityNow = suppliedNow ?? effectiveWorkspaceNow(workspace, new Date(capacityClock));
+  const capacityClock = useSyncExternalStore(subscribeCapacityClock, capacityClockSnapshot, capacityClockSnapshot);
+  // Optional idle-render commits must not resample this minute clock and
+  // invalidate/restart their own preparation on every unrelated second tick.
+  const capacityNow = useMemo(() => suppliedNow ?? effectiveWorkspaceNow(workspace, new Date(clockService.getSnapshot())), [workspace, suppliedNow, capacityClock]);
   const todayKey = localDateKey(suppliedNow ?? navigationNow, preferences.timezone);
   const selectedWeekStart = weekStart(selectedDate, preferences.weekStartsOn);
   const rangeStartKey = navigatorMode === 'week' ? selectedWeekStart : weekStart(monthStart(selectedDate), preferences.weekStartsOn);
   const rangeEndKey = navigatorMode === 'week' ? shiftDateKey(rangeStartKey, 7) : shiftDateKey(weekStart(shiftDateKey(nextMonthStart(selectedDate), -1), preferences.weekStartsOn), 7);
   const projectedBoundaries = useMemo(() => {
+    const prepared = calculations.peekProjectionBoundaries(workspace, rangeStartKey, rangeEndKey, selectedDate);
+    if (prepared) return prepared;
     const startedAt = performance.now();
-    const { padding } = calendarProjectionPadding(Object.values(evaluator.projections.workspaceFor(workspace).items));
-    const rows = [
-      ...evaluator.projections.project(workspace, zonedDateStart(rangeStartKey, preferences.timezone), zonedDateStart(rangeEndKey, preferences.timezone)),
-      ...evaluator.projections.project(workspace, new Date(+zonedDateStart(selectedDate, preferences.timezone) - padding), new Date(+zonedDateStart(shiftDateKey(selectedDate, 1), preferences.timezone) + padding)),
-    ];
-    const result = rows.flatMap(row => [row.schedule.availableFrom, row.schedule.startAt, row.schedule.endAt, row.schedule.dueAt]).map(value => Date.parse(value ?? '')).filter(Number.isFinite);
-    if (performance.now() - startedAt >= 100) recordDiagnostic({ kind: 'result', message: 'Calendar projection boundaries calculated', operation: 'Calendar internal projection', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt), details: JSON.stringify({ rows: rows.length, boundaries: result.length }) });
+    const boundaries = prepareCalendarProjectionBoundaries(evaluator.projections, workspace, rangeStartKey, rangeEndKey, [selectedDate]);
+    const result = [...boundaries.period, ...boundaries.days[selectedDate]!];
+    if (performance.now() - startedAt >= 100) recordDiagnostic({ kind: 'result', message: 'Calendar projection boundaries calculated', operation: 'Calendar internal projection', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt), details: JSON.stringify({ boundaries: result.length }) });
     return result;
-  }, [evaluator, workspace, rangeStartKey, rangeEndKey, selectedDate, preferences.timezone]);
+  }, [calculations, evaluator, workspace, rangeStartKey, rangeEndKey, selectedDate, preferences.timezone]);
   const now = useCalendarNow(workspace, selectedDayView, projectedBoundaries, suppliedNow);
 
   const dayKeys = useMemo(() => {
@@ -172,16 +178,15 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
     for (let key = rangeStartKey; key < rangeEndKey; key = shiftDateKey(key, 1)) keys.push(key);
     return keys;
   }, [rangeStartKey, rangeEndKey]);
-  const calendar = useMemo(() => {
+  const range = useMemo(() => {
     const startedAt = performance.now();
-    const result = evaluator.evaluate(workspace, rangeStartKey, rangeEndKey, preferences.dayView, now);
-    if (performance.now() - startedAt >= 100) recordDiagnostic({ kind: 'result', message: 'Calendar evaluation completed', operation: 'Calendar internal evaluation', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt), details: JSON.stringify({ days: Object.keys(result.days).length, items: Object.values(result.days).reduce((sum, day) => sum + day.evaluation.items.length, 0) }) });
+    const result = calculations.rangeFor(workspace, rangeStartKey, rangeEndKey, now, capacityNow, allDayOpen);
+    if (performance.now() - startedAt >= 100) recordDiagnostic({ kind: 'result', message: 'Calendar evaluation completed', operation: 'Calendar internal evaluation', outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt), details: JSON.stringify({ days: Object.keys(result.calendar.days).length, items: Object.values(result.calendar.days).reduce((sum, day) => sum + day.evaluation.items.length, 0) }) });
     return result;
-  }, [evaluator, completionVersion, workspace, rangeStartKey, rangeEndKey, preferences.dayView, now.getTime()]);
+  }, [calculations, completionVersion, workspace, rangeStartKey, rangeEndKey, now.getTime(), capacityNow.getTime(), allDayOpen]);
+  const { calendar, preparedDays, plans, capacities } = range;
   const dayData = calendar.days;
   const planning = planningEnabled(workspace);
-  const preparedDays = useMemo(() => planning ? Object.fromEntries(dayKeys.map(key => [key, prepareTimelineData(workspace, key, now, evaluator.projections)])) : null, [planning, workspace, dayKeys, now.getTime(), evaluator]);
-  const plans = useMemo(() => preparedDays ? Object.fromEntries(dayKeys.map(key => [key, planCache(workspace, key, preparedDays[key]!, capacityNow, dayData[key]!.reservedItems)])) : null, [planCache, preparedDays, workspace, dayKeys, capacityNow.getTime(), dayData]);
   const plan = plans?.[selectedDate];
   useEffect(() => {
     if (!plan?.repairedOrder) return;
@@ -211,7 +216,7 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
   const overdueIds = new Set(selected.evaluation.items.filter(item => showOverdueToday(item, selectedDate, now, preferences.timezone, item.occurrence ? workspace.items[item.occurrence.seriesId] : undefined)).map(item => item.id));
   const allDayIds = new Set(selected.evaluation.items.filter(item => item.schedule?.allDay && !overdueIds.has(item.id)).map(item => item.id));
   const selectedIds = new Set(selected.evaluation.items.map(item => item.id));
-  const allUndatedItems = useMemo(() => calendarUndatedItems(workspace, now), [workspace, now.getTime()]);
+  const allUndatedItems = range.undated;
   const unsortedUndatedItems = calendarListOrder(sortViewItems(workspace, selected.view, allUndatedItems.filter(item => !selectedIds.has(item.id) || (plan?.movable.has(item.id) && !plan.pins.has(item.id))), now), preferences.planning?.orders?.[selectedDate]);
   const undatedItems = plan ? [...unsortedUndatedItems].sort((a, b) => plan.ids.indexOf(a.id) - plan.ids.indexOf(b.id)) : unsortedUndatedItems;
   const undatedIds = new Set(undatedItems.map(item => item.id));
@@ -227,12 +232,8 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
     const label = overdueIds.has(item.id) ? (preferences.language === 'ru' ? 'Просрочено' : 'Overdue') : allDayIds.has(item.id) ? (preferences.language === 'ru' ? 'Весь день' : 'All day') : undatedIds.has(item.id) ? (preferences.language === 'ru' ? 'Без даты' : 'No date') : '';
     return label ? [[item.id, label] as const] : [];
   }));
-  const capacities = useMemo(() => Object.fromEntries(dayKeys.map(key => {
-    const day = dayData[key]!, dayPlan = plans?.[key];
-    return [key, dayPlan ? calendarVisibleCapacity(workspace, { ...day, evaluation: { ...day.evaluation, items: calendarPlanMetricItems(dayPlan, day.evaluation.items) } }, key, capacityNow, allUndatedItems.filter(item => !dayPlan.ids.includes(item.id)), allDayOpen) : capacityCache.calculate(workspace, day, key, capacityNow, allUndatedItems, allDayOpen)];
-  })), [plans, capacityCache, workspace, dayData, dayKeys, capacityNow.getTime(), allUndatedItems, allDayOpen]);
-  const capacityLabel = (key: string, compact = false) => {
-    const result = capacities[key]!;
+  const capacityLabel = (key: string, compact = false, values = capacities) => {
+    const result = values[key]!;
     const amount = formatCompactRemainingDuration(Math.abs(result.freeMs), preferences.language) || '0min';
     const reserve = result.hiddenReservedMs > 0 ? ` · ${preferences.language === 'ru' ? 'скрытый резерв' : 'hidden reserve'} ${formatCompactRemainingDuration(result.hiddenReservedMs, preferences.language)}` : '';
     return `${result.freeMs < 0 ? (preferences.language === 'ru' ? 'Перегрузка' : 'Over capacity') : (preferences.language === 'ru' ? 'Свободно' : 'Free')} ${amount}${compact ? '' : reserve}`;
@@ -266,6 +267,29 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
   const showWeek = navigatorMode === 'week';
   const visibleDayKeys = dayKeys.filter(key => showWeek ? key >= selectedWeekStart && key < shiftDateKey(selectedWeekStart, 7) : key.slice(0, 7) === selectedDate.slice(0, 7));
   const labelWeek = weekStart('2026-08-31', preferences.weekStartsOn);
+  const adjacentIdentity = useMemo(() => ({}), [workspace, selectedDate, navigatorMode, displayMode, now.getTime(), capacityNow.getTime(), completionVersion, allDayOpen]);
+  const selectedPrepared = displayMode === 'timeline' ? preparedDays?.[selectedDate] ?? calculations.timelineFor(workspace, selectedDate, now) : undefined;
+  const slideRunner = useMemo(() => createCalendarSlidesRunner(), []);
+  useEffect(() => () => slideRunner.dispose(), [slideRunner]);
+  useCalendarAdjacentSlides(adjacentIdentity, async (direction, signal) => {
+    if (hasCompletionHolds()) return;
+    const adjacentDate = shiftDateKey(selectedDate, direction);
+    const ranges: Array<{ start: string; end: string }> = [];
+    if (showWeek) {
+      const start = shiftDateKey(selectedWeekStart, direction * 7);
+      if (!calculations.peekRange(workspace, start, shiftDateKey(start, 7), now, capacityNow, allDayOpen)) ranges.push({ start, end: shiftDateKey(start, 7) });
+    } else if (!dayData[adjacentDate] && !calculations.peekRange(workspace, adjacentDate, shiftDateKey(adjacentDate, 1), now, capacityNow, allDayOpen)) ranges.push({ start: adjacentDate, end: shiftDateKey(adjacentDate, 1) });
+    const timelines = displayMode === 'timeline' && !preparedDays?.[adjacentDate] && !calculations.peekTimeline(workspace, adjacentDate, now) ? [adjacentDate] : [];
+    if (!ranges.length && !timelines.length) return;
+    const result = await slideRunner.prepare(workspace, { ranges, timelines, now: +now, capacityNow: +capacityNow, allDayOpen }, signal);
+    if (result && !signal.aborted && !hasCompletionHolds()) calculations.acceptPrepared(workspace, now, capacityNow, allDayOpen, completionVersion, result);
+  });
+
+  const neighbouringRange = (key: string) => {
+    if (dayData[key]) return range;
+    const start = showWeek ? weekStart(key, preferences.weekStartsOn) : key;
+    return calculations.peekRange(workspace, start, shiftDateKey(start, showWeek ? 7 : 1), now, capacityNow, allDayOpen);
+  };
 
   useLayoutEffect(() => {
     if (navigatorMode !== 'week' || selectedDate !== todayKey) return;
@@ -302,6 +326,29 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
     return series ? createOccurrence(series, new Date(item.occurrence.recurrenceId), item.occurrence.sequence) : undefined;
   };
 
+  const renderDayPanel = (keys: string[], source = range, active = true) => <div className={`${active ? 'calendar-day-panel ' : ''}is-${showWeek ? 'week' : 'month'} calendar-day-strip`} ref={active ? dayPanelRef : undefined} {...(active ? periodSwipe.handlers : {})}>
+    {!showWeek && Array.from({ length: 7 }, (_, index) => <span className="calendar-weekday-label" key={index}>{formatDate(shiftDateKey(labelWeek, index), { weekday: 'short' })}</span>)}
+    {!showWeek && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
+    {keys.map(key => <button type="button" data-date={active ? key : undefined} ref={active && key === todayKey ? todayChoiceRef : undefined} className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} aria-current={key === todayKey ? 'date' : undefined} onClick={active ? () => setSelectedDate(key) : undefined} key={key}>
+      <span className="calendar-day-label"><b>{showWeek ? formatDate(key, { weekday: 'short' }) : Number(key.slice(-2))}</b>{showWeek && <small>{formatDate(key, { day: 'numeric', month: 'short' })}</small>}</span>
+      {source.calendar.days[key]!.view.statistics?.showTime !== false && <span className="view-metrics-summary" aria-label={capacityLabel(key, false, source.capacities)}>{capacityLabel(key, true, source.capacities)}{source.capacities[key]!.hiddenReservedMs > 0 ? ' *' : ''}</span>}
+    </button>)}
+  </div>;
+  const periodPage = (direction: -1 | 1): CalendarSwipePage | undefined => {
+    if (!showWeek) return undefined;
+    const start = shiftDateKey(selectedWeekStart, direction * 7);
+    const source = calculations.peekRange(workspace, start, shiftDateKey(start, 7), now, capacityNow, allDayOpen);
+    return source ? { key: start, content: renderDayPanel(Array.from({ length: 7 }, (_, index) => shiftDateKey(start, index)), source, false) } : undefined;
+  };
+  const timelinePage = (key: string, active: boolean): CalendarSwipePage | undefined => {
+    const source = active ? range : neighbouringRange(key);
+    const prepared = active ? selectedPrepared : source?.preparedDays?.[key] ?? calculations.peekTimeline(workspace, key, now);
+    if (!source || !prepared) return undefined;
+    const day = source.calendar.days[key]!, dayPlan = source.plans?.[key];
+    const items = active ? selected.evaluation.items : dayPlan ? [...dayPlan.items, ...day.evaluation.items.filter(item => !dayPlan.ids.includes(item.id))] : calendarListOrder(day.evaluation.items, preferences.planning?.orders?.[key]);
+    return { key, content: <CalendarTimeline preview={!active} toolbarHost={active ? timelineToolbarHost : null} preparedDay={prepared} listItems={items} plan={dayPlan} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={key} now={now} suppliedNow={active ? suppliedNow : now} capacityLabel={capacityLabel(key, false, source.capacities)} reservedItems={day.reservedItems.filter(item => !items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onEdit={active ? openItem : () => undefined} onState={active ? changeState : undefined} onPreferences={active ? settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; }) : () => undefined} {...(active ? { onCreateAt: createAt, onAllDayChange: setAllDayOpen, swipeFeedback: dayMotion, onSwipeDay: (direction: -1 | 1) => dayMotion.navigate(direction, () => setSelectedDate(current => shiftDateKey(current, direction))) } : {})} /> };
+  };
+
   return <section className={`calendar-page page-section${compactNavigator ? ' is-compact' : ''}`} ref={calendarRoot}>
     <div className="calendar-navigation">
     <div className="calendar-navigation-body" ref={controlsRef}><div className="calendar-navigation-inner">
@@ -335,18 +382,11 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
           <IconButton size="compact" variant="ghost" aria-label="Next period" onClick={() => movePeriod(1)}>›</IconButton>
         </div>
       </div></div>
-      <div className={`calendar-day-panel is-${showWeek ? 'week' : 'month'}`} ref={dayPanelRef} {...periodSwipe}>
-        {!showWeek && Array.from({ length: 7 }, (_, index) => <span className="calendar-weekday-label" key={index}>{formatDate(shiftDateKey(labelWeek, index), { weekday: 'short' })}</span>)}
-        {!showWeek && Array.from({ length: weekdayOffset }, (_, index) => <span className="calendar-day-spacer" key={index} />)}
-        {visibleDayKeys.map((key) => <button type="button" data-date={key} ref={key === todayKey ? todayChoiceRef : undefined} className={`calendar-day-choice${key === selectedDate ? ' selected' : ''}${key === todayKey ? ' today' : ''}`} aria-pressed={key === selectedDate} aria-current={key === todayKey ? 'date' : undefined} onClick={() => setSelectedDate(key)} key={key}>
-          <span className="calendar-day-label"><b>{showWeek ? formatDate(key, { weekday: 'short' }) : Number(key.slice(-2))}</b>{showWeek && <small>{formatDate(key, { day: 'numeric', month: 'short' })}</small>}</span>
-          {dayData[key]!.view.statistics?.showTime !== false && <span className="view-metrics-summary" aria-label={capacityLabel(key)}>{capacityLabel(key, true)}{capacities[key]!.hiddenReservedMs > 0 ? ' *' : ''}</span>}
-        </button>)}
-      </div>
+      <CalendarSwipePages className="calendar-period-swipe-track" trackRef={periodMotion.ref} current={{ key: rangeStartKey, content: renderDayPanel(visibleDayKeys) }} previous={periodPage(-1)} next={periodPage(1)} />
     </Surface>
     </div>
     {displayMode === 'timeline'
-      ? <CalendarTimeline toolbarHost={timelineToolbarHost} preparedDay={preparedDays?.[selectedDate]} listItems={selected.evaluation.items} plan={plan} onCreateAt={createAt} planningNow={capacityNow} projectionCache={evaluator.projections} workspace={workspace} dateKey={selectedDate} now={now} suppliedNow={suppliedNow} capacityLabel={capacityLabel(selectedDate)} reservedItems={selected.reservedItems.filter(item => !selected.evaluation.items.some(visible => (visible.occurrence?.seriesId ?? visible.id) === (item.occurrence?.seriesId ?? item.id)))} allDayOpen={allDayOpen} onAllDayChange={setAllDayOpen} onEdit={openItem} onState={changeState} onPreferences={settings => commit('Timeline preferences', draft => { draft.calendarPreferences.timeline = settings; })} onSwipeDay={direction => setSelectedDate(current => shiftDateKey(current, direction))} />
+      ? <CalendarSwipePages className="calendar-day-swipe-content" trackRef={dayMotion.ref} current={timelinePage(selectedDate, true)!} previous={timelinePage(shiftDateKey(selectedDate, -1), false)} next={timelinePage(shiftDateKey(selectedDate, 1), false)} />
       : <><Surface className="calendar-day-list">
         {manuallyOrdered ? <ViewResults {...orderProps} itemLabels={categoryLabels} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={listEvaluation} hiddenItemIds={new Set(listEvaluation.items.filter(item => !plan?.pins.has(item.id) && ((overdueIds.has(item.id) && timelineSettings.showOverdue === false) || (allDayIds.has(item.id) && !allDayOpen) || (undatedIds.has(item.id) && timelineSettings.showUndated !== true))).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /> : <>
         {overdueIds.size > 0 && timelineSettings.showOverdue !== false && <div className="calendar-overdue"><h2>{preferences.language === 'ru' ? 'Просрочено' : 'Overdue'} · {overdueIds.size}</h2><ViewResults {...orderProps} view={listView} calendarTimeOnly workspace={calendar.workspace} evaluation={selected.evaluation} hiddenItemIds={new Set(selected.evaluation.items.filter(item => !overdueIds.has(item.id)).map(item => item.id))} onEdit={openItem} onState={changeState} celebrationColors={celebrationColors} /></div>}

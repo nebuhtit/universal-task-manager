@@ -1,10 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
+import { currentTimeline } from './calendar-locators';
 import * as Automerge from '@automerge/automerge';
 import { createWorkspace, createItem } from '../../packages/core/dist/index.js';
 import { createAutomergeDocument, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
 const password = 'weather-fixture-test-only';
 const now = new Date('2026-09-23T12:00:00Z');
 async function navigate(page: Page, name: string) {
+  if (name === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name, exact: true }).click(); return; }
   if ((page.viewportSize()?.width ?? 0) <= 620) {
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click();
@@ -50,24 +52,24 @@ test('weather beta: settings, gradient, haze, keyboard, themes, errors and compl
   await page.locator('details').filter({ has: page.locator('summary').filter({ hasText: /^Weather$/ }) }).evaluate(el => { (el as HTMLDetailsElement).open = true; });
   await expect(page.getByRole('status').filter({ hasText: 'Selected and saved on this device: Berlin, Germany' })).toBeVisible();
   await navigate(page, 'Calendar');
-  await expect(page.getByTestId('weather-background')).toBeVisible(); await expect(page.locator('.weather-solar')).toHaveCount(1);
-  await expect(page.locator('.weather-solar')).toHaveAttribute('style', /--color-weather-cloud/);
-  await expect(page.locator('.weather-solar-marker')).toHaveCount(2); await expect(page.getByTestId('weather-haze').first().locator('.weather-haze')).toHaveCSS('opacity', '0.5');
-  await expect(page.getByTestId('weather-background')).toHaveCSS('pointer-events', 'none');
-  await expect(page.locator('.weather-legend')).toHaveCount(0);
-  const marker = page.locator('.weather-solar-marker').first(); await marker.scrollIntoViewIfNeeded();
+  await expect(currentTimeline(page).getByTestId('weather-background')).toBeVisible(); await expect(currentTimeline(page).locator('.weather-solar')).toHaveCount(1);
+  await expect(currentTimeline(page).locator('.weather-solar')).toHaveAttribute('style', /--color-weather-cloud/);
+  await expect(currentTimeline(page).locator('.weather-solar-marker')).toHaveCount(2); await expect(currentTimeline(page).getByTestId('weather-haze').first().locator('.weather-haze')).toHaveCSS('opacity', '0.5');
+  await expect(currentTimeline(page).getByTestId('weather-background')).toHaveCSS('pointer-events', 'none');
+  await expect(currentTimeline(page).locator('.weather-legend')).toHaveCount(0);
+  const marker = currentTimeline(page).locator('.weather-solar-marker').first(); await marker.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-weather-${testInfo.project.name}-light.png` });
-  const event = page.locator('.timeline-event').filter({ hasText: 'Weather interaction sentinel' }); await event.focus(); await expect(event).toBeFocused();
+  const event = currentTimeline(page).locator('.timeline-event').filter({ hasText: 'Weather interaction sentinel' }); await event.focus(); await expect(event).toBeFocused();
   await page.keyboard.press('Enter'); await expect(page.getByRole('dialog')).toBeVisible(); await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; }); await marker.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-weather-${testInfo.project.name}-dark.png` });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   fail = true; await page.clock.fastForward(3_600_000); await expect.poll(() => forecasts).toBe(2);
-  await expect(page.getByTestId('weather-background')).toBeVisible(); await expect(page.getByText('Service error: 503')).toHaveCount(0);
+  await expect(currentTimeline(page).getByTestId('weather-background')).toBeVisible(); await expect(page.getByText('Service error: 503')).toHaveCount(0);
   await navigate(page, 'Settings'); await page.locator('summary').filter({ hasText: /^Weather$/ }).click();
   await expect(page.getByText('Service error: 503')).toBeVisible();
   await toggle.uncheck(); const count = forecasts; await page.clock.fastForward(7_200_000); expect(forecasts).toBe(count);
-  await navigate(page, 'Calendar'); await expect(page.getByTestId('weather-background')).toHaveCount(0);
+  await navigate(page, 'Calendar'); await expect(currentTimeline(page).getByTestId('weather-background')).toHaveCount(0);
   await page.reload(); await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.getByPlaceholder('Add new item')).toBeVisible({ timeout: 30_000 }); expect(forecasts).toBe(count);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('utm:weather:v1')!))).toMatchObject({ enabled: false, location: { latitude: 52.52, longitude: 13.405 } });

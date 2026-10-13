@@ -1,5 +1,6 @@
-import { effectiveItemDurationMs, googleCalendarProjection, projectOccurrences, recurrenceDisplayItems, type ProjectedOccurrence, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { effectiveItemDurationMs, googleCalendarProjection, projectOccurrences, recurrenceDisplayItems, zonedDateStart, type ProjectedOccurrence, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { beginProfileSpan, measureProfile, recordProfileCache } from '../../services/performanceProfile';
+import { createCalendarDependencyTokens } from './calendarDependencyTokens';
 
 // A week needs seven day ranges plus navigator/evaluation queries. Four slots
 // evicted still-visible days before the next refresh could reuse them.
@@ -32,36 +33,51 @@ export function createCalendarProjectionCache() {
   const ranges = new Map<string, ProjectedOccurrence[]>();
   const groups = new Map<string, { signature: string; workspace: WorkspaceDocument; ranges: Map<string, ProjectedOccurrence[]> }>();
   const counters = { mappings: 0, projections: 0, groupProjections: 0 };
-  const sources = new Map<string, { signature: string; item: UniversalItem }>();
+  const token = createCalendarDependencyTokens();
+  const sources = new Map<string, { token: number; item: UniversalItem }>();
+  // Source identity is valid only for immutable snapshots. Content tokens also
+  // handle cloned imports and edits that deliberately retain their revision.
+  const projectedSources = new WeakMap<UniversalItem, { token: number; item: UniversalItem }>();
+  const scheduleTokens = new WeakMap<UniversalItem, number>();
+  const scheduleToken = (item: UniversalItem) => {
+    const hit = scheduleTokens.get(item);
+    if (hit !== undefined) return hit;
+    const value = token('schedule:' + item.id, {
+      id: item.id, role: item.role, state: item.state, schedule: item.schedule,
+      recurrence: item.recurrence, occurrence: item.occurrence,
+      external: item.external ? { transparency: item.external.transparency } : undefined,
+    });
+    scheduleTokens.set(item, value);
+    return value;
+  };
   const workspaceFor = (workspace: WorkspaceDocument) => {
     if (previous === workspace) { recordProfileCache('calendar.mapping', true, 'unchanged'); return mapped!; }
     const finish = beginProfileSpan('calendar.map');
+    const tombstonesToken = token('tombstones', workspace.tombstones);
     const nextScheduleSignature = JSON.stringify([
       workspace.workspaceId,
       workspace.calendarPreferences.timezone,
-      workspace.tombstones,
-      Object.values(workspace.items).map(item => ({
-        id: item.id,
-        role: item.role,
-        state: item.state,
-        schedule: item.schedule,
-        recurrence: item.recurrence,
-        occurrence: item.occurrence,
-        external: item.external ? { transparency: item.external.transparency } : undefined,
-      })),
+      tombstonesToken,
+      Object.values(workspace.items).map(scheduleToken),
     ]);
     // Rebuild the lightweight source map so edited titles are visible, while
     // keeping expensive recurrence projections when only card content changed.
     const visible = recurrenceDisplayItems(workspace);
     const liveIds = new Set(visible.map(item => item.id));
     for (const id of sources.keys()) if (!liveIds.has(id)) sources.delete(id);
+    let recalculated = 0;
     mapped = { ...workspace, items: Object.fromEntries(visible.map(source => {
-      const item = googleCalendarProjection(source);
-      const signature = JSON.stringify(item);
-      const prior = sources.get(item.id);
-      if (prior?.signature === signature) return [item.id, prior.item];
-      sources.set(item.id, { signature, item });
-      return [item.id, item];
+      let projected = projectedSources.get(source);
+      if (!projected) {
+        const item = googleCalendarProjection(source);
+        projected = { token: token('item:' + item.id, item), item };
+        projectedSources.set(source, projected);
+      }
+      const prior = sources.get(source.id);
+      if (prior?.token === projected.token) return [source.id, prior.item];
+      recalculated++;
+      sources.set(source.id, projected);
+      return [source.id, projected.item];
     })) };
     recordProfileCache('calendar.mapping', false, !previous ? 'empty' : nextScheduleSignature !== scheduleSignature ? 'schedule-signature' : 'content-only', visible.length);
     // Projection rows also contain title/content. Refresh changed groups even
@@ -82,12 +98,14 @@ export function createCalendarProjectionCache() {
       }
       for (const key of groups.keys()) if (!buckets.has(key)) groups.delete(key);
       for (const [key, items] of buckets) {
-        const groupSignature = JSON.stringify([items, workspace.tombstones, workspace.calendarPreferences.timezone]);
+        // Tokens include every field, including nested metadata and title.
+        // Do not serialize notes/history again just to compare their bucket.
+        const groupSignature = JSON.stringify([Object.keys(items).map(id => sources.get(id)!.token), tombstonesToken, workspace.calendarPreferences.timezone]);
         if (groups.get(key)?.signature !== groupSignature) groups.set(key, { signature: groupSignature, workspace: { ...mapped, items }, ranges: new Map() });
       }
     }
     previous = workspace; scheduleSignature = nextScheduleSignature;
-    finish({ scanned: visible.length, recalculated: visible.length });
+    finish({ scanned: visible.length, recalculated });
     return mapped;
   };
   const project = (workspace: WorkspaceDocument, start: Date, end: Date) => {
@@ -117,3 +135,18 @@ export function createCalendarProjectionCache() {
   return { workspaceFor, project, counters };
 }
 export type CalendarProjectionCache = ReturnType<typeof createCalendarProjectionCache>;
+
+export type CalendarProjectionBoundaries = { period: number[]; days: Record<string, number[]> };
+const boundaryTimes = (rows: ProjectedOccurrence[]) => rows.flatMap(row => [row.schedule.availableFrom, row.schedule.startAt, row.schedule.endAt, row.schedule.dueAt]).map(value => Date.parse(value ?? '')).filter(Number.isFinite);
+
+/** Same unfiltered boundaries for the main clock and optional Worker prefetch.
+ * Depends only on the immutable document and date ranges, not wall-clock time. */
+export function prepareCalendarProjectionBoundaries(cache: CalendarProjectionCache, workspace: WorkspaceDocument, start: string, end: string, days: string[]): CalendarProjectionBoundaries {
+  const zone = workspace.calendarPreferences.timezone;
+  const { padding } = calendarProjectionPadding(Object.values(cache.workspaceFor(workspace).items));
+  const period = boundaryTimes(cache.project(workspace, zonedDateStart(start, zone), zonedDateStart(end, zone)));
+  return { period, days: Object.fromEntries(days.map(key => {
+    const next = new Date(Date.parse(key + 'T12:00:00Z') + 86_400_000).toISOString().slice(0, 10);
+    return [key, boundaryTimes(cache.project(workspace, new Date(+zonedDateStart(key, zone) - padding), new Date(+zonedDateStart(next, zone) + padding)))];
+  })) };
+}

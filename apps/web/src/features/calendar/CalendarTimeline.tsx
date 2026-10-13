@@ -2,7 +2,7 @@ import type { buildCalendarPlan } from './calendarPlanning';
 import { createPortal } from 'react-dom';
 import { WeatherTimeline } from '../weather/WeatherTimeline';
 import { calendarTimelineFields } from './calendarCardFields';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type TouchEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { activeRangeDailyDuration, calendarDateKey, effectiveWorkspaceNow, occupiedIntervals, viewPeriodBoundsForDates, zonedDateTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { LineIcon } from '../../components/ui/icons';
 import { PersistedDetails, persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
@@ -15,6 +15,7 @@ import { FieldIcon } from '../items/FieldIcon';
 import { prepareTimelineData, applyTimelinePlanning, timelineActiveRangeBounds } from './timelineData';
 import type { CalendarProjectionCache } from './calendarProjectionCache';
 import { calendarUndatedItems } from './calendarVisibility';
+import { useCalendarPeriodSwipe, type CalendarSwipeFeedback } from './useCalendarPeriodSwipe';
 import { buildSegments, hiddenIntervals, layoutEvents, placeActiveRangeCues, positionAt, type Segment } from './timelineLayout';
 import './timeline.css';
 
@@ -40,7 +41,8 @@ export function TimelineNow({ workspace, segments, suppliedNow }: { workspace: W
   return <div className={`timeline-now${segment.hidden ? ' is-hidden-time' : ''}`} style={{ top }} data-testid="timeline-now" aria-label={`Current time ${timeLabel(at, workspace.calendarPreferences.timezone)}`}><span>{timeLabel(at, workspace.calendarPreferences.timezone)}</span></div>;
 }
 
-export const CalendarTimeline = memo(function CalendarTimeline({ toolbarHost, preparedDay, plan, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, onCreateAt }: {
+export const CalendarTimeline = memo(function CalendarTimeline({ preview = false, toolbarHost, preparedDay, plan, workspace, dateKey, now, planningNow = now, suppliedNow, projectionCache, capacityLabel, listItems = [], reservedItems = [], allDayOpen, onAllDayChange, onEdit, onState, onPreferences, onSwipeDay, swipeFeedback, onCreateAt }: {
+  preview?: boolean;
   toolbarHost?: HTMLElement | null;
   preparedDay?: ReturnType<typeof prepareTimelineData> | undefined;
   plan?: ReturnType<typeof buildCalendarPlan> | undefined;
@@ -54,6 +56,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ toolbarHost, pr
   onState?: ((item: UniversalItem, state: UniversalItem['state']) => void) | undefined;
   onPreferences: (settings: NonNullable<WorkspaceDocument['calendarPreferences']['timeline']>) => void;
   onSwipeDay?: (direction: -1 | 1) => void;
+  swipeFeedback?: CalendarSwipeFeedback;
   onCreateAt?: (at: number) => void;
 }) {
   const ru = workspace.calendarPreferences.language === 'ru';
@@ -62,38 +65,25 @@ export const CalendarTimeline = memo(function CalendarTimeline({ toolbarHost, pr
   const cardFields = calendarTimelineFields(workspace.calendarPreferences.dayView).filter(field => field !== 'tags');
   allDayOpen ??= readUiBoolean('calendar:all-day', true);
   const [more, setMore] = useState<UniversalItem[]>([]);
-  const swipeStart = useRef<{ x: number; y: number; at: number } | null>(null);
   const hold = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   const cancelHold = () => { if (hold.current) clearTimeout(hold.current.timer); hold.current = null; };
   useEffect(() => cancelHold, [dateKey]);
-  const beginBackgroundSwipe = (event: TouchEvent<HTMLDivElement>) => {
-    swipeStart.current = null;
-    if (!onSwipeDay || event.touches.length !== 1 || !(event.target instanceof Element)) return;
-    if (event.target.closest('button, a, input, select, textarea, [data-utm-due-item-id], [role="button"]')) return;
-    swipeStart.current = { x: event.touches[0]!.clientX, y: event.touches[0]!.clientY, at: Date.now() };
-  };
-  const endBackgroundSwipe = (event: TouchEvent<HTMLDivElement>) => {
-    const start = swipeStart.current;
-    swipeStart.current = null;
-    if (!start || !onSwipeDay || event.changedTouches.length !== 1) return;
-    const dx = event.changedTouches[0]!.clientX - start.x;
-    const dy = event.changedTouches[0]!.clientY - start.y;
-    if (Math.abs(dx) >= 65 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - start.at < 900) onSwipeDay(dx < 0 ? 1 : -1);
-  };
+  const backgroundSwipe = useCalendarPeriodSwipe(direction => onSwipeDay?.(direction), swipeFeedback, event =>
+    Boolean(onSwipeDay && event.target instanceof Element && !event.target.closest('button, a, input, select, textarea, [data-utm-due-item-id], [role="button"]')));
   const [columns, setColumns] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 620px)').matches ? 2 : 4);
   useEffect(() => {
     const media = window.matchMedia('(max-width: 620px)');
     const change = () => setColumns(media.matches ? 2 : 4);
     change(); media.addEventListener('change', change); return () => media.removeEventListener('change', change);
   }, []);
-  useEffect(() => { setMore([]); }, [dateKey]);
+  useEffect(() => { setMore([]); }, [dateKey, preview]);
   const prepared = useMemo(() => preparedDay ?? prepareTimelineData(workspace, dateKey, now, projectionCache), [preparedDay, workspace, dateKey, now.getTime(), projectionCache]);
   const data = useMemo(() => {
     const legacy = applyTimelinePlanning(prepared, planningNow);
     const undatedIds = new Set(prepared.undated.filter(item => !item.schedule?.plannedDate).map(item => item.id));
     return plan ? { ...legacy, events: plan.events, plannedTasks: plan.unplaced.filter(item => !undatedIds.has(item.id) || plan.pins.has(item.id)), undated: plan.unplaced.filter(item => undatedIds.has(item.id) && !plan.pins.has(item.id)), planning: { ...legacy.planning, warnings: [] } } : legacy;
   }, [prepared, planningNow.getTime(), plan]);
-  const undatedCount = useMemo(() => calendarUndatedItems(workspace, now).length, [workspace, now.getTime()]);
+  const undatedCount = useMemo(() => preview ? 0 : calendarUndatedItems(workspace, now).length, [preview, workspace, now.getTime()]);
   // Reveal only reference intervals inside compressed sleep; never change the preference.
   const hidden = useMemo(() => hiddenIntervals(data.hidden, data.events.filter(event => plan?.parallel.has(event.item.id)), data.day), [data, plan]);
   const segments = useMemo(() => buildSegments(data.day, hidden), [data.day, hidden]);
@@ -143,7 +133,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ toolbarHost, pr
     {data.plannedTasks.some(item => !plan?.activeRanges.has(item.id)) && <div className="timeline-top-items"><h2>{ru ? 'Задачи на день' : 'Day tasks'}</h2>{cards(data.plannedTasks.filter(item => !plan?.activeRanges.has(item.id)))}</div>}
     {data.allDay.length > 0 && allDayOpen && <div className="timeline-top-items timeline-all-day-items">{cards(data.allDay)}</div>}
     {data.undated.length > 0 && <PersistedDetails uiKey="calendar:no-date" defaultOpen={false} className="timeline-top-items"><summary>{ru ? 'Без даты' : 'No date'} · {data.undated.length}</summary>{cards(data.undated)}</PersistedDetails>}
-    <div className="timeline-axis" style={{ height: height + 12 }} onTouchStart={beginBackgroundSwipe} onTouchEnd={endBackgroundSwipe} onTouchCancel={() => { swipeStart.current = null; cancelHold(); }}
+    <div className="timeline-axis" style={{ height: height + 12 }} {...backgroundSwipe.handlers} onTouchCancel={() => { backgroundSwipe.cancel(); cancelHold(); }}
       onPointerDown={event => {
         cancelHold();
         if (!onCreateAt || !event.isPrimary || event.button !== 0 || !(event.target instanceof Element) || event.target.closest('button, input, textarea, a, [role="button"]')) return;
@@ -156,7 +146,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ toolbarHost, pr
         const hour = tick ? Number(tick.dataset.timelineHour) : [...ticks].reverse().find(value => value <= at);
         if (hour === undefined) return;
         hold.current = { x: event.clientX, y: event.clientY, timer: setTimeout(() => {
-          hold.current = null; swipeStart.current = null;
+          hold.current = null; backgroundSwipe.cancel();
           try { navigator.vibrate?.(20); } catch { /* Haptics are optional. */ }
           onCreateAt(hour);
         }, 550) };
@@ -207,7 +197,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ toolbarHost, pr
       </div>
       <TimelineNow workspace={workspace} segments={segments} suppliedNow={suppliedNow} />
     </div>
-    <ResponsiveDialog open={more.length > 0} onOpenChange={value => { if (!value) setMore([]); }} title={ru ? 'Пересекающиеся события' : 'Overlapping items'} ariaLabel="Timeline overlapping items">
+    <ResponsiveDialog open={!preview && more.length > 0} onOpenChange={value => { if (!value) setMore([]); }} title={ru ? 'Пересекающиеся события' : 'Overlapping items'} ariaLabel="Timeline overlapping items">
       <div className="timeline-more-list">{more.map(item => <Button key={item.id} onClick={() => open(item)}>{item.title}</Button>)}</div>
     </ResponsiveDialog>
   </section>;

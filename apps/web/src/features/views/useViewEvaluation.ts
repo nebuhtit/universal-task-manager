@@ -48,7 +48,19 @@ function useTemporalNow(workspace: WorkspaceDocument, dependsOnTime: boolean, co
   }, [boundaries, continuous, dependsOnTime, workspace, linkedBlockIds]);
   const subscribe = useCallback((listener: () => void) => dependsOnTime ? clockService.subscribe(listener, 1_000) : () => undefined, [dependsOnTime]);
   const key = useSyncExternalStore(subscribe, snapshot, snapshot);
-  return useMemo(() => suppliedNow ?? (dependsOnTime ? effectiveWorkspaceNow(workspace, new Date(clockService.getSnapshot())) : frozenNow), [dependsOnTime, frozenNow, key, suppliedNow, workspace]);
+  const previousCalendar = useRef<{ workspace: WorkspaceDocument; now: Date } | undefined>(undefined);
+  return useMemo(() => {
+    const now = suppliedNow ?? (dependsOnTime ? effectiveWorkspaceNow(workspace, new Date(clockService.getSnapshot())) : frozenNow);
+    const previous = previousCalendar.current;
+    // Changing projected periods changes the boundary *count*, not necessarily
+    // the answer at the current instant. Keep the exact prepared clock while
+    // no boundary in the NEW period has actually been crossed. No rounding.
+    if (extraBoundaries && !suppliedNow && previous?.workspace === workspace && +now >= +previous.now
+      && temporalEvaluationKey(boundaries, previous.now, workspace.calendarPreferences.timezone, continuous) === temporalEvaluationKey(boundaries, now, workspace.calendarPreferences.timezone, continuous)
+      && (!linkedBlockIds.length || activeWithinBlockIds(workspace, linkedBlockIds, previous.now).join(',') === activeWithinBlockIds(workspace, linkedBlockIds, now).join(','))) return previous.now;
+    previousCalendar.current = { workspace, now };
+    return now;
+  }, [dependsOnTime, frozenNow, key, suppliedNow, workspace, extraBoundaries, boundaries, continuous, linkedBlockIds]);
 }
 
 export function useViewNow(workspace: WorkspaceDocument, view: SavedView, suppliedNow?: Date): Date {
@@ -60,7 +72,7 @@ export function useViewNow(workspace: WorkspaceDocument, view: SavedView, suppli
 /** Calendar membership always depends on midnight/overdue, even with a static filter. */
 export function useCalendarNow(workspace: WorkspaceDocument, view: SavedView, projectedBoundaries: readonly number[], suppliedNow?: Date): Date {
   const continuous = useMemo(() => viewContinuouslyDependsOnCurrentTime(workspace, view), [workspace, view]);
-  return useTemporalNow(workspace, true, continuous, view, suppliedNow, projectedBoundaries);
+  return useTemporalNow(workspace, true, continuous, workspace, suppliedNow, projectedBoundaries);
 }
 
 /** Updates generic workspace screens only at a local/UTC day or item time boundary. */

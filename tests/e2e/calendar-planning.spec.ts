@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
+import { currentTimeline } from './calendar-locators';
 import * as Automerge from '@automerge/automerge';
 import { createWorkspace, createItem, ensureAreaDefinition, type WorkspaceDocument } from '../../packages/core/dist/index.js';
 import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
@@ -321,6 +322,179 @@ test('widget route opens today both while unlocked and after unlock', async ({ p
   expect(await page.evaluate(() => sessionStorage.getItem('utm:open-calendar-today'))).toBeNull();
 });
 
+for (const theme of ['light', 'dark'] as const) test(`calendar swipe motion follows the finger and respects reduced motion in ${theme}`, async ({ page }, testInfo) => {
+  const { read } = await setup(page, true, workspace => {
+    workspace.calendarPreferences.appearance.mode = theme;
+    workspace.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false };
+  });
+  const before = await read();
+  // Pause only our new animations: inspect real compositor keyframes at a
+  // deterministic midpoint, without racing a 200ms animation across tool calls.
+  await page.evaluate(() => {
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (...args) {
+      const animation = animate.apply(this, args);
+      if (this.matches('.calendar-period-swipe-track, .calendar-day-swipe-content')) animation.pause();
+      return animation;
+    };
+  });
+  const panel = page.locator('.calendar-day-panel');
+  const period = page.locator('.calendar-period-swipe-track');
+  const day = page.locator('.calendar-day-swipe-content');
+  const axis = page.locator('[data-calendar-slide="current"] .timeline-axis');
+  await expect(period.locator(':scope > [data-calendar-slide]')).toHaveCount(3);
+  await expect(day.locator(':scope > [data-calendar-slide]')).toHaveCount(3);
+  const selected = () => panel.locator('.selected').getAttribute('data-date');
+  const touch = (target: Locator, kind: 'touchstart' | 'touchmove' | 'touchend' | 'touchcancel', x: number, y = 300) => target.dispatchEvent(kind, {
+    touches: kind === 'touchend' || kind === 'touchcancel' ? [] : [{ identifier: 1, clientX: x, clientY: y }],
+    changedTouches: [{ identifier: 1, clientX: x, clientY: y }],
+  });
+  const finish = async (target: Locator) => {
+    await target.evaluate(node => node.getAnimations().forEach(animation => animation.finish()));
+    await expect(target).not.toHaveAttribute('data-swipe-motion');
+    await expect(target).toHaveCSS('transform', 'none');
+  };
+  const inspectEntry = async (target: Locator, direction: -1 | 1) => {
+    await expect(target).toHaveAttribute('data-swipe-motion', 'entering');
+    const startX = await target.evaluate(node => {
+      const animation = node.getAnimations()[0]!;
+      const effect = animation.effect as KeyframeEffect;
+      const first = effect.getKeyframes()[0]!;
+      animation.currentTime = Number(effect.getTiming().duration) / 2;
+      return new DOMMatrix(String(first.transform)).m41;
+    });
+    expect(startX * direction).toBeGreaterThan(0);
+    const midpoint = await target.evaluate(node => ({ x: new DOMMatrix(getComputedStyle(node).transform).m41, opacity: Number(getComputedStyle(node).opacity) }));
+    expect(midpoint.x * direction).toBeGreaterThan(0);
+    expect(midpoint.opacity).toBeGreaterThan(0.65);
+    expect(midpoint.opacity).toBe(1);
+  };
+  await touch(panel, 'touchstart', 180);
+  await touch(panel, 'touchmove', 100);
+  await page.clock.runFor(32);
+  await expect(period).toHaveAttribute('data-swipe-motion', 'dragging');
+  expect(await period.evaluate(node => new DOMMatrix(getComputedStyle(node).transform).m41)).toBeLessThan(0);
+  const visibleNext = await period.evaluate(node => {
+    const next = node.querySelector('[data-calendar-slide="next"]')!.getBoundingClientRect();
+    const viewport = node.parentElement!.getBoundingClientRect();
+    return next.left < viewport.right && next.right > viewport.left;
+  });
+  expect(visibleNext).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath(`swipe-neighbour-week-${theme}.png`) });
+  await expect.poll(selected).toBe('2026-09-24');
+  await touch(panel, 'touchend', 60);
+  await expect.poll(selected).toBe('2026-10-01');
+  await inspectEntry(period, 1); await finish(period);
+  await expect(period.locator(':scope > [data-calendar-slide]')).toHaveCount(3);
+  await touch(panel, 'touchstart', 120); await touch(panel, 'touchend', 290);
+  await inspectEntry(period, -1); await finish(period);
+  await expect.poll(selected).toBe('2026-09-24');
+  await expect(day.locator(':scope > [data-calendar-slide]')).toHaveCount(3);
+  const promoted = await day.locator(':scope > [data-calendar-slide="previous"]').elementHandle();
+  await touch(axis, 'touchstart', 120); await touch(axis, 'touchmove', 220);
+  await page.clock.runFor(32);
+  await expect(day).toHaveAttribute('data-swipe-motion', 'dragging');
+  await touch(axis, 'touchend', 290);
+  await expect.poll(selected).toBe('2026-09-23');
+  expect(await promoted!.getAttribute('data-calendar-slide')).toBe('current');
+  await inspectEntry(day, -1);
+  await page.screenshot({ path: testInfo.outputPath(`swipe-midpoint-${theme}.png`) });
+  await finish(day);
+  // Vertical scrolling wins permanently, even if the finger later moves sideways.
+  await touch(axis, 'touchstart', 180); await touch(axis, 'touchmove', 182, 360); await touch(axis, 'touchend', 60);
+  await expect.poll(selected).toBe('2026-09-23');
+  await touch(panel, 'touchstart', 180); await touch(panel, 'touchmove', 160); await page.clock.runFor(32);
+  await touch(panel, 'touchcancel', 160); await expect(period).toHaveAttribute('data-swipe-motion', 'settling'); await finish(period);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await touch(axis, 'touchstart', 180); await touch(axis, 'touchmove', 100); await page.clock.runFor(32);
+  await expect(day).not.toHaveAttribute('data-swipe-motion');
+  await touch(axis, 'touchend', 60);
+  await expect.poll(selected).toBe('2026-09-24');
+  await expect(day).not.toHaveAttribute('data-swipe-motion');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await read()).items).toEqual(before.items);
+});
+
+test.describe('worker responsiveness', () => {
+test.use({ serviceWorkers: 'block' }); // Let routing instrument the actual Worker, not SW precache.
+test('calendar gestures remain responsive while the slide worker is busy', async ({ page }) => {
+  // Deliberately stall ONLY the read-only preload worker, not the UI, reminder
+  // or widget workers. Check a real main-thread gesture before its reply.
+  await page.route(/calendarSlides\.worker-.*\.js$/, async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: `self.addEventListener('message', event => {
+      if (event.data.kind === 'prepare' && event.data.probeSlow) {
+        self.postMessage({ probe: 'busy' });
+        const until = performance.now() + 1500; while (performance.now() < until) {}
+      }
+    });\n${await response.text()}` });
+  });
+  await page.addInitScript(() => {
+    const OriginalWorker = window.Worker;
+    (window as any).__slideProbe = { busy: false, replies: 0, armed: false };
+    window.Worker = class extends OriginalWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        if (String(url).includes('calendarSlides.worker-')) {
+          const send = this.postMessage.bind(this);
+          this.postMessage = (message: any, options?: any) => send({ ...message, probeSlow: (window as any).__slideProbe.armed }, options ?? []);
+          this.addEventListener('message', event => {
+          const probe = (window as any).__slideProbe;
+          if (event.data.probe === 'busy') probe.busy = true;
+          else if (event.data.ok !== undefined) { probe.busy = false; probe.replies++; }
+          });
+        }
+      }
+    };
+  });
+  await setup(page, true, workspace => { workspace.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false }; });
+  await expect(page.locator('.calendar-period-swipe-track > [data-calendar-slide]')).toHaveCount(3);
+  await page.evaluate(() => { (window as any).__slideProbe.armed = true; });
+  await page.getByRole('button', { name: 'Next period', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__slideProbe.busy)).toBe(true);
+  const panel = page.locator('.calendar-day-panel'), track = page.locator('.calendar-period-swipe-track');
+  const replies = await page.evaluate(() => (window as any).__slideProbe.replies);
+  await panel.dispatchEvent('touchstart', { touches: [{ identifier: 1, clientX: 180, clientY: 300 }] });
+  await panel.dispatchEvent('touchmove', { touches: [{ identifier: 1, clientX: 100, clientY: 300 }] });
+  await page.clock.runFor(32);
+  expect(await track.evaluate(node => new DOMMatrix(getComputedStyle(node).transform).m41)).toBeLessThan(0);
+  expect(await page.evaluate(() => (window as any).__slideProbe)).toEqual({ busy: true, replies, armed: true });
+  await panel.dispatchEvent('touchcancel', { changedTouches: [{ identifier: 1, clientX: 100, clientY: 300 }] });
+  await expect(page.locator('.calendar-day-panel .selected')).toHaveAttribute('data-date', '2026-10-01');
+});
+});
+
+test('prepared neighbours are inert and refresh after an item edit', async ({ page }) => {
+  await setup(page, true, workspace => { workspace.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false }; });
+  const track = page.locator('.calendar-day-swipe-content');
+  const next = track.locator(':scope > [data-calendar-slide="next"]');
+  await expect(next).toHaveAttribute('data-slide-key', '2026-09-25');
+  await expect(next).toHaveAttribute('inert', '');
+  await expect(next).toHaveAttribute('aria-hidden', 'true');
+  await expect(next.getByTestId('timeline-event').filter({ hasText: 'C blocker' })).toHaveCount(1);
+  await next.getByTestId('timeline-event').filter({ hasText: 'C blocker' }).evaluate(element => (element as HTMLElement).click());
+  await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
+  const swipeDay = async (direction: -1 | 1) => {
+    const axis = currentTimeline(page).locator('.timeline-axis');
+    await axis.dispatchEvent('touchstart', { touches: [{ identifier: 1, clientX: 180, clientY: 400 }] });
+    await axis.dispatchEvent('touchend', { changedTouches: [{ identifier: 1, clientX: direction === 1 ? 60 : 300, clientY: 400 }] });
+    await track.evaluate(element => element.getAnimations().forEach(animation => animation.finish()));
+  };
+  await swipeDay(1);
+  await expect(page.locator('.calendar-day-panel .selected')).toHaveAttribute('data-date', '2026-09-25');
+  const event = currentTimeline(page).getByTestId('timeline-event').filter({ hasText: 'C blocker' });
+  await event.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' })); await page.clock.runFor(600);
+  await event.click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await editor.getByRole('combobox', { name: 'Title', exact: true }).fill('Fresh adjacent title');
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await swipeDay(-1);
+  await expect(next.getByTestId('timeline-event').filter({ hasText: 'Fresh adjacent title' })).toHaveCount(1);
+  await expect(next.getByTestId('timeline-event').filter({ hasText: 'C blocker' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Timeline', exact: true })).toHaveCount(1);
+});
+
 test('calendar period swipes, conditional Today, vertical scrolling and keyboard', async ({ page }) => {
   await setup(page);
   const panel = page.locator('.calendar-day-panel');
@@ -506,10 +680,10 @@ test('overflow is placed automatically before Due without source changes', async
   const googleRequests: string[] = []; page.on('request', req => { if (/googleapis.com\/calendar/.test(req.url())) googleRequests.push(req.url()); });
   await expect(page.getByRole('button', { name: 'Parallel / Queue', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', /09:30–10:00/);
+  await expect(currentTimeline(page).getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', /09:30–10:00/);
   await expect(page.locator('.calendar-page')).not.toContainText('No continuous free slot');
   await settledReload(page);
-  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveCount(1);
+  await expect(currentTimeline(page).getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveCount(1);
   expect((await read()).items).toEqual(before); expect(googleRequests).toEqual([]);
 });
 
@@ -526,7 +700,7 @@ test('old order is repaired and persisted without mutating active-range original
   await page.locator('.calendar-navigation-body').evaluate(element => element.scrollIntoView({ block: 'end', behavior: 'instant' }));
   await page.clock.runFor(400);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await expect(page.getByTestId('timeline-active-range')).toHaveCount(2);
+  await expect(currentTimeline(page).getByTestId('timeline-active-range')).toHaveCount(2);
   await settledReload(page);
   expect((await read()).items).toEqual(before);
   expect((await read()).calendarPreferences.planning?.orders?.['2026-09-24']).toEqual(['task', 'other', 'event']);
@@ -541,7 +715,7 @@ test('automatic overflow remains visible inside compressed sleep in dark mode', 
     w.items.event!.schedule!.endAt = '2026-09-24T12:00:00Z';
   });
   const before = (await read()).items;
-  const reference = page.getByTestId('timeline-active-range');
+  const reference = currentTimeline(page).getByTestId('timeline-active-range');
   await expect(reference).toHaveCount(1);
   await reference.scrollIntoViewIfNeeded(); await expect(reference).toBeVisible();
   await expect(page.getByRole('button', { name: 'Parallel / Queue', exact: true })).toHaveCount(0);
@@ -589,7 +763,7 @@ test('reference conflict, queue, reload and unpin leave original items unchanged
 test('temporary List order survives mode switching, leaves Timeline unchanged and resets without writes', async ({ page }) => {
   const { read } = await setup(page), before = (await read()).items;
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  const originalInterval = await page.getByTestId('timeline-tentative').filter({ hasText: 'A task' }).getAttribute('aria-label');
+  const originalInterval = await currentTimeline(page).getByTestId('timeline-tentative').filter({ hasText: 'A task' }).getAttribute('aria-label');
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const handle = page.locator('[data-view-item-id="task"] .item-main');
   await handle.focus(); await handle.press('ArrowDown');
@@ -597,7 +771,7 @@ test('temporary List order survives mode switching, leaves Timeline unchanged an
   expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   await expect(handle).toBeFocused();
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await expect(page.getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', originalInterval!);
+  await expect(currentTimeline(page).getByTestId('timeline-tentative').filter({ hasText: 'A task' })).toHaveAttribute('aria-label', originalInterval!);
   await page.getByRole('button', { name: 'List', exact: true }).click();
   await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
   const reset = page.getByRole('button', { name: 'Reset list order', exact: true });
@@ -658,7 +832,7 @@ test('same-time reference expires without touching the source; vertical scroll d
   await dialog.getByRole('button', { name: 'Tomorrow', exact: true }).click(); await dialog.getByRole('button', { name: 'Same time', exact: true }).click(); await expect(dialog).toBeHidden();
   await page.locator('.calendar-day-choice').filter({ hasText: 'Sep 25' }).click();
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  const event = page.getByTestId('timeline-event').filter({ hasText: 'B event' });
+  const event = currentTimeline(page).getByTestId('timeline-event').filter({ hasText: 'B event' });
   await expect(event).toHaveAttribute('aria-label', /10:00–11:00/); await expect(event).toContainText('↗');
   await expect(page.getByRole('button', { name: 'Reorder B event', exact: true })).toHaveCount(0);
   await page.clock.fastForward(40 * 3_600_000 + 1000);
@@ -737,7 +911,7 @@ test('pointer reorder changes only the temporary List order and supports dark mo
   await page.locator('.calendar-navigation-body').evaluate(element => element.scrollIntoView({ block: 'end', behavior: 'instant' }));
   await page.clock.runFor(700);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  await page.getByTestId('timeline-tentative').filter({ hasText: 'A task' }).scrollIntoViewIfNeeded();
+  await currentTimeline(page).getByTestId('timeline-tentative').filter({ hasText: 'A task' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('calendar-order-dark.png') });
   await expect(page.getByRole('button', { name: 'Reorder A task', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reorder B event', exact: true })).toHaveCount(0);
@@ -752,7 +926,7 @@ test('List moves a fixed event without changing its Timeline interval', async ({
   expect((await read()).calendarPreferences.planning?.orders).toBeUndefined();
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Reorder B event', exact: true })).toHaveCount(0);
-  await expect(page.getByTestId('timeline-event').filter({ hasText: 'B event' })).toBeVisible();
+  await expect(currentTimeline(page).getByTestId('timeline-event').filter({ hasText: 'B event' })).toBeVisible();
   expect((await read()).items).toEqual(before);
 });
 
@@ -762,15 +936,15 @@ test('active-range Timeline ignores temporary List order and capacity has only o
   });
   const before = (await read()).items;
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  const originalInterval = await page.getByTestId('timeline-active-range').getAttribute('aria-label');
+  const originalInterval = await currentTimeline(page).getByTestId('timeline-active-range').getAttribute('aria-label');
   await page.getByRole('button', { name: 'List', exact: true }).click();
   await page.locator('[data-view-item-id="event"] .item-main').press('ArrowUp');
   await expect(page.locator('[data-view-item-id]').first()).toHaveAttribute('data-view-item-id', 'event');
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  const range = page.getByTestId('timeline-active-range');
+  const range = currentTimeline(page).getByTestId('timeline-active-range');
   await expect(range).toHaveAttribute('aria-label', originalInterval!);
   await expect(range).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(page.locator('.timeline-planning-summary strong')).toHaveCount(0);
+  await expect(currentTimeline(page).locator('.timeline-planning-summary strong')).toHaveCount(0);
   expect((await read()).items).toEqual(before);
 });
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
+import { currentTimeline } from './calendar-locators';
 import * as Automerge from '@automerge/automerge';
 import { createWorkspace, createItem, createOccurrence } from '../../packages/core/dist/index.js';
 import { createAutomergeDocument, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
@@ -80,7 +81,7 @@ async function setup(page: Page, filter = 'true', quickSource = false) {
   await page.reload(); await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.getByPlaceholder('Add new item')).toBeVisible({ timeout: 30_000 });
   await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name: 'Calendar', exact: true }).click();
-  await expect(page.locator('.calendar-timeline')).toBeVisible();
+  await expect(currentTimeline(page).locator('.calendar-timeline')).toBeVisible();
 }
 
 async function primary(page: Page) {
@@ -92,7 +93,7 @@ async function primary(page: Page) {
 
 test('editor opens the full quick line with bounded scrolling and a non-overlapping preview', async ({ page }) => {
   await setup(page, 'true', true);
-  const event = page.getByTestId('timeline-event').filter({ hasText: 'One minute title' });
+  const event = currentTimeline(page).getByTestId('timeline-event').filter({ hasText: 'One minute title' });
   // Settle sticky navigation before the pointer interaction scrolls far down.
   await event.evaluate(el => el.scrollIntoView({ block: 'center' }));
   await expect(event).toBeInViewport();
@@ -163,7 +164,7 @@ test('selected navigation mode stays below the header and controls return at the
 
 test('holding an empty hour opens an unsaved one-hour draft with focused title', async ({ page }) => {
   await setup(page);
-  const tick = page.locator('.timeline-tick').filter({ hasText: '18:00' });
+  const tick = currentTimeline(page).locator('.timeline-tick').filter({ hasText: '18:00' });
   await tick.scrollIntoViewIfNeeded();
   await expect.poll(() => tick.locator('span').evaluate(element => getComputedStyle(element).webkitUserSelect)).toBe('none');
   // Finish the sticky-header scroll transition before starting a long press:
@@ -171,7 +172,7 @@ test('holding an empty hour opens an unsaved one-hour draft with focused title',
   await page.clock.runFor(100);
   await page.waitForTimeout(350);
   const box = await tick.boundingBox();
-  const axis = page.locator('.timeline-axis');
+  const axis = currentTimeline(page).locator('.timeline-axis');
   const saved = await primary(page);
   await tick.locator('span').dispatchEvent('pointerdown', { pointerId: 1, isPrimary: true, pointerType: 'touch', button: 0, clientX: box!.x + 20, clientY: box!.y + 3 });
   await page.clock.fastForward(600);
@@ -191,7 +192,7 @@ test('holding an empty hour opens an unsaved one-hour draft with focused title',
 
 test('calendar time filters cross a threshold without a workspace write', async ({ page }) => {
   await setup(page, 'title == "One minute title" && minutesUntil(schedule.startAt) < 60');
-  const card = page.getByTestId('timeline-event').filter({ hasText: 'One minute title' });
+  const card = currentTimeline(page).getByTestId('timeline-event').filter({ hasText: 'One minute title' });
   await expect(card).toHaveCount(0);
   const saved = await primary(page);
   // minutesUntil rounds up: 16:00:01 still means 60 minutes until 17:00.
@@ -212,7 +213,7 @@ test('remaining calendar capacity updates each minute without changing stored it
 });
 
 async function swipeTouch(page: Page, selector: string, fromX: number, toX: number) {
-  await page.locator(selector).evaluate((target, { fromX, toX }) => {
+  await currentTimeline(page).locator(selector).evaluate((target, { fromX, toX }) => {
     const dispatch = (kind: 'touchstart' | 'touchend', x: number) => {
       const event = new Event(kind, { bubbles: true, cancelable: true });
       const point = { clientX: x, clientY: 400 };
@@ -228,7 +229,7 @@ async function swipeTouch(page: Page, selector: string, fromX: number, toX: numb
 test('List shows clock-only metadata while Timeline shows reminders with separate field settings', async ({ page }) => {
   await setup(page);
   await revealCalendarControls(page);
-  const sleepBlock = page.getByTestId('timeline-event').filter({ hasText: 'Sleep source' });
+  const sleepBlock = currentTimeline(page).getByTestId('timeline-event').filter({ hasText: 'Sleep source' });
   await expect(sleepBlock.locator('.timeline-property')).toContainText(/\d{2}:\d{2}/);
   await expect(sleepBlock).not.toContainText('normal');
   await expect(sleepBlock).not.toContainText('00:00–07:00');
@@ -262,7 +263,7 @@ test('compact calendar keeps day navigation and blank Timeline swipes do not ste
 
 test('active-range work is an unfilled outline on successive days and opens its item', async ({ page }) => {
   await setup(page);
-  const cue = page.getByTestId('timeline-active-range');
+  const cue = currentTimeline(page).getByTestId('timeline-active-range');
   await expect(cue).toHaveCount(1);
   await expect(cue).toContainText('Active preparation');
   await expect(cue).toContainText('15 min / day');
@@ -280,7 +281,7 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await revealCalendarControls(page);
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const allDayButton = page.locator('.calendar-list-toolbar').getByRole('button', { name: /^All day/ });
-  await allDayButton.click(); await expect(page.locator('.timeline-all-day-items')).toHaveCount(0);
+  await allDayButton.click(); await expect(currentTimeline(page).locator('.timeline-all-day-items')).toHaveCount(0);
   await expect(page.locator('.calendar-all-day')).toHaveCount(0);
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
   await expect(page.getByTestId('save-status')).toHaveCount(0, { timeout: 30_000 });
@@ -296,12 +297,12 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await reloadedAllDayButton.click();
   await expect(page.locator('.calendar-all-day .item-card')).toBeVisible();
   await page.getByRole('button', { name: 'Timeline', exact: true }).click();
-  const active = page.getByTestId('timeline-active-range');
+  const active = currentTimeline(page).getByTestId('timeline-active-range');
   await expect(active).toHaveCount(1);
   await expect(active).toContainText('Active preparation');
   await active.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-light.png` });
-  const tentative = page.getByTestId('timeline-tentative');
+  const tentative = currentTimeline(page).getByTestId('timeline-tentative');
   await expect(tentative).toHaveCount(0);
   await revealCalendarControls(page);
   await page.getByRole('button', { name: 'List', exact: true }).click();
@@ -315,27 +316,27 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await expect(tentative).toHaveCount(1);
   await expect(tentative).toHaveCSS('border-top-style', 'dotted');
   await expect(tentative).toHaveAttribute('aria-label', 'Tentative · Tentative task · 13:00–15:00');
-  await expect(page.locator('.timeline-planning-summary strong')).toHaveCount(0);
+  await expect(currentTimeline(page).locator('.timeline-planning-summary strong')).toHaveCount(0);
   await tentative.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-light.png` });
   await tentative.focus();
   await expect(tentative).toBeFocused();
-  const minute = page.locator('.timeline-events').getByRole('button', { name: /^One minute title/ }); await minute.scrollIntoViewIfNeeded();
+  const minute = currentTimeline(page).locator('.timeline-events').getByRole('button', { name: /^One minute title/ }); await minute.scrollIntoViewIfNeeded();
   expect((await minute.boundingBox())!.height).toBeGreaterThanOrEqual(36);
   await expect(minute.locator('strong')).toHaveText('One minute title');
   await minute.click();
   const editor = page.getByRole('dialog');
   await expect(editor.getByRole('button', { name: 'Complete item', exact: true })).toBeVisible();
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.getByTestId('timeline-travel')).toHaveCSS('border-top-style', 'dashed');
-  await expect(page.getByTestId('timeline-travel')).toContainText('30 min');
+  await expect(currentTimeline(page).getByTestId('timeline-travel')).toHaveCSS('border-top-style', 'dashed');
+  await expect(currentTimeline(page).getByTestId('timeline-travel')).toContainText('30 min');
   await expect(minute).toHaveCSS('border-top-style', 'solid');
   const more = page.getByRole('button', { name: /^More ·/ }).first(); await more.click();
   const dialog = page.getByRole('dialog', { name: 'Timeline overlapping items' }); await expect(dialog).toBeVisible();
   expect(await dialog.getByRole('button', { name: /^Overlap/ }).count()).toBe((page.viewportSize()?.width ?? 0) <= 620 ? 5 : 3);
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
   if ((page.viewportSize()?.width ?? 0) > 620) await expect(more).toBeFocused();
-  const line = page.getByTestId('timeline-now'); const top = await line.evaluate(el => (el as HTMLElement).style.top);
+  const line = currentTimeline(page).getByTestId('timeline-now'); const top = await line.evaluate(el => (el as HTMLElement).style.top);
   await page.screenshot({ path: `/tmp/utm-timeline-${testInfo.project.name}-light.png` });
   await page.clock.fastForward(60_000); await expect.poll(() => line.evaluate(el => (el as HTMLElement).style.top)).not.toBe(top);
   expect(await primary(page)).toBe(saved);
@@ -345,19 +346,19 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   await page.getByText('Choose sleep item…', { exact: true }).click();
   await page.getByRole('button', { name: 'Sleep source', exact: true }).click();
   await page.getByRole('button', { name: 'Save view' }).click();
-  await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
-  const hiddenSleep = page.locator('.timeline-break').first();
+  await expect(currentTimeline(page).locator('.timeline-break')).toContainText('00:00–07:00');
+  const hiddenSleep = currentTimeline(page).locator('.timeline-break').first();
   // On mobile the floating quick-add dock can cover the bottom of the long
   // timeline. Center the collapsed gap before tapping it.
   await activateControl(hiddenSleep, testInfo.project.use.hasTouch === true);
-  await expect(page.locator('.timeline-break')).toHaveCount(0);
-  await page.getByRole('button', { name: /^Collapse night/ }).click(); await expect(page.locator('.timeline-break')).toContainText('00:00–07:00');
+  await expect(currentTimeline(page).locator('.timeline-break')).toHaveCount(0);
+  await page.getByRole('button', { name: /^Collapse night/ }).click(); await expect(currentTimeline(page).locator('.timeline-break')).toContainText('00:00–07:00');
   await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await tentative.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-dark.png` });
   await minute.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-timeline-${testInfo.project.name}-dark.png` });
-  await expect(page.getByTestId('timeline-now')).toHaveCSS('pointer-events', 'none');
+  await expect(currentTimeline(page).getByTestId('timeline-now')).toHaveCSS('pointer-events', 'none');
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await active.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-timeline-top-${testInfo.project.name}-dark.png` });

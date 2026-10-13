@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { currentTimeline } from './calendar-locators';
 
 test('date-aware capture shows a compact day preview and selected calendar day', async ({ page }) => {
   await page.goto('/');
@@ -24,7 +25,7 @@ test('date-aware capture shows a compact day preview and selected calendar day',
   expect((await preview.boundingBox())!.height).toBeLessThan(100);
   await preview.click();
   await expect(page.locator('.calendar-page')).toBeVisible();
-  await expect(page.locator('.calendar-timeline')).toBeVisible();
+  await expect(currentTimeline(page).locator('.calendar-timeline')).toBeVisible();
   await expect(page.locator('.capture-dock .live-text-panel')).toBeHidden();
   await input.focus();
   await expect(preview).toHaveCount(0);

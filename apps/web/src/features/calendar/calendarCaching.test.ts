@@ -1,5 +1,5 @@
 import { createItem, createWorkspace, createOccurrence, makeSeries, projectOccurrences, zonedDateStart, type WorkspaceDocument } from '@utm/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createCalendarEvaluator, evaluateCalendarRange } from './calendarEvaluation';
 import { createCalendarProjectionCache } from './calendarProjectionCache';
 import { createCalendarCapacityCache, calendarVisibleCapacity } from './calendarCapacity';
@@ -7,6 +7,7 @@ import { calendarUndatedItems } from './calendarVisibility';
 import { applyTimelinePlanning, prepareTimelineData, timelineData } from './timelineData';
 import * as Automerge from '@automerge/automerge';
 import { temporalEvaluationKey } from '../views/useViewEvaluation';
+import { setCompletionHold } from '../views/viewSelectors';
 
 const start = '2026-09-21', end = '2026-09-28';
 const now = new Date('2026-09-23T12:00:00Z');
@@ -26,6 +27,22 @@ const evaluate = (cache: ReturnType<typeof createCalendarEvaluator>, workspace: 
 const reference = (workspace: WorkspaceDocument, at = now) => evaluateCalendarRange(workspace, start, end, workspace.calendarPreferences.dayView, at);
 
 describe('incremental calendar computation', () => {
+  it('refreshes the exact snapshot when a completion hold ends without a clock tick', () => {
+    const workspace = fixture(), cache = createCalendarEvaluator();
+    const previous = workspace.items['day-23']!;
+    workspace.items[previous.id] = { ...previous, state: 'done' };
+    setCompletionHold(previous.id, { previous, undoUntil: Date.now() + 3_000, removeAt: Date.now() + 3_200 });
+    try {
+      const held = evaluate(cache, workspace);
+      expect(held.days['2026-09-23']!.entries).toHaveLength(1);
+      setCompletionHold(previous.id);
+      const released = evaluate(cache, workspace);
+      expect(released).toEqual(reference(workspace));
+      expect(released.days['2026-09-23']!.entries).toHaveLength(0);
+      expect(released).not.toBe(held);
+    } finally { setCompletionHold(previous.id); }
+  });
+
   it('shares an exact snapshot result and does not reuse it across time changes', () => {
     const workspace = fixture(), cache = createCalendarEvaluator();
     const first = evaluate(cache, workspace);
@@ -100,6 +117,48 @@ describe('incremental calendar computation', () => {
       draft.calendarPreferences.dayView.statistics = { showTime: true, includeHiddenCompleted: true, reservedItemIds: [] };
     });
     expect(evaluate(cache, doc)).toEqual(reference(doc));
+  });
+
+  it('does not serialize unchanged card payloads again after a neighbouring edit', () => {
+    const workspace = fixture(), cache = createCalendarProjectionCache();
+    const untouched = workspace.items['day-24']!;
+    const readNote = vi.fn(() => 'An unchanged large note');
+    Object.defineProperty(untouched, 'bodyMarkdown', { enumerable: true, get: readNote });
+    const before = cache.workspaceFor(workspace);
+    expect(readNote).toHaveBeenCalled();
+    readNote.mockClear();
+    const edited = { ...workspace, items: { ...workspace.items, 'day-25': { ...workspace.items['day-25']!, title: 'Edited without a revision bump' } } };
+    const after = cache.workspaceFor(edited);
+    expect(readNote).not.toHaveBeenCalled();
+    expect(after.items['day-24']).toBe(before.items['day-24']);
+    expect(after.items['day-25']!.title).toBe('Edited without a revision bump');
+    expect(after.items['day-25']).not.toBe(before.items['day-25']);
+  });
+
+  it('invalidates same-revision nested fields, Google occupancy and tombstones, including restore', () => {
+    let workspace = fixture();
+    const linked = workspace.items['day-24']!;
+    linked.external = { provider: 'google_calendar', connectionId: 'fixture', calendarId: 'primary', eventId: 'linked', sourceUrl: '', syncedAt: now.toISOString(), readOnly: false, startAt: '2026-09-24T16:00:00Z', endAt: '2026-09-24T17:00:00Z' };
+    const cache = createCalendarEvaluator();
+    let before = evaluate(cache, workspace);
+    workspace = { ...workspace, items: { ...workspace.items, 'day-24': { ...linked, extensions: { 'fixture:nested': { score: 2 } } } } };
+    let after = evaluate(cache, workspace);
+    expect(after).toEqual(reference(workspace));
+    expect(after.days['2026-09-24']).not.toBe(before.days['2026-09-24']);
+    expect(after.days['2026-09-24']!.entries[0]!.item.extensions).toEqual({ 'fixture:nested': { score: 2 } });
+    before = after;
+    workspace = { ...workspace, items: { ...workspace.items, 'day-24': { ...workspace.items['day-24']!, external: { ...linked.external!, startAt: '2026-09-24T18:00:00Z', endAt: '2026-09-24T19:00:00Z' } } } };
+    after = evaluate(cache, workspace);
+    expect(after).toEqual(reference(workspace));
+    expect(after.days['2026-09-24']!.entries[0]!.item.schedule!.startAt).toBe('2026-09-24T18:00:00Z');
+    expect(after.days['2026-09-24']).not.toBe(before.days['2026-09-24']);
+    const live = workspace;
+    workspace = { ...workspace, tombstones: { ...workspace.tombstones, 'day-24': now.toISOString() } };
+    expect(evaluate(cache, workspace)).toEqual(reference(workspace));
+    expect(evaluate(cache, workspace).days['2026-09-24']!.entries).toHaveLength(0);
+    workspace = { ...live, tombstones: {} };
+    expect(evaluate(cache, workspace)).toEqual(reference(workspace));
+    expect(evaluate(cache, workspace).days['2026-09-24']!.entries).toHaveLength(1);
   });
 
   it('updates provisional placement without reprojecting on each minute', () => {

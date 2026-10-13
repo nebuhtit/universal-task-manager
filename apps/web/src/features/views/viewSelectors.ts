@@ -36,6 +36,8 @@ function viewQueryContext(workspace: WorkspaceDocument, view: SavedView, now: Da
 
 export const subscribeCompletionHolds = (listener: () => void) => { completionHoldListeners.add(listener); return () => completionHoldListeners.delete(listener); };
 export const completionHoldsSnapshot = () => completionHoldVersion;
+/** Worker prefetch must wait until UI-only previous-item overrides expire. */
+export const hasCompletionHolds = () => [...completionHolds.values()].some(hold => hold.removeAt > Date.now());
 const notifyCompletionHolds = () => { completionHoldVersion += 1; completionHoldListeners.forEach((listener) => listener()); };
 
 export function manualOrderFor(view: SavedView): string[] {
