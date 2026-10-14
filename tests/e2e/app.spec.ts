@@ -81,6 +81,8 @@ async function openViewEditorSection(page: Page, name: string) {
 }
 
 test.beforeEach(async ({ page }) => {
+  // Device onboarding has its own coverage; these scenarios exercise item notices.
+  await page.addInitScript(() => localStorage.setItem('utm:device-setup:v1', JSON.stringify({ 'face-id': 'declined', notifications: 'declined' })));
   await page.goto('/');
   await expect(page.getByLabel('Workspace name', { exact: true })).toBeVisible();
 });
@@ -132,7 +134,7 @@ test('entry screens follow system theme and keep explanations collapsed', async 
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v4\.6\.7 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v4\.6\.8 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -141,7 +143,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v4\.6\.7 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v4\.6\.8 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();

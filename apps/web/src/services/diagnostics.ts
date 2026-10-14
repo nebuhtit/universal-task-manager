@@ -100,7 +100,9 @@ export const recordDiagnostic = (entry: Omit<DiagnosticEntry, 'at'>): void => {
     const isProblem = entry.kind === 'error' || entry.kind === 'unhandledrejection' || entry.outcome === 'failed';
     const isSlow = typeof entry.durationMs === 'number' && entry.durationMs >= 1_500;
     const syncCheckpoint = /^Google sync stage: (queue|download|snapshot|calculate|apply|persist)$/.test(entry.operation ?? '');
-    if (!isProblem && !isSlow && !syncCheckpoint) return;
+    const encryptionModeCheckpoint = entry.operation === 'Workspace encryption mode change';
+    const weatherCheckpoint = /^Weather (lifecycle|forecast|storage|location search|geolocation)$/.test(entry.operation ?? '');
+    if (!isProblem && !isSlow && !syncCheckpoint && !encryptionModeCheckpoint && !weatherCheckpoint) return;
     const safeEntry: DiagnosticEntry = {
       ...(entry.operation ? { operation: entry.operation.slice(0, 160) } : {}),
       ...(entry.outcome ? { outcome: entry.outcome } : {}),

@@ -41,10 +41,12 @@ function ProductGuide({ language }: { language: WorkspaceDocument['calendarPrefe
   return <details className="settings-guide-section"><summary>{russian ? 'Идея и сценарии' : 'Idea & scenarios'}</summary><div>{commands}{russian ? <><details className="settings-guide-section"><summary>Одно рабочее пространство для внимания, времени и контекста</summary><div><p>Universal — локальное рабочее пространство для задач, событий, привычек и повторяющихся дел. Один элемент может одновременно появляться в разделе «Сегодня», календаре, проекте, сфере, теге и собственных видах: виды только отбирают и сортируют данные, не создавая копий.</p></div></details><details className="settings-guide-section"><summary>План на день</summary><div><p>В разделе «Сегодня» оставьте нужные условия: срок, активный период или начало события. Укажите длительность, чтобы видеть занятое и свободное время. После завершения действие можно отменить.</p></div></details><details className="settings-guide-section"><summary>Проекты, области и теги</summary><div><p>Сфера — постоянная область ответственности, проект — конкретный результат, тег — общий контекст. Общий приоритет выбирает самую высокую из всех подходящих связей элемента.</p></div></details><details className="settings-guide-section"><summary>Ресурс и повторения</summary><div><p>Создавайте повторяющиеся элементы для сна, работы и регулярных занятий; добавляйте их в резерв времени вида, чтобы статистика учитывала их длительность. Повтор после завершения отсчитывается от фактического выполнения.</p></div></details><details className="settings-guide-section"><summary>Календарь и напоминания</summary><div><p>Календарь — дневной список, а не отдельная база. Его фильтр определяет, какие элементы расписания попадают в выбранный день. Напоминания не меняют план и не создают новых элементов.</p></div></details><details className="settings-guide-section"><summary>Безопасность</summary><div><p>Рабочее пространство хранится локально; в защищённом режиме — зашифрованным. Регулярно сохраняйте <code>.utmb</code> в «Файлах» или iCloud и не передавайте пароль, резервную копию или расшифрованный JSON третьим лицам.</p></div></details></> : <><details className="settings-guide-section"><summary>One workspace for attention, time and context</summary><div><p>Universal is a local-first workspace for tasks, events, habits and repeating work. One item can appear in Today, Calendar, a Project, an Area, a Tag and custom Views: Views only filter and sort data; they never create copies.</p></div></details><details className="settings-guide-section"><summary>Daily focus</summary><div><p>Keep the relevant conditions in Today: deadline, active range or event opens. Add Duration to see reserved and free time. Completing an item includes a short Undo window.</p></div></details><details className="settings-guide-section"><summary>Projects, Areas and Tags</summary><div><p>An Area is an ongoing responsibility, a Project is a concrete outcome, and a Tag is a cross-cutting context. Unified priority selects the highest matching relationship across all of them.</p></div></details><details className="settings-guide-section"><summary>Capacity and recurrence</summary><div><p>Create recurring items for sleep, work and regular commitments; add them as reserved items in a View so statistics subtract their Duration from the period. Repeat after completion calculates the next cycle from the real completion time.</p></div></details><details className="settings-guide-section"><summary>Calendar and reminders</summary><div><p>Calendar is a daily list, not a separate database. Its filter defines which Schedule intersections appear on the selected day. Reminders help you remember a moment; they do not alter the plan or create a new item.</p></div></details><details className="settings-guide-section"><summary>Safety</summary><div><p>The workspace is local and encrypted. Save <code>.utmb</code> backups regularly to Files or iCloud, and do not share the password, backup, or readable JSON with third parties.</p></div></details></>}</div></details>;
 }
 
-function PasswordProtectionSettings({ status, onStatusChange, onBeforeCriticalAction }: {
+function PasswordProtectionSettings({ status, onStatusChange, onBeforeCriticalAction, onSwitchEncryptionMode, language }: {
   status: PasswordProtectionStatus | 'checking';
   onStatusChange: () => Promise<PasswordProtectionStatus>;
   onBeforeCriticalAction: () => Promise<void>;
+  onSwitchEncryptionMode: (mode: 'encrypted' | 'plaintext', password?: string) => Promise<void>;
+  language: WorkspaceDocument['calendarPreferences']['language'];
 }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -55,6 +57,7 @@ function PasswordProtectionSettings({ status, onStatusChange, onBeforeCriticalAc
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [confirmTestMode, setConfirmTestMode] = useState(false);
   const backupInput = useRef<HTMLInputElement>(null);
 
   const run = async (action: () => Promise<void>) => {
@@ -81,6 +84,17 @@ function PasswordProtectionSettings({ status, onStatusChange, onBeforeCriticalAc
       ? 'Password prompt disabled on this device. Anyone with access to this browser profile can open the workspace.'
       : 'Password is required again when this workspace starts or locks.');
   });
+  const switchEncryptionMode = (mode: 'encrypted' | 'plaintext') => void run(async () => {
+    if (mode === 'plaintext' && !confirmTestMode) throw new Error(language === 'ru' ? 'Подтвердите, что сохранена зашифрованная копия.' : 'Confirm that you saved an encrypted backup.');
+    if (mode === 'encrypted' && (newPassword.length < 10 || newPassword !== confirmPassword)) throw new Error(language === 'ru' ? 'Введите совпадающие пароли длиной не менее 10 символов.' : 'Enter matching passwords with at least 10 characters.');
+    await onBeforeCriticalAction();
+    await onSwitchEncryptionMode(mode, mode === 'encrypted' ? newPassword : undefined);
+    const next = await onStatusChange();
+    setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setConfirmTestMode(false);
+    setMessage(next === 'plaintext'
+      ? (language === 'ru' ? 'Тестовый режим включён. Текущая база сохранена без прикладного шифрования.' : 'Test mode is on. The current workspace is stored without application-level encryption.')
+      : (language === 'ru' ? 'Шифрование снова включено.' : 'Workspace encryption is enabled again.'));
+  });
   const reencryptBackup = (file: File) => void run(async () => {
     if (backupNewPassword.length < 10) throw new Error('New backup password must contain at least 10 characters');
     if (backupNewPassword !== backupConfirmPassword) throw new Error('New backup passwords do not match');
@@ -93,7 +107,15 @@ function PasswordProtectionSettings({ status, onStatusChange, onBeforeCriticalAc
   const encrypted = status !== 'plaintext';
   return <details className="settings-disclosure"><summary>Password protection</summary><section className="settings-card password-protection-settings">
     <p className="eyebrow">LOCAL SECURITY</p><h2>Password protection</h2>
-    {status === 'checking' ? <p>Checking password protection…</p> : status === 'plaintext' ? <p className="error" role="alert">This test workspace is stored without encryption. Create an encrypted workspace to use password protection.</p> : <>
+    {status === 'checking' ? <p>Checking password protection…</p> : status === 'plaintext' ? <>
+      <p className="error" role="alert">{language === 'ru' ? 'Тестовый режим: база хранится без прикладного шифрования. Приложение не запрашивает Face ID для её открытия; защита остаётся только на уровне блокировки iPhone.' : 'Test mode: the workspace is stored without application-level encryption. The app does not request Face ID to open it; only the iPhone lock protects access.'}</p>
+      <p>{language === 'ru' ? 'Чтобы снова включить шифрование, задайте новый пароль. Зашифрованная копия будет создана до переключения формата.' : 'To turn encryption back on, set a new password. The workspace is verified before the storage format changes.'}</p>
+      <div className="form-grid two">
+        <Field label="New password"><Input type="password" minLength={10} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></Field>
+        <Field label="Confirm new password"><Input type="password" minLength={10} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></Field>
+      </div>
+      <Button disabled={busy || newPassword.length < 10 || newPassword !== confirmPassword} onClick={() => switchEncryptionMode('encrypted')}>{language === 'ru' ? 'Включить шифрование' : 'Enable workspace encryption'}</Button>
+    </> : <>
       <div className="setting-row"><span><strong>Password on startup</strong><small>{status === 'disabled' ? 'Disabled on this device' : 'Required'}</small></span></div>
       <p>The current password is required to change the password or toggle the startup prompt. Passwords stay in memory only while an action is running.</p>
       {status === 'disabled' && <p className="error" role="alert">The workspace block remains encrypted, but its unlock key is saved in this browser profile. Anyone who can open this profile can read the workspace.</p>}
@@ -106,6 +128,10 @@ function PasswordProtectionSettings({ status, onStatusChange, onBeforeCriticalAc
         <Button disabled={busy || currentPassword.length < 10 || newPassword.length < 10 || newPassword !== confirmPassword} onClick={updatePassword}>Change password</Button>
         <Button variant={status === 'disabled' ? 'primary' : 'destructive'} disabled={busy || currentPassword.length < 10} onClick={toggleRequirement}>{status === 'disabled' ? 'Require password on startup' : 'Disable password on this device'}</Button>
       </div>
+      <hr/><h2>{language === 'ru' ? 'Тест без шифрования' : 'Unencrypted test mode'}</h2>
+      <p className="error" role="alert">{language === 'ru' ? 'База будет храниться открытым текстом в локальном хранилище. Face ID приложения перестанет запрашиваться. Используйте только для замера скорости и сначала сохраните зашифрованную копию.' : 'The workspace will be stored as readable data in local storage. App-level Face ID will no longer be requested. Use only for speed testing and save an encrypted backup first.'}</p>
+      <label className="check"><input type="checkbox" checked={confirmTestMode} onChange={(event) => setConfirmTestMode(event.target.checked)} />{language === 'ru' ? 'У меня есть свежая зашифрованная копия этой базы' : 'I have a recent encrypted backup of this workspace'}</label>
+      <Button variant="destructive" disabled={busy || !confirmTestMode} onClick={() => switchEncryptionMode('plaintext')}>{language === 'ru' ? 'Отключить шифрование (тест)' : 'Disable encryption (test)'}</Button>
     </>}
     {encrypted && <><hr/><h2>Old encrypted backups</h2>
       <p>Changing the workspace password cannot modify files already saved in Files, iCloud Drive or another folder. Those backups and older saved workspace versions keep their old passwords.</p>
@@ -122,10 +148,11 @@ function PasswordProtectionSettings({ status, onStatusChange, onBeforeCriticalAc
   </section></details>;
 }
 
-export function SettingsPage({ workspace, passwordProtection, onPasswordProtectionChanged, onBeforeCriticalAction, onExportAll, onDownloadLockedRecoveryCopy, commit, onNotify, onTransfer, onImportFile, onEnableBackground, onDisableBackground, onBackgroundContent, onRestoredSnapshot }: {
+export function SettingsPage({ workspace, passwordProtection, onPasswordProtectionChanged, onBeforeCriticalAction, onSwitchEncryptionMode, onExportAll, onDownloadLockedRecoveryCopy, commit, onNotify, onTransfer, onImportFile, onEnableBackground, onDisableBackground, onBackgroundContent, onRestoredSnapshot }: {
   workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
   passwordProtection: PasswordProtectionStatus | 'checking'; onPasswordProtectionChanged: () => Promise<PasswordProtectionStatus>;
   onBeforeCriticalAction: () => Promise<void>;
+  onSwitchEncryptionMode: (mode: 'encrypted' | 'plaintext', password?: string) => Promise<void>;
   onExportAll: (format: PortableFormat, metadata?: boolean) => Promise<void>;
   onDownloadLockedRecoveryCopy: (source: string, filenamePrefix: string) => Promise<void>;
   onNotify: () => void; onTransfer: () => void; onImportFile: (file: File) => void;
@@ -184,7 +211,7 @@ export function SettingsPage({ workspace, passwordProtection, onPasswordProtecti
   };
   const discardQuarantinedRecurrence = (issueId: string, itemId: string) => commit('Remove incompatible recurrence', (draft) => { const item = draft.items[itemId]; const issue = draft.migrationIssues.find((entry) => entry.id === issueId); const quarantine = item?.extensions?.quarantine as Record<string, unknown> | undefined; if (quarantine) delete quarantine.recurrence; if (issue) issue.status = 'resolved'; });
   return <div className="settings-page"><div className="page-title"><div><h1>Settings</h1></div></div><NativeAgendaSettings ru={workspace.calendarPreferences.language === 'ru'} />{criticalError && <p className="error" role="alert">{criticalError}</p>}
-<PasswordProtectionSettings status={passwordProtection} onStatusChange={onPasswordProtectionChanged} onBeforeCriticalAction={onBeforeCriticalAction} />
+<PasswordProtectionSettings status={passwordProtection} onStatusChange={onPasswordProtectionChanged} onBeforeCriticalAction={onBeforeCriticalAction} onSwitchEncryptionMode={onSwitchEncryptionMode} language={workspace.calendarPreferences.language} />
 <details className="settings-disclosure"><summary>Guide</summary><section className="settings-card settings-guide"><p className="eyebrow">GUIDE</p><h2>How Universal starts</h2><details className="settings-guide-section"><summary>Presets</summary><div><p>These values come from the same defaults used to create a new workspace. Existing workspaces keep their own customized values.</p><h3>Starter Home views</h3><ul>{starterViews.map((view) => <li key={view.id}><strong>{view.name}</strong><small>{view.query.source} · {view.renderer} · {view.fields.length} fields</small></li>)}</ul><h3>Available View templates</h3><ul>{BUILT_IN_VIEW_TEMPLATES.map((view) => <li key={view.id}><strong>{view.name}</strong><small>{view.query.source} · {view.renderer}</small></li>)}</ul><h3>Calendar day view</h3><dl><div><dt>Filter</dt><dd>{starterDayView.filter.source}</dd></div><div><dt>Schedule sources</dt><dd>{starterDayView.scheduleSources.join(', ')}</dd></div><div><dt>Displayed fields</dt><dd>{starterDayView.fields.join(', ')}</dd></div><div><dt>Sorting</dt><dd>{starterDayView.sortSource}</dd></div></dl><h3>Workspace settings</h3><dl><div><dt>Week starts</dt><dd>{starterWorkspace.calendarPreferences.weekStartsOn === 1 ? 'Monday' : 'Sunday'}</dd></div><div><dt>Calendar</dt><dd>{starterWorkspace.calendarPreferences.lastMode} · weekends {starterWorkspace.calendarPreferences.weekends ? 'shown' : 'hidden'} · {starterWorkspace.calendarPreferences.timeFormat}</dd></div><div><dt>Working hours</dt><dd>{starterWorkspace.calendarPreferences.workingHours.start}–{starterWorkspace.calendarPreferences.workingHours.end}</dd></div><div><dt>Default Duration</dt><dd>{starterWorkspace.calendarPreferences.defaultDurationMinutes} min</dd></div><div><dt>Appearance</dt><dd>{starterWorkspace.calendarPreferences.appearance.mode} · interface sound on · completion sound on</dd></div><div><dt>Detailed explanations</dt><dd>Off</dd></div><div><dt>Backup reminder</dt><dd>Every {starterWorkspace.calendarPreferences.backupPreferences?.reminderDays ?? 7} days</dd></div><div><dt>Diagnostics</dt><dd>On</dd></div><div><dt>Background push</dt><dd>Off · generic lock-screen content</dd></div></dl></div></details><ProductGuide language={workspace.calendarPreferences.language} /></section></details>
 <WeatherSettings ru={workspace.calendarPreferences.language === 'ru'} zone={workspace.calendarPreferences.timezone} />
 <details className="settings-disclosure"><summary>Calendar and Google Calendar</summary><CalendarIntegrationSettings workspace={workspace} commit={commit} onFlush={onBeforeCriticalAction} /></details>

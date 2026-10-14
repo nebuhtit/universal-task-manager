@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { weatherDiagnostic } from './weatherDiagnostics';
 
 export type WeatherLocation = { name: string; latitude: number; longitude: number };
 export type WeatherSettings = { enabled: boolean; solar: boolean; precipitation: boolean; location?: WeatherLocation };
@@ -42,10 +43,11 @@ export function createWeatherService() {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let request: AbortController | undefined;
   let generation = 0;
+  let failures = 0;
   const emit = (patch: Partial<WeatherState>) => { state = { ...state, ...patch }; listeners.forEach(fn => fn()); };
   const save = (key: string, value: unknown) => {
     try { localStorage.setItem(key, JSON.stringify(value)); emit({ storageError: undefined }); }
-    catch { emit({ storageError: 'storage' }); }
+    catch { emit({ storageError: 'storage' }); weatherDiagnostic('Weather storage', { code: 'storage' }, undefined, true); }
   };
   const load = () => {
     if (loaded) return; loaded = true;
@@ -62,14 +64,15 @@ export function createWeatherService() {
         if (typeof v.locationKey !== 'string' || !Number.isFinite(v.fetchedAt) || !Array.isArray(v.hours) || !v.hours.every(h => Number.isFinite(h.start) && h.end === h.start + HOUR && (h.probability === null || (Number.isFinite(h.probability) && h.probability >= 0 && h.probability <= 100)))) throw new Error();
         state = { ...state, forecast: v };
       }
-    } catch { state = { ...state, storageError: 'storage' }; }
+    } catch { state = { ...state, storageError: 'storage' }; weatherDiagnostic('Weather storage', { code: 'storage' }, undefined, true); }
   };
   const cancel = () => { generation++; request?.abort(); request = undefined; if (timer) clearTimeout(timer); timer = undefined; };
   const eligible = () => active && state.settings.enabled && (state.settings.solar || state.settings.precipitation) && !!state.settings.location;
   const schedule = () => {
     if (timer) clearTimeout(timer);
     if (!eligible()) return;
-    const retryAt = (state.lastAttempt ?? Date.now()) + HOUR;
+    const retryDelay = failures ? Math.min(15 * 60_000, 60_000 * 2 ** Math.min(failures - 1, 4)) : HOUR;
+    const retryAt = (state.lastAttempt ?? Date.now()) + retryDelay;
     const expiresAt = (state.forecast?.fetchedAt ?? 0) + 6 * HOUR;
     const next = Math.min(retryAt, expiresAt > Date.now() ? expiresAt : Infinity);
     timer = setTimeout(() => { emit({ now: Date.now() }); if (Date.now() >= retryAt) void refresh(); else schedule(); }, Math.max(1, next - Date.now()));
@@ -79,6 +82,8 @@ export function createWeatherService() {
     const location = state.settings.location!;
     const controller = new AbortController(); request = controller;
     const id = generation;
+    const startedAt = performance.now();
+    weatherDiagnostic('Weather forecast', { code: 'started', hasCache: Boolean(state.forecast), cacheUsable: usableForecast(state).length > 0 });
     emit({ busy: true, lastAttempt: Date.now(), now: Date.now() });
     const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
@@ -88,9 +93,16 @@ export function createWeatherService() {
       const hours = parseForecast(await response.json());
       if (id !== generation) return;
       const forecast = { locationKey: locationKey(location), fetchedAt: Date.now(), hours };
+      failures = 0;
       emit({ forecast, error: undefined }); save(CACHE_KEY, forecast);
+      weatherDiagnostic('Weather forecast', { code: 'completed', hours: hours.length }, performance.now() - startedAt);
     } catch (reason) {
-      if (id === generation) emit({ error: controller.signal.aborted ? 'timeout' : reason instanceof Error && /^(http-\d+|invalid-response)$/.test(reason.message) ? reason.message : 'network' });
+      if (id === generation) {
+        const code = controller.signal.aborted ? 'timeout' : reason instanceof Error && /^(http-\d+|invalid-response)$/.test(reason.message) ? reason.message : 'network';
+        failures += 1;
+        emit({ error: code });
+        weatherDiagnostic('Weather forecast', { code, cacheUsable: usableForecast(state).length > 0 }, performance.now() - startedAt, true);
+      }
     } finally {
       clearTimeout(timeout);
       if (id === generation) { request = undefined; emit({ busy: false, now: Date.now() }); schedule(); }
@@ -99,7 +111,7 @@ export function createWeatherService() {
   const foreground = () => {
     if (document.visibilityState !== 'visible') return;
     emit({ now: Date.now() });
-    if (Date.now() - (state.lastAttempt ?? 0) >= HOUR) void refresh();
+    if (state.error || Date.now() - (state.lastAttempt ?? 0) >= HOUR) void refresh();
     schedule();
   };
   return {
@@ -107,17 +119,20 @@ export function createWeatherService() {
     subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
     start() {
       load(); active = true; emit({ now: Date.now() });
+      weatherDiagnostic('Weather lifecycle', { enabled: state.settings.enabled, solar: state.settings.solar, precipitation: state.settings.precipitation, hasLocation: Boolean(state.settings.location), hasCache: Boolean(state.forecast), cacheUsable: usableForecast(state).length > 0 });
       document.addEventListener('visibilitychange', foreground);
+      if (typeof window !== 'undefined') { window.addEventListener('online', foreground); window.addEventListener('pageshow', foreground); }
       void refresh();
-      return () => { active = false; cancel(); document.removeEventListener('visibilitychange', foreground); emit({ busy: false }); };
+      return () => { active = false; cancel(); document.removeEventListener('visibilitychange', foreground); if (typeof window !== 'undefined') { window.removeEventListener('online', foreground); window.removeEventListener('pageshow', foreground); } emit({ busy: false }); };
     },
     configure(patch: Partial<WeatherSettings>) {
       const settings = { ...state.settings, ...patch };
       if (settings.location && !validLocation(settings.location)) return;
       const changed = settings.enabled !== state.settings.enabled || settings.solar !== state.settings.solar || settings.precipitation !== state.settings.precipitation || JSON.stringify(settings.location) !== JSON.stringify(state.settings.location);
-      if (changed) cancel();
+      if (changed) { cancel(); failures = 0; }
       emit({ settings, ...(changed ? { busy: false, error: undefined, lastAttempt: undefined } : {}) });
       save(WEATHER_KEY, settings);
+      if (changed) weatherDiagnostic('Weather lifecycle', { enabled: settings.enabled, solar: settings.solar, precipitation: settings.precipitation, hasLocation: Boolean(settings.location) });
       if (changed) void refresh();
     },
     refresh,

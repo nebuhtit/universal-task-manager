@@ -10,7 +10,7 @@ import './app-shell.css';
 import { HeaderAgenda } from './HeaderAgenda';
 
 export type AppPage = 'home' | 'calendar' | 'all' | 'automations' | 'organization' | 'settings';
-export type AppNotice = { id: string; title: string; body: string; at: string; itemId?: string; reminderIds?: string[] };
+export type AppNotice = { id: string; title: string; body: string; at: string; itemId?: string; reminderIds?: string[]; setupAction?: 'face-id' | 'notifications' };
 type NavItem = [AppPage, LineIconName, string, boolean?];
 
 type Props = {

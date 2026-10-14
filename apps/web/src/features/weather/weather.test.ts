@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWeatherService, parseForecast, usableForecast, validLocation, WEATHER_KEY } from './weatherService';
 import { solarDay, solarGradient } from './solar';
+import { safeWeatherDetails } from './weatherDiagnostics';
 import { buildSegments, dayBounds } from '../calendar/timelineLayout';
 const location = { name: 'Berlin', latitude: 52.52, longitude: 13.405 };
 const hour = 3_600_000;
@@ -18,6 +19,21 @@ const payload = { hourly: { time: [Date.parse('2026-09-23T13:00:00Z') / 1000], p
 const response = () => Promise.resolve({ ok: true, json: async () => payload });
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 describe('weather service', () => {
+  it('retries network failures after one minute and recovers immediately when connectivity returns', async () => {
+    const events = new EventTarget(); vi.stubGlobal('window', events);
+    const fetcher = vi.fn().mockRejectedValue(new Error('offline')); vi.stubGlobal('fetch', fetcher);
+    const service = createWeatherService(); stop = service.start(); service.configure({ enabled: true, location }); await settle();
+    expect(service.getSnapshot().error).toBe('network');
+    await vi.advanceTimersByTimeAsync(60_000); expect(fetcher).toHaveBeenCalledTimes(2);
+    fetcher.mockImplementation(response); events.dispatchEvent(new Event('online')); await settle();
+    expect(fetcher).toHaveBeenCalledTimes(3); expect(service.getSnapshot().error).toBeUndefined();
+    stop(); events.dispatchEvent(new Event('online')); expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it('exports only technical weather diagnostics without location or arbitrary response data', () => {
+    expect(safeWeatherDetails(JSON.stringify({ code: 'http-429', hasLocation: true, latitude: 55, longitude: 37, city: 'Private city', response: 'secret', hours: 24 })))
+      .toBe('{"hasLocation":true,"hours":24,"code":"http-429"}');
+    expect(safeWeatherDetails('{')).toBeUndefined();
+  });
   it('starts disabled, persists settings, refreshes once per hour, stops immediately and restores on next start', async () => {
     const fetcher = vi.fn(response); vi.stubGlobal('fetch', fetcher);
     const service = createWeatherService(); stop = service.start(); expect(fetcher).not.toHaveBeenCalled();

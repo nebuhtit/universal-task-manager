@@ -11,6 +11,7 @@ export interface NativeReminderEntry {
 }
 
 type NativeReminderMessage =
+  | { id: string; kind: 'reminders.status' }
   | { id: string; kind: 'reminders.requestPermission' }
   | { id: string; kind: 'reminders.sync'; workspaceId: string; items: NativeReminderEntry[]; retainedAlarmIds: string[] }
   | { id: string; kind: 'timer.schedule'; timerId: string; title: string; at: string }
@@ -42,16 +43,21 @@ function setupListener() {
   }) as EventListener);
 }
 
-function send(message: NativeReminderMessage): Promise<NativeReminderStatus> {
+function send(message: NativeReminderMessage, timeoutMs?: number): Promise<NativeReminderStatus> {
   const target = handler();
   if (!target) return Promise.reject(new Error('Native reminders are available only in the Universal iOS app'));
   setupListener();
-  const completion = new Promise<NativeReminderStatus>((resolve, reject) => pending.set(message.id, { resolve, reject }));
-  target.postMessage(message);
+  const completion = new Promise<NativeReminderStatus>((resolve, reject) => {
+    const timeout = timeoutMs === undefined ? undefined : setTimeout(() => { pending.delete(message.id); reject(new Error('Native reminder status timed out')); }, timeoutMs);
+    pending.set(message.id, { resolve: status => { clearTimeout(timeout); resolve(status); }, reject: reason => { clearTimeout(timeout); reject(reason); } });
+    try { target.postMessage(message); }
+    catch (reason) { pending.get(message.id)?.reject(reason instanceof Error ? reason : new Error('Native reminder operation failed')); pending.delete(message.id); }
+  });
   return completion;
 }
 
 export const isNativeReminderAvailable = () => Boolean(handler());
+export const nativeReminderPermissionStatus = () => send({ id: requestId(), kind: 'reminders.status' }, 5_000);
 
 export function notificationItemMomentBody(workspace: WorkspaceDocument, item: UniversalItem, now: Date, suffix = ''): string {
   const locale = workspace.calendarPreferences.language === 'ru' ? 'ru-RU' : 'en-GB';

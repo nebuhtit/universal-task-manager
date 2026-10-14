@@ -31,6 +31,14 @@ describe('local diagnostics', () => {
     expect(readDiagnostics()).toHaveLength(1);
     expect(readDiagnostics()[0]?.outcome).toBe('started');
   });
+  it('retains fast encryption-mode timing checkpoints', () => {
+    recordDiagnostic({ kind: 'result', message: 'Workspace encryption mode changed', operation: 'Workspace encryption mode change', outcome: 'succeeded', durationMs: 42, details: '{"mode":"encrypted"}' });
+    expect(readDiagnostics()[0]).toMatchObject({ operation: 'Workspace encryption mode change', durationMs: 42, details: '{"mode":"encrypted"}' });
+  });
+  it('retains fast encryption-mode timing checkpoints', () => {
+    recordDiagnostic({ kind: 'result', message: 'Workspace encryption mode changed', operation: 'Workspace encryption mode change', outcome: 'succeeded', durationMs: 42, details: '{"mode":"encrypted"}' });
+    expect(readDiagnostics()[0]).toMatchObject({ operation: 'Workspace encryption mode change', durationMs: 42, details: '{"mode":"encrypted"}' });
+  });
 
   it('retains failures while bounding the count', () => {
     for (let index = 0; index < MAX_DIAGNOSTIC_ENTRIES + 5; index += 1) recordDiagnostic({ kind: 'error', message: String(index) });

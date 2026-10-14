@@ -8,9 +8,11 @@ export const STARTUP_DURABLE_PENDING_KEY = 'utm:startup-last-pending:v1';
 type Stage = 'entry' | 'read' | 'decrypt' | 'load' | 'storage-preparation' | 'migration' | 'recurrence' | 'apply-recurrence' | 'preparation' | 'persistence' | 'render' | 'first-frame';
 type Phase = 'started' | 'completed' | 'failed';
 type Source = 'local' | 'backup' | 'automatic' | 'safe';
-type Entry = { at: string; attempt: string; version: string; build: string; source: Source; stage: Stage; phase: Phase; elapsedMs: number; bytes?: number; items?: number };
+type StorageMode = 'encrypted' | 'plaintext' | 'unknown';
+type Entry = { at: string; attempt: string; version: string; build: string; source: Source; storageMode: StorageMode; stage: Stage; phase: Phase; elapsedMs: number; bytes?: number; items?: number };
 let attempt = '';
 let source: Source = 'local';
+let storageMode: StorageMode = 'unknown';
 let startedAt = 0;
 
 export function readStartupLog(): Entry[] {
@@ -22,8 +24,9 @@ export function readStartupLog(): Entry[] {
         || !/^(?:local|[a-f\d]{7,40})$/.test(entry.build)
         || !['local', 'backup', 'automatic', 'safe'].includes(entry.source)
         || !['entry', 'read', 'decrypt', 'load', 'storage-preparation', 'migration', 'recurrence', 'apply-recurrence', 'preparation', 'persistence', 'render', 'first-frame'].includes(entry.stage)
+        || !['encrypted', 'plaintext', 'unknown'].includes(entry.storageMode ?? 'unknown')
         || !['started', 'completed', 'failed'].includes(entry.phase) || !Number.isFinite(entry.elapsedMs)) return [];
-      const safe: Entry = { at: entry.at, attempt: entry.attempt, version: entry.version, build: entry.build, source: entry.source, stage: entry.stage, phase: entry.phase, elapsedMs: Math.max(0, Math.floor(entry.elapsedMs)) };
+      const safe: Entry = { at: entry.at, attempt: entry.attempt, version: entry.version, build: entry.build, source: entry.source, storageMode: entry.storageMode ?? 'unknown', stage: entry.stage, phase: entry.phase, elapsedMs: Math.max(0, Math.floor(entry.elapsedMs)) };
       for (const key of ['bytes', 'items'] as const) if (typeof entry[key] === 'number' && Number.isFinite(entry[key]) && entry[key] >= 0) safe[key] = Math.floor(entry[key]);
       return [safe];
     });
@@ -36,8 +39,9 @@ export function interruptedStartup(): boolean {
   try { return sessionStorage.getItem(STARTUP_PENDING_KEY) === '1' || Boolean(localStorage.getItem(STARTUP_DURABLE_PENDING_KEY)) || Boolean(localStorage.getItem(PENDING_SAVE_KEY)); } catch { return false; }
 }
 
-export function beginStartup(next: Source): void {
+export function beginStartup(next: Source, mode: StorageMode = 'unknown'): void {
   source = next; attempt = crypto.randomUUID(); startedAt = performance.now();
+  storageMode = mode;
   try { sessionStorage.setItem(STARTUP_PENDING_KEY, '1'); } catch { /* Best effort. */ }
   try { localStorage.setItem(STARTUP_DURABLE_PENDING_KEY, attempt); } catch { /* Best effort. */ }
   startupCheckpoint('entry', 'started');
@@ -47,7 +51,7 @@ export function startupCheckpoint(stage: Stage, phase: Phase, metrics: { bytes?:
   if (!attempt) beginStartup('automatic');
   // Explicit numeric allow-list, not exception messages or serialized objects.
   const build = import.meta.env.VITE_COMMIT_SHA || 'local';
-  const entry: Entry = { at: new Date().toISOString(), attempt, version: APP_VERSION, build: /^(?:local|[a-f\d]{7,40})$/.test(build) ? build : 'local', source, stage, phase, elapsedMs: Math.round(performance.now() - startedAt) };
+  const entry: Entry = { at: new Date().toISOString(), attempt, version: APP_VERSION, build: /^(?:local|[a-f\d]{7,40})$/.test(build) ? build : 'local', source, storageMode, stage, phase, elapsedMs: Math.round(performance.now() - startedAt) };
   for (const key of ['bytes', 'items'] as const) {
     const value = metrics[key];
     if (typeof value === 'number' && Number.isFinite(value) && value >= 0) entry[key] = Math.floor(value);

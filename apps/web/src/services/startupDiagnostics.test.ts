@@ -16,7 +16,7 @@ describe('durable startup checkpoints', () => {
     Object.defineProperty(globalThis, 'window', { configurable: true, value: new EventTarget() });
   });
   it('distinguishes storage read and first frame from the recovery stability window', () => {
-    beginStartup('automatic');
+    beginStartup('automatic', 'plaintext');
     startupCheckpoint('read', 'started');
     startupCheckpoint('read', 'completed');
     startupCheckpoint('first-frame', 'completed');
@@ -24,6 +24,7 @@ describe('durable startup checkpoints', () => {
     expect(interruptedStartup()).toBe(true);
     finishStartup();
     expect(interruptedStartup()).toBe(false);
+    expect(readStartupLog().every(value => value.storageMode === 'plaintext')).toBe(true);
   });
   it('keeps fast checkpoints and detects an interrupted launch after session loss', () => {
     beginStartup('local');
@@ -42,12 +43,13 @@ describe('durable startup checkpoints', () => {
     expect(localStorage.getItem(STARTUP_DURABLE_PENDING_KEY)).toBe('other-tab');
   });
   it('exports only numeric technical metadata and bounds history', () => {
-    beginStartup('backup');
+    beginStartup('backup', 'encrypted');
     startupCheckpoint('load', 'completed', { bytes: NaN, items: 3, password: 'SECRET' } as { items: number });
     const record = readStartupLog().at(-1)!;
     localStorage.setItem(STARTUP_LOG_KEY, JSON.stringify([{ ...record, title: 'SECRET' }, { ...record, stage: 'SECRET' }]));
     expect(JSON.stringify(readStartupLog())).not.toContain('SECRET');
     expect(readStartupLog()).toHaveLength(1);
+    expect(readStartupLog()[0]?.storageMode).toBe('encrypted');
     for (let i = 0; i < 130; i++) startupCheckpoint('render', 'started');
     expect(readStartupLog()).toHaveLength(120);
     clearStartupLog();

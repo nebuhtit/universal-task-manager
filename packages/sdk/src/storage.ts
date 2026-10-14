@@ -185,6 +185,47 @@ async function transactRecords(records: Array<[string, unknown]>, deleteKeys: st
   });
 }
 
+async function replaceWorkspaceMode(
+  expectedMetadata: LocalMetadata,
+  expectedWorkspace: LocalBlock,
+  records: Array<[string, unknown]>,
+  deleteKeys: string[],
+): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE, 'readwrite', { durability: 'strict' });
+    const store = transaction.objectStore(STORE);
+    let failure: Error | undefined;
+    let remaining = 2;
+    const check = () => {
+      if (--remaining !== 0) return;
+      const metadata = values[0] as LocalMetadata | undefined;
+      const workspace = values[1] as LocalBlock | undefined;
+      if (JSON.stringify(metadata) !== JSON.stringify(expectedMetadata) || JSON.stringify(workspace) !== JSON.stringify(expectedWorkspace)) {
+        failure = new Error('Workspace changed in another window. Reload it before changing encryption mode.');
+        transaction.abort();
+        return;
+      }
+      try {
+        records.forEach(([key, value]) => store.put(value, key));
+        deleteKeys.forEach((key) => store.delete(key));
+      } catch (reason) {
+        failure = reason instanceof Error ? reason : new Error(String(reason));
+        transaction.abort();
+      }
+    };
+    const values: unknown[] = [];
+    [META_KEY, BLOCK_KEY].forEach((key, index) => {
+      const request = store.get(key);
+      request.onsuccess = () => { values[index] = request.result; check(); };
+      request.onerror = () => { failure = request.error ?? new Error('Could not verify the current workspace'); transaction.abort(); };
+    });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(failure ?? transaction.error ?? new Error('Workspace encryption change failed'));
+    transaction.onabort = () => reject(failure ?? transaction.error ?? new Error('Workspace encryption change was cancelled'));
+  });
+}
+
 async function transactVerifiedRecords(records: Array<[string, unknown]>, metadata: EncryptedLocalMetadata, workspace: EncryptedLocalBlock, deleteKeys: string[] = []): Promise<void> {
   const previous = await getRecord<VerifiedWorkspaceMirror>(MIRROR_KEYS[0]);
   await transactRecords([...records,
@@ -355,6 +396,62 @@ export async function createUnencryptedLocalWorkspace(name = 'Test workspace', l
   const metadata: PlaintextLocalMetadata = { version: 1, mode: 'plaintext', createdAt: new Date().toISOString() };
   await putRecords([[META_KEY, metadata], [BLOCK_KEY, { version: 1, mode: 'plaintext', binary: Automerge.save(document) } satisfies PlaintextLocalBlock]]);
   return { document, dataKey: new Uint8Array(), storageMode: 'plaintext' };
+}
+
+/** Converts the active local workspace to an explicitly unencrypted test mode. */
+export async function disableLocalWorkspaceEncryption(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array): Promise<UnlockedWorkspace> {
+  const [metadata, current] = await Promise.all([getRecord<LocalMetadata>(META_KEY), getRecord<LocalBlock>(BLOCK_KEY)]);
+  if (!metadata || !current) throw new Error('No local workspace exists');
+  if (metadata.mode === 'plaintext' || isPlaintextBlock(current)) throw new Error('Workspace encryption is already disabled');
+  // Confirm that the in-memory session key still opens the exact durable block.
+  const opened = await decryptLocalBlock(current, dataKey);
+  const existing = decodeLocalWorkspaceBinary(opened);
+  const currentHeads = JSON.stringify(Automerge.getHeads(existing).sort());
+  Automerge.free(existing);
+  if (currentHeads !== JSON.stringify(Automerge.getHeads(document).sort())) throw new Error('Workspace has unsaved changes. Save them before disabling encryption.');
+  const snapshot: LocalWorkspaceSnapshot = { id: SNAPSHOT_KEYS[0], createdAt: new Date().toISOString(), schemaVersion: String(document.schemaVersion ?? 'unknown'), reason: 'before test mode without encryption', metadata, workspace: current };
+  const plaintextMetadata: PlaintextLocalMetadata = { version: 1, mode: 'plaintext', createdAt: new Date().toISOString() };
+  const plaintextWorkspace: PlaintextLocalBlock = { version: 1, mode: 'plaintext', binary: Automerge.save(document) };
+  const verified = decodeLocalWorkspaceBinary(plaintextWorkspace.binary);
+  if (JSON.stringify(Automerge.getHeads(verified).sort()) !== JSON.stringify(Automerge.getHeads(document).sort())) {
+    Automerge.free(verified);
+    throw new Error('Plaintext test-mode verification failed. The encrypted workspace is unchanged.');
+  }
+  Automerge.free(verified);
+  await replaceWorkspaceMode(metadata, current, [
+    [META_KEY, plaintextMetadata], [BLOCK_KEY, plaintextWorkspace], [SNAPSHOT_KEYS[0], snapshot],
+  ], [EXPORT_SAFE_BLOCK_KEY, SAVE_RECEIPT_KEY, SNAPSHOT_KEYS[1], ...MIRROR_KEYS, FACE_ID_KEY, PASSWORD_BYPASS_KEY]);
+  // The stored native credential is no longer usable for this mode; cleanup is
+  // best effort after the durable conversion has committed.
+  await disableFaceIdUnlock().catch(() => undefined);
+  return { document, dataKey: new Uint8Array(), storageMode: 'plaintext' };
+}
+
+/** Re-encrypts a plaintext test workspace using a new password. */
+export async function enableLocalWorkspaceEncryption(document: Automerge.Doc<WorkspaceDocument>, password: string): Promise<UnlockedWorkspace> {
+  if (password.length < 10) throw new Error('New password must contain at least 10 characters');
+  const [metadata, current] = await Promise.all([getRecord<LocalMetadata>(META_KEY), getRecord<LocalBlock>(BLOCK_KEY)]);
+  if (!metadata || !current) throw new Error('No local workspace exists');
+  if (metadata.mode !== 'plaintext' || !isPlaintextBlock(current)) throw new Error('Workspace encryption is already enabled');
+  const currentDocument = decodeLocalWorkspaceBinary(current.binary);
+  const currentHeads = JSON.stringify(Automerge.getHeads(currentDocument).sort());
+  Automerge.free(currentDocument);
+  if (currentHeads !== JSON.stringify(Automerge.getHeads(document).sort())) throw new Error('Workspace has unsaved changes. Save them before enabling encryption.');
+  const dataKey = await randomKey();
+  try {
+    const encryptedMetadata: EncryptedLocalMetadata = { version: 1, wrappedKey: await wrapKey(dataKey, password), createdAt: new Date().toISOString() };
+    const encryptedWorkspace = { version: 1, ...await encryptWithKey(Automerge.save(document), dataKey, BLOCK_AAD) } satisfies EncryptedLocalBlock;
+    await verifyEncryptedDocument(encryptedWorkspace, dataKey);
+    const exportSafeBlock = await createExportSafeBlock(document, dataKey, encryptedWorkspace);
+    const mirror: VerifiedWorkspaceMirror = { savedAt: new Date().toISOString(), metadata: encryptedMetadata, workspace: encryptedWorkspace };
+    await replaceWorkspaceMode(metadata, current, [
+      [META_KEY, encryptedMetadata], [BLOCK_KEY, encryptedWorkspace], [EXPORT_SAFE_BLOCK_KEY, exportSafeBlock], [MIRROR_KEYS[0], mirror],
+    ], [SAVE_RECEIPT_KEY, SNAPSHOT_KEYS[0], SNAPSHOT_KEYS[1], MIRROR_KEYS[1], FACE_ID_KEY, PASSWORD_BYPASS_KEY]);
+    return { document, dataKey, storageMode: 'encrypted' };
+  } catch (reason) {
+    dataKey.fill(0);
+    throw reason;
+  }
 }
 
 export async function unlockLocalWorkspace(password: string, options: { readOnly?: boolean } = {}): Promise<UnlockedWorkspace> {

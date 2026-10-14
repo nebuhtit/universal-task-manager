@@ -30,6 +30,17 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
               let id = payload["id"] as? String,
               let kind = payload["kind"] as? String else { return }
         switch kind {
+        case "reminders.status":
+            center.getNotificationSettings { [weak self] settings in
+                let authorization: String
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral: authorization = "granted"
+                case .denied: authorization = "denied"
+                case .notDetermined: authorization = "notDetermined"
+                @unknown default: authorization = "unknown"
+                }
+                self?.sendStatus(id: id, authorization: authorization)
+            }
         case "reminders.requestPermission": requestPermission(id: id)
         case "reminders.sync": sync(id: id, payload: payload)
         case "timer.schedule": scheduleTimer(id: id, payload: payload)

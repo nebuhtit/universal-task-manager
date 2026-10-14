@@ -6,7 +6,7 @@ import {
   type DomainEvent, type ReconcileResult, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
-  localWorkspaceMode, lock, passwordProtectionStatus, saveMigratedLocalWorkspace,
+  faceIdStatus, localWorkspaceMode, lock, passwordProtectionStatus, saveMigratedLocalWorkspace,
   restorePasswordBypass, unlockLocalWorkspaceWithFaceId, unlockLocalWorkspaceWithoutPassword, unlockUnencryptedLocalWorkspace,
   type PasswordProtectionStatus, type UnlockedWorkspace,
 } from '@utm/sdk';
@@ -74,7 +74,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       // Pending markers survive force-close and are diagnostic, not proof of failure.
       // Try normal opening; the existing catch paths retain recovery on real errors.
       if (mode === 'plaintext') {
-        beginStartup('automatic');
+        beginStartup('automatic', 'plaintext');
         setPasswordProtection('plaintext');
         try { await acquireWorkspaceWriter(); await activate(await unlockUnencryptedLocalWorkspace()); }
         catch (reason) {
@@ -87,17 +87,23 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       setPasswordProtection(protection);
       if (protection === 'disabled') {
         setPasswordBypassHint(true);
-        beginStartup('automatic');
+        beginStartup('automatic', 'encrypted');
         try { await acquireWorkspaceWriter(); await activate(await unlockLocalWorkspaceWithoutPassword()); }
         catch (reason) {
           recordDiagnostic({ kind: 'error', message: 'Saved device unlock failed', operation: 'Unlock without password', outcome: 'failed', details: diagnosticFailureCode(reason) });
           setBoot('locked');
         }
       } else if (hasPasswordBypassHint()) {
+        const biometricStatus = await faceIdStatus().catch(() => undefined);
+        if (biometricStatus !== 'configured') {
+          if (biometricStatus !== undefined) setPasswordBypassHint(false);
+          setBoot('locked');
+          return;
+        }
         // A restore or storage repair can retain the explicit preference while
         // losing its IndexedDB key. Re-authorize once with biometrics, verify
         // the key against the encrypted block, then restore direct startup.
-        beginStartup('automatic');
+        beginStartup('automatic', 'encrypted');
         try {
           await acquireWorkspaceWriter();
           const unlocked = await unlockLocalWorkspaceWithFaceId();
