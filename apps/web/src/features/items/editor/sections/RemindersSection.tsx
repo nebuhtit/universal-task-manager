@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { PositiveNumberInput } from '../../../../components/ui/PositiveNumberInput';
 import { DurationInput } from '../fields/DurationInput';
 import { createId, type UniversalItem } from '@utm/core';
 import { CloseIcon } from '../../../../components/ui/icons';
@@ -22,7 +21,6 @@ export function RemindersSection({ language, item, now, sectionMark, patchItem }
     {item.reminders.map((reminder, index) => {
       const relative = reminder.mode === 'relative';
       const parsed = parseReminderDuration(reminder.offset);
-      const calendarUnit = parsed.unit === 'months' || parsed.unit === 'years';
       const clearSnooze = <T extends typeof reminder>(entry: T): T => { const next = { ...entry }; delete next.snoozedUntil; return next; };
       const update = (patch: Partial<typeof reminder>) => patchItem({ reminders: item.reminders.map(entry => entry.id === reminder.id ? clearSnooze({ ...entry, ...patch }) : entry) });
       const updateOffset = (amount: number, unit: ReminderDurationUnit) => update({ offset: `${parsed.before ? '-' : ''}${reminderIsoDuration(amount, unit)}` });
@@ -42,12 +40,7 @@ export function RemindersSection({ language, item, now, sectionMark, patchItem }
         </Select>
         <IconButton className="reminder-remove" size="compact" variant="ghost" aria-label={ru ? 'Удалить напоминание' : 'Remove reminder'} onClick={() => patchItem({ reminders: item.reminders.filter(entry => entry.id !== reminder.id) })}><CloseIcon /></IconButton>
         <div className="reminder-value">
-          {relative ? calendarUnit ? <>
-            <PositiveNumberInput aria-label={`Reminder ${index + 1} amount`} value={parsed.amount} onValueChange={amount => updateOffset(amount, parsed.unit)} />
-            <Select aria-label={`Reminder ${index + 1} unit`} value={parsed.unit} onChange={event => updateOffset(parsed.amount, event.target.value as ReminderDurationUnit)}>
-              {['seconds', 'minutes', 'hours', 'days', 'weeks', 'months', 'years'].map(unit => <option key={unit}>{unit}</option>)}
-            </Select>
-          </> : <DurationInput label={`Reminder ${index + 1} amount`} allowZero showUnit presets duration={{ amount: parsed.amount, unit: parsed.unit as Exclude<ReminderDurationUnit, 'months' | 'years'> }} onChange={value => { if (value) updateOffset(value.amount, value.unit); }} />
+          {relative ? <DurationInput calendarUnits label={`Reminder ${index + 1} amount`} allowZero presets duration={{ amount: parsed.amount, unit: parsed.unit }} onChange={value => { if (value) updateOffset(value.amount, value.unit); }} />
             : <Input aria-label={`Reminder ${index + 1} time`} type="datetime-local" value={dateInput(reminder.at)} onChange={event => {
               const at = fromDateInput(event.target.value);
               patchItem({ reminders: item.reminders.map(entry => {

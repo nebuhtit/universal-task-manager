@@ -1,6 +1,7 @@
-import { applyGoogleCalendarSync, googleCalendarEventToItem, reconcileCalendarOrganization, type GoogleCalendarEvent, type WorkspaceDocument } from '@utm/core';
+import { applyGoogleCalendarSync, googleCalendarEventToItem, googleSeriesIdentity, reconcileCalendarOrganization, type GoogleCalendarEvent, type WorkspaceDocument } from '@utm/core';
 import type { GoogleCalendarSyncResult } from './googleCalendar';
 import { syncTrace } from './syncTrace';
+import { googleRecurrence } from './googleUniversalItem';
 
 export interface GoogleRecovery { itemId: string; calendarId: string; event: GoogleCalendarEvent }
 export interface GoogleSyncPlanInput { workspace: WorkspaceDocument; result: GoogleCalendarSyncResult; recovered: GoogleRecovery[] }
@@ -51,9 +52,15 @@ export function calculateGoogleSyncPlan({ workspace, result, recovered }: Google
   for (const recovery of recovered) {
     if (recovered.filter(entry => entry.itemId === recovery.itemId).length !== 1) continue;
     const target = workspace.items[recovery.itemId];
-    if (!target || target.deletedAt || target.external || target.extensions?.['utm:googleSave']) continue;
-    const mirror = googleCalendarEventToItem(recovery.event, recovery.calendarId, google.connectionId, result.syncedAt);
+    if (!target || target.deletedAt || target.external || target.extensions?.['utm:googleSave'] || target.extensions?.['utm:googleEdit'] || target.extensions?.['utm:itemDelete'] || target.extensions?.['utm:googleDeletionReceipts']) continue;
+    const organization = target.extensions?.['utm:calendarOrganization'] as { calendarId?: string } | undefined;
+    if (organization?.calendarId && organization.calendarId !== recovery.calendarId) continue;
+    const mirror = googleCalendarEventToItem(recovery.event, recovery.calendarId, google.connectionId, result.syncedAt, target.schedule?.timezone ?? workspace.calendarPreferences.timezone);
     if (!mirror?.external) continue;
+    if (googleSeriesIdentity(target) && target.recurrence) {
+      const remoteRule = googleRecurrence(recovery.event, mirror.schedule!.timezone);
+      target.recurrence = { ...target.recurrence, rrule: remoteRule.rrule, rdates: remoteRule.rdates, exdates: remoteRule.exdates, timezone: remoteRule.timezone };
+    }
     target.external = { ...mirror.external, readOnly: false };
     target.extensions ??= {};
     target.extensions['utm:googleSeriesEvent'] = recovery.event;

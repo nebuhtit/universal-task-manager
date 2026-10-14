@@ -46,6 +46,11 @@
 
 .calendar-strip span.property-icon { display: inline-flex; }
 
+.display-fields-example small > .property-icon {
+  width: var(--font-size-body);
+  height: var(--font-size-body);
+}
+
 .field-option-label,
 .field-option-label > span,
 .all-items-field-label > span,

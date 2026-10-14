@@ -3,7 +3,7 @@ import { weatherDiagnostic } from './weatherDiagnostics';
 
 export type WeatherLocation = { name: string; latitude: number; longitude: number };
 export type WeatherSettings = { enabled: boolean; solar: boolean; precipitation: boolean; location?: WeatherLocation };
-export type WeatherHour = { start: number; end: number; probability: number | null; cloudCover?: number | null; precipitationMm?: number | null };
+export type WeatherHour = { start: number; end: number; probability: number | null; temperatureC?: number | null; cloudCover?: number | null; precipitationMm?: number | null; weatherCode?: number | null };
 export type WeatherForecast = { locationKey: string; fetchedAt: number; hours: WeatherHour[] };
 export type WeatherState = { settings: WeatherSettings; forecast?: WeatherForecast | undefined; lastAttempt?: number | undefined; error?: string | undefined; storageError?: string | undefined; busy: boolean; now: number };
 export const WEATHER_KEY = 'utm:weather:v1';
@@ -15,20 +15,24 @@ export function validLocation(value: unknown): value is WeatherLocation {
   return !!v && typeof v.name === 'string' && !!v.name.trim() && Number.isFinite(v.latitude) && Math.abs(v.latitude) <= 90 && Number.isFinite(v.longitude) && Math.abs(v.longitude) <= 180;
 }
 export function parseForecast(value: unknown): WeatherHour[] {
-  const hourly = (value as { hourly?: { time?: unknown[]; precipitation_probability?: unknown[]; cloud_cover?: unknown[]; precipitation?: unknown[] } })?.hourly;
+  const hourly = (value as { hourly?: { time?: unknown[]; precipitation_probability?: unknown[]; temperature_2m?: unknown[]; cloud_cover?: unknown[]; precipitation?: unknown[]; weather_code?: unknown[] } })?.hourly;
   if (!Array.isArray(hourly?.time) || !Array.isArray(hourly.precipitation_probability) || !hourly.time.length || hourly.time.length !== hourly.precipitation_probability.length) throw new Error('invalid-response');
-  if (hourly.cloud_cover && hourly.cloud_cover.length !== hourly.time.length || hourly.precipitation && hourly.precipitation.length !== hourly.time.length) throw new Error('invalid-response');
+  if (hourly.temperature_2m && hourly.temperature_2m.length !== hourly.time.length || hourly.cloud_cover && hourly.cloud_cover.length !== hourly.time.length || hourly.precipitation && hourly.precipitation.length !== hourly.time.length || hourly.weather_code && hourly.weather_code.length !== hourly.time.length) throw new Error('invalid-response');
   let previous = -Infinity;
   return hourly.time.map((time, i) => {
     if (typeof time !== 'number' || !Number.isFinite(time) || time <= previous) throw new Error('invalid-response');
     previous = time;
     const p = hourly.precipitation_probability![i];
     if (p !== null && (typeof p !== 'number' || !Number.isFinite(p) || p < 0 || p > 100)) throw new Error('invalid-response');
+    const temperature = hourly.temperature_2m?.[i];
+    if (temperature !== undefined && temperature !== null && (typeof temperature !== 'number' || !Number.isFinite(temperature))) throw new Error('invalid-response');
     const cloud = hourly.cloud_cover?.[i], rain = hourly.precipitation?.[i];
+    const code = hourly.weather_code?.[i];
+    if (code !== undefined && code !== null && (typeof code !== 'number' || !Number.isInteger(code) || code < 0 || code > 99)) throw new Error('invalid-response');
     if (cloud !== undefined && cloud !== null && (typeof cloud !== 'number' || !Number.isFinite(cloud) || cloud < 0 || cloud > 100)) throw new Error('invalid-response');
     if (rain !== undefined && rain !== null && (typeof rain !== 'number' || !Number.isFinite(rain) || rain < 0)) throw new Error('invalid-response');
     // Open-Meteo probability describes the preceding hour, not the following one.
-    return { start: time * 1000 - HOUR, end: time * 1000, probability: p as number | null, ...(cloud !== undefined ? { cloudCover: cloud as number | null } : {}), ...(rain !== undefined ? { precipitationMm: rain as number | null } : {}) };
+    return { start: time * 1000 - HOUR, end: time * 1000, probability: p as number | null, ...(temperature !== undefined ? { temperatureC: temperature as number | null } : {}), ...(cloud !== undefined ? { cloudCover: cloud as number | null } : {}), ...(rain !== undefined ? { precipitationMm: rain as number | null } : {}), ...(code !== undefined ? { weatherCode: code as number | null } : {}) };
   });
 }
 export function usableForecast(state: WeatherState): WeatherHour[] {
@@ -61,7 +65,7 @@ export function createWeatherService() {
       const cache = localStorage.getItem(CACHE_KEY);
       if (cache) {
         const v = JSON.parse(cache) as WeatherForecast;
-        if (typeof v.locationKey !== 'string' || !Number.isFinite(v.fetchedAt) || !Array.isArray(v.hours) || !v.hours.every(h => Number.isFinite(h.start) && h.end === h.start + HOUR && (h.probability === null || (Number.isFinite(h.probability) && h.probability >= 0 && h.probability <= 100)))) throw new Error();
+        if (typeof v.locationKey !== 'string' || !Number.isFinite(v.fetchedAt) || !Array.isArray(v.hours) || !v.hours.every(h => Number.isFinite(h.start) && h.end === h.start + HOUR && (h.probability === null || (Number.isFinite(h.probability) && h.probability >= 0 && h.probability <= 100)) && (h.temperatureC === undefined || h.temperatureC === null || Number.isFinite(h.temperatureC)))) throw new Error();
         state = { ...state, forecast: v };
       }
     } catch { state = { ...state, storageError: 'storage' }; weatherDiagnostic('Weather storage', { code: 'storage' }, undefined, true); }
@@ -87,7 +91,7 @@ export function createWeatherService() {
     emit({ busy: true, lastAttempt: Date.now(), now: Date.now() });
     const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
-      const query = new URLSearchParams({ latitude: String(location.latitude), longitude: String(location.longitude), hourly: 'precipitation_probability,cloud_cover,precipitation', forecast_days: '16', timeformat: 'unixtime', timezone: 'GMT' });
+      const query = new URLSearchParams({ latitude: String(location.latitude), longitude: String(location.longitude), hourly: 'temperature_2m,precipitation_probability,cloud_cover,precipitation,weather_code', forecast_days: '16', timeformat: 'unixtime', timezone: 'GMT' });
       const response = await fetch(`https://api.open-meteo.com/v1/forecast?${query}`, { signal: controller.signal });
       if (!response.ok) throw new Error(`http-${response.status}`);
       const hours = parseForecast(await response.json());

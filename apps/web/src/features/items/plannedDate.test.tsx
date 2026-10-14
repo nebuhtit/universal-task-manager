@@ -66,5 +66,9 @@ it('carries only open overdue tasks to today without changing the original date'
 it('offers date-only rescheduling without datetime inputs or guessed clock times', () => {
   const item = createQuickEntryItem('Отчёт завтра', now);
   const html = renderToStaticMarkup(<DueQuickChoices item={item} now={now} language="ru" onChoose={() => {}} />);
-  expect(html).toContain('type="date"'); expect(html).not.toContain('datetime-local'); expect(html).not.toContain('09:00');
+  expect(html).not.toContain('<input'); expect(html).not.toContain('datetime-local'); expect(html).not.toContain('09:00');
+  expect(html).toContain('<span>Сегодня</span><time');
+  expect(html).toContain('<span>Завтра</span><time');
+  expect(html).toContain('Выбрать дату…');
+  expect(html).toContain('aria-expanded="false"');
 });

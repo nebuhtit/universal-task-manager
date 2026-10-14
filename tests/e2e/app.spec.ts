@@ -134,7 +134,7 @@ test('entry screens follow system theme and keep explanations collapsed', async 
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v4\.6\.9 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v4\.7\.0 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -143,7 +143,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v4\.6\.9 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v4\.7\.0 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -1233,8 +1233,7 @@ test('recurring item accepts Deadline as its schedule anchor and handles missing
   await page.getByLabel('Repeat interval').fill('2');
   await page.getByRole('button', { name: `Repeat on ${dueSetup.weekday}` }).click();
   await page.getByText('Advanced recurrence behavior', { exact: true }).click();
-  await page.getByLabel('Activation amount').fill('3');
-  await page.getByLabel('Activation unit').selectOption('days');
+  await page.getByLabel('Activation amount').fill('3 d');
   await expect(page.getByLabel(/Repeat rule/)).toHaveValue(`FREQ=WEEKLY;INTERVAL=2;BYDAY=${dueSetup.weekday}`);
   await expect(page.getByLabel(/Activation duration/)).toHaveValue('P3D');
   await page.getByRole('button', { name: 'Save item' }).click();

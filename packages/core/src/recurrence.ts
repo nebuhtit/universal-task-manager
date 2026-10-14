@@ -1,5 +1,6 @@
 import * as rruleModule from 'rrule';
 import { itemDeletionTime } from './item-deletion.js';
+import { googleSeriesIdentity } from './google-series-identity.js';
 import { retainedItemHistory, recordCompletionTransition, syncActualDuration } from './item-history.js';
 import type { RRuleSet as RRuleSetType } from 'rrule';
 import { durationToMs } from './dsl.js';
@@ -686,7 +687,9 @@ export function reconcileRecurrences(workspace: WorkspaceDocument, now = new Dat
     });
     // Google instances have independent remote identities. Never collapse them
     // into a rolling task: doing so deletes an instance under an open editor.
-    const googleSeries = series.external?.provider === 'google_calendar';
+    // Backups strip live Google links. The stable adopted-master ID still
+    // denotes independently identified instances, including future ones.
+    const googleSeries = series.external?.provider === 'google_calendar' || Boolean(googleSeriesIdentity(series));
     if (recurrence.autoRenew && !googleSeries) {
       const hadOccurrence = Object.values(workspace.items).some((item) => item.occurrence?.seriesId === series.id && !item.deletedAt);
       const rolling = reconcileRollingSeries(workspace, series, activeAnchors, rule, now, (anchor) => unique.findIndex((candidate) => candidate.getTime() === anchor.getTime()), updated, autoClosed, removedIds);

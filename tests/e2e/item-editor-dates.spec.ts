@@ -32,23 +32,27 @@ test('duration unit suggestions remain visible and accept friendly input in the 
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
   const amount = editor.getByLabel('Calendar duration amount', { exact: true });
   await amount.fill('1,5 h');
-  await expect(editor.getByLabel('Calendar duration unit', { exact: true })).toHaveValue('minutes');
+  await expect(editor.getByLabel('Calendar duration unit', { exact: true })).toHaveCount(0);
   const suggestions = editor.getByRole('group', { name: 'Calendar duration amount units', exact: true });
   await expect(suggestions).toBeVisible();
   const minutes = suggestions.getByRole('button', { name: '1,5 min', exact: true });
   if (testInfo.project.use.hasTouch) await minutes.tap(); else await minutes.click();
   await expect(amount).toHaveValue('1,5 min');
-  await expect(editor.getByLabel('Calendar duration unit', { exact: true })).toHaveValue('seconds');
-  await editor.getByLabel('Calendar duration unit', { exact: true }).focus();
+  await editor.getByLabel('Event opens', { exact: true }).focus();
   await expect(amount).toHaveValue('90 sec');
   await expect(suggestions).toBeHidden();
   await amount.fill('30 мин');
-  await expect(editor.getByLabel('Calendar duration unit', { exact: true })).toHaveValue('minutes');
   const inputBox = await amount.boundingBox();
-  const unitBox = await editor.getByLabel('Calendar duration unit', { exact: true }).boundingBox();
-  expect(inputBox!.width).toBeGreaterThan(unitBox!.width);
+  const controlBox = await editor.locator('.calendar-duration-control').boundingBox();
+  expect(inputBox!.width).toBeGreaterThan(controlBox!.width * .95);
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(suggestions).toBeVisible();
+  await amount.fill('1 ч 30 мин');
+  await editor.getByLabel('Event opens', { exact: true }).focus();
+  await expect(amount).toHaveValue('90 min');
+  await amount.fill('45');
+  await editor.getByLabel('Event opens', { exact: true }).focus();
+  await expect(amount).toHaveValue('45 min');
 });
 
 test('travel title draft survives rejected blur and saves after event bounds are supplied', async ({ page }, testInfo) => {
@@ -80,10 +84,13 @@ test('reminder number can be cleared before replacement', async ({ page }) => {
   await page.getByLabel('Reminder 1 mode', { exact: true }).selectOption('before');
   const amount = page.getByLabel('Reminder 1 amount', { exact: true });
   await amount.fill(''); await expect(amount).toHaveValue('');
-  await amount.fill('25'); await page.getByLabel('Reminder 1 unit').selectOption('hours');
-  await expect(amount).toHaveValue('25');
-  await amount.fill(''); await page.getByLabel('Reminder 1 unit').focus();
-  await expect(amount).toHaveValue('25');
+  await amount.fill('25 h'); await page.getByLabel('Reminder 1 mode', { exact: true }).focus();
+  await expect(amount).toHaveValue('25 h');
+  await amount.fill('3 месяца'); await page.getByLabel('Reminder 1 mode', { exact: true }).focus();
+  await expect(amount).toHaveValue('3 mo');
+  await expect(page.getByLabel('Reminder 1 unit', { exact: true })).toHaveCount(0);
+  await amount.fill(''); await page.getByLabel('Reminder 1 mode', { exact: true }).focus();
+  await expect(amount).toHaveValue('3 mo');
 });
 
 test('reminder and travel presets commit the exact tapped choice without a keyboard blur race', async ({ page }, testInfo) => {
@@ -118,14 +125,18 @@ test('reminder and travel presets commit the exact tapped choice without a keybo
 
   await activate(editor.getByRole('button', { name: 'Save item', exact: true }));
   await expect(editor).toBeHidden();
+  if ((page.viewportSize()?.width ?? 0) <= 620) {
+    await activate(page.getByRole('button', { name: 'Open navigation', exact: true }));
+    await activate(page.locator('.mobile-nav-menu').getByRole('button', { name: /^All items/ }));
+  } else await activate(page.locator('.sidebar').getByRole('button', { name: /^All items/ }));
   await page.locator('.item-card').filter({ hasText: 'Calendar block' }).first().locator('.item-main').click();
   await expect(editor).toBeVisible();
   await openDates(editor);
   await page.locator('details').filter({ has: page.locator(':scope > summary').filter({ hasText: /^Reminders/ }) }).evaluate(el => { (el as HTMLDetailsElement).open = true; });
   await expect(editor.getByLabel('Reminder 1 amount', { exact: true })).toHaveValue('45 min');
   await editor.locator('.travel-time-disclosure').first().locator(':scope > summary').click();
-  await expect(editor.getByLabel('Travel time amount', { exact: true })).toHaveValue('3');
-  await expect(editor.getByLabel('Travel time unit', { exact: true })).toHaveValue('hours');
+  await expect(editor.getByLabel('Travel time amount', { exact: true })).toHaveValue('3 h');
+  await expect(editor.getByLabel('Travel time unit', { exact: true })).toHaveCount(0);
 });
 
 test('event end and duration stay linked in both directions and allow clearing', async ({ page }) => {
@@ -148,8 +159,9 @@ test('event end and duration stay linked in both directions and allow clearing',
   await page.getByRole('button', { name: 'Clear Due / Active range ends' }).click();
   await expect(due).toHaveValue('');
 
-  await page.getByLabel('Duration preset').selectOption('30');
-  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('30');
+  await page.getByLabel('Calendar duration amount').fill('30 min');
+  await opens.focus();
+  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('30 min');
   const difference = await page.evaluate(({ start, end }) => new Date(end).getTime() - new Date(start).getTime(), { start: await opens.inputValue(), end: await ends.inputValue() });
   expect(difference).toBe(30 * 60_000);
   await expect(due).toHaveValue('');
@@ -160,8 +172,7 @@ test('event end and duration stay linked in both directions and allow clearing',
     return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   }, await opens.inputValue());
   await ends.fill(oneHourLater);
-  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('1');
-  await expect(page.getByLabel('Calendar duration unit')).toHaveValue('hours');
+  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('1 h');
   await page.getByRole('button', { name: 'Save item' }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
 });

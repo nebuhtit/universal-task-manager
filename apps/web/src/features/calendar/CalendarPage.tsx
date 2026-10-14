@@ -18,6 +18,7 @@ import { calendarDayView } from './calendarEvaluation';
 import { buildCalendarPlan, calendarListOrder, calendarReorderIssue, planningEnabled, planningReason } from './calendarPlanning';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
 import { prepareCalendarProjectionBoundaries } from './calendarProjectionCache';
+import { DayWeather } from '../weather/DayWeather';
 import { MoonPhase } from './MoonPhase';
 import { useCalendarPeriodSwipe } from './useCalendarPeriodSwipe';
 import { useCalendarSwipeMotion } from './useCalendarSwipeMotion';
@@ -262,7 +263,7 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
   const setTimelineSetting = (changes: Partial<typeof timelineSettings>) => commit('Calendar visibility', draft => { draft.calendarPreferences.timeline = { ...draft.calendarPreferences.timeline, mode: 'list', hideSleep: draft.calendarPreferences.timeline?.hideSleep ?? false, ...changes }; });
   const rowsById = new Map(selected.entries.map(({ row, item }) => [item.id, row]));
   const formatDate = (key: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(preferences.language, { ...options, timeZone: 'UTC' }).format(dateFromKey(key));
-  const selectedLabel = formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const selectedLabel = formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
   const weekdayOffset = navigatorMode === 'month' ? (dateFromKey(monthStart(selectedDate)).getUTCDay() - preferences.weekStartsOn + 7) % 7 : 0;
   const showWeek = navigatorMode === 'week';
   const visibleDayKeys = dayKeys.filter(key => showWeek ? key >= selectedWeekStart && key < shiftDateKey(selectedWeekStart, 7) : key.slice(0, 7) === selectedDate.slice(0, 7));
@@ -353,7 +354,7 @@ export function CalendarPage({ workspace, computationCache, now: suppliedNow, co
     <div className="calendar-navigation">
     <div className="calendar-navigation-body" ref={controlsRef}><div className="calendar-navigation-inner">
     <header className="calendar-title">
-      <div><div className="calendar-heading-date"><h1>{selectedLabel}</h1><MoonPhase dateKey={selectedDate} zone={preferences.timezone} ru={preferences.language === 'ru'} /></div>{selected.view.statistics?.showTime !== false && <span className="view-metrics-summary" data-testid="calendar-header-capacity">{capacityLabel(selectedDate)}</span>}</div>
+      <div><div className="calendar-heading-date"><h1>{selectedLabel}</h1><MoonPhase dateKey={selectedDate} zone={preferences.timezone} ru={preferences.language === 'ru'} />{selectedDate >= todayKey && <DayWeather dateKey={selectedDate} zone={preferences.timezone} ru={preferences.language === 'ru'} />}</div>{selected.view.statistics?.showTime !== false && <span className="view-metrics-summary" data-testid="calendar-header-capacity">{capacityLabel(selectedDate)}</span>}</div>
       <IconButton size="compact" variant="ghost" onClick={() => setEditorOpen(true)} aria-label="Edit calendar day view"><LineIcon name="settings" /></IconButton>
     </header>
 

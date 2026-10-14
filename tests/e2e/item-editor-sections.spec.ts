@@ -98,8 +98,7 @@ test('assigns ten minutes when Event opens or Due is added to an empty schedule'
   const dates = await openSection(page, 'Dates & time');
   await expect(dates.getByLabel('Calendar duration amount')).toHaveValue('');
   await dates.getByLabel('Event opens', { exact: true }).fill('2026-09-01T10:00');
-  await expect(dates.getByLabel('Calendar duration amount')).toHaveValue('10');
-  await expect(dates.getByLabel('Calendar duration unit')).toHaveValue('minutes');
+  await expect(dates.getByLabel('Calendar duration amount')).toHaveValue('10 min');
   await expect(dates.getByLabel('Event ends', { exact: true })).toHaveValue('2026-09-01T10:10');
 
   await page.getByRole('button', { name: 'Cancel' }).click();
@@ -108,8 +107,7 @@ test('assigns ten minutes when Event opens or Due is added to an empty schedule'
   const dueDates = await openSection(page, 'Dates & time');
   await expect(dueDates.getByLabel('Calendar duration amount')).toHaveValue('');
   await dueDates.getByLabel('Due / Active range ends', { exact: true }).fill('2026-09-02T12:00');
-  await expect(dueDates.getByLabel('Calendar duration amount')).toHaveValue('10');
-  await expect(dueDates.getByLabel('Calendar duration unit')).toHaveValue('minutes');
+  await expect(dueDates.getByLabel('Calendar duration amount')).toHaveValue('10 min');
   await expect(dueDates.getByLabel('Event ends', { exact: true })).toHaveCount(0);
 });
 

@@ -1,4 +1,4 @@
-import { applyGoogleCalendarSync, googleCalendarEventToItem, GOOGLE_WRITE_BATCH_LIMIT, googleWriteLimitReached, recentGoogleWriteTimestamps, recordGoogleWrite, reconcileCalendarOrganization, reconcileRecurrences, updateRecurrenceCompletionTime, type GoogleCalendarEvent, type UniversalItem, type WorkspaceDocument, type RecurrenceCompletionRecord } from '@utm/core';
+import { applyGoogleCalendarSync, googleCalendarEventToItem, googleSeriesIdentity, itemDeletionTime, GOOGLE_WRITE_BATCH_LIMIT, googleWriteLimitReached, recentGoogleWriteTimestamps, recordGoogleWrite, reconcileCalendarOrganization, reconcileRecurrences, updateRecurrenceCompletionTime, type GoogleCalendarEvent, type UniversalItem, type WorkspaceDocument, type RecurrenceCompletionRecord } from '@utm/core';
 import { GOOGLE_SAVE_EXTENSION, saveGoogleItem, prepareGoogleSave, needsGoogleSave, itemGoogleDraft, type GoogleSaveOperation, type GoogleSaveOptions } from './googleItemSave';
 import { GOOGLE_EDIT_EXTENSION, GoogleEditConflict, googleEventChanges, updateGoogleSeriesEvent, updateSingleGoogleEvent, moveSingleGoogleEvent, type GoogleEditOperation } from './googleCalendarEdit';
 import { GOOGLE_CREATE_EXTENSION, googleCreationId, type GoogleCreateOperation } from './googleCalendarCreate';
@@ -375,11 +375,28 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
     if (!google) throw new Error('Google connection changed.');
     const linkedCalendars = new Set(Object.values(current.items).filter(item => !item.deletedAt && item.role === 'series_template' && item.external?.readOnly === false).map(item => item.external!.calendarId));
     const repairLegacyMirrors = Object.values(current.items).some(item => item.external?.readOnly && linkedCalendars.has(item.external.calendarId) && item.extensions?.['utm:googleIdentityVersion'] !== 1 && google.calendars.some(calendar => calendar.id === item.external!.calendarId && calendar.selected));
+    const orphanedMasters = Object.values(current.items).flatMap(item => {
+      if (item.external || item.deletedAt || (item.occurrence && itemDeletionTime(current, item)) || item.extensions?.[GOOGLE_SAVE_EXTENSION] || item.extensions?.[GOOGLE_EDIT_EXTENSION] || item.extensions?.[GOOGLE_DELETION_RECEIPTS_EXTENSION] || item.extensions?.[ITEM_DELETE_EXTENSION]) return [];
+      const identity = googleSeriesIdentity(item);
+      if (!identity || !google.calendars.some(calendar => calendar.id === identity.calendarId && calendar.selected)) return [];
+      const organization = item.extensions?.['utm:calendarOrganization'] as { calendarId?: string } | undefined;
+      // A move may retain the old stable ID. Do not relink to its old calendar.
+      if (organization?.calendarId && organization.calendarId !== identity.calendarId) return [];
+      return [{ itemId: item.id, ...identity }];
+    });
     // After a failed import, a valid delta cursor does not prove that the local
     // mirror is complete. Re-read the selected calendars before clearing error.
-    const fullSync = repairLegacyMirrors || Boolean(google.lastError) || google.moveMirrorRepairVersion !== 1;
+    const fullSync = repairLegacyMirrors || orphanedMasters.length > 0 || Boolean(google.lastError) || google.moveMirrorRepairVersion !== 1;
     let result = await stage('download', () => synchronizeGoogleCalendars(suppliedToken, google, progress, fullSync ? { fullSync: true } : {}), profileActionId);
     const recovered: Array<{ itemId: string; calendarId: string; event: GoogleCalendarEvent }> = [];
+    for (const identity of orphanedMasters) {
+      if (!result.calendars.some(calendar => calendar.id === identity.calendarId && calendar.selected)) continue;
+      let event: GoogleCalendarEvent;
+      try { event = await googleJson<GoogleCalendarEvent>(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(identity.calendarId)}/events/${encodeURIComponent(identity.eventId)}`, suppliedToken); }
+      catch (reason) { if ([404, 410].includes((reason as { status?: number }).status ?? 0)) continue; throw reason; }
+      assertCurrent();
+      if (event.id === identity.eventId && event.status !== 'cancelled' && !event.recurringEventId && event.recurrence?.length) recovered.push({ itemId: identity.itemId, calendarId: identity.calendarId, event });
+    }
     for (const item of Object.values(current.items)) {
       if (item.deletedAt || item.external || item.role !== 'series_template' || item.recurrenceOverride?.kind !== 'future_split' || item.extensions?.[GOOGLE_SAVE_EXTENSION] || item.extensions?.[GOOGLE_DELETION_RECEIPTS_EXTENSION]) continue;
       const eventId = await googleCreationId(current.workspaceId, item.id);
@@ -394,13 +411,13 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
         if (event.id === eventId && event.status !== 'cancelled' && event.recurrence?.length && event.extendedProperties?.private?.utmCreateOperation === eventId) recovered.push({ itemId: item.id, calendarId, event });
       }
     }
-    if (recovered.length && !repairLegacyMirrors) result = await stage('download', () => synchronizeGoogleCalendars(suppliedToken, google, progress, { fullSync: true }), profileActionId);
+    if (recovered.length && !fullSync) result = await stage('download', () => synchronizeGoogleCalendars(suppliedToken, google, progress, { fullSync: true }), profileActionId);
     assertCurrent();
     const source = requireWorkspace();
     const snapshot = await stage('snapshot', () => googleSyncSnapshot(source), profileActionId);
     assertCurrent();
     const patches = await stage('calculate', () => planGoogleSync({ workspace: snapshot, result, recovered }, profileActionId), profileActionId);
-    syncTrace('worker-result', { patches: patches.length, events: result.batches.reduce((sum, batch) => sum + batch.events.length, 0), calendars: result.batches.length });
+    syncTrace('worker-result', { patches: patches.length, events: result.batches.reduce((sum, batch) => sum + batch.events.length, 0), calendars: result.batches.length, recoveredSeries: recovered.length });
     assertCurrent();
     await stage('apply', () => {
       assertCurrent();

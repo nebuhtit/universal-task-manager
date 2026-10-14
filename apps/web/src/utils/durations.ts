@@ -12,6 +12,18 @@ const friendlyUnitAliases: Record<FriendlyDurationUnit, string> = {
 };
 
 export function parseFriendlyDurationInput(value: string, fallbackUnit: FriendlyDurationUnit = 'minutes'): { amount: number; unit: FriendlyDurationUnit } | undefined {
+  const parts = value.match(/\d+(?:[.,]\d+)?\s*[\p{L}]+/gu);
+  if (parts && parts.length > 1) {
+    if (value.replace(/\d+(?:[.,]\d+)?\s*[\p{L}]+/gu, '').replace(/[\s,]+/g, '')) return undefined;
+    const parsed = parts.map(part => parseFriendlyDurationInput(part, fallbackUnit));
+    if (parsed.some(part => !part)) return undefined;
+    const seconds = parsed.reduce((sum, part) => sum + calendarDurationMs(part!.amount, part!.unit) / 1000, 0);
+    if (!Number.isSafeInteger(seconds) || seconds <= 0) return undefined;
+    for (const unit of ['weeks', 'days', 'hours', 'minutes', 'seconds'] as const) {
+      const size = calendarDurationMs(1, unit) / 1000;
+      if (seconds % size === 0) return { amount: seconds / size, unit };
+    }
+  }
   const trimmed = value.trim().toLowerCase().replace(',', '.').replace(/\.$/, '');
   if (!trimmed) return undefined;
   const match = /^(\d+(?:\.\d+)?)\s*([\p{L}]*)$/u.exec(trimmed);

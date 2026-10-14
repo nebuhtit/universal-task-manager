@@ -1,4 +1,5 @@
 import { createId, type ItemScriptField } from '@utm/core';
+import { useState } from 'react';
 import { CodeEditor } from '../../../../components/ui/CodeEditor';
 import { CloseIcon } from '../../../../components/ui/icons';
 import { SectionGuide } from '../../../../components/ui/SectionGuide';
@@ -12,6 +13,7 @@ type Props = {
   embedded?: boolean;
   scope?: 'item' | 'view';
   onEditProgram?: () => void;
+  getViewScriptErrors?: () => { id: string; viewName: string; label: string; error: string }[];
 };
 
 type CountdownPreset = 'custom' | 'adaptive' | 'seconds' | 'minutes' | 'hours';
@@ -23,7 +25,9 @@ const countdownPresets: Record<Exclude<CountdownPreset, 'custom'>, Pick<ItemScri
 };
 const countdownPresetFor = (script: ItemScriptField): CountdownPreset => (Object.entries(countdownPresets).find(([, preset]) => preset.source === script.source)?.[0] as CountdownPreset | undefined) ?? 'custom';
 
-export function ScriptsSection({ scripts, onChange, scriptResults, embedded = false, scope = 'item', onEditProgram }: Props) {
+export function ScriptsSection({ scripts, onChange, scriptResults, embedded = false, scope = 'item', onEditProgram, getViewScriptErrors }: Props) {
+  const [open, setOpen] = useState(false);
+  const viewErrors = open || embedded ? getViewScriptErrors?.() ?? [] : [];
   const fieldPrefix = scope === 'view' ? 'view_script' : 'script';
   const patchScript = (id: string, patch: Partial<ItemScriptField>) => onChange(scripts.map((script) => script.id === id ? { ...script, ...patch } : script));
   const addScript = () => onChange([...scripts, { id: createId(), key: `calculation_${scripts.length + 1}`, label: 'New calculation', source: 'timeUntil(schedule.startAt)', resultKind: 'text' }]);
@@ -36,8 +40,9 @@ export function ScriptsSection({ scripts, onChange, scriptResults, embedded = fa
       <div className="item-script-expression"><FieldIconLabel path={`${fieldPrefix}.${script.key}`} label="Expression" /><CodeEditor language="dsl" ariaLabel={`${script.label} expression`} rows={3} value={script.source} onChange={(source) => patchScript(script.id, { source })} /></div>
       <output className={`formula-output${scriptResults.errors[script.key] ? ' error' : ''}`}><small><FieldIconLabel path={`${fieldPrefix}.${script.key}`} label="Live result" /></small>{scriptResults.errors[script.key] ?? formatScriptResult(scriptResults.values[script.key], script.resultKind)}</output>
     </article>)}
+    {viewErrors.map(entry => <article className="item-script-row" key={entry.id}><strong>{entry.viewName} · {entry.label}</strong><output className="formula-output error">{entry.error}</output></article>)}
     <button className="secondary" type="button" onClick={addScript}>+ Add computed field</button>
   </>;
   if (embedded) return <div className="item-scripts">{content}</div>;
-  return <details><summary><FieldIconLabel path="script" label="Scripts" /> {Boolean(scripts.length) && <span className="summary-count">{scripts.length}</span>}</summary><div className="details-body item-scripts">{content}</div></details>;
+  return <details onToggle={event => setOpen(event.currentTarget.open)}><summary><FieldIconLabel path="script" label="Scripts" /> {Boolean(scripts.length) && <span className="summary-count">{scripts.length}</span>}</summary><div className="details-body item-scripts">{content}</div></details>;
 }

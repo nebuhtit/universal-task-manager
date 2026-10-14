@@ -192,6 +192,32 @@ describe('timeline time geometry', () => {
     const short = [0, 1].map(minute => itemInterval(item(String(minute), { startAt: iso(10, minute), endAt: iso(10, minute + 1) }))!);
     expect(layoutEvents(short, day, buildSegments(day, []), 2).events.every(v => v.columns === 2)).toBe(true);
   });
+  it('stacks four flexible tasks at full width instead of hiding them behind More', () => {
+    const events = Array.from({ length: 4 }, (_, index) => itemInterval(item(`flex-${index}`, { availableFrom: iso(9) }))!);
+    const before = JSON.stringify(events);
+    const result = layoutEvents(events, day, buildSegments(day, []), 2, new Set(events.map(event => event.item.id)));
+    expect(result.more).toEqual([]);
+    expect(result.events).toHaveLength(4);
+    expect(result.events.every(event => event.columns === 1 && event.height === 36 && event.flexibleVisual)).toBe(true);
+    expect(result.events.map(event => event.top)).toEqual([540, 576, 612, 648]);
+    expect(JSON.stringify(events)).toBe(before);
+  });
+  it('keeps flexible cards clear of timed events and compressed sleep', () => {
+    const fixed = itemInterval(item('fixed', { startAt: iso(9), endAt: iso(10) }))!;
+    const flex = itemInterval(item('flex', { availableFrom: iso(9) }))!;
+    const segments = buildSegments(day, [{ start: day.start, end: at(8) }]);
+    const result = layoutEvents([fixed, flex], day, segments, 2, new Set(['flex']));
+    expect(result.events.find(event => event.item.id === 'fixed')).toMatchObject({ top: 96, height: 60 });
+    expect(result.events.find(event => event.item.id === 'flex')).toMatchObject({ top: 156, height: 36, columns: 1 });
+    expect(result.more).toEqual([]);
+  });
+  it('keeps stacked cards inside their active range', () => {
+    const tasks = Array.from({ length: 4 }, (_, index) => itemInterval(item(`range-${index}`, { startAt: iso(9), dueAt: iso(17), estimatedDuration: 'PT5M' }))!);
+    const result = layoutEvents(tasks, day, buildSegments(day, []), 2, new Set(tasks.map(event => event.item.id)));
+    expect(result.more).toEqual([]);
+    expect(result.events).toHaveLength(4);
+    expect(result.events.every(event => event.top >= 540 && event.top + event.height <= 1020 && event.columns === 1)).toBe(true);
+  });
   it('clips midnight-spanning items and excludes next-day points', () => {
     const events = [itemInterval(item('span', { startAt: iso(-1), endAt: iso(25) }))!, itemInterval(item('next', { dueAt: iso(24) }))!];
     const result = layoutEvents(events, day, buildSegments(day, []), 2);

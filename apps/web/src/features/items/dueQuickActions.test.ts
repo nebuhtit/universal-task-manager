@@ -1,8 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { createItem } from '@utm/core';
-import { dueDateOnlyToIso, dueQuickOptions, dueWallInputToIso, dueWallTimeToIso } from './dueQuickActions';
+import { dueDateOnlyToIso, dueQuickOptions, dueWallInputToIso, dueWallTimeToIso, plannedDateQuickOptions } from './dueQuickActions';
 
 describe('quick Due choices', () => {
+  it('offers named date-only choices using the item local day, never timestamps', () => {
+    const item = createItem('Planned'); item.schedule = { timezone: 'Pacific/Kiritimati', plannedDate: '2026-09-23' };
+    const choices = plannedDateQuickOptions(item, new Date('2026-09-20T23:00:00Z'));
+    expect(choices).toEqual([
+      { id: 'today', at: '2026-09-21', disabled: false },
+      { id: 'tomorrow', at: '2026-09-22', disabled: false },
+      { id: 'day-after-tomorrow', at: '2026-09-23', disabled: false },
+      { id: 'next-week', at: '2026-09-28', disabled: false },
+      { id: 'next-monday', at: '2026-09-28', disabled: false },
+    ]);
+    expect(item.schedule).toEqual({ timezone: 'Pacific/Kiritimati', plannedDate: '2026-09-23' });
+  });
+
+  it('keeps date-only choices on the right calendar day across DST and year boundaries', () => {
+    const item = createItem('Planned'); item.schedule = { timezone: 'America/New_York' };
+    expect(plannedDateQuickOptions(item, new Date('2026-03-08T04:30:00Z')).find(choice => choice.id === 'next-monday')?.at).toBe('2026-03-09');
+    expect(plannedDateQuickOptions(item, new Date('2027-01-01T01:00:00Z')).find(choice => choice.id === 'tomorrow')?.at).toBe('2027-01-01');
+  });
   it('hides elapsed same-day times at the exact boundary', () => {
     const item = createItem('Due'); item.schedule = { timezone: 'Europe/Istanbul' };
     const before = dueQuickOptions(item, new Date('2026-09-21T09:59:59.000Z'));

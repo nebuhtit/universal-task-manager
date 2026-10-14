@@ -2,6 +2,18 @@ import { calendarDateKey, shiftCalendarDateKey, zonedDateStart, type UniversalIt
 
 export type DueQuickOptionId = 'today-13' | 'today-19' | 'today-23' | 'tomorrow' | 'next-week' | 'next-monday';
 export type DueQuickOption = { id: DueQuickOptionId; at: string; disabled: boolean };
+export type PlannedDateQuickOptionId = 'today' | 'tomorrow' | 'day-after-tomorrow' | 'next-week' | 'next-monday';
+
+/** Keep date-only planning in the item's calendar, without introducing a clock time. */
+export function plannedDateQuickOptions(item: UniversalItem, now: Date): { id: PlannedDateQuickOptionId; at: string; disabled: boolean }[] {
+  const today = calendarDateKey(now, itemTimeZone(item));
+  const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
+  const choices: [PlannedDateQuickOptionId, number][] = [
+    ['today', 0], ['tomorrow', 1], ['day-after-tomorrow', 2],
+    ['next-week', 7], ['next-monday', ((8 - weekday) % 7) || 7],
+  ];
+  return choices.map(([id, offset]) => ({ id, at: shiftCalendarDateKey(today, offset), disabled: false }));
+}
 
 export function itemTimeZone(item: UniversalItem): string {
   const zone = item.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;

@@ -123,6 +123,8 @@ test('live text suggestions, correction reports and saved preference', async ({ 
   if (!await appearance.evaluate((el) => (el as HTMLDetailsElement).open)) await appearance.locator(':scope > summary').click();
   await page.getByLabel('Подсказки над строкой ввода').uncheck();
   await expect(page.getByText('Настройка сохранена', { exact: true })).toBeVisible();
+  await page.getByTestId('developer-settings').locator(':scope > summary').click();
+  await page.getByText('Live Text diagnostics', { exact: true }).click();
   const downloaded = page.waitForEvent('download'); await page.getByRole('button', { name: 'Скачать логи JSON' }).click();
   expect((await downloaded).suggestedFilename()).toBe('utm-live-text-reports.json');
   await page.reload();

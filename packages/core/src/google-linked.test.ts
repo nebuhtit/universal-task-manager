@@ -4,7 +4,7 @@ import { applyGoogleCalendarSync, detachGoogleCalendar, googleCalendarProjection
 import { createViewTimeMetricsAccumulator, viewPeriodBoundsForDates } from './view-statistics.js';
 import { migrateWorkspace, validateWorkspace } from './schema.js';
 import { workspaceForExport } from './export-privacy.js';
-import { makeSeries, reconcileRecurrences } from './recurrence.js';
+import { createOccurrence, makeSeries, reconcileRecurrences } from './recurrence.js';
 
 const event = { id: 'remote', summary: 'Google title', start: { dateTime: '2026-09-20T12:00:00Z' }, end: { dateTime: '2026-09-20T13:00:00Z' }, etag: 'v1' };
 it('merges stored destination instances after a master move, without title matching or losing history', () => {
@@ -62,6 +62,61 @@ function fixture() {
   return { workspace, item, batch: { calendarId: 'calendar', connectionId: 'connection', events: [event], syncedAt: '2026-09-20T10:00:00Z', fullSync: false } };
 }
 describe('linked UTM and Google items', () => {
+  it('keeps future adopted Google instances after a backup restore, before reconnecting', () => {
+    const workspace = createWorkspace('Restored recurring calendar'); workspace.items = {};
+    const series = createItem('Sunday');
+    series.id = 'google-series:calendar:master'; series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2026-10-04T08:00:00Z', endAt: '2026-10-04T09:31:00Z' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, activationOffset: 'PT0M', rdates: [], exdates: [] };
+    series.external = { provider: 'google_calendar', connectionId: 'c', calendarId: 'calendar', eventId: 'master', readOnly: false, sourceUrl: '', syncedAt: '' };
+    workspace.items[series.id] = series;
+    applyGoogleCalendarSync(workspace, { connectionId: 'c', calendarId: 'calendar', syncedAt: '2026-10-03T15:02:34Z', fullSync: true, events: ['2026-10-04', '2026-10-11', '2026-10-18'].map(date => ({
+      id: `master_${date}`, recurringEventId: 'master', summary: 'Sunday',
+      originalStartTime: { dateTime: `${date}T08:00:00Z` }, start: { dateTime: `${date}T08:00:00Z` }, end: { dateTime: `${date}T09:31:00Z` },
+    })) });
+    const restored = workspaceForExport(workspace);
+    const ids = Object.keys(restored.items);
+    expect(restored.items[series.id]!.external).toBeUndefined();
+    const result = reconcileRecurrences(restored, new Date('2026-10-03T15:02:34Z'));
+    expect(result.removedIds).toEqual([]);
+    expect(Object.keys(restored.items)).toEqual(ids);
+    expect(Object.values(restored.items).every(item => !item.cycleHistory?.length)).toBe(true);
+    expect(Object.values(restored.items).filter(item => item.occurrence).every(item => item.state === 'open')).toBe(true);
+  });
+  it('restores a prematurely closed Google cycle without overwriting a reused rolling ID or manual history', () => {
+    const workspace = createWorkspace('Rolling identity recovery'); workspace.items = {};
+    const series = createItem('Sunday'); series.id = 'google-series:calendar:master'; series.role = 'series_template';
+    series.schedule = { timezone: 'UTC', startAt: '2026-10-11T08:00:00Z', endAt: '2026-10-11T09:31:00Z' };
+    series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+    series.external = { provider: 'google_calendar', connectionId: 'c', calendarId: 'calendar', eventId: 'master', readOnly: false, sourceUrl: '', syncedAt: '' };
+    workspace.items[series.id] = series;
+    const future = createOccurrence(series, new Date('2027-10-10T08:00:00Z'), 52);
+    const selected = createOccurrence(series, new Date('2026-10-18T08:00:00Z'), 1);
+    selected.id = future.id; // Older rolling reconciliation reused the last future ID.
+    selected.state = 'auto_closed'; selected.closure = { at: '2026-10-03T15:02:34Z', actor: 'system', reason: 'auto_renew' };
+    const manual = { recurrenceId: '2026-10-04T08:00:00Z', closedAt: '2026-10-04T09:00:00Z', state: 'done' as const, actor: 'user' as const, reason: 'manual' as const };
+    selected.cycleHistory = [manual, { recurrenceId: '2026-10-18T08:00:00Z', startAt: '2026-10-18T08:00:00Z', closedAt: selected.closure.at, state: 'auto_closed', actor: 'system', reason: 'auto_renew' }];
+    selected.completionEntries = [
+      { id: 'manual', recurrenceId: manual.recurrenceId, at: manual.closedAt, kind: 'manual', comment: 'Keep manual completion' },
+      { id: 'premature', recurrenceId: '2026-10-18T08:00:00Z', at: selected.closure.at, kind: 'automatic', comment: '' },
+    ];
+    selected.actualTimeEntries = [{ id: 'keep', durationSeconds: 300, source: 'manual', comment: 'Keep local time' }];
+    workspace.items[selected.id] = selected;
+    const batch = { connectionId: 'c', calendarId: 'calendar', syncedAt: '2026-10-14T12:24:25Z', fullSync: true, events: ['2026-10-18', '2027-10-10'].map(date => ({
+      id: `master_${date}`, recurringEventId: 'master', summary: 'Sunday', originalStartTime: { dateTime: `${date}T08:00:00Z` }, start: { dateTime: `${date}T08:00:00Z` }, end: { dateTime: `${date}T09:31:00Z` },
+    })) };
+    applyGoogleCalendarSync(workspace, batch);
+    expect(workspace.items[selected.id]!.occurrence!.recurrenceId).toBe('2026-10-18T08:00:00.000Z');
+    expect(workspace.items[selected.id]!.state).toBe('open');
+    expect(workspace.items[selected.id]!.closure).toBeUndefined();
+    expect(workspace.items[selected.id]!.cycleHistory).toEqual([manual]);
+    expect(workspace.items[selected.id]!.actualTimeEntries).toHaveLength(1);
+    expect(workspace.items[selected.id]!.completionEntries?.map(entry => entry.id)).toEqual(['manual']);
+    expect(Object.values(workspace.items).filter(item => item.occurrence?.seriesId === series.id)).toHaveLength(2);
+    const ids = Object.keys(workspace.items).sort();
+    applyGoogleCalendarSync(workspace, batch);
+    expect(Object.keys(workspace.items).sort()).toEqual(ids);
+  });
   it('keeps a link on the current cycle but never inherits it into the next cycle', () => {
     const { workspace, item, batch } = fixture();
     item.state = 'open'; item.schedule!.dueAt = '2026-09-20T12:00:00Z';

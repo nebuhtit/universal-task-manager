@@ -202,7 +202,7 @@ export const viewJsonSchema = {
     creationDefaults: { type: 'object', additionalProperties: true },
     statistics: {
       type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
-      properties: { showTime: { type: 'boolean' }, showActualTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
+      properties: { showTime: { type: 'boolean' }, showFreeTime: { type: 'boolean' }, showActualTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
     },
     scripts: scriptFieldSchema,
     extensions,
@@ -340,7 +340,7 @@ export const workspaceJsonSchema = {
             timelineFields: stringArray,
             statistics: {
               type: 'object', additionalProperties: false, required: ['showTime', 'reservedItemIds'],
-              properties: { showTime: { type: 'boolean' }, showActualTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
+              properties: { showTime: { type: 'boolean' }, showFreeTime: { type: 'boolean' }, showActualTime: { type: 'boolean' }, includeHiddenCompleted: { type: 'boolean' }, reservedItemIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } },
             },
             sort: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['expression', 'direction', 'nulls'], properties: { expression: { type: 'string' }, direction: { enum: ['asc', 'desc'] }, nulls: { enum: ['first', 'last'] } } } },
             sortSource: { type: 'string' },
@@ -586,7 +586,7 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
       warnings.push('Disabled invalid view statistics settings');
     } else {
       const reservedItemIds = [...new Set(record.reservedItemIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
-      const lossy = reservedItemIds.length !== record.reservedItemIds.length || Object.keys(record).some((key) => !['showTime', 'reservedItemIds', 'includeHiddenCompleted', 'showActualTime'].includes(key));
+      const lossy = reservedItemIds.length !== record.reservedItemIds.length || Object.keys(record).some((key) => !['showTime', 'showFreeTime', 'reservedItemIds', 'includeHiddenCompleted', 'showActualTime'].includes(key));
       if (lossy) {
         const target = (view.extensions && typeof view.extensions === 'object' && !Array.isArray(view.extensions) ? view.extensions : {}) as Record<string, unknown>;
         target.quarantine = { ...((target.quarantine && typeof target.quarantine === 'object' && !Array.isArray(target.quarantine)) ? target.quarantine as Record<string, unknown> : {}), statisticsRaw: structuredClone(raw) };
@@ -595,6 +595,7 @@ export function migrateView(value: unknown, namespace = 'import:unknown'): Migra
       }
       view.statistics = {
         showTime: record.showTime,
+        ...(typeof record.showFreeTime === 'boolean' ? { showFreeTime: record.showFreeTime } : {}),
         reservedItemIds,
         ...(typeof record.includeHiddenCompleted === 'boolean' ? { includeHiddenCompleted: record.includeHiddenCompleted } : {}),
         ...(typeof record.showActualTime === 'boolean' ? { showActualTime: record.showActualTime } : {}),
@@ -987,6 +988,7 @@ export function migrateWorkspace(value: unknown): MigrationResult<WorkspaceDocum
   const dayStatistics = dayView.statistics && typeof dayView.statistics === 'object' && !Array.isArray(dayView.statistics) ? dayView.statistics as Record<string, unknown> : {};
   dayView.statistics = {
     showTime: dayStatistics.showTime !== false,
+    ...(typeof dayStatistics.showFreeTime === 'boolean' ? { showFreeTime: dayStatistics.showFreeTime } : {}),
     ...(typeof dayStatistics.includeHiddenCompleted === 'boolean' ? { includeHiddenCompleted: dayStatistics.includeHiddenCompleted } : {}),
     ...(typeof dayStatistics.showActualTime === 'boolean' ? { showActualTime: dayStatistics.showActualTime } : {}),
     reservedItemIds: Array.isArray(dayStatistics.reservedItemIds) ? [...new Set(dayStatistics.reservedItemIds.filter((id): id is string => typeof id === 'string' && id.length > 0))] : [],

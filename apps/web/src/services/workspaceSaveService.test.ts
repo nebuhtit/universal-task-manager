@@ -10,6 +10,7 @@ import { commitWorkspaceDocument } from './workspaceLifecycle';
 import { googleEventDraft, type GoogleEditOperation } from './googleCalendarEdit';
 import { prepareTimelineData } from '../features/calendar/timelineData';
 import { createCalendarProjectionCache } from '../features/calendar/calendarProjectionCache';
+import { evaluateCalendarRange } from '../features/calendar/calendarEvaluation';
 
 const refresh = vi.hoisted(() => vi.fn());
 vi.mock('./googleSyncWorker', async importOriginal => ({
@@ -122,6 +123,87 @@ it('rejects overlapping sync and releases its lock after failure', async () => {
   refresh.mockRejectedValue(new Error('network again'));
   await expect(runtime.service.synchronize('test')).rejects.toThrow('network again');
   expect(refresh).toHaveBeenCalledTimes(2);
+});
+
+it('restores an adopted Sunday series from its exact master ID, including an empty delta cursor', async () => {
+  const { workspace } = fixture(); workspace.items = {};
+  workspace.calendarPreferences.googleCalendar!.moveMirrorRepairVersion = 1;
+  workspace.calendarPreferences.googleCalendar!.syncTokens = { [account]: 'valid-but-incomplete' };
+  const series = createItem('Sunday');
+  series.id = `google-series:${encodeURIComponent(account)}:master`; series.role = 'series_template'; series.canBeCompleted = false;
+  series.schedule = { timezone: 'Europe/Moscow', startAt: '2026-10-11T08:00:00Z', endAt: '2026-10-11T09:31:00Z', estimatedDuration: 'PT91M' };
+  series.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'Europe/Moscow', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, activationOffset: 'PT0M', rdates: [], exdates: [] };
+  series.areas = ['Keep area'];
+  series.extensions = { 'utm:googleIdentityVersion': 1, 'utm:calendarOrganization': { calendarId: account, areas: [], projects: [], tags: [] } };
+  series.cycleHistory = [{ recurrenceId: '2026-10-18T08:00:00.000Z', startAt: '2026-10-18T08:00:00.000Z', closedAt: '2026-10-03T15:02:34Z', state: 'auto_closed', actor: 'system', reason: 'auto_renew' }];
+  workspace.items[series.id] = series;
+  workspace.tombstones[series.id] = '2026-10-03T15:02:34Z'; // An interrupted import left only a stale tombstone.
+  const rolled = createOccurrence(series, new Date('2027-10-10T08:00:00Z'), 52);
+  const current = createOccurrence(series, new Date('2026-10-11T08:00:00Z'), 1);
+  current.id = rolled.id; current.createdAt = rolled.createdAt;
+  current.actualTimeEntries = [{ id: 'keep-time', durationSeconds: 300, source: 'manual', comment: 'Keep local time' }];
+  workspace.items[current.id] = current;
+  const master: GoogleCalendarEvent = { id: 'master', summary: 'Sunday restored', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=SU'], start: { dateTime: '2026-10-04T08:00:00Z', timeZone: 'Europe/Moscow' }, end: { dateTime: '2026-10-04T09:31:00Z' } };
+  const instances = ['2026-10-11', '2026-10-18', '2026-10-25', '2027-10-10'].map(date => ({ id: `master_${date}`, summary: master.summary, recurringEventId: master.id, originalStartTime: { dateTime: `${date}T08:00:00Z` }, start: { dateTime: `${date}T08:00:00Z` }, end: { dateTime: `${date}T09:31:00Z` } }));
+  const result = { calendars: workspace.calendarPreferences.googleCalendar!.calendars, syncTokens: { [account]: 'new-cursor' }, syncedAt: '2026-10-14T12:24:25Z', batches: [{ calendarId: account, connectionId: 'connection', syncedAt: '2026-10-14T12:24:25Z', fullSync: true, events: instances }] };
+  refresh.mockImplementation(async (_token, _preferences, _progress, options) => options?.fullSync ? result : { ...result, batches: [{ ...result.batches[0]!, fullSync: false, events: [] }] });
+  const api = remote(master); const runtime = app(workspace);
+  await runtime.service.synchronize('test'); runtime.reload();
+  expect(refresh.mock.calls[0]![3]).toEqual({ fullSync: true });
+  expect(runtime.workspace.items[series.id]!.external).toMatchObject({ calendarId: account, eventId: master.id, readOnly: false });
+  expect(runtime.workspace.items[series.id]!.recurrence!.rrule).toBe('FREQ=WEEKLY;BYDAY=SU');
+  expect(runtime.workspace.items[series.id]!.areas).toContain('Keep area');
+  expect(runtime.workspace.tombstones[series.id]).toBeUndefined();
+  expect(runtime.workspace.items[series.id]!.cycleHistory).toEqual([]);
+  expect(runtime.workspace.items[current.id]!.occurrence!.recurrenceId).toBe('2026-10-11T08:00:00.000Z');
+  expect(runtime.workspace.items[current.id]!.actualTimeEntries).toHaveLength(1);
+  expect(Object.values(runtime.workspace.items).filter(entry => entry.external?.readOnly)).toHaveLength(0);
+  const firstIds = Object.keys(runtime.workspace.items).sort();
+  expect(prepareTimelineData(runtime.workspace, '2026-10-18', new Date('2026-10-14T12:30:00Z')).events).toHaveLength(1);
+  expect(evaluateCalendarRange(runtime.workspace, '2026-10-18', '2026-10-19', runtime.workspace.calendarPreferences.dayView, new Date('2026-10-14T12:30:00Z')).days['2026-10-18']!.entries).toHaveLength(1);
+  await runtime.service.synchronize('test'); runtime.reload();
+  expect(Object.keys(runtime.workspace.items).sort()).toEqual(firstIds);
+  expect(prepareTimelineData(runtime.workspace, '2026-10-18', new Date('2026-10-14T12:30:00Z')).events).toHaveLength(1);
+  expect(evaluateCalendarRange(runtime.workspace, '2026-10-18', '2026-10-19', runtime.workspace.calendarPreferences.dayView, new Date('2026-10-14T12:30:00Z')).days['2026-10-18']!.entries).toHaveLength(1);
+  expect(api.effects).toEqual({ creates: 0, deletes: 0, patches: 0 });
+  expect(refresh).toHaveBeenCalledTimes(2);
+});
+
+it.each(['cancelled', 'missing', 'wrong-master', 'deleted', 'deletion-receipt', 'moved'] as const)('does not restore an adopted master when it is %s', async condition => {
+  const { workspace, item } = fixture(); delete workspace.items[item.id];
+  item.id = `google-series:${encodeURIComponent(account)}:master`; item.role = 'series_template';
+  item.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+  workspace.items[item.id] = item;
+  workspace.calendarPreferences.googleCalendar!.moveMirrorRepairVersion = 1;
+  if (condition === 'deleted') { item.deletedAt = '2026-10-14T10:00:00Z'; workspace.tombstones[item.id] = item.deletedAt; }
+  if (condition === 'deletion-receipt') item.extensions = { 'utm:googleDeletionReceipts': [{ calendarId: account, eventId: 'master', accountEmail: account, deletedAt: '2026-10-14T10:00:00Z' }] };
+  if (condition === 'moved') item.extensions = { 'utm:calendarOrganization': { calendarId: 'destination', areas: [], projects: [], tags: [] } };
+  const master: GoogleCalendarEvent = { id: condition === 'wrong-master' ? 'unrelated' : 'master', status: condition === 'cancelled' ? 'cancelled' : 'confirmed', recurrence: ['RRULE:FREQ=WEEKLY'], start: { dateTime: item.schedule!.startAt! }, end: { dateTime: item.schedule!.endAt! } };
+  const api = remote(condition === 'missing' ? undefined : master);
+  refresh.mockResolvedValue({ calendars: workspace.calendarPreferences.googleCalendar!.calendars, syncTokens: {}, syncedAt: '2026-10-14T12:24:25Z', batches: [{ calendarId: account, connectionId: 'connection', syncedAt: '2026-10-14T12:24:25Z', fullSync: false, events: [] }] });
+  const runtime = app(workspace);
+  await runtime.service.synchronize('test'); runtime.reload();
+  expect(runtime.workspace.items[item.id]!.external).toBeUndefined();
+  expect(api.effects).toEqual({ creates: 0, deletes: 0, patches: 0 });
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(['deleted', 'deletion-receipt', 'moved'].includes(condition) ? 0 : 1);
+});
+
+it('retries adopted-master recovery after closing during persistence without creating another item', async () => {
+  const { workspace, item } = fixture(); delete workspace.items[item.id];
+  item.id = `google-series:${encodeURIComponent(account)}:master`; item.role = 'series_template';
+  item.recurrence = { rrule: 'FREQ=WEEKLY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+  workspace.items[item.id] = item;
+  const master: GoogleCalendarEvent = { id: 'master', recurrence: ['RRULE:FREQ=WEEKLY'], start: { dateTime: item.schedule!.startAt! }, end: { dateTime: item.schedule!.endAt! } };
+  const api = remote(master);
+  refresh.mockResolvedValue({ calendars: workspace.calendarPreferences.googleCalendar!.calendars, syncTokens: {}, syncedAt: '2026-10-14T12:24:25Z', batches: [{ calendarId: account, connectionId: 'connection', syncedAt: '2026-10-14T12:24:25Z', fullSync: true, events: [] }] });
+  const runtime = app(workspace); runtime.crashBeforeAck('Sync Google Calendar');
+  await expect(runtime.service.synchronize('test')).rejects.toThrow('Workspace or Google connection changed');
+  runtime.reload();
+  expect(runtime.workspace.items[item.id]!.external).toBeUndefined();
+  await runtime.service.synchronize('test'); runtime.reload();
+  expect(Object.keys(runtime.workspace.items)).toEqual([item.id]);
+  expect(runtime.workspace.items[item.id]!.external?.eventId).toBe('master');
+  expect(api.effects).toEqual({ creates: 0, deletes: 0, patches: 0 });
 });
 
 it('recovers an unlinked future split by its verified creation ID after manual sync, retaining UTM history', async () => {

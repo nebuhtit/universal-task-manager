@@ -60,7 +60,10 @@
   .calendar-title .view-metrics-summary,
   .calendar-day-choice .view-metrics-summary { transition: none; }
 }
-.calendar-moon-phase { width: calc(var(--space-5) - var(--space-1)); height: calc(var(--space-5) - var(--space-1)); flex: none; color: var(--color-text-secondary); }
+.calendar-moon-phase,
+.calendar-day-weather { width: calc(var(--space-5) - var(--space-1)); height: calc(var(--space-5) - var(--space-1)); flex: none; color: var(--color-text-secondary); }
+.calendar-day-weather-group { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--color-text-secondary); flex: none; }
+.calendar-day-temperature { font-size: var(--font-size-caption); white-space: nowrap; }
 
 .calendar-navigator {
   position: sticky;

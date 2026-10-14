@@ -16,6 +16,11 @@ async function setup(page: Page) {
   const w = createWorkspace('Weather', now); w.calendarPreferences.timezone = 'Europe/Berlin'; w.calendarPreferences.language = 'en';
   w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = 'true'; w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false };
   const item = createItem('Weather interaction sentinel', 'task', now); item.schedule = { timezone: 'Europe/Berlin', startAt: '2026-09-23T12:00:00Z', endAt: '2026-09-23T13:00:00Z' }; w.items[item.id] = item;
+  for (const title of ['Налоговый вычет', 'Записать топливо', 'Разобраться со сверкой Эдуард', 'Иванову путевки и файлики']) {
+    const task = createItem(title, 'task', now);
+    task.schedule = { timezone: 'Europe/Berlin', plannedDate: '2026-09-23', estimatedDuration: 'PT5M' };
+    w.items[task.id] = task;
+  }
   const doc = createAutomergeDocument(w), key = await randomKey();
   const metadata = { version: 1, wrappedKey: await wrapKey(key, password), createdAt: now.toISOString() };
   const block = { version: 1, ...await encryptWithKey(Automerge.save(doc), key, 'utm:local:workspace:v1') }; key.fill(0); Automerge.free(doc);
@@ -35,7 +40,7 @@ test('weather beta: settings, gradient, haze, keyboard, themes, errors and compl
     forecasts++;
     if (fail) return route.fulfill({ status: 503, body: '{}' });
     const times = Array.from({ length: 48 }, (_, i) => (Date.parse('2026-09-22T22:00:00Z') + (i + 1) * 3_600_000) / 1000);
-    return route.fulfill({ json: { hourly: { time: times, precipitation_probability: times.map((_, i) => [0, 50, 100, null][i % 4]), cloud_cover: times.map((_, i) => [0, 50, 95, null][i % 4]), precipitation: times.map((_, i) => [0, 0, 2, 0][i % 4]) } } });
+    return route.fulfill({ json: { hourly: { time: times, precipitation_probability: times.map((_, i) => [0, 50, 100, null][i % 4]), cloud_cover: times.map((_, i) => [0, 50, 95, null][i % 4]), precipitation: times.map((_, i) => [0, 0, 2, 0][i % 4]), weather_code: times.map((_, i) => [0, 2, 63, 3][i % 4]) } } });
   });
   await page.route('https://geocoding-api.open-meteo.com/**', route => route.fulfill({ json: { results: [{ name: 'Berlin', country: 'Germany', latitude: 52.52, longitude: 13.405 }] } }));
   await setup(page); expect(forecasts).toBe(0);
@@ -53,6 +58,18 @@ test('weather beta: settings, gradient, haze, keyboard, themes, errors and compl
   await expect(page.getByRole('status').filter({ hasText: 'Selected and saved on this device: Berlin, Germany' })).toBeVisible();
   await navigate(page, 'Calendar');
   await expect(currentTimeline(page).getByTestId('weather-background')).toBeVisible(); await expect(currentTimeline(page).locator('.weather-solar')).toHaveCount(1);
+  await expect(page.getByTestId('calendar-day-weather')).toHaveAttribute('data-weather', 'rain');
+  await expect(currentTimeline(page).locator('.timeline-more')).toHaveCount(0);
+  const flexible = currentTimeline(page).getByTestId('timeline-tentative');
+  await expect(flexible).toHaveCount(4);
+  const boxes = await flexible.evaluateAll(elements => elements.map(element => {
+    const rect = element.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, width: rect.width };
+  }));
+  const sorted = boxes.sort((a, b) => a.top - b.top);
+  expect(sorted.every((box, index) => index === 0 || box.top >= sorted[index - 1]!.bottom)).toBe(true);
+  expect(sorted.every(box => box.width > 250)).toBe(true);
+  await flexible.first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `/tmp/utm-flexible-weather-${testInfo.project.name}.png` });
   await expect(currentTimeline(page).locator('.weather-solar')).toHaveAttribute('style', /--color-weather-cloud/);
   await expect(currentTimeline(page).locator('.weather-solar-marker')).toHaveCount(2); await expect(currentTimeline(page).getByTestId('weather-haze').first().locator('.weather-haze')).toHaveCSS('opacity', '0.5');
   await expect(currentTimeline(page).getByTestId('weather-background')).toHaveCSS('pointer-events', 'none');

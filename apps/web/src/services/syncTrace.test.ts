@@ -19,8 +19,8 @@ it('traces standalone saves independently from concurrent Google sync', () => {
 });
 it('persists bounded checkpoints and strips arbitrary metric content', () => {
   storage(); beginSyncTrace();
-  syncTrace('worker-result', { patches: 2192, title: 'private', bytes: Infinity } as never);
-  expect(readSyncTrace().at(-1)?.metrics).toMatchObject({ patches: 2192 });
+  syncTrace('worker-result', { patches: 2192, recoveredSeries: 1, title: 'private', bytes: Infinity } as never);
+  expect(readSyncTrace().at(-1)?.metrics).toMatchObject({ patches: 2192, recoveredSeries: 1 });
   expect(JSON.stringify(readSyncTrace())).not.toContain('private');
   for (let i = 0; i < 250; i++) syncTrace('patch-write-progress', { processed: i });
   expect(readSyncTrace()).toHaveLength(240);

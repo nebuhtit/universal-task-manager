@@ -164,7 +164,7 @@ test('selected navigation mode stays below the header and controls return at the
 
 test('holding an empty hour opens an unsaved one-hour draft with focused title', async ({ page }) => {
   await setup(page);
-  const tick = currentTimeline(page).locator('.timeline-tick').filter({ hasText: '18:00' });
+  const tick = currentTimeline(page).locator('.timeline-tick').filter({ hasText: /^18$/ });
   await tick.scrollIntoViewIfNeeded();
   await expect.poll(() => tick.locator('span').evaluate(element => getComputedStyle(element).webkitUserSelect)).toBe('none');
   // Finish the sticky-header scroll transition before starting a long press:
@@ -253,11 +253,11 @@ test('compact calendar keeps day navigation and blank Timeline swipes do not ste
   await expect(header).toHaveCSS('position', 'sticky');
   await expect(page.locator('.calendar-title').getByTestId('calendar-header-capacity')).toBeHidden();
   await swipeTouch(page, '.timeline-axis', 290, 120);
-  await expect(title).toContainText('September 23, 2026');
+  await expect(title).toContainText('Sep 23, 2026');
   await swipeTouch(page, '.timeline-axis', 120, 290);
-  await expect(title).toContainText('September 22, 2026');
+  await expect(title).toContainText('Sep 22, 2026');
   await swipeTouch(page, '.timeline-events [data-testid="timeline-event"]:has-text("One minute title")', 290, 120);
-  await expect(title).toContainText('September 22, 2026');
+  await expect(title).toContainText('Sep 22, 2026');
   await expect(page.getByRole('dialog', { name: 'Quick Due' })).toContainText('Move Due');
 });
 
@@ -269,7 +269,7 @@ test('active-range work is an unfilled outline on successive days and opens its 
   await expect(cue).toContainText('15 min / day');
   await expect(cue).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await swipeTouch(page, '.timeline-axis', 290, 120);
-  await expect(page.locator('.calendar-heading-date h1')).toContainText('September 23, 2026');
+  await expect(page.locator('.calendar-heading-date h1')).toContainText('Sep 23, 2026');
   await expect(cue).toHaveCount(1);
   await activateControl(cue, page.viewportSize()?.width === 390);
   await expect(page.getByRole('dialog')).toContainText('Active preparation');
@@ -315,7 +315,8 @@ test('timeline titles, More, clock, sleep, dark mode and persisted display choic
   const saved = await primary(page);
   await expect(tentative).toHaveCount(1);
   await expect(tentative).toHaveCSS('border-top-style', 'dotted');
-  await expect(tentative).toHaveAttribute('aria-label', 'Tentative · Tentative task · 13:00–15:00');
+  // Flexible rows must not present an estimated planner slot as a fixed event time.
+  await expect(tentative).toHaveAttribute('aria-label', 'Tentative task · No fixed time');
   await expect(currentTimeline(page).locator('.timeline-planning-summary strong')).toHaveCount(0);
   await tentative.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `/tmp/utm-tentative-${testInfo.project.name}-light.png` });

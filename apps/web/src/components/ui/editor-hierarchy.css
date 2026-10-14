@@ -48,6 +48,28 @@
   border-left: 1px solid var(--color-border);
 }
 
+/* Keep collapsed summaries untouched; only expanded editor content gets the stronger glass surface. */
+.item-editor-dialog .editor-scroll > details:is(.item-section, .description-section)[open] > .details-body,
+.item-editor-dialog .item-section details[open] > :is(.details-body, .ui-disclosure-content),
+.view-editor .view-editor-section[open] > .ui-disclosure-content,
+.view-editor .view-editor-section details[open] > .ui-disclosure-content {
+  border-radius: var(--radius-md);
+  background: var(--color-glass-expanded);
+  -webkit-backdrop-filter: blur(var(--blur-glass-expanded));
+  backdrop-filter: blur(var(--blur-glass-expanded));
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .item-editor-dialog .editor-scroll > details:is(.item-section, .description-section)[open] > .details-body,
+  .item-editor-dialog .item-section details[open] > :is(.details-body, .ui-disclosure-content),
+  .view-editor .view-editor-section[open] > .ui-disclosure-content,
+  .view-editor .view-editor-section details[open] > .ui-disclosure-content {
+    background: var(--color-surface-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 .item-editor-dialog .item-section summary:focus-visible,
 .view-editor .view-editor-section summary:focus-visible {
   outline-offset: calc(-1 * var(--space-1));

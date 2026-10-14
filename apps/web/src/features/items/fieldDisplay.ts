@@ -172,9 +172,21 @@ export type ItemScriptDisplay = { script: ItemScriptField; value: string; text: 
 
 export const readItemScripts = (item: UniversalItem, workspace: WorkspaceDocument, now = new Date()): ItemScriptDisplay[] => {
   const result = getWorkspaceIndex(workspace).itemScriptsFor(item, now);
-  return (item.scripts ?? []).map((script) => {
-    const value = result.errors[script.key] ?? formatScriptResult(result.values[script.key], script.resultKind);
+  return (item.scripts ?? []).filter((script) => !result.errors[script.key]).map((script) => {
+    const value = formatScriptResult(result.values[script.key], script.resultKind);
     return { script, value, text: script.managedBy === 'event_program' ? value : `${script.label}: ${value}` };
+  });
+};
+
+export const readViewScriptErrors = (item: UniversalItem, workspace: WorkspaceDocument, now = new Date()) => {
+  const index = getWorkspaceIndex(workspace);
+  return Object.values(workspace.views).flatMap(view => {
+    const scripts = view.scripts ?? [];
+    if (!scripts.length) return [];
+    const visible = scripts.filter(script => view.fields.includes('view_scripts') || view.fields.includes(`view_script.${script.key}`));
+    if (!visible.length) return [];
+    const result = index.viewScriptsFor(item, scripts, now);
+    return visible.flatMap(script => result.errors[script.key] ? [{ id: `${view.id}:${script.id}`, viewName: view.name, label: script.label, error: result.errors[script.key]! }] : []);
   });
 };
 
@@ -252,21 +264,25 @@ export const readItemField = (item: UniversalItem, field: string, workspace?: Wo
   if (field.startsWith('script.') && workspace) {
     const key = field.slice(7);
     const definition = item.scripts?.find((script) => script.key === key);
-    const result = index!.itemScriptsFor(item, now).values[key];
+    const evaluated = index!.itemScriptsFor(item, now);
+    if (evaluated.errors[key]) return undefined;
+    const result = evaluated.values[key];
     if (definition?.resultKind === 'duration' && typeof result === 'number') return formatComputedDuration(result);
     return result;
   }
   if (field === 'view_scripts' && workspace) {
     const result = index!.viewScriptsFor(item, viewScripts, now);
-    return viewScripts.map((script) => {
-      const value = result.errors[script.key] ?? formatScriptResult(result.values[script.key], script.resultKind);
+    return viewScripts.filter((script) => !result.errors[script.key]).map((script) => {
+      const value = formatScriptResult(result.values[script.key], script.resultKind);
       return `${script.label}: ${value}`;
     }).join(' · ');
   }
   if (field.startsWith('view_script.') && workspace) {
     const key = field.slice(12);
     const definition = viewScripts.find((script) => script.key === key);
-    const result = index!.viewScriptsFor(item, viewScripts, now).values[key];
+    const evaluated = index!.viewScriptsFor(item, viewScripts, now);
+    if (evaluated.errors[key]) return undefined;
+    const result = evaluated.values[key];
     if (definition?.resultKind === 'duration' && typeof result === 'number') return formatComputedDuration(result);
     return result;
   }

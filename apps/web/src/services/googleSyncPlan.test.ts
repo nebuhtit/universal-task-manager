@@ -15,6 +15,16 @@ function fixture() {
   return { workspace, result };
 }
 describe('detached Google import plan', () => {
+  it('does not relink a recovered master when deletion was queued during its download', () => {
+    const { workspace, result } = fixture();
+    const item = createItem('Local series'); item.role = 'series_template';
+    item.extensions = { 'utm:itemDelete': { itemId: item.id } };
+    workspace.items[item.id] = item;
+    const event = { id: 'master', recurrence: ['RRULE:FREQ=WEEKLY'], start: { dateTime: '2026-10-04T08:00:00Z' }, end: { dateTime: '2026-10-04T09:31:00Z' } };
+    calculateGoogleSyncPlan({ workspace, result, recovered: [{ itemId: item.id, calendarId: 'cal', event }] });
+    expect(workspace.items[item.id]!.external).toBeUndefined();
+    expect(workspace.items[item.id]!.extensions?.['utm:itemDelete']).toEqual({ itemId: item.id });
+  });
   it.each([false, true])('restores moved event without duplicates, legacy receipt present: %s', receiptPresent => {
     const { workspace, result } = fixture();
     workspace.calendarPreferences.googleCalendar!.accountEmail = 'owner';

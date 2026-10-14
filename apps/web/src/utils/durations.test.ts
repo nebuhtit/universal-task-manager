@@ -29,6 +29,12 @@ describe('duration utilities', () => {
     expect(parseReminderDuration('PT3M')).toEqual({ amount: 3, unit: 'minutes', before: false });
   });
 
+  it('accepts composed Live Text durations without dropping a component', () => {
+    for (const value of ['1 h, 30 min', '1ч 30м', '1h30min']) expect(parseFriendlyDurationInput(value)).toEqual({ amount: 90, unit: 'minutes' });
+    expect(parseFriendlyDurationInput('1,5 h, 15 min')).toEqual({ amount: 105, unit: 'minutes' });
+    for (const value of ['-1h 30min', '1h junk 30min', '1h + 30min', '1h 3months']) expect(parseFriendlyDurationInput(value)).toBeUndefined();
+  });
+
   it('normalizes mixed estimates without losing minutes', () => {
     expect(parseEstimateDuration('PT2H')).toEqual({ amount: 2, unit: 'hours' });
     expect(parseEstimateDuration('PT1H30M')).toEqual({ amount: 90, unit: 'minutes' });

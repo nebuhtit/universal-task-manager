@@ -4,7 +4,7 @@ import { beginProfileSpan, currentProfileActionId, recordWorkerProfileSpan } fro
 const KEY = 'utm:sync-trace:v1';
 const events = ['storage-worker-load-failed', 'storage-worker-runtime-failed', 'storage-worker-message-failed', 'storage-worker-transfer-failed', 'storage-worker-calculation-failed', 'boot', 'begin', 'end', 'failed', 'heartbeat', 'visibility', 'pagehide', 'queue-start', 'queue-end', 'download-start', 'download-end', 'snapshot-start', 'snapshot-end', 'calculate-start', 'calculate-end', 'apply-start', 'apply-end', 'persist-start', 'persist-end', 'patch-check-start', 'patch-check-end', 'patch-write-start', 'patch-write-progress', 'patch-write-end', 'commit-start', 'commit-end', 'react-enqueued', 'react-committed', 'serialize-start', 'serialize-end', 'storage-worker-start', 'storage-worker-end', 'storage-fallback', 'encrypt-start', 'encrypt-end', 'indexeddb-start', 'indexeddb-end', 'worker-post-start', 'worker-post-end', 'worker-result', 'save-begin', 'save-end', 'save-failed', 'save-timeout', 'export-filter-start', 'export-filter-end', 'export-encode-start', 'export-encode-end', 'mirror-start', 'mirror-end'] as const;
 type TraceEvent = typeof events[number];
-const metricKeys = ['elapsedMs', 'durationMs', 'lagMs', 'items', 'patches', 'processed', 'bytes', 'visible', 'events', 'calendars', 'pipelineVersion'] as const;
+const metricKeys = ['elapsedMs', 'durationMs', 'lagMs', 'items', 'patches', 'processed', 'bytes', 'visible', 'events', 'calendars', 'pipelineVersion', 'recoveredSeries'] as const;
 type Metrics = Partial<Record<typeof metricKeys[number], number>>;
 type Entry = { at: string; run: string; event: TraceEvent; version: string; traceVersion: number; metrics: Metrics };
 let run = '';

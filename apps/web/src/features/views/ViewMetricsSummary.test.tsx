@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { ItemSetMetrics } from '@utm/core';
+import type { ItemSetMetrics, ViewTimeMetrics } from '@utm/core';
 import { formatCompactRemainingDuration, formatViewMetricsSummary, ViewMetricsSummary } from './ViewMetricsSummary';
 
 const minute = 60_000;
@@ -51,5 +51,11 @@ describe('ViewMetricsSummary', () => {
     expect(formatViewMetricsSummary({ ...base, reservedDurationMs: 8 * hour, periodDurationMs: day, freeDurationMs: 14 * hour }, 'ru')?.text).toBe('2ч · своб. 14ч');
     expect(formatViewMetricsSummary({ ...base, reservedDurationMs: 8 * hour, periodDurationMs: day, freeDurationMs: -minute }, 'en')?.text).toBe('2h · over 1min');
     expect(formatViewMetricsSummary({ ...base, reservedDurationMs: day, periodDurationMs: day, freeDurationMs: 0 }, 'en')?.text).toBe('2h · free 0min');
+  });
+
+  it('can hide free time without hiding the rest of the time statistics', () => {
+    const metrics: ViewTimeMetrics = { totalItems: 1, completedItems: 0, completionPercent: 0, remainingDurationMs: 50 * minute, reservedDurationMs: 0, periodDurationMs: day, freeDurationMs: 8 * hour + 44 * minute };
+    expect(formatViewMetricsSummary(metrics, 'en', false)?.text).toBe('50min');
+    expect(formatViewMetricsSummary(metrics, 'en', true)?.text).toBe('50min · free 8h 44min');
   });
 });

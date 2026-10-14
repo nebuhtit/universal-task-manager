@@ -90,9 +90,11 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
     return route.fulfill({ json: { items: remote ? [remote] : [], nextSyncToken: 'sync' } });
   });
   await page.goto('/'); await page.getByLabel('Workspace name').fill('Outbox'); await page.getByLabel('Password', { exact: true }).fill('test-only-outbox-password'); await page.getByLabel('Confirm password').fill('test-only-outbox-password'); await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
-  const nav = async (name: string) => { if (name === 'Home' || name === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name, exact: true }).click(); return; } if (page.viewportSize()!.width <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click(); } else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click(); };
+  const nav = async (name: string) => { if (name === 'Home' || name === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name, exact: true }).click(); return; } const target = name === 'All items' ? /^All items/ : name; if (page.viewportSize()!.width <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: target, exact: true }).click(); } else await page.locator('.sidebar').getByRole('button', { name: target, exact: true }).click(); };
   await nav('PARA'); await page.getByLabel('New Area', { exact: true }).fill('Office'); await page.getByRole('button', { name: 'Add Area', exact: true }).click();
   await nav('Settings'); await page.getByText('Calendar and Google Calendar', { exact: true }).click(); await page.getByRole('button', { name: 'Connect Google Calendar', exact: true }).click(); await expect(page.getByRole('button', { name: 'Sync now', exact: true })).toBeVisible(); await page.getByRole('button', { name: 'Authorize event creation and editing', exact: true }).click();
+  await page.getByTestId('developer-settings').locator(':scope > summary').click();
+  await page.getByText('Google experimental settings', { exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Beta: edit events older than three hours' })).not.toBeChecked();
   await page.getByText('Google data protection', { exact: true }).click();
   await expect(page.getByLabel('Changes per 24 hours', { exact: true })).toHaveValue('25');
@@ -105,6 +107,9 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
   const authorizations = await page.evaluate(() => (window as any).authCount);
   await page.getByPlaceholder('Add new item').fill('Unrelated task'); await page.getByPlaceholder('Add new item').press('Enter'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden(); await expect.poll(() => inserts).toBe(2);
   expect(await page.evaluate(() => (window as any).authCount)).toBe(authorizations);
+  // Starter Home views intentionally exclude linked Google events. Verify the
+  // saved event and its durable outbox in the full catalogue instead.
+  await nav('All items');
   await expect(page.locator('.external-calendar-state-marker').first()).toHaveCSS('color', 'rgb(52, 86, 120)');
   await page.getByPlaceholder('Add new item').fill('Quota protected'); await page.getByPlaceholder('Add new item').press('Enter');
   await expand(editor.locator('[data-editor-section="dates"] > summary')); await editor.getByLabel('Event opens', { exact: true }).fill('2030-09-24T12:00'); await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden();
@@ -114,7 +119,12 @@ test('queues offline saves, retries silently, colors calendars and applies PARA 
   await expand(editor.locator('[data-editor-section="calendar-details"] > summary'));
   await expect(editor.getByText('Saved in UTM, waiting for sync.', { exact: true })).toBeVisible();
   await editor.getByRole('button', { name: 'Close item editor', exact: true }).click(); expect(inserts).toBe(2);
-  name = 'Renamed calendar'; color = '#987654'; await page.getByRole('button', { name: 'Google Calendar sync', exact: true }).click(); await expect(page.getByRole('button', { name: 'UTM + Google Calendar', exact: true })).toHaveCSS('color', 'rgb(152, 118, 84)'); expect(inserts).toBe(2);
+  name = 'Renamed calendar'; color = '#987654';
+  await nav('Home');
+  const sync = page.getByRole('button', { name: 'Google Calendar sync', exact: true });
+  await sync.click(); await expect(sync).toBeEnabled();
+  await nav('All items');
+  await expect(page.getByRole('button', { name: 'UTM + Google Calendar', exact: true }).first()).toHaveCSS('color', 'rgb(152, 118, 84)'); expect(inserts).toBe(2);
   await nav('PARA'); await page.getByRole('button', { name: 'Office', exact: true }).first().click(); await expect(page.getByText('Offline event', { exact: true })).toBeVisible();
   for (const theme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme: theme }); await page.screenshot({ path: test.info().outputPath(`outbox-para-${theme}.png`) }); }
 });
@@ -276,7 +286,6 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await expect(editor.getByRole('combobox', { name: 'Google Calendar', exact: true })).toHaveValue('other');
   await expand(editor.locator('[data-editor-section="dates"] > summary'));
   const duration = await editor.getByLabel('Calendar duration amount', { exact: true }).inputValue();
-  const durationUnit = await editor.getByLabel('Calendar duration unit', { exact: true }).inputValue();
   await editor.getByLabel('Due / Active range ends', { exact: true }).fill('2030-09-24T13:00');
   await editor.getByRole('button', { name: 'Clear Event ends', exact: true }).click();
   await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('');
@@ -292,7 +301,6 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await expand(editor.locator('[data-editor-section="dates"] > summary'));
   await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('');
   await expect(editor.getByLabel('Calendar duration amount', { exact: true })).toHaveValue(duration);
-  await expect(editor.getByLabel('Calendar duration unit', { exact: true })).toHaveValue(durationUnit);
   expect(inserts).toBe(2); expect(deletes).toBe(1);
   await page.keyboard.press('Escape'); await expect(editor).toBeHidden();
 });

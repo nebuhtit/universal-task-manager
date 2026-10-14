@@ -15,7 +15,7 @@ beforeEach(() => {
   documentMock = Object.assign(new EventTarget(), { visibilityState: 'visible' }); vi.stubGlobal('document', documentMock);
 });
 afterEach(() => { stop?.(); stop = undefined; vi.unstubAllGlobals(); vi.useRealTimers(); });
-const payload = { hourly: { time: [Date.parse('2026-09-23T13:00:00Z') / 1000], precipitation_probability: [50] } };
+const payload = { hourly: { time: [Date.parse('2026-09-23T13:00:00Z') / 1000], temperature_2m: [18.5], precipitation_probability: [50] } };
 const response = () => Promise.resolve({ ok: true, json: async () => payload });
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 describe('weather service', () => {
@@ -35,9 +35,11 @@ describe('weather service', () => {
     expect(safeWeatherDetails('{')).toBeUndefined();
   });
   it('starts disabled, persists settings, refreshes once per hour, stops immediately and restores on next start', async () => {
-    const fetcher = vi.fn(response); vi.stubGlobal('fetch', fetcher);
+    const fetcher = vi.fn((_url: string) => response()); vi.stubGlobal('fetch', fetcher);
     const service = createWeatherService(); stop = service.start(); expect(fetcher).not.toHaveBeenCalled();
     service.configure({ enabled: true, location }); await settle(); expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain('temperature_2m');
+    expect(service.getSnapshot().forecast?.hours[0]?.temperatureC).toBe(18.5);
     expect(JSON.parse(storage.get(WEATHER_KEY)!)).toMatchObject({ enabled: true, location });
     await vi.advanceTimersByTimeAsync(hour); expect(fetcher).toHaveBeenCalledTimes(2);
     service.configure({ enabled: false }); await vi.advanceTimersByTimeAsync(hour * 2); expect(fetcher).toHaveBeenCalledTimes(2);

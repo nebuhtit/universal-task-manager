@@ -1,8 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { createItem, createWorkspace, itemJsonSchema } from '@utm/core';
-import { displayViewValue, isItemTemplate, readItemField, relationContext, viewFieldLabel, viewFieldOptions } from './fieldDisplay';
+import { displayViewValue, isItemTemplate, readItemField, readViewScriptErrors, relationContext, viewFieldLabel, viewFieldOptions } from './fieldDisplay';
 
 describe('item field display helpers', () => {
+  it('hides failed item and View calculations on cards but preserves View diagnostics for the editor', () => {
+    const workspace = createWorkspace('Script errors');
+    const item = createItem('No due');
+    const scripts = [
+      { id: 'missing-date', key: 'due_in', label: 'Due in', source: 'timeUntil(schedule.dueAt)', resultKind: 'text' as const },
+      { id: 'valid', key: 'valid', label: 'Valid', source: '42', resultKind: 'number' as const },
+    ];
+    item.scripts = scripts;
+    workspace.items[item.id] = item;
+    workspace.views = { test: { id: 'test', name: 'Today', renderer: 'list', query: { source: 'true' }, sort: [], fields: ['scripts', 'view_scripts'], scripts } };
+    expect(readItemField(item, 'scripts', workspace)).toBe('Valid: 42');
+    expect(readItemField(item, 'script.due_in', workspace)).toBeUndefined();
+    expect(readItemField(item, 'view_scripts', workspace, new Date(), scripts)).toBe('Valid: 42');
+    expect(readItemField(item, 'view_script.due_in', workspace, new Date(), scripts)).toBeUndefined();
+    expect(readViewScriptErrors(item, workspace)).toEqual([{ id: 'test:missing-date', viewName: 'Today', label: 'Due in', error: 'Expected a valid date' }]);
+  });
   it('resolves labels exactly like the editor catalog, including duplicates and renamed definitions', () => {
     const workspace = createWorkspace('Labels');
     workspace.customFields.score = { id: 'score', key: 'score', label: 'Score', kind: 'number', required: false };

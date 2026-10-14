@@ -68,6 +68,8 @@
   --color-capture-idle: rgba(255, 255, 255, 0.34);
   --blur-capture-idle: 6px;
   --color-capture-active: rgba(255, 255, 255, 0.56);
+  --color-glass-expanded: rgba(255, 255, 255, 0.76);
+  --blur-glass-expanded: 12px;
   --color-capture-border-idle: rgba(0, 0, 0, 0.12);
   --color-text: #0d0d0d;
   --color-text-secondary: #676767;
@@ -165,6 +167,7 @@
   --color-surface-translucent: rgba(0, 0, 0, 0.92);
   --color-capture-idle: rgba(0, 0, 0, 0.34);
   --color-capture-active: rgba(0, 0, 0, 0.62);
+  --color-glass-expanded: rgba(0, 0, 0, 0.78);
   --color-capture-border-idle: rgba(255, 255, 255, 0.18);
   --color-text: #f1f1f1;
   --color-text-secondary: #a7a7a7;

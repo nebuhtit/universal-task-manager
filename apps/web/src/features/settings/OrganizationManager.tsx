@@ -1,7 +1,7 @@
 import { consumeProjectNavigation } from '../../services/projectNavigation';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import {
-  ACTIVE_ITEM_VIEW_QUERY, calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries, organizationDeletionImpact, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort,
+  ACTIVE_ITEM_VIEW_QUERY, calculateProjectMetrics, createId, createPortablePackage, DEFAULT_AREA_ACCENT, DEFAULT_PROJECT_ACCENT, DEFAULT_TAG_ACCENT, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, orderedOrganizationNames, orderedOrganizationPriorityEntries, organizationDeletionImpact, STANDARD_ATTENTION_VIEW_SORT_SOURCE, standardAttentionViewSort, defaultViewScripts,
   orderedTagEntries, organizationAccentFor, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset,
   type OrganizationPreferences, type OrganizationPriorityEntry, type ProjectMetrics, type SavedView, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
@@ -36,7 +36,7 @@ const scopedView = ({ area, project, noProject = false, globalProject = false }:
     id: `para:${globalProject ? 'project' : area ?? 'no-area'}:${project ?? 'no-project'}`,
     name: project ?? 'No Project', query: { source }, renderer: 'list',
     sort: standardAttentionViewSort(),
-    sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...VIEW_TEMPLATE_FIELDS],
+    sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, scripts: defaultViewScripts(), fields: [...VIEW_TEMPLATE_FIELDS],
     ...(area ? { area } : {}), ...(project ? { project } : {}),
     extensions: { [PARA_VIEW_EXTENSION]: true, [PARA_SCOPE_EXTENSION]: paraScopeKey({ ...(area ? { area } : {}), ...(project ? { project } : {}), noProject, globalProject }) },
   };
@@ -57,7 +57,7 @@ export const paraTagView = (tag?: string): SavedView => ({
   renderer: 'list',
   sort: standardAttentionViewSort(),
   sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
-  fields: [...VIEW_TEMPLATE_FIELDS],
+  scripts: defaultViewScripts(), fields: [...VIEW_TEMPLATE_FIELDS],
   creationDefaults: { tags: tag ? [tag] : [] },
   extensions: { [PARA_VIEW_EXTENSION]: true, [PARA_SCOPE_EXTENSION]: paraScopeKey({ tag: tag ?? null }) },
 });

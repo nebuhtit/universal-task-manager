@@ -88,7 +88,7 @@ function formatAccessibleDuration(milliseconds: number, language: WorkspaceLangu
   }).format(value)).join(', ');
 }
 
-export function formatViewMetricsSummary(metrics: ItemSetMetrics | ViewTimeMetrics, language: WorkspaceLanguage): { text: string; ariaLabel: string } | null {
+export function formatViewMetricsSummary(metrics: ItemSetMetrics | ViewTimeMetrics, language: WorkspaceLanguage, showFreeTime = true): { text: string; ariaLabel: string } | null {
   const visible: string[] = [];
   const accessible: string[] = [];
   if (metrics.actualDurationMs !== undefined) {
@@ -103,7 +103,7 @@ export function formatViewMetricsSummary(metrics: ItemSetMetrics | ViewTimeMetri
     visible.push(formatCompactRemainingDuration(metrics.remainingDurationMs, language));
     accessible.push(summaryPhrases[language].remaining(formatAccessibleDuration(metrics.remainingDurationMs, language)));
   }
-  if ('freeDurationMs' in metrics && metrics.freeDurationMs !== undefined) {
+  if (showFreeTime && 'freeDurationMs' in metrics && metrics.freeDurationMs !== undefined) {
     const overloaded = metrics.freeDurationMs < 0;
     const absolute = Math.abs(metrics.freeDurationMs);
     const compact = absolute > 0 ? formatCompactRemainingDuration(absolute, language) : `0${compactUnits[language].minute}`;
@@ -114,8 +114,8 @@ export function formatViewMetricsSummary(metrics: ItemSetMetrics | ViewTimeMetri
   return visible.length ? { text: visible.join(' · '), ariaLabel: accessible.join('. ') } : null;
 }
 
-export function ViewMetricsSummary({ metrics, language, className = '' }: { metrics: ItemSetMetrics | ViewTimeMetrics; language: WorkspaceLanguage; className?: string }) {
-  const summary = formatViewMetricsSummary(metrics, language);
+export function ViewMetricsSummary({ metrics, language, className = '', showFreeTime = true }: { metrics: ItemSetMetrics | ViewTimeMetrics; language: WorkspaceLanguage; className?: string; showFreeTime?: boolean }) {
+  const summary = formatViewMetricsSummary(metrics, language, showFreeTime);
   if (!summary) return null;
   return <span className={`view-metrics-summary${className ? ` ${className}` : ''}`} aria-label={summary.ariaLabel}><span aria-hidden="true">{summary.text}</span></span>;
 }

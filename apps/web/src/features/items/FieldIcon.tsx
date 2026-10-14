@@ -3,12 +3,20 @@ import './field-icon.css';
 
 type FieldIconName =
   | 'title' | 'description' | 'state' | 'type' | 'habit' | 'range' | 'role' | 'priority'
-  | 'tag' | 'context' | 'list' | 'calendar' | 'start' | 'end' | 'due' | 'duration'
+  | 'tag' | 'context' | 'list' | 'calendar' | 'calendar-settings' | 'start' | 'end' | 'due' | 'duration' | 'duration-span' | 'travel-out' | 'travel-back' | 'wristwatch'
   | 'globe' | 'repeat' | 'progress' | 'bell' | 'link' | 'branch' | 'attachment' | 'area' | 'project'
-  | 'history' | 'user' | 'id' | 'template' | 'duplicate' | 'script' | 'program' | 'custom' | 'system';
+  | 'history' | 'user' | 'id' | 'template' | 'duplicate' | 'script' | 'program' | 'custom' | 'braces' | 'palette' | 'card-list' | 'system';
 
 export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'custom' || path.startsWith('custom.')) return 'custom';
+  if (path === 'braces') return 'braces';
+  if (path === 'palette') return 'palette';
+  if (path === 'card-list') return 'card-list';
+  if (path === 'wristwatch') return 'wristwatch';
+  if (path === 'calendar-settings') return 'calendar-settings';
+  if (path === 'schedule.estimatedDuration') return 'duration-span';
+  if (path === 'schedule.travelDuration') return 'travel-out';
+  if (path === 'schedule.travelBackDuration') return 'travel-back';
   if (path === 'eventProgram') return 'program';
   if (path === 'script' || path === 'scripts' || path.startsWith('script.') || path === 'view_scripts' || path.startsWith('view_script.')) return 'script';
   if (path === 'title') return 'title';
@@ -28,7 +36,7 @@ export const fieldIconName = (path: string): FieldIconName => {
   if (path === 'schedule.endAt') return 'end';
   if (path === 'schedule.dueAt') return 'due';
   if (path === 'schedule.timezone' || path === 'recurrence.timezone') return 'globe';
-  if (path === 'schedule.estimatedDuration' || path === 'schedule.travelDuration' || path === 'schedule.actualDuration' || path.endsWith('Offset')) return 'duration';
+  if (path === 'schedule.actualDuration' || path.endsWith('Offset')) return 'duration';
   if (path.startsWith('schedule.')) return 'calendar';
   if (path === 'recurrence.closeAt') return 'end';
   if (path === 'recurrence.anchor') return 'start';
@@ -58,10 +66,15 @@ const paths: Record<FieldIconName, ReactNode> = {
   context: <><circle cx="12" cy="10" r="3"/><path d="M12 22s7-7 7-12a7 7 0 1 0-14 0c0 5 7 12 7 12Z"/></>,
   list: <><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></>,
   calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/></>,
+  'calendar-settings': <><path d="M3 6h11v15H3zM6 4v4M11 4v4M3 10h11M6 13h2"/><circle cx="17" cy="15" r="4"/><circle cx="17" cy="15" r="1.4"/><path d="M17 9.5v1.2M17 19.3v1.2M11.5 15h1.2M22.3 15h1.2M13.1 11.1l.9.9M20 18l.9.9M20.9 11.1l-.9.9M14 18l-.9.9"/></>,
   start: <><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></>,
   end: <><circle cx="12" cy="12" r="9"/><path d="M9 9h6v6H9z"/></>,
-  due: <><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></>,
+  due: <><path d="m8 2.5 8-.1 5.6 5.6v8l-5.6 5.6h-8L2.4 16v-8L8 2.5Z"/><rect x="6" y="9.5" width="12" height="5" rx=".4"/></>,
   duration: <><circle cx="12" cy="13" r="8"/><path d="M9 3h6M12 5v2M12 13l3-3"/></>,
+  'duration-span': <><path d="M3.5 4v16M20.5 4v16M4.5 12h15M8 8.5 4.5 12 8 15.5M16 8.5l3.5 3.5-3.5 3.5"/></>,
+  'travel-out': <><path d="M4 15c2-3 2-7 5-11M20 15c-2-3-2-7-5-11M12 4v3M12 9v2"/><path d="M3 20h17m-4-4 4 4-4 4"/></>,
+  'travel-back': <><path d="M4 15c2-3 2-7 5-11M20 15c-2-3-2-7-5-11M12 4v3M12 9v2"/><path d="M21 20H4m4-4-4 4 4 4"/></>,
+  wristwatch: <><path d="M9 2h6l1 4H8l1-4ZM8 18h8l-1 4H9l-1-4Z"/><rect x="6" y="6" width="12" height="12" rx="4"/><path d="M12 9v3l2 1.5"/></>,
   globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></>,
   repeat: <><path d="M17 7H7l3-3M7 17h10l-3 3"/><path d="m7 7 3 3M17 17l-3-3"/></>,
   progress: <><path d="M5 19V11M12 19V5M19 19v-8"/><path d="M3 19h18"/></>,
@@ -79,6 +92,9 @@ const paths: Record<FieldIconName, ReactNode> = {
   script: <><path d="M8 5H5v14h3M16 5h3v14h-3"/><path d="m10 15 4-6"/></>,
   program: <><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="11" cy="18" r="1.5"/></>,
   custom: <><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></>,
+  braces: <><path d="M9 4H7a2 2 0 0 0-2 2v3a3 3 0 0 1-2 3 3 3 0 0 1 2 3v3a2 2 0 0 0 2 2h2M15 4h2a2 2 0 0 1 2 2v3a3 3 0 0 0 2 3 3 3 0 0 0-2 3v3a2 2 0 0 1-2 2h-2"/></>,
+  palette: <><path d="M12 22a10 10 0 1 1 10-10c0 1.1-.9 2-2 2h-2.1a1.6 1.6 0 0 0-1.3 2.5c.3.4.4.8.4 1.2A2.3 2.3 0 0 1 14.7 20H12Z"/><circle cx="7.5" cy="10" r="1"/><circle cx="10" cy="6.5" r="1"/><circle cx="15" cy="7" r="1"/><circle cx="17" cy="11" r="1"/></>,
+  'card-list': <><rect x="3" y="3" width="18" height="18" rx="3"/><rect x="5.5" y="5.5" width="13" height="4" rx="2" fill="currentColor" stroke="none"/><circle cx="7" cy="13" r=".8" fill="currentColor" stroke="none"/><path d="M9 13h4m2 0h2M7 17h.01M9 17h4"/></>,
   system: <><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></>,
 };
 

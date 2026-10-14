@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '4.6.9';
-export const APP_RELEASED_AT = '2026-10-14T09:17:25.315Z';
+export const APP_VERSION = '4.7.0';
+export const APP_RELEASED_AT = '2026-10-14T13:50:31.729Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -362,6 +362,8 @@ export interface ViewSortRule {
 export interface ViewStatisticsSettings {
   /** Shows duration-weighted completion, remaining work and capacity for finite periods. */
   showTime: boolean;
+  /** Shows the estimated free-capacity figure in the Home/View heading. Defaults to hidden. */
+  showFreeTime?: boolean;
   includeHiddenCompleted?: boolean;
   showActualTime?: boolean;
   /** Scheduled or recurring source items that always reserve capacity in this view period. */
@@ -763,6 +765,10 @@ export function backfillItemCreationVersions(workspace: WorkspaceDocument, legac
   return changed;
 }
 
+export const defaultViewScripts = (): ItemScriptField[] => [{
+  id: 'default-view-due-in', key: 'd', label: 'Due in', resultKind: 'text', source: 'timeUntil(schedule.dueAt)',
+}];
+
 export function createWorkspace(name = 'My workspace', now = new Date()): WorkspaceDocument {
   const timestamp = now.toISOString();
   const todayId = createId();
@@ -772,6 +778,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
   const weekId = createId();
   const dashboardId = createId();
   const activeQuery = ACTIVE_ITEM_VIEW_QUERY;
+  const completableQuery = `${activeQuery} && canComplete == true`;
   const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
   const defaultSort = standardAttentionViewSort();
   return {
@@ -792,47 +799,47 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     views: {
       [inboxId]: {
         id: inboxId, name: 'Inbox',
-        query: { source: `${activeQuery} && role == "standalone" && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT")) && isGoogleEvent != true` },
-        renderer: 'list', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...defaultFields],
+        query: { source: `((state == "open" && role == "standalone" && isTemplate != true && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT"))) && isGoogleEvent != true) && canComplete == true` },
+        renderer: 'table', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
       },
       '__all_items__': {
         id: '__all_items__',
         name: 'All items',
-        query: { source: activeQuery },
-        renderer: 'list',
+        query: { source: completableQuery },
+        renderer: 'table',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
-        fields: [...defaultFields],
+        scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
       },
       [todayId]: {
         id: todayId,
         name: 'Today',
-        query: { source: `${activeQuery} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true && isGoogleEvent != true` },
-        renderer: 'list',
+        query: { source: `((state == "open" && isTemplate != true && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true) && isGoogleEvent != true) && canComplete == true` },
+        renderer: 'table',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
-        fields: [...defaultFields],
+        scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
         extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'today' },
       },
       [noDateId]: {
         id: noDateId, name: 'No date',
-        query: { source: `${activeQuery} && schedule.plannedDate == null && schedule.startAt == null && schedule.endAt == null && schedule.dueAt == null && schedule.availableFrom == null && external.transparency == null && isGoogleEvent != true` },
-        renderer: 'list', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...defaultFields],
+        query: { source: `(${activeQuery} && schedule.plannedDate == null && schedule.startAt == null && schedule.endAt == null && schedule.dueAt == null && schedule.availableFrom == null && external.transparency == null && isGoogleEvent != true) && canComplete == true` },
+        renderer: 'table', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
       },
       [tomorrowId]: {
         id: tomorrowId, name: 'Tomorrow',
-        query: { source: `${activeQuery} && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "") && isGoogleEvent != true` },
-        renderer: 'list', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, fields: [...defaultFields],
+        query: { source: `((state == "open" && isTemplate != true && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")) && isGoogleEvent != true) && canComplete == true` },
+        renderer: 'table', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
         extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'tomorrow' },
       },
       [weekId]: {
         id: weekId,
         name: 'This week',
-        query: { source: `${activeQuery} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true && isGoogleEvent != true` },
-        renderer: 'list',
+        query: { source: `((state == "open" && isTemplate != true && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true) && isGoogleEvent != true) && canComplete == true` },
+        renderer: 'table',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
-        fields: [...defaultFields],
+        scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
       },
     },
     viewOrder: [inboxId, todayId, noDateId, tomorrowId, weekId, '__all_items__'],

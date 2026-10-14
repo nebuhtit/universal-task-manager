@@ -1,9 +1,9 @@
-import { durationToMs, effectiveItemDurationMs, zonedDateStart, type UniversalItem } from '@utm/core';
+import { activeRangeBounds, durationToMs, effectiveItemDurationMs, zonedDateStart, type UniversalItem } from '@utm/core';
 
 export type Interval = { start: number; end: number };
 export type TimelineEvent = Interval & { item: UniversalItem; point: boolean; invalid: boolean; travel?: boolean; travelBack?: boolean; tentative?: boolean; tentativeOverdue?: boolean };
 export type Segment = Interval & { top: number; height: number; hidden: boolean };
-export type PlacedEvent = TimelineEvent & { top: number; height: number; column: number; columns: number; continuedBefore: boolean; continuedAfter: boolean };
+export type PlacedEvent = TimelineEvent & { top: number; height: number; column: number; columns: number; continuedBefore: boolean; continuedAfter: boolean; flexibleVisual?: boolean };
 export type MoreBlock = { top: number; height: number; column: number; columns: number; items: UniversalItem[] };
 const MINUTE = 60_000;
 // Geometry only: one elapsed minute per CSS pixel, including 23/25-hour days.
@@ -121,11 +121,28 @@ export function placeActiveRangeCues<T>(items: T[], segments: Segment[], blocked
   return result;
 }
 
-export function layoutEvents(events: TimelineEvent[], day: Interval, segments: Segment[], limit: number): { events: PlacedEvent[]; more: MoreBlock[] } {
-  const sorted = events.filter(v => intersects(v, day)).sort((a, b) => a.start - b.start || a.end - b.end || a.item.id.localeCompare(b.item.id)).map(event => {
+export function layoutEvents(events: TimelineEvent[], day: Interval, segments: Segment[], limit: number, flexibleIds: ReadonlySet<string> = new Set()): { events: PlacedEvent[]; more: MoreBlock[] } {
+  const sorted: PlacedEvent[] = events.filter(v => intersects(v, day)).sort((a, b) => a.start - b.start || a.end - b.end || a.item.id.localeCompare(b.item.id)).map(event => {
     const top = positionAt(Math.max(day.start, event.start), segments);
     return { ...event, top, height: Math.max(MIN_CARD_HEIGHT, positionAt(Math.min(day.end, event.end), segments) - top), column: 0, columns: 1, continuedBefore: event.start < day.start, continuedAfter: event.end > day.end };
   });
+  // Flexible tasks use compact rows, not collision columns. This changes only
+  // presentation: their source schedules and planner intervals stay untouched.
+  const flexible = sorted.filter(event => flexibleIds.has(event.item.id) && !event.travel);
+  const blocked = sorted.filter(event => !flexible.includes(event)).map(event => ({ top: event.top, height: event.height }));
+  for (const event of flexible) {
+    const range = activeRangeBounds(event.item);
+    const from = Math.max(day.start, range?.start ?? (Date.parse(event.item.schedule?.availableFrom ?? '') || day.start));
+    const until = Math.min(day.end, range?.end ?? day.end);
+    const allowed = segments.filter(segment => !segment.hidden).flatMap(segment => {
+      const start = Math.max(segment.start, from), end = Math.min(segment.end, until);
+      return end > start ? [{ start, end, hidden: false, top: positionAt(start, segments), height: (end - start) / MINUTE }] : [];
+    });
+    const cue = placeActiveRangeCues([event.item], allowed, blocked, event.top)[0];
+    if (cue) { event.top = cue.top; event.height = cue.height; event.flexibleVisual = true; }
+    blocked.push({ top: event.top, height: event.height });
+  }
+  sorted.sort((a, b) => a.top - b.top || a.end - b.end || a.item.id.localeCompare(b.item.id));
   const output: PlacedEvent[] = []; const more: MoreBlock[] = [];
   let group: PlacedEvent[] = []; let groupEnd = -Infinity;
   const flush = () => {

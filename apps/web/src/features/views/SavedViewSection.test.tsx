@@ -27,6 +27,12 @@ describe('SavedViewSection metrics', () => {
     expect(openMarkup).toContain('>40мин</span>');
     expect(openMarkup).not.toContain('0%');
 
+    const withFreeTime: SavedView = { ...view, query: { source: 'scheduleInPeriod("today", "event", false, 7, "", "")' }, statistics: { showTime: true, reservedItemIds: [] } };
+    const freeHidden = renderToStaticMarkup(<SavedViewSection {...props} view={withFreeTime} />);
+    expect(freeHidden).not.toContain('своб.');
+    const freeVisible = renderToStaticMarkup(<SavedViewSection {...props} view={{ ...withFreeTime, statistics: { ...withFreeTime.statistics!, showFreeTime: true } }} />);
+    expect(freeVisible).toContain('своб.');
+
     const hiddenMarkup = renderToStaticMarkup(<SavedViewSection {...props} view={{ ...view, statistics: { showTime: false, reservedItemIds: [] } }} />);
     expect(hiddenMarkup).not.toContain('view-metrics-summary');
     expect(hiddenMarkup).not.toContain('Выполнено 33 процентов');

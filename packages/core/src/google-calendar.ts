@@ -1,8 +1,9 @@
-import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, durationToMs, type UniversalItem, type WorkspaceDocument } from './types.js';
+import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, createId, durationToMs, type UniversalItem, type WorkspaceDocument } from './types.js';
 import { retainedItemHistory, syncActualDuration } from './item-history.js';
 import { reconcileCalendarOrganization } from './calendar-organization.js';
 import { createOccurrence } from './recurrence.js';
 import { zonedDateStart } from './view-statistics.js';
+import { googleSeriesIdentity } from './google-series-identity.js';
 
 export const GOOGLE_DELETION_RECEIPTS_EXTENSION = 'utm:googleDeletionReceipts';
 const occurrenceKey = (seriesId: string, anchor: string) => JSON.stringify([seriesId, anchor]);
@@ -13,6 +14,35 @@ function occurrenceIndex(workspace: WorkspaceDocument): Map<string, UniversalIte
     if (!result.has(key)) result.set(key, item);
   }
   return result;
+}
+
+function newGoogleOccurrence(workspace: WorkspaceDocument, series: UniversalItem, anchor: Date): UniversalItem {
+  const occurrence = createOccurrence(series, anchor, 0);
+  // Legacy rolling reconciliation kept a future cycle's ID while moving its
+  // anchor backwards. Importing that future date must not overwrite the row
+  // holding the current cycle and its journals. Subsequent syncs match anchors.
+  if (workspace.items[occurrence.id]) occurrence.id = createId();
+  return occurrence;
+}
+
+/** Only remove impossible system closures left by legacy rolling conversion.
+ * Manual outcomes and legitimately finished cycles remain authoritative. */
+function repairPrematureGoogleHistory(item: UniversalItem): void {
+  const invalid = new Map<string, string>();
+  const history = (item.cycleHistory ?? []).filter(entry => {
+    const premature = entry.state === 'auto_closed' && entry.actor === 'system' && entry.reason === 'auto_renew'
+      && Date.parse(entry.closedAt) < Date.parse(entry.startAt ?? entry.recurrenceId);
+    if (premature) invalid.set(entry.recurrenceId, entry.closedAt);
+    return !premature;
+  });
+  if (item.cycleHistory && history.length !== item.cycleHistory.length) item.cycleHistory = JSON.parse(JSON.stringify(history));
+  if (item.state === 'auto_closed' && item.closure?.actor === 'system' && item.closure.reason === 'auto_renew'
+    && Date.parse(item.closure.at) < Date.parse(item.schedule?.startAt ?? item.occurrence?.recurrenceId ?? '')) {
+    if (item.occurrence) invalid.set(item.occurrence.recurrenceId, item.closure.at);
+    item.state = 'open'; delete item.closure;
+  }
+  if (invalid.size && item.completionEntries) item.completionEntries = JSON.parse(JSON.stringify(item.completionEntries.filter(entry =>
+    entry.kind !== 'automatic' || !entry.recurrenceId || invalid.get(entry.recurrenceId) !== entry.at)));
 }
 export interface GoogleDeletionReceipt { calendarId: string; eventId: string; accountEmail: string; deletedAt: string }
 
@@ -200,6 +230,8 @@ function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mir
     const incoming = mirror[field];
     if (incoming?.length) (target as unknown as Record<string, unknown>)[field] = JSON.parse(JSON.stringify([...(target[field] ?? []), ...incoming.filter((entry) => !target[field]?.some((existing) => existing.id === entry.id))]));
   }
+  const series = target.role === 'series_template' ? target : target.occurrence ? workspace.items[target.occurrence.seriesId] : undefined;
+  if (series && googleSeriesIdentity(series)) repairPrematureGoogleHistory(target);
   syncActualDuration(target);
   // Only legacy stored copies can have references to remap. Normal sync updates
   // must not scan every task and view for each linked event.
@@ -237,7 +269,7 @@ export function mergeGoogleCalendarCopies(workspace: WorkspaceDocument): void {
     const key = occurrenceKey(master.id, identity.originalStart);
     let target = occurrences.get(key);
     if (target?.deletedAt || target?.extensions?.['utm:googleSave']) continue;
-    if (!target) { target = createOccurrence(master, new Date(identity.originalStart), 0); workspace.items[target.id] = target; occurrences.set(key, target); }
+    if (!target) { target = newGoogleOccurrence(workspace, master, new Date(identity.originalStart)); workspace.items[target.id] = target; occurrences.set(key, target); }
     linkGoogleCopy(workspace, target, mirror);
   }
 }
@@ -346,7 +378,7 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
       const anchor = originalAnchor;
       const key = occurrenceKey(master.id, anchor);
       linked = occurrences.get(key);
-      if (!linked) { linked = createOccurrence(master, new Date(anchor), 0); workspace.items[linked.id] = linked; occurrences.set(key, linked); }
+      if (!linked) { linked = newGoogleOccurrence(workspace, master, new Date(anchor)); workspace.items[linked.id] = linked; occurrences.set(key, linked); }
     }
     if (linked) seen.add(linked.id);
     const next = googleCalendarEventToItem(event, batch.calendarId, batch.connectionId, batch.syncedAt, workspace.calendarPreferences.timezone);

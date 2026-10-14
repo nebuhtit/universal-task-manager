@@ -23,7 +23,13 @@ test('quick Due uses one set of choices in the editor and swipe menu', async ({ 
   await page.getByPlaceholder('Add new item').press('Enter');
   const datesSummary = page.locator('.editor-scroll > details > summary').filter({ hasText: 'Dates & time' }).first();
   const dates = datesSummary.locator('..');
-  if (!await dates.evaluate((element) => (element as HTMLDetailsElement).open)) await datesSummary.click();
+  const expandDates = async () => {
+    // Settle the title blur before toggling the native disclosure.
+    await datesSummary.focus();
+    if (!await dates.evaluate((element) => (element as HTMLDetailsElement).open)) await datesSummary.press('Enter');
+    await expect(dates).toHaveAttribute('open', '');
+  };
+  await expandDates();
   await dates.getByRole('button', { name: 'Move Due quickly' }).click();
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme });
@@ -32,11 +38,13 @@ test('quick Due uses one set of choices in the editor and swipe menu', async ({ 
     expect(bounds).not.toBeNull();
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
   }
-  const due = page.getByLabel('Due / Active range ends', { exact: true });
+  const due = dates.getByLabel('Due / Active range ends', { exact: true });
   await dates.getByRole('button', { name: /Tomorrow/ }).click();
   await expect(due).not.toHaveValue('');
-  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('10');
+  await expect(page.getByLabel('Calendar duration amount')).toHaveValue('10 min');
   await page.getByRole('button', { name: 'Save item' }).click();
+  if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: /^All items/ }).click();
+  else { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: /^All items/ }).click(); }
   const card = page.locator('.item-card[data-utm-due-item-id]').filter({ hasText: 'Sample task' }).first();
   await expect(card).toBeVisible();
   await swipeLeft(page, '.item-card[data-utm-due-item-id] .item-main');
@@ -46,14 +54,14 @@ test('quick Due uses one set of choices in the editor and swipe menu', async ({ 
   await expect(menu).toBeHidden();
   await page.waitForTimeout(400);
   await card.locator('.item-main').click();
-  if (!await dates.evaluate((element) => (element as HTMLDetailsElement).open)) await datesSummary.click();
+  await expandDates();
   await expect(due).not.toHaveValue('');
   const savedDue = await due.inputValue();
   await dates.getByRole('button', { name: 'Move Due quickly' }).click();
   await dates.getByRole('button', { name: /Tomorrow/ }).click();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await card.locator('.item-main').click();
-  if (!await dates.evaluate((element) => (element as HTMLDetailsElement).open)) await datesSummary.click();
+  await expandDates();
   await expect(due).toHaveValue(savedDue);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.reload();
@@ -64,7 +72,7 @@ test('quick Due uses one set of choices in the editor and swipe menu', async ({ 
   if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name: /^All items/ }).click();
   else { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: /^All items/ }).click(); }
   await page.locator('.item-card[data-utm-due-item-id]').filter({ hasText: 'Sample task' }).first().locator('.item-main').click();
-  if (!await dates.evaluate((element) => (element as HTMLDetailsElement).open)) await datesSummary.click();
+  await expandDates();
   await expect(due).toHaveValue(savedDue);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await swipeLeft(page, '.item-card[data-utm-due-item-id] .item-main');

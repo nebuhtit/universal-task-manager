@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
+  ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
   compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, expressionContinuouslyDependsOnCurrentTime, expressionDependsOnCurrentTime, fromCanonicalJSON, fromICS, makeSeries,
   materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, reminderTime, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
@@ -148,16 +148,23 @@ describe('safe expression language', () => {
     expect(compileQuery('length(tags) == 0')(createItem('No tags'))).toBe(true);
   });
 
-  it('creates active, today and week starter views with compact fields', () => {
+  it('creates the configured starter Home views as completable tables', () => {
     const workspace = createWorkspace('Starter views', new Date(2026, 7, 26, 12));
     const views = Object.values(workspace.views);
     expect(views.map((view) => view.name)).toEqual(['Inbox', 'All items', 'Today', 'No date', 'Tomorrow', 'This week']);
     expect(views.find((view) => view.name === 'Today')?.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION]).toBe('today');
     expect(workspace.viewOrder.map((id) => workspace.views[id]?.name)).toEqual(['Inbox', 'Today', 'No date', 'Tomorrow', 'This week', 'All items']);
-    expect(views.every((view) => view.renderer === 'list')).toBe(true);
-    const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project'];
+    expect(views.every((view) => view.renderer === 'table')).toBe(true);
+    for (const view of views) expect(() => compileQuery(view.query.source)).not.toThrow();
+    const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project', 'view_scripts'];
     expect(views.every((view) => JSON.stringify(view.fields) === JSON.stringify(defaultFields))).toBe(true);
-    expect(views[0]?.query.source).toContain('state == "open"');
+    const source = (name: string) => views.find((view) => view.name === name)?.query.source;
+    expect(source('Inbox')).toBe('((state == "open" && role == "standalone" && isTemplate != true && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT"))) && isGoogleEvent != true) && canComplete == true');
+    expect(source('Today')).toBe('((state == "open" && isTemplate != true && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true) && isGoogleEvent != true) && canComplete == true');
+    expect(source('No date')).toBe('(state == "open" && isTemplate != true && schedule.plannedDate == null && schedule.startAt == null && schedule.endAt == null && schedule.dueAt == null && schedule.availableFrom == null && external.transparency == null && isGoogleEvent != true) && canComplete == true');
+    expect(source('Tomorrow')).toBe('((state == "open" && isTemplate != true && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")) && isGoogleEvent != true) && canComplete == true');
+    expect(source('This week')).toBe('((state == "open" && isTemplate != true && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true) && isGoogleEvent != true) && canComplete == true');
+    expect(source('All items')).toBe('state == "open" && isTemplate != true && canComplete == true');
   });
 
   it('filters due-date buckets by local day and Monday-based week', () => {
@@ -360,10 +367,10 @@ describe('safe expression language', () => {
 
   it('keeps saved-view creation defaults portable while rejecting system and relation fields', () => {
     const scripts = [{ id: 'view-script', key: 'minutes_left', label: 'Minutes left', source: 'minutesUntil(schedule.startAt)', resultKind: 'number' }];
-    const view = migrateView({ id: 'view-defaults', name: 'Draft', query: { source: '' }, renderer: 'table', sort: [], fields: ['view_script.minutes_left'], list: 'Health', creationDefaults: { priority: 3, tags: ['work'], location: 'Office', attachments: [{ id: 'brief', url: 'https://example.com/brief.pdf' }], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' }, statistics: { showTime: false, reservedItemIds: ['sleep-series'] }, scripts }).value;
+    const view = migrateView({ id: 'view-defaults', name: 'Draft', query: { source: '' }, renderer: 'table', sort: [], fields: ['view_script.minutes_left'], list: 'Health', creationDefaults: { priority: 3, tags: ['work'], location: 'Office', attachments: [{ id: 'brief', url: 'https://example.com/brief.pdf' }], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' }, statistics: { showTime: false, showFreeTime: true, reservedItemIds: ['sleep-series'] }, scripts }).value;
     expect(view.list).toBe('Health');
     expect(view.creationDefaults).toEqual({ priority: 3, tags: ['work'], location: 'Office', attachments: [{ id: 'brief', url: 'https://example.com/brief.pdf' }], 'schedule.estimatedDuration': 'PT10M', 'custom.client': 'Acme' });
-    expect(view.statistics).toEqual({ showTime: false, reservedItemIds: ['sleep-series'] });
+    expect(view.statistics).toEqual({ showTime: false, showFreeTime: true, reservedItemIds: ['sleep-series'] });
     expect(view.scripts).toEqual(scripts);
     const portable = createPortablePackage(createWorkspace('View scripts'), { kind: 'views', views: [view] });
     expect(parsePortablePackage(serializePortablePackage(portable)).package.views[0]?.scripts).toEqual(scripts);
@@ -1020,6 +1027,8 @@ describe('interoperability', () => {
   it('adds a stable View order to workspaces created before View drag-and-drop', () => {
     const old = createWorkspace('Legacy View order');
     for (const [id, view] of Object.entries(old.views)) if (!['Today', 'This week', 'All items'].includes(view.name)) delete old.views[id];
+    old.views[Object.keys(old.views).find((id) => old.views[id]?.name === 'Today')!]!.query.source = `${ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true && isGoogleEvent != true`;
+    old.views[Object.keys(old.views).find((id) => old.views[id]?.name === 'This week')!]!.query.source = `${ACTIVE_ITEM_VIEW_QUERY} && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true && isGoogleEvent != true`;
     delete (old as Partial<typeof old>).viewOrder;
     // Older workspaces used the same schema version, so they must remain
     // exportable while the app adds this convenience field on its next save.

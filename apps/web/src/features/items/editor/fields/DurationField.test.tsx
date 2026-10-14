@@ -12,7 +12,7 @@ describe('DurationField', () => {
 
   it('shows a saved independent estimate without creating dates', () => {
     const markup = renderToStaticMarkup(<DurationField duration={{ amount: 45, unit: 'minutes' }} onDurationChange={vi.fn()} />);
-    expect(markup).toContain('value="45"');
-    expect(markup).toContain('<option value="minutes" selected="">Minutes</option>');
+    expect(markup).toContain('value="45 min"');
+    expect(markup).not.toContain('<select');
   });
 });

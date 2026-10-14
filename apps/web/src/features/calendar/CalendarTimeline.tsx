@@ -97,7 +97,12 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preview = false
   // Reveal only reference intervals inside compressed sleep; never change the preference.
   const hidden = useMemo(() => hiddenIntervals(data.hidden, data.events.filter(event => plan?.parallel.has(event.item.id)), data.day), [data, plan]);
   const segments = useMemo(() => buildSegments(data.day, hidden), [data.day, hidden]);
-  const layout = useMemo(() => layoutEvents(data.events, data.day, segments, columns), [data, segments, columns]);
+  const layout = useMemo(() => {
+    const flexible = new Set(data.events.filter(event => !event.travel && !plan?.parallel.has(event.item.id) && (
+      plan?.activeRanges.has(event.item.id) || (!event.item.schedule?.startAt && !event.item.schedule?.endAt && (!event.item.schedule?.dueAt || event.item.schedule.dueDateOnly))
+    )).map(event => event.item.id));
+    return layoutEvents(data.events, data.day, segments, columns, flexible);
+  }, [data, segments, columns, plan]);
   const hiddenReserve = useMemo(() => {
     const period = viewPeriodBoundsForDates(dateKey, dateKey, zone);
     return reservedItems.flatMap(item => activeRangeDailyDuration(item, period) !== null ? [] : occupiedIntervals(item, period).flatMap(interval => segments.filter(segment => !segment.hidden && segment.start < interval.end && segment.end > interval.start).map(segment => {
@@ -177,7 +182,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preview = false
         {layout.events.map(event => {
           if (plan?.activeRanges.has(event.item.id)) {
             const share = activeRangeDailyDuration(event.item, viewPeriodBoundsForDates(dateKey, dateKey, zone)) ?? 0;
-            const label = `${plan.parallel.has(event.item.id) ? '↗ ' : ''}${ru ? 'Активный диапазон' : 'Active range'} · ${event.item.title} · ${durationLabel(share)}${ru ? ' на день' : ' per day'} · ${timeLabel(event.start, zone)}–${timeLabel(event.end, zone)}`;
+            const label = `${plan.parallel.has(event.item.id) ? '↗ ' : ''}${ru ? 'Активный диапазон' : 'Active range'} · ${event.item.title} · ${durationLabel(share)}${ru ? ' на день' : ' per day'}${event.flexibleVisual ? '' : ` · ${timeLabel(event.start, zone)}–${timeLabel(event.end, zone)}`}`;
             return <button type="button" data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} className="timeline-active-range" key={event.item.id} data-testid="timeline-active-range" style={columnStyle(event)} title={label} aria-label={label} onClick={() => open(event.item)}><span>{plan.parallel.has(event.item.id) && '↗ '}{event.item.title}</span><small>{durationLabel(share)}{ru ? ' / день' : ' / day'}</small></button>;
           }
           const organization = event.item.extensions?.['utm:calendarOrganization'] as { color?: string; tag?: string } | undefined;
@@ -193,7 +198,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preview = false
           const tentativeLabel = plan?.parallel.has(event.item.id) ? (ru ? 'Параллельная ссылка · ' : 'Parallel reference · ') : event.tentative ? (ru ? 'Предварительно · ' : 'Tentative · ') : '';
           const overdue = event.item.state === 'open' && event.item.schedule?.plannedDate && event.item.schedule.plannedDate < calendarDateKey(now, zone);
           const pastEvent = !event.item.schedule?.dueAt && event.end <= now.getTime();
-          const label = event.travel ? travelLabel : `${tentativeLabel}${event.item.title} · ${interval}`;
+          const label = event.travel ? travelLabel : event.flexibleVisual ? `${event.item.title} · ${ru ? 'Без назначенного времени' : 'No fixed time'}` : `${tentativeLabel}${event.item.title} · ${interval}`;
           return <button type="button" data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travelBack ? 'travel-back' : event.travel ? 'travel' : 'event'}`} className={`timeline-event${safeColor && !event.tentative ? ' timeline-calendar-tinted' : ''}${pastEvent ? ' timeline-past-event' : ''}${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}${event.tentativeOverdue ? ' timeline-tentative-overdue' : ''}`} style={{ ...columnStyle(event), ...(safeColor && !event.tentativeOverdue ? { ...(!pastEvent ? { borderColor: safeColor } : {}), '--timeline-calendar-color': safeColor } : {}) } as CSSProperties} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travelBack ? 'timeline-travel-back' : event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
             {event.travel ? <strong>{travelLabel}</strong> : <>
               <strong>{(plan?.pins.has(event.item.id) || plan?.parallel.has(event.item.id)) && '↗ '}{(event.invalid || overdue) && '⚠ '}{event.continuedBefore && '← '}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>

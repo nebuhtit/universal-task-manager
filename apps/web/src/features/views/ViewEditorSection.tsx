@@ -3,9 +3,9 @@ import { Disclosure } from '../../components/ui/primitives';
 import { FieldIconLabel } from '../items/FieldIcon';
 
 const sectionIcons: Record<string, string> = {
-  templates: 'isTemplate', color: 'custom', 'visual-setup': 'custom', scripts: 'scripts',
-  'show-in-results': 'list', statistics: 'progress.count', 'creation-defaults': 'title',
-  sorting: 'list', json: 'system.json', export: 'attachments', 'board-columns': 'state',
+  templates: 'isTemplate', color: 'palette', 'visual-setup': 'custom', scripts: 'scripts',
+  'show-in-results': 'card-list', statistics: 'progress.count', 'creation-defaults': 'title',
+  sorting: 'list', json: 'braces', export: 'attachments', 'board-columns': 'state',
   'calendar-day-period': 'schedule.plannedDate', 'calendar-day-filter': 'custom', 'calendar-day-share': 'activeRange',
   'calendar-day-list-fields': 'list', 'calendar-day-timeline-fields': 'schedule.startAt', 'calendar-day-timeline': 'schedule.estimatedDuration',
 };

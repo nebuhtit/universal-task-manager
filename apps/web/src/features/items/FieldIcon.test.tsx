@@ -6,6 +6,11 @@ describe('field icons', () => {
   it('maps representative property families to stable semantic symbols', () => {
     expect(fieldIconName('title')).toBe('title');
     expect(fieldIconName('schedule.startAt')).toBe('start');
+    expect(fieldIconName('calendar-settings')).toBe('calendar-settings');
+    expect(fieldIconName('schedule.estimatedDuration')).toBe('duration-span');
+    expect(fieldIconName('schedule.travelDuration')).toBe('travel-out');
+    expect(fieldIconName('schedule.travelBackDuration')).toBe('travel-back');
+    expect(fieldIconName('wristwatch')).toBe('wristwatch');
     expect(fieldIconName('schedule.dueAt')).toBe('due');
     expect(fieldIconName('tags')).toBe('tag');
     expect(fieldIconName('tag')).toBe('tag');
