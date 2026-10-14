@@ -21,6 +21,16 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it('labels hour marks with hours only while preserving minute precision for current time', () => {
+    const clock = new Date(iso(12, 34));
+    const html = renderToStaticMarkup(<CalendarTimeline workspace={workspace()} dateKey="2026-09-22" now={clock} suppliedNow={clock} onEdit={() => {}} onPreferences={() => {}} />);
+    const tickLabels = [...html.matchAll(/class="timeline-tick"[^>]*><span>([^<]+)<\/span>/g)].map(match => match[1]);
+    expect(tickLabels).toContain('12');
+    expect(tickLabels.every(label => !label?.includes(':'))).toBe(true);
+    expect(html).toContain('aria-label="Current time 12:34"');
+    expect(html).toContain('data-testid="timeline-now"');
+    expect(html).toContain('>12:34</span>');
+  });
   it('dims completed travel and return borders together with past events without Due', () => {
     const event = item('Past trip', { startAt: iso(8), endAt: iso(9), travelDuration: 'PT30M', travelBackDuration: 'PT30M' });
     const html = renderToStaticMarkup(<CalendarTimeline workspace={workspace(event)} dateKey="2026-09-22" now={now} suppliedNow={now} onEdit={() => {}} onPreferences={() => {}} />);

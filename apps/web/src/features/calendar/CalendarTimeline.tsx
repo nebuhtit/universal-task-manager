@@ -20,12 +20,22 @@ import { buildSegments, hiddenIntervals, layoutEvents, placeActiveRangeCues, pos
 import './timeline.css';
 
 const timeFormatters = new Map<string, Intl.DateTimeFormat>();
+const hourFormatters = new Map<string, Intl.DateTimeFormat>();
 const timeLabel = (at: number, zone: string) => {
   let formatter = timeFormatters.get(zone);
   if (!formatter) {
     if (timeFormatters.size >= 8) timeFormatters.clear();
     formatter = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
     timeFormatters.set(zone, formatter);
+  }
+  return formatter.format(at);
+};
+const hourLabel = (at: number, zone: string) => {
+  let formatter = hourFormatters.get(zone);
+  if (!formatter) {
+    if (hourFormatters.size >= 8) hourFormatters.clear();
+    formatter = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', hourCycle: 'h23' });
+    hourFormatters.set(zone, formatter);
   }
   return formatter.format(at);
 };
@@ -160,7 +170,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preview = false
         const label = `${ru ? 'Активный диапазон' : 'Active range'} · ${item.title}${share ? ` · ${durationLabel(share)}${ru ? ' на день' : ' per day'}` : ''}`;
         return <button type="button" data-utm-item-id={item.id} data-utm-series-id={item.occurrence?.seriesId} data-utm-recurrence-id={item.occurrence?.recurrenceId} className="timeline-active-range" key={item.id} data-testid="timeline-active-range" style={{ top, height }} title={label} aria-label={label} onClick={() => open(item)}><span>{item.title}</span>{share > 0 && <small>{durationLabel(share)}{ru ? ' / день' : ' / day'}</small>}</button>;
       })}</div>
-      {ticks.map(at => <div key={at} data-timeline-hour={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{timeLabel(at, zone)}</span></div>)}
+      {ticks.map(at => <div key={at} data-timeline-hour={at} className="timeline-tick" style={{ top: positionAt(at, segments) }}><span>{hourLabel(at, zone)}</span></div>)}
       {segments.filter(v => v.hidden).map(v => <button type="button" key={v.start} className="timeline-break" style={{ top: v.top, height: v.height }} aria-expanded={false} onClick={() => onPreferences({ ...settings, hideSleep: false })}>{ru ? 'Скрыто' : 'Hidden'} {timeLabel(v.start, zone)}–{timeLabel(v.end, zone)}</button>)}
       {!settings.hideSleep && data.sleepGaps.length > 0 && <button type="button" className="timeline-night-collapse" style={{ top: positionAt(data.sleepGaps[0]!.start, segments) }} aria-expanded={true} onClick={() => onPreferences({ ...settings, hideSleep: true })}>{ru ? 'Свернуть ночь' : 'Collapse night'} {timeLabel(data.sleepGaps[0]!.start, zone)}–{timeLabel(data.sleepGaps.at(-1)!.end, zone)}</button>}
       <div className="timeline-events">
