@@ -278,9 +278,13 @@ test('quick navigation keeps capture-sized circles in the same position on every
   const calendar = nav.getByRole('button', { name: 'Calendar', exact: true });
   const capture = page.locator('.capture-dock .quick-capture');
   const expectParaActionsClear = async () => {
-    const box = (await page.locator('.organization-order-actions').boundingBox())!;
+    const actions = page.locator('.capture-dock-actions .organization-order-actions');
+    await expect(actions).toBeVisible();
+    const box = (await actions.boundingBox())!;
     const navBox = (await nav.boundingBox())!;
-    expect(box.x >= navBox.x + navBox.width || box.y + box.height <= navBox.y || box.y >= navBox.y + navBox.height).toBe(true);
+    expect(box.x).toBeGreaterThanOrEqual(navBox.x + navBox.width);
+    expect(Math.abs(box.y + box.height / 2 - navBox.y - navBox.height / 2)).toBeLessThan(1);
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   };
   for (const theme of ['light', 'dark'] as const) {
     await navigate(page, 'Home');
@@ -324,6 +328,18 @@ test('quick navigation keeps capture-sized circles in the same position on every
     await expectParaActionsClear();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
+  await navigate(page, 'PARA');
+  const handle = page.getByRole('button', { name: 'Reorder Area Area 0', exact: true });
+  const save = page.getByRole('button', { name: 'Apply / Save order', exact: true });
+  await handle.focus(); await handle.press('ArrowDown');
+  await expect(save).toBeEnabled();
+  const reset = page.getByRole('button', { name: 'Reset order', exact: true });
+  if (test.info().project.use.hasTouch) await reset.tap(); else await reset.click();
+  await expect(save).toBeDisabled();
+  await handle.focus(); await handle.press('ArrowDown');
+  if (test.info().project.use.hasTouch) await save.tap(); else await save.click();
+  await expect(save).toBeDisabled();
+  await expectParaActionsClear();
 });
 
 test('mobile navigation uses the shared glass surface in both themes', async ({ page }) => {
