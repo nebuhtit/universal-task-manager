@@ -734,14 +734,34 @@ function suggestInternal(input: string, caret: number, now: Date, language: 'ru'
     const naturalTravel = /(?:^|\s)ехать\s+(\d+\s*(?:минут(?:ы|а)?|мин|час(?:а|ов)?|ч|м))(?=\s|$)/i.exec(context);
     const hasTravel = duration(travel?.[1] ?? naturalTravel?.[1] ?? '') !== null;
     const mentionsDeparture = /(?:^|[\s:,])(?:выезд|leave)(?=[\s:-]|$)/i.test(context) || /^(?:вы|выезд|le|leave)/i.test(partial);
-    const hasStart = parseEntry(input, now).start !== null;
-    const relative = ['30м', '1ч', '1д', '15м', '2ч'];
-    const explicit = partial.startsWith('начало') || partial.startsWith('start') ? ['начало-30м', 'start-30m'] : partial.startsWith('срок') || partial.startsWith('due') ? ['срок-30м', 'due-30m'] : [];
-    const values = [...(hasTravel || mentionsDeparture ? ['выезд-2ч', 'выезд-1д'] : []), ...relative, ...explicit, 'через45м'];
+    const parsedContext = parseEntry(input, now);
+    const hasStart = parsedContext.start !== null;
+    const hasDue = parsedContext.due !== null;
+    const relative = language === 'ru' ? ['30м', '1ч', '1д', '15м', '2ч'] : ['30m', '1h', '1d', '15m', '2h'];
+    const startAnchor = language === 'ru' ? 'начало' : 'start';
+    const travelAnchor = language === 'ru' ? 'выезд' : 'leave';
+    const dueAnchor = language === 'ru' ? 'срок' : 'due';
+    const anchorChoices = (anchor: string, detail: string) => relative.map(value => ({ value: `${anchor}-${value}`, label: value, detail }));
+    const startChoices = anchorChoices(startAnchor, language === 'ru' ? 'До event opens · автоматически' : 'Before Event opens · automatic');
+    const travelChoices = anchorChoices(travelAnchor, language === 'ru' ? 'До времени выезда · автоматически' : 'Before Travel time · automatic');
+    const dueChoices = anchorChoices(dueAnchor, language === 'ru' ? 'До due · автоматически' : 'Before Due · automatic');
+    const explicit = partial.startsWith('начало') || partial.startsWith('start') ? hasStart ? [] : anchorChoices(language === 'ru' ? 'начало' : 'start', language === 'ru' ? 'До event opens · автоматически' : 'Before Event opens · automatic') : partial.startsWith('срок') || partial.startsWith('due') ? hasDue ? [] : anchorChoices(language === 'ru' ? 'срок' : 'due', language === 'ru' ? 'До due · автоматически' : 'Before Due · automatic') : [];
+    const relativeChoices = relative.map(value => ({ value, label: value, detail: hasDue ? language === 'ru' ? 'До due · автоматически' : 'Before Due · automatic' : language === 'ru' ? 'От момента создания карточки' : 'From item creation' }));
+    // Options render bottom-up above the keyboard, so keeping anchor groups in
+    // this order puts Event opens closest to the keyboard, then Travel time, then Due.
+    const values = [
+      ...(hasStart ? startChoices : []),
+      ...(hasTravel || mentionsDeparture ? travelChoices : []),
+      ...(hasDue ? dueChoices : []),
+      ...(!hasStart ? relativeChoices : []),
+      ...explicit,
+      { value: 'через45м', label: 'через45м', detail: language === 'ru' ? 'От момента создания карточки' : 'From item creation' },
+    ];
     const completeDuration = duration(partial);
-    const matching = values.filter(v => v.startsWith(partial.replace(/\s/g, '')));
-    const candidates = completeDuration !== null ? [...values].sort((a, b) => Number(duration(b) === completeDuration) - Number(duration(a) === completeDuration)) : matching.length ? matching : values;
-    options = candidates.map(v => ({ label: v, insert: `${reminder[1]}:${prefix}${v}${reminderTail} `, detail: v.startsWith('выезд') ? 'От времени выезда' : v.startsWith('начало') || v.startsWith('start') ? 'От event opens' : v.startsWith('срок') || v.startsWith('due') ? 'От due' : v.startsWith('через') ? 'От момента создания карточки' : hasStart ? 'До event opens · автоматически' : 'До due · автоматически' }));
+    const normalizedPartial = partial.replace(/\s/g, '');
+    const matching = values.filter(value => value.value.startsWith(normalizedPartial) || value.label.toLowerCase().startsWith(normalizedPartial));
+    const candidates = completeDuration !== null ? [...values].sort((a, b) => Number(duration(b.label) === completeDuration) - Number(duration(a.label) === completeDuration)) : matching.length ? matching : values;
+    options = candidates.map(value => ({ label: value.label, insert: `${reminder[1]}:${prefix}${value.value}${reminderTail} `, detail: value.detail }));
   } else if (/^(ттб|ttb):/i.test(token)) {
     const [key, partial = ''] = token.split(':');
     options = ['30м', '45м', '1ч'].filter(value => value.startsWith(partial)).map(value => ({ label: value, insert: `${key}:${value} `, detail: language === 'ru' ? 'Одинаковое время туда и обратно' : 'Same duration both ways' }));
