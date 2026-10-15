@@ -268,6 +268,64 @@ test('glass quick navigation shares a bottom row and hides for the keyboard', as
   await page.screenshot({ path: test.info().outputPath('quick-navigation.png') });
 });
 
+test('quick navigation keeps capture-sized circles in the same position on every page', async ({ page }) => {
+  test.setTimeout(90_000);
+  await setup(page, false, workspace => {
+    for (let index = 0; index < 12; index++) ensureAreaDefinition(workspace, `Area ${index}`);
+  }, 'Home');
+  const nav = page.getByRole('navigation', { name: 'Quick navigation' });
+  const home = nav.getByRole('button', { name: 'Home', exact: true });
+  const calendar = nav.getByRole('button', { name: 'Calendar', exact: true });
+  const capture = page.locator('.capture-dock .quick-capture');
+  const expectParaActionsClear = async () => {
+    const box = (await page.locator('.organization-order-actions').boundingBox())!;
+    const navBox = (await nav.boundingBox())!;
+    expect(box.x >= navBox.x + navBox.width || box.y + box.height <= navBox.y || box.y >= navBox.y + navBox.height).toBe(true);
+  };
+  for (const theme of ['light', 'dark'] as const) {
+    await navigate(page, 'Home');
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    await page.clock.runFor(400);
+    const inputBox = (await capture.boundingBox())!;
+    const reference = (await home.boundingBox())!;
+    expect(Math.abs(reference.height - inputBox.height)).toBeLessThan(1);
+    expect(Math.abs(reference.width - reference.height)).toBeLessThan(1);
+    expect(Math.abs(reference.y - inputBox.y)).toBeLessThan(1);
+    for (const target of ['Home', 'Calendar', 'PARA', 'Settings']) {
+      await navigate(page, target);
+      await page.clock.runFor(400);
+      for (const [index, button] of [home, calendar].entries()) {
+        const box = (await button.boundingBox())!;
+        expect(Math.abs(box.y - reference.y)).toBeLessThan(1);
+        expect(Math.abs(box.width - inputBox.height)).toBeLessThan(1);
+        expect(Math.abs(box.height - inputBox.height)).toBeLessThan(1);
+        if (index === 0) expect(Math.abs(box.x - reference.x)).toBeLessThan(1);
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+      }
+      if (target === 'PARA' || target === 'Settings') await expect(capture).toHaveCount(0);
+      if (target === 'PARA') await expectParaActionsClear();
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await page.clock.runFor(400);
+      expect(Math.abs((await home.boundingBox())!.y - reference.y)).toBeLessThan(1);
+      if (target === 'PARA') {
+        const actions = page.locator('.organization-order-actions');
+        await actions.scrollIntoViewIfNeeded(); await page.clock.runFor(400);
+        await expectParaActionsClear();
+      }
+      await page.screenshot({ path: test.info().outputPath(`dock-${target.toLowerCase()}-${theme}.png`) });
+    }
+  }
+  if ((page.viewportSize()?.width ?? 0) <= 620) {
+    await page.setViewportSize({ width: 320, height: 664 });
+    await navigate(page, 'Home'); await page.clock.runFor(400);
+    expect((await capture.boundingBox())!.x + (await capture.boundingBox())!.width).toBeLessThanOrEqual(320);
+    await navigate(page, 'PARA'); await page.clock.runFor(400);
+    await expectParaActionsClear();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});
+
 test('mobile navigation uses the shared glass surface in both themes', async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 0) > 620, 'Mobile navigation');
   await setup(page);

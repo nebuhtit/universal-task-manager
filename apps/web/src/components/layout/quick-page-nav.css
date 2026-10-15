@@ -5,13 +5,18 @@
   gap: var(--space-2);
   pointer-events: none;
   background: transparent;
-  max-width: calc(var(--control-height-touch) * 2 + var(--space-2));
+  width: var(--layout-quick-nav-width);
+  max-width: var(--layout-quick-nav-width);
   overflow: hidden;
   transition: max-width var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard), opacity var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard);
 }
 .quick-page-nav .ui-icon-button[data-variant] {
   pointer-events: auto;
   flex-shrink: 0;
+  width: var(--layout-capture-control-height);
+  height: var(--layout-capture-control-height);
+  min-height: var(--layout-capture-control-height);
+  padding: 0;
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-capture-border-idle);
   background: var(--color-surface);
@@ -26,11 +31,19 @@
     backdrop-filter: blur(calc(var(--blur-capture-idle) * 2));
   }
 }
-.capture-dock { align-items: center; gap: var(--space-2); transition: gap var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard); }
-.capture-dock-nav-only { justify-content: flex-start; }
-.capture-dock .quick-capture { min-width: 0; }
+.capture-dock {
+  display: grid;
+  /* Keep the input track even on PARA/Settings so navigation never moves. */
+  grid-template-columns: var(--layout-quick-nav-width) minmax(0, var(--layout-capture-input-max));
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  transition: grid-template-columns var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard), gap var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard);
+}
+.capture-dock .quick-capture { min-width: 0; width: 100%; height: var(--layout-capture-control-height); padding: var(--space-1); }
+.capture-dock .quick-capture .live-text-input > .ui-control { display: block; height: 100%; padding-block: 0; }
 .keyboard-open .quick-page-nav { max-width: 0; opacity: 0; visibility: hidden; }
-.keyboard-open .capture-dock { gap: 0; }
+.keyboard-open .capture-dock { grid-template-columns: 0 minmax(0, var(--layout-capture-input-max)); gap: 0; }
 @media (prefers-reduced-motion: reduce) {
   .capture-dock, .quick-page-nav { transition: none; }
 }

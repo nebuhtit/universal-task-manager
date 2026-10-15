@@ -120,6 +120,9 @@
   --layout-dialog-compact-max: 420px;
   --layout-topbar-height: 60px;
   --layout-capture-reserve: 88px;
+  --layout-capture-control-height: calc(var(--control-height-touch) + var(--space-4));
+  --layout-capture-input-max: 560px;
+  --layout-quick-nav-width: calc(var(--layout-capture-control-height) * 2 + var(--space-2));
   --z-overlay: 100;
 
   /* Temporary compatibility aliases. Remove only after legacy migration. */
