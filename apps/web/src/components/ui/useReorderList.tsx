@@ -13,7 +13,7 @@ function moveEntry<T>(items: T[], from: number, target: number, after = false) {
 }
 
 /** Pointer/touch reorder with an explicit handle; Arrow/Home/End keep it keyboard accessible. */
-export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { enabled = true, visualPreview = false } = {}) {
+export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { enabled = true, visualPreview = false, holdDelayMs = 0 } = {}) {
   const listId = useId();
   const container = useRef<HTMLDivElement | null>(null);
   const drag = useRef<DragState | null>(null);
@@ -69,9 +69,14 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
       cancelSurface.current?.();
       const target = event.currentTarget;
       const startY = event.clientY;
+      const startX = event.clientX;
       const pointerId = event.pointerId;
       const timer = window.setTimeout(() => {
         drag.current = { from: index, target: index, after: false };
+        if (holdDelayMs > 0) {
+          target.dataset.reorderHolding = 'true';
+          try { target.setPointerCapture?.(pointerId); } catch { /* Window listeners remain active. */ }
+        }
         if (visualPreview) {
           const bounds = target.getBoundingClientRect();
           const clone = target.cloneNode(true) as HTMLElement;
@@ -83,10 +88,11 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
           target.closest<HTMLElement>('[data-reorder-index]')?.setAttribute('data-reorder-dragging', 'true');
         }
         try { navigator.vibrate?.(15); } catch { /* Haptics are optional. */ }
-      }, 350);
+      }, holdDelayMs || 350);
       const move = (pointerEvent: PointerEvent) => {
         if (pointerEvent.pointerId !== pointerId) return;
-        if (!drag.current && Math.abs(pointerEvent.clientY - startY) > 10) { window.clearTimeout(timer); cleanup(); return; }
+        const distance = holdDelayMs > 0 ? Math.hypot(pointerEvent.clientX - startX, pointerEvent.clientY - startY) : Math.abs(pointerEvent.clientY - startY);
+        if (!drag.current && distance > 10) { window.clearTimeout(timer); cleanup(); return; }
         if (drag.current) pointerEvent.preventDefault();
         if (preview.current) preview.current.style.transform = `translateY(${pointerEvent.clientY - startY}px)`;
         updateDragTarget(pointerEvent.clientY);
@@ -100,19 +106,22 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
         drag.current = null; cleanup();
       };
       const cancel = () => { window.clearTimeout(timer); drag.current = null; cleanup(); };
-      const cleanup = () => { clearPreview(); cancelSurface.current = undefined; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', cancel); };
+      const touchMove = (touchEvent: TouchEvent) => { if (drag.current && touchEvent.cancelable) touchEvent.preventDefault(); };
+      const cleanup = () => { delete target.dataset.reorderHolding; clearPreview(); cancelSurface.current = undefined; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', cancel); target.removeEventListener('touchmove', touchMove); };
       cancelSurface.current = cancel;
       window.addEventListener('pointermove', move, { passive: false }); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', cancel);
-      try { target.setPointerCapture?.(event.pointerId); } catch { /* Window listeners also cover unavailable or cancelled capture. */ }
+      if (holdDelayMs > 0) target.addEventListener('touchmove', touchMove, { passive: false });
+      else try { target.setPointerCapture?.(event.pointerId); } catch { /* Window listeners also cover unavailable or cancelled capture. */ }
     },
     onClick: (event) => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } },
     onTouchEnd: (event) => { if (performance.now() < suppressClickUntil.current) event.preventDefault(); },
   });
   const handle = (index: number, label: string): ReactNode => <button
     type="button"
-    draggable
-    className="ui-reorder-handle"
+    draggable={holdDelayMs === 0}
+    className={`ui-reorder-handle${holdDelayMs > 0 ? ' requires-hold' : ''}`}
     aria-label={`Reorder ${label}`}
+    onContextMenu={(event) => { if (holdDelayMs > 0) event.preventDefault(); }}
     onDragStart={(event) => {
       drag.current = { from: index, target: index, after: false };
       event.dataTransfer.effectAllowed = 'move';
@@ -126,6 +135,7 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
       onChange(moveEntry(items, index, target, target > index));
     }}
     onPointerDown={(event) => {
+      if (holdDelayMs > 0) { surface(index).onPointerDown?.(event); return; }
       const target = event.currentTarget;
       target.focus();
       drag.current = { from: index, target: index, after: false };
@@ -151,6 +161,7 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
       window.addEventListener('pointercancel', cancel);
     }}
     onMouseDown={(event) => {
+      if (holdDelayMs > 0) return;
       event.preventDefault();
       event.currentTarget.focus();
       drag.current ??= { from: index, target: index, after: false };

@@ -23,12 +23,33 @@ export function DurationInput(props: DurationInputProps) {
   const unit = duration?.unit ?? defaultUnit;
   const display = (next?: CalendarDurationValue) => next ? `${next.amount}${showUnit ? ` ${suffix[next.unit]}` : ''}` : '';
   const [value, setValue] = useState(display(duration));
+  const latestValue = useRef(value);
+  const input = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
   const [typed, setTyped] = useState(false);
   const editing = useRef(false);
   const inputUnit = useRef(unit);
-  const suppressTouchClick = useRef(false);
-  useEffect(() => { if (!editing.current) setValue(display(duration)); }, [duration?.amount, duration?.unit, showUnit]);
+  const pressed = useRef<{ id: number; x: number; y: number } | null>(null);
+  const suppressPointerClick = useRef(false);
+  const updateValue = (next: string) => { latestValue.current = next; setValue(next); };
+  useEffect(() => { if (!editing.current) updateValue(display(duration)); }, [duration?.amount, duration?.unit, showUnit]);
+  useEffect(() => {
+    // A release outside the preset must not leave a pending press blocking blur.
+    const cancelOutsidePress = (event: PointerEvent) => {
+      if (pressed.current?.id !== event.pointerId) return;
+      pressed.current = null; suppressPointerClick.current = true;
+      if (!input.current?.parentElement?.contains(document.activeElement)) {
+        editing.current = false; setFocused(false);
+        updateValue(display(duration));
+      }
+    };
+    document.addEventListener('pointerup', cancelOutsidePress);
+    document.addEventListener('pointercancel', cancelOutsidePress);
+    return () => {
+      document.removeEventListener('pointerup', cancelOutsidePress);
+      document.removeEventListener('pointercancel', cancelOutsidePress);
+    };
+  }, [duration?.amount, duration?.unit, showUnit]);
   const parse = (text: string) => {
     if (props.calendarUnits) {
       const match = /^\s*(\d+)\s*(mo|month|months|мес|месяц|месяца|месяцев|yr|year|years|г|год|года|лет)?\s*$/iu.exec(text);
@@ -47,39 +68,44 @@ export function DurationInput(props: DurationInputProps) {
     return parseFriendlyDurationInput(text, fallbackUnit);
   };
   const commit = (next: string) => {
-    setValue(next);
+    updateValue(next);
     if (!next.trim()) emit(undefined);
     else { const parsed = parse(next); if (parsed) emit(parsed); }
   };
   const number = /^\s*(\d+(?:[.,]\d+)?)\s*[\p{L}]*\s*$/u.exec(value)?.[1];
   const choices = presets && (!typed || !value.trim())
-    ? ['10 min', '15 min', '30 min', '45 min', '1 h', '2 h', '3 h', '5 h']
+    ? ['5 min', '10 min', '15 min', '30 min', '45 min', '1 h', '2 h', '3 h', '5 h']
     : [...units, ...(props.calendarUnits ? ['months', 'years'] as const : [])].map(nextUnit => `${number ?? '1'} ${suffix[nextUnit]}`);
   return <div className="duration-input" onFocus={() => setFocused(true)} onBlur={(event) => {
-    if (event.currentTarget.contains(event.relatedTarget)) return;
+    if (event.currentTarget.contains(event.relatedTarget) || pressed.current) return;
     setFocused(false); editing.current = false;
-    const parsed = parse(value);
+    const parsed = parse(latestValue.current);
     if (parsed) {
       if (parsed.amount !== duration?.amount || parsed.unit !== duration?.unit) emit(parsed);
-      setValue(`${parsed.amount} ${suffix[parsed.unit]}`);
-    } else setValue(display(duration));
+      updateValue(`${parsed.amount} ${suffix[parsed.unit]}`);
+    } else updateValue(display(duration));
   }}>
-    <Input className="duration-amount" type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+    <Input ref={input} className="duration-amount" type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false}
       aria-label={label} disabled={disabled} value={value} placeholder="1 h, 30 min" onFocus={() => { editing.current = true; inputUnit.current = unit; setTyped(false); }}
       onChange={(event) => { setTyped(true); commit(event.target.value); }} />
     {focused && !disabled && <div className="duration-input-suggestions" role="group" aria-label={`${label} units`}>
       {choices.map((choice) => <Button key={choice} size="compact" variant="ghost"
-        // Keep focus (and the mobile keyboard/visual viewport) stable while the
-        // suggestion is tapped. iOS may suppress click when pointerdown is
-        // canceled, so commit touch/pen on pointerup and reserve click for
-        // mouse and keyboard activation.
-        onPointerDown={(event) => { suppressTouchClick.current = false; event.preventDefault(); }}
-        onPointerUp={(event) => {
-          if (event.pointerType === 'mouse' || event.button !== 0) return;
-          suppressTouchClick.current = true;
-          commit(choice);
+        // Complete a real press once, without relying on iOS's optional click
+        // or the mouse-only button value of a touch/pen pointerup.
+        onPointerDown={(event) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return;
+          pressed.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+          suppressPointerClick.current = false;
+          event.preventDefault();
         }}
-        onClick={(event) => { if (suppressTouchClick.current && event.detail !== 0) { suppressTouchClick.current = false; return; } suppressTouchClick.current = false; commit(choice); }}>{choice}</Button>)}
+        onPointerUp={(event) => {
+          const start = pressed.current; pressed.current = null;
+          suppressPointerClick.current = true;
+          if (!start || start.id !== event.pointerId || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) return;
+          commit(choice);
+          input.current?.focus({ preventScroll: true });
+        }}
+        onClick={(event) => { if (suppressPointerClick.current && event.detail !== 0) { suppressPointerClick.current = false; return; } suppressPointerClick.current = false; commit(choice); }}>{choice}</Button>)}
     </div>}
   </div>;
 }

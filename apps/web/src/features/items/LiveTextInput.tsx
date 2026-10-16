@@ -152,7 +152,15 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   useEffect(() => { if (selected >= optionLimit) setOptionLimit(selected + 30); }, [selected, optionLimit]);
   const expanded = focused && open && analysisCurrent && suggestionsEnabled && suggestions.options.length > 0;
   useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
-  useEffect(() => { if (expanded && selected >= 0) document.getElementById(`${id}-option-${selected}`)?.scrollIntoView({ block: 'nearest' }); }, [expanded, selected, id]);
+  useEffect(() => {
+    const body = panel.current;
+    const option = selected >= 0 ? document.getElementById(`${id}-option-${selected}`) : null;
+    if (!expanded || !body || !option) return;
+    // Scroll only the suggestion list, never the editor/page containing the input.
+    const bounds = body.getBoundingClientRect(), target = option.getBoundingClientRect();
+    if (target.top < bounds.top) body.scrollTop += target.top - bounds.top;
+    else if (target.bottom > bounds.bottom) body.scrollTop += target.bottom - bounds.bottom;
+  }, [expanded, selected, id]);
   useLayoutEffect(() => {
     if (pendingCaret.current === null) return;
     const position = pendingCaret.current; pendingCaret.current = null;

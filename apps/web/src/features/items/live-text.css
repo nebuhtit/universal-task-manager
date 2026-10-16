@@ -10,7 +10,7 @@
   .live-text-colored-control { -webkit-text-fill-color: currentColor; }
 }
 .capture-dock .quick-capture .live-text-input > .ui-control { border-radius: var(--radius-pill); background: transparent; }
-.live-text-input:has(textarea) .live-text-panel { position: relative; bottom: auto; margin-top: var(--space-2); }
+.live-text-input:has(textarea) .live-text-panel { top: calc(100% + var(--space-2)); bottom: auto; }
 .live-text-panel { position: absolute; bottom: calc(100% + var(--space-2)); left: 0; right: 0; max-height: min(40dvh, 20rem); overflow: auto; overscroll-behavior: contain; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-capture-active); color: var(--color-text); box-shadow: var(--shadow-elevated); z-index: 1; }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   /* Match the header: a separate glass layer avoids making the panel itself
@@ -18,7 +18,7 @@
   .live-text-panel { isolation: isolate; background: transparent; }
   .live-text-panel::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--color-capture-active); -webkit-backdrop-filter: blur(var(--blur-capture-idle)); backdrop-filter: blur(var(--blur-capture-idle)); }
 }
-.live-text-panel.live-text-panel-inline { position: relative; bottom: auto; max-height: min(30dvh, 20rem); margin-top: var(--space-2); box-shadow: none; }
+.live-text-panel.live-text-panel-inline { top: calc(100% + var(--space-2)); bottom: auto; max-height: min(30dvh, 20rem); }
 .live-text-panel { display: flex; flex-direction: column; overflow: hidden; }
 .live-text-panel-body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .live-text-panel > .live-day-preview { flex-shrink: 0; }

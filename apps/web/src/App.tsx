@@ -67,6 +67,7 @@ import { COMPLETION_EXIT_MS, selectViewItems, setCompletionHold } from './featur
 import { dateInput, fromDateInput, formatRussianDateTime } from './utils/dates';
 import { clockService } from './services/clockService';
 import { isNativeICloudBackupAvailable, requestNativeICloudImport, writeNativeICloudBackup } from './services/nativeICloudBackup';
+import { nativeBackupFilename } from './services/backupFilename';
 import { isNativeReminderAvailable, requestNativeReminderPermission, syncNativeReminders } from './services/nativeReminders';
 import { visibleItemNotices } from './services/noticeVisibility';
 import { GOOGLE_CALENDAR_CLIENT_ID, requestGoogleCalendarToken } from './services/googleCalendar';
@@ -108,6 +109,7 @@ const applyCalendarReminderDefaults = (item: UniversalItem, workspace: Workspace
 const safeFilename = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'universal';
 const downloadText = async (content: string, filename: string, type = 'application/json') => {
   if (isNativeICloudBackupAvailable()) return writeNativeICloudBackup(content, filename, 'files');
+  filename = nativeBackupFilename(filename);
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
@@ -163,8 +165,8 @@ const downloadLockedRecoveryCopy = async (source?: string, filenamePrefix = 'uni
     throw new Error('Recovery copy failed structural validation and was not downloaded');
   }
   recovery.diagnostics = exportSafeDiagnostics();
-  // Keep the release and schema visible in Files so several recovery copies
-  // cannot be confused during an incident.
+  // The shared filename policy removes this metadata unless the user opts in.
+  // Release/schema metadata inside the recovery payload is always retained.
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', 'Z');
   await downloadText(JSON.stringify(recovery), `${filenamePrefix}-utm-v${APP_VERSION}-schema-${SCHEMA_VERSION}-${stamp}.utmb`, 'application/octet-stream');
 };
@@ -636,7 +638,7 @@ function TransferDialog({ session, onFlush, onMerged, onReplaced, onBackupExport
     try {
       await onFlush();
       const content = await exportEncryptedLocalBackup();
-      const filename = `${session.document.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}.utmb`;
+      const filename = nativeBackupFilename(`${safeFilename(session.document.name)}.utmb`);
       if (isNativeICloudBackupAvailable()) {
         await writeNativeICloudBackup(content, filename, 'files');
         onBackupExported?.();
@@ -972,7 +974,7 @@ export default function App() {
         }
       } else {
         if (isNativeICloudBackupAvailable()) await writeNativeICloudBackup(await exportEncryptedLocalBackup(), `${safeFilename(workspace.name)}.utmb`, 'files');
-        else await downloadLockedRecoveryCopy();
+        else await downloadLockedRecoveryCopy(undefined, safeFilename(workspace.name));
       }
       setBackupReminder(false);
       setToast(savedEncrypted ? 'Encrypted backup saved.' : 'Plaintext backup saved.');

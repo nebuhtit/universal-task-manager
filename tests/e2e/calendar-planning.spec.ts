@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
 import { currentTimeline } from './calendar-locators';
 import * as Automerge from '@automerge/automerge';
-import { createWorkspace, createItem, ensureAreaDefinition, ensureProjectDefinition, type WorkspaceDocument } from '../../packages/core/dist/index.js';
+import { createWorkspace, createItem, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, type WorkspaceDocument } from '../../packages/core/dist/index.js';
 import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
 
 const password = 'calendar-planning-fixture';
@@ -45,6 +45,151 @@ async function unlock(page: Page) {
   await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.locator('.app-shell')).toBeVisible({ timeout: 30_000 });
 }
+
+test('backup filenames stay stable unless version and timestamp metadata is enabled', async ({ page }) => {
+  await setup(page, false, undefined, 'Settings');
+  await page.getByText('Backup filenames', { exact: true }).click();
+  const checkbox = page.getByRole('checkbox', { name: 'Include app and workspace versions, date and time in backup filenames', exact: true });
+  await expect(checkbox).not.toBeChecked();
+  const save = async () => {
+    await navigate(page, 'Home');
+    const event = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Save encrypted backup', exact: true }).click();
+    const file = await event;
+    await expect(page.getByRole('button', { name: 'Save encrypted backup', exact: true })).toBeEnabled();
+    return file.suggestedFilename();
+  };
+  expect(await save()).toBe('planning.utmb');
+  await page.clock.runFor(2000);
+  expect(await save()).toBe('planning.utmb');
+  await navigate(page, 'Settings');
+  await page.getByText('Backup filenames', { exact: true }).click();
+  await checkbox.check();
+  await settledReload(page);
+  await navigate(page, 'Settings');
+  await page.getByText('Backup filenames', { exact: true }).click();
+  await expect(checkbox).toBeChecked();
+  expect(await save()).toMatch(/^planning-utm-v[\d.]+-schema-[\d.]+-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_UTC[+-]\d{4}\.utmb$/);
+  await navigate(page, 'Settings');
+  await page.getByText('Backup filenames', { exact: true }).click();
+  await checkbox.uncheck();
+  expect(await save()).toBe('planning.utmb');
+});
+
+test('PARA native touch swipes scroll while a held touch reorders', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'Native touch injection uses Chromium CDP; WebKit is covered by pointer tests.');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page, false, workspace => {
+    for (let index = 0; index < 25; index++) ensureAreaDefinition(workspace, `Area ${index}`);
+  }, 'PARA');
+  const rows = page.locator('.organization-area-groups > [data-reorder-index]');
+  const before = await rows.allTextContents();
+  const handle = rows.first().locator(':scope > .ui-reorder-handle');
+  await handle.scrollIntoViewIfNeeded();
+  const start = (await handle.boundingBox())!;
+  const x = start.x + start.width / 2, y = start.y + start.height / 2;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+  const touch = (type: string, atY?: number) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: atY === undefined ? [] : [{ x, y: atY, id: 0 }] });
+  const scrollBefore = await page.evaluate(() => window.scrollY);
+  await touch('touchStart', y);
+  for (const offset of [15, 40, 70, 100]) { await touch('touchMove', y - offset); await page.clock.runFor(20); }
+  await touch('touchEnd'); await page.clock.runFor(200);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(scrollBefore);
+  expect(await rows.allTextContents()).toEqual(before);
+  await handle.scrollIntoViewIfNeeded();
+  const held = (await handle.boundingBox())!, next = (await rows.nth(1).boundingBox())!;
+  await touch('touchStart', held.y + held.height / 2);
+  await page.clock.runFor(550);
+  await expect(handle).toHaveAttribute('data-reorder-holding', 'true');
+  await touch('touchMove', next.y + next.height - 2);
+  await touch('touchEnd');
+  await expect(rows.nth(1)).toHaveText(before[0]!);
+  await cdp.detach();
+});
+
+for (const theme of ['light', 'dark'] as const) test(`PARA requires a half-second hold before reordering in ${theme}`, async ({ page }) => {
+  await setup(page, false, workspace => {
+    workspace.calendarPreferences.appearance.mode = theme;
+    ensureAreaDefinition(workspace, 'Alpha'); ensureAreaDefinition(workspace, 'Beta');
+    ensureProjectDefinition(workspace, 'First', { areas: ['Alpha'] });
+    ensureProjectDefinition(workspace, 'Second', { areas: ['Alpha'] });
+    ensureTagDefinition(workspace, 'one'); ensureTagDefinition(workspace, 'two');
+  }, 'PARA');
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 1000)));
+  await page.locator('.organization-area-group').evaluateAll(nodes => nodes.forEach(node => { (node as HTMLDetailsElement).open = true; }));
+  for (const selector of ['.organization-area-groups', '.organization-nested-projects', '.organization-tag-catalog', '.organization-priority-list']) {
+    const list = page.locator(selector).first();
+    const rows = list.locator(':scope > [data-reorder-index]');
+    const before = await rows.allTextContents();
+    const handle = rows.first().locator(':scope > .ui-reorder-handle');
+    await handle.scrollIntoViewIfNeeded();
+    const start = (await handle.boundingBox())!;
+    const end = (await rows.nth(1).boundingBox())!;
+    const down = { pointerId: 91, pointerType: 'touch', isPrimary: true, button: 0, clientX: start.x + 5, clientY: start.y + 5 };
+    const move = { ...down, clientY: end.y + end.height - 2 };
+    await expect(handle).toHaveAttribute('draggable', 'false');
+    await handle.dispatchEvent('pointerdown', down);
+    await page.clock.runFor(499);
+    await expect(handle).not.toHaveAttribute('data-reorder-holding');
+    await handle.dispatchEvent('pointermove', move);
+    await page.clock.runFor(501);
+    await handle.dispatchEvent('pointerup', move);
+    expect(await rows.allTextContents()).toEqual(before);
+    await handle.dispatchEvent('pointerdown', down);
+    await page.clock.runFor(200);
+    await handle.dispatchEvent('pointercancel', down);
+    await page.clock.runFor(500);
+    await expect(handle).not.toHaveAttribute('data-reorder-holding');
+    expect(await rows.allTextContents()).toEqual(before);
+    await handle.dispatchEvent('pointerdown', down);
+    await page.clock.runFor(500);
+    await expect(handle).toHaveAttribute('data-reorder-holding', 'true');
+    await handle.dispatchEvent('pointermove', move);
+    await handle.dispatchEvent('pointerup', move);
+    await expect(rows.nth(1)).toHaveText(before[0]!);
+    await rows.nth(1).locator(':scope > .ui-reorder-handle').press('ArrowUp');
+    expect(await rows.allTextContents()).toEqual(before);
+  }
+});
+
+for (const theme of ['light', 'dark'] as const) test(`Live Text stays anchored while suggestions change in ${theme}`, async ({ page }) => {
+  await setup(page, false, workspace => {
+    workspace.calendarPreferences.appearance.mode = theme;
+    for (let index = 0; index < 60; index++) ensureProjectDefinition(workspace, `Launch ${index}`);
+  });
+  const capture = page.locator('.capture-dock').getByRole('combobox');
+  await capture.focus();
+  const captureInitial = await capture.boundingBox();
+  for (const text of ['project L', 'project Launch 5', '']) {
+    await capture.fill(text); await page.clock.runFor(200);
+    if (text === 'project L') {
+      await expect(page.locator('.capture-dock').getByRole('listbox')).toBeVisible();
+      for (let index = 0; index < 12; index++) await capture.press('ArrowDown');
+    }
+    expect(Math.abs((await capture.boundingBox())!.y - captureInitial!.y)).toBeLessThanOrEqual(1);
+    await expect(capture).toBeFocused();
+  }
+  await page.locator('article').getByText('A task', { exact: true }).first().click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const input = editor.getByLabel('Title', { exact: true });
+  await input.fill(''); await input.focus();
+  const initial = await input.boundingBox();
+  const timer = editor.locator('.quick-item-timer');
+  const timerInitial = await timer.boundingBox();
+  for (const text of ['project L', 'project Launch 5', '.', 'reminder', 'project L', '']) {
+    await input.fill(text); await page.clock.runFor(200);
+    if (text === 'project L') {
+      await expect(editor.getByRole('listbox')).toBeVisible();
+      for (let index = 0; index < 12; index++) await input.press('ArrowDown');
+    }
+    const actual = await input.boundingBox();
+    expect(Math.abs(actual!.y - initial!.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(actual!.height - initial!.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs((await timer.boundingBox())!.y - timerInitial!.y)).toBeLessThanOrEqual(1);
+    await expect(input).toBeFocused();
+  }
+});
 
 for (const route of ['Home', 'All items', 'Calendar', 'Project', 'Area']) test(`Live Text selections persist when editing from ${route}`, async ({ page }) => {
   const { read } = await setup(page, false, workspace => {

@@ -87,7 +87,7 @@ export const paraViewsForExport = (workspace: WorkspaceDocument): SavedView[] =>
 export const createParaStructurePackage = (workspace: WorkspaceDocument) => createPortablePackage({ ...workspace, customFields: {} }, { kind: 'views', views: paraViewsForExport(workspace) });
 
 function DraggablePriorityRows({ entries, onReorder, render }: { entries: OrganizationPriorityEntry[]; onReorder: (entries: OrganizationPriorityEntry[]) => void; render: (entry: OrganizationPriorityEntry) => ReactNode }) {
-  const reorder = useReorderList(entries, onReorder);
+  const reorder = useReorderList(entries, onReorder, { holdDelayMs: 500 });
   return <div className="organization-priority-list" ref={reorder.container}>{entries.map((entry, index) => <Surface className={`organization-priority-row${entry.kind === 'project' && entry.name !== null ? ' is-project' : ''}`} data-priority-entry={priorityKey(entry)} key={priorityKey(entry)} {...reorder.rowProps(index)}>
     {reorder.handle(index, entry.name === null ? `No ${entry.kind === 'tag' ? 'Tags' : entry.kind === 'area' ? 'Area' : 'Project'}` : entry.kind === 'project' ? `Project ${entry.name} in ${entry.area ?? 'No Area'}` : `${entry.kind === 'tag' ? '#' : ''}${entry.name}`)}{render(entry)}
   </Surface>)}</div>;
@@ -116,7 +116,7 @@ function AreaGroup({ area, workspace, commit, orderCommit, projectMetrics, onOpe
   const projects = orderedOrganizationPriorityEntries(workspace)
     .filter((entry): entry is OrganizationPriorityEntry & { kind: 'project'; name: string } => entry.kind === 'project' && entry.name !== null && (entry.area ?? null) === (area ?? null))
     .map((entry) => entry.name).filter((project, index, entries) => entries.indexOf(project) === index);
-  const reorder = useReorderList(projects, (next) => orderCommit(`Reorder Projects in ${area ?? 'No Area'}`, (draft) => reorderProjectSubset(draft, next, area ?? null)));
+  const reorder = useReorderList(projects, (next) => orderCommit(`Reorder Projects in ${area ?? 'No Area'}`, (draft) => reorderProjectSubset(draft, next, area ?? null)), { holdDelayMs: 500 });
   const add = () => { const project = name.trim(); if (!project) return; commit('Create project', (draft) => { ensureProjectDefinition(draft, project, { areas: area ? [area] : [] }); }); setName(''); };
   return <details className="ui-surface organization-area-group"><summary><span><button type="button" className="organization-entity-link organization-area-name" style={area ? { color: organizationAccentFor(workspace, 'area', area) } : undefined} onClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpenArea(); }}><FieldIcon path="area" label="Area" />{area ? <UserDataText>{area}</UserDataText> : 'No Area'}</button><small>{projects.length} projects</small></span></summary><div className="organization-area-content">{projects.length > 0 && <div className="organization-nested-projects" ref={reorder.container}>{projects.map((project, index) => <div className="organization-project-drag-row" key={`${area ?? 'none'}:${project}`} {...reorder.rowProps(index)}>{reorder.handle(index, `Project ${project}`)}<ProjectRow project={project} workspace={workspace} metrics={projectMetrics[project] ?? emptyProjectMetrics()} onOpen={() => onOpenProject(project)} /></div>)}</div>}
     <div className="organization-manager-add organization-project-add"><Field label={area ? `New Project in ${area}` : 'New Project without Area'}><Input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); add(); } }} placeholder="Project name" /></Field><Button size="compact" disabled={!name.trim()} onClick={add}>Add Project</Button></div></div>
@@ -202,8 +202,8 @@ export function OrganizationManager({ workspace, commit, onEditItem = () => {}, 
   const orderCommit: Commit = (_message, mutation) => { const draft = clean(orderWorkspace); mutation(draft); setOrderDraft(clean(draft.organizationPreferences)); };
   const entityCommit: Commit = (message, mutation) => { commit(message, mutation); if (!orderDraft) return; const draft = clean(orderWorkspace); mutation(draft); setOrderDraft(clean(draft.organizationPreferences)); };
   const areas = orderedOrganizationPriorityEntries(orderWorkspace).filter((entry) => entry.kind === 'area').map((entry) => entry.name);
-  const areaReorder = useReorderList(areas, (next) => orderCommit('Reorder Areas', (draft) => reorderAreaSubset(draft, next)));
-  const tags = orderedTagEntries(orderWorkspace); const tagReorder = useReorderList(tags, (next) => orderCommit('Reorder Tags', (draft) => reorderTagSubset(draft, next)));
+  const areaReorder = useReorderList(areas, (next) => orderCommit('Reorder Areas', (draft) => reorderAreaSubset(draft, next)), { holdDelayMs: 500 });
+  const tags = orderedTagEntries(orderWorkspace); const tagReorder = useReorderList(tags, (next) => orderCommit('Reorder Tags', (draft) => reorderTagSubset(draft, next)), { holdDelayMs: 500 });
   const addArea = () => { const area = areaName.trim(); if (!area) return; entityCommit('Create area', (draft) => { ensureAreaDefinition(draft, area); }); setAreaName(''); };
   const addTag = () => { const tag = tagName.trim().replace(/^#+/, ''); if (!tag) return; entityCommit('Create tag', (draft) => { ensureTagDefinition(draft, tag); }); setTagName(''); };
   const saveOrder = () => { if (!orderDraft) return; const saved = clean(orderDraft); commit('Save PARA organization order', (draft) => { draft.organizationPreferences = saved; }); setOrderDraft(null); };

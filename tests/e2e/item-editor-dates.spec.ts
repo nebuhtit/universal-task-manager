@@ -27,6 +27,52 @@ async function openDates(editor: import('@playwright/test').Locator) {
   await editor.locator('[data-editor-section="dates"]').evaluate((element) => { (element as HTMLDetailsElement).open = true; });
 }
 
+for (const theme of ['light', 'dark'] as const) test(`duration presets apply reliably and persist in ${theme}`, async ({ page }, testInfo) => {
+  await createWorkspaceAndItem(page);
+  await page.emulateMedia({ colorScheme: theme });
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const amount = editor.getByLabel('Calendar duration amount', { exact: true });
+  const choices = editor.getByRole('group', { name: 'Calendar duration amount units', exact: true });
+  const opens = editor.getByLabel('Event opens', { exact: true });
+  for (const text of ['5 min', '30 min', '1 h', '5 min']) {
+    await amount.focus();
+    const option = choices.getByRole('button', { name: text, exact: true });
+    if (testInfo.project.use.hasTouch) await option.tap(); else await option.click();
+    await expect(amount).toHaveValue(text);
+    await opens.focus();
+    await expect(amount).toHaveValue(text);
+  }
+  await amount.focus();
+  const five = choices.getByRole('button', { name: '5 min', exact: true });
+  // WebKit can report -1 for touch button and deliver blur before release.
+  await five.dispatchEvent('pointerdown', { pointerId: 71, pointerType: 'touch', button: 0, clientX: 10, clientY: 10 });
+  await opens.focus();
+  await five.dispatchEvent('pointerup', { pointerId: 71, pointerType: 'touch', button: -1, clientX: 10, clientY: 10 });
+  await expect(amount).toHaveValue('5 min');
+  await opens.focus(); await expect(amount).toHaveValue('5 min');
+  await amount.focus();
+  const thirty = choices.getByRole('button', { name: '30 min', exact: true });
+  await thirty.dispatchEvent('pointerdown', { pointerId: 72, pointerType: 'touch', button: 0, clientX: 10, clientY: 10 });
+  await thirty.dispatchEvent('pointercancel', { pointerId: 72, pointerType: 'touch' });
+  await thirty.dispatchEvent('pointerup', { pointerId: 72, pointerType: 'touch', button: 0, clientX: 10, clientY: 10 });
+  await expect(amount).toHaveValue('5 min');
+  await thirty.focus(); await thirty.press('Enter');
+  await expect(amount).toHaveValue('30 min');
+  await amount.focus();
+  if (testInfo.project.use.hasTouch) await choices.getByRole('button', { name: '5 min', exact: true }).tap();
+  else await choices.getByRole('button', { name: '5 min', exact: true }).click();
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  if (testInfo.project.name === 'mobile') {
+    await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.locator('.mobile-nav-menu').getByRole('button', { name: /^All items/ }).click();
+  } else await page.locator('.sidebar').getByRole('button', { name: /^All items/ }).click();
+  await page.locator('article').getByText('Calendar block', { exact: true }).first().click();
+  await openDates(editor);
+  await expect(amount).toHaveValue('5 min');
+  await expect(opens).toHaveValue('');
+});
+
 test('duration unit suggestions remain visible and accept friendly input in the editor', async ({ page }, testInfo) => {
   await createWorkspaceAndItem(page);
   const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
