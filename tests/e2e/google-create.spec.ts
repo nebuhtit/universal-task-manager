@@ -188,7 +188,8 @@ test('edits imported Google occurrences in the universal editor and keeps local 
   await itemEditor.getByLabel('Entry duration', { exact: true }).fill('65 min'); await itemEditor.getByLabel('Comment', { exact: true }).fill('Focused work'); await itemEditor.getByRole('button', { name: 'Apply' }).click();
   await expect(itemEditor.getByText('Focused work', { exact: true })).toBeVisible();
   await itemEditor.getByRole('button', { name: 'Save item', exact: true }).click();
-  await page.getByText('Journal task', { exact: true }).first().click();
+  await navigate('All items');
+  await page.locator('article').getByText('Journal task', { exact: true }).first().click();
   await expand(itemEditor.locator('[data-editor-section="dates"] > summary'));
   await expand(itemEditor.locator('summary').filter({ hasText: /^Progress & completions/ }));
 
