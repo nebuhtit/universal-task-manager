@@ -4,6 +4,7 @@ import { bareDurationInsertion, dateValueExpression, duration, parseDate, parseL
 import { extractOrganization } from '../../../quick-entry-lab/organization';
 import { extractWithinRelations } from '../../../quick-entry-lab/relations';
 import { extractCalendarSelection, joinCalendarText, type CalendarSelection } from '../../../quick-entry-lab/calendars';
+import { isLiteralEntry } from '../../../quick-entry-lab/literal';
 
 export const QUICK_ENTRY_SOURCE = 'utm:quickEntrySource';
 export const QUICK_ENTRY_CALENDAR = 'utm:quickEntryCalendar';
@@ -73,6 +74,7 @@ export function quickEntrySource(item: UniversalItem): QuickEntrySource | null {
 
 /** Freeze relative dates at creation while preserving the rest of the wording. */
 export function materializeQuickEntryText(text: string, now: Date): string {
+  if (isLiteralEntry(text)) return text;
   if (/^\.(?:\s|$)/.test(text.trimStart())) return text;
   const bareAt = bareDurationInsertion(text);
   if (bareAt >= 0) text = text.slice(0, bareAt).replace(/на\s+$/, '') + 'длительность ' + text.slice(bareAt);
@@ -133,6 +135,7 @@ function reminderItems(draft: Draft): UniversalItem['reminders'] {
 
 /** Presentation only: keep quoted titles and decimal commas untouched. */
 export function formatQuickEntryForEditor(text: string): string {
+  if (isLiteralEntry(text)) return text;
   const calendar = extractCalendarSelection(text);
   text = calendar.displayText;
   text = text.replace(editorDefaultReminders, '').trimEnd();
@@ -163,6 +166,7 @@ const editorDefaultReminders = /\s+(?:напомнить|нап|н|remind|remind
 
 /** Hidden default reminder syntax remains part of the source, not the visible title. */
 export function applyQuickEntryEditorText(item: UniversalItem, text: string, now: Date) {
+  if (isLiteralEntry(text)) return applyQuickEntryText(item, text, now, { preserveUnspecifiedSchedule: true });
   const calendar = extractCalendarSelection(text);
   text = calendar.displayText;
   const source = extractCalendarSelection(quickEntrySource(item)?.text ?? '').displayText;
@@ -339,6 +343,13 @@ function replaceCapture(text: string, match: RegExpExecArray, group: number, rep
 export function syncQuickEntrySource(previous: UniversalItem, next: UniversalItem): UniversalItem {
   const source = quickEntrySource(previous);
   if (!source) return next;
+  if (isLiteralEntry(source.text)) {
+    const titleAt = source.text.indexOf(previous.title);
+    const text = previous.title === next.title ? source.text : titleAt >= 0
+      ? source.text.slice(0, titleAt) + next.title + source.text.slice(titleAt + previous.title.length)
+      : `. ${next.title}`;
+    return { ...next, extensions: { ...next.extensions, [QUICK_ENTRY_SOURCE]: { ...source, text } } };
+  }
   if (JSON.stringify(previous.relations) !== JSON.stringify(next.relations)) {
     const extensions = { ...next.extensions }; delete extensions[QUICK_ENTRY_SOURCE];
     return { ...next, extensions };

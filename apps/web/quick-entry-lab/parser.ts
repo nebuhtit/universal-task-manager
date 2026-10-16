@@ -1,5 +1,6 @@
 /** Standalone experiment. No UTM imports, storage, network or execution of input. */
 import { en, ru } from 'chrono-node';
+import { isLiteralEntry } from './literal';
 import { extractOrganization } from './organization';
 import { extractWithinRelations } from './relations';
 import { extractCalendarSelection } from './calendars';
@@ -849,13 +850,13 @@ export function bareDurationInsertion(input: string): number {
 }
 
 export function parseLiveEntry(input: string, now: Date, context?: EntryContext): Draft {
+  if (isLiteralEntry(input)) return { isNote: true, title: input.trimStart().slice(1).trim(), withinIds: [], areas: [], projects: [], tags: [], commandSpans: [], start: null, end: null, due: null, leave: null, durationMinutes: null, travelMinutes: null, reminders: [], errors: [], warnings: [] };
   const calendar = extractCalendarSelection(input);
   input = calendar.text;
   const within = extractWithinRelations(input);
   input = within.text;
   const organization = extractOrganization(input);
   const fields = { ...(calendar.selection ? { calendarId: calendar.selection.id } : {}), withinIds: within.ids, areas: organization.areas, projects: organization.projects, tags: organization.tags };
-  if (/^\.(?:\s|$)/.test(organization.text)) return { ...fields, commandSpans: organization.commandSpans, isNote: true, title: organization.text.slice(1).trim(), start: null, end: null, due: null, leave: null, durationMinutes: null, travelMinutes: null, reminders: [], errors: [], warnings: [] };
   input = organization.maskedText;
   const flagSpans: Array<{ start: number; end: number }> = [];
   let noDateDefaults = false, noDefaultReminders = false;
@@ -884,7 +885,7 @@ export function parseLiveEntry(input: string, now: Date, context?: EntryContext)
 }
 
 export function suggest(input: string, caret: number, now: Date = new Date(), interfaceLanguage: 'ru' | 'en' = 'ru'): { start: number; end: number; options: Suggestion[]; ordered?: boolean } {
-  if (/^\.(?:\s|$)/.test(input.trimStart()) || /(?:^|\s)\.[^\s]*$/.test(input.slice(0, caret))) return { start: caret, end: caret, options: [] };
+  if (isLiteralEntry(input) || /(?:^|\s)\.[^\s]*$/.test(input.slice(0, caret))) return { start: caret, end: caret, options: [] };
   const beforeCaret = input.slice(0, caret);
   const activeWord = /[a-zа-яё]+$/i.exec(beforeCaret)?.[0] ?? '';
   const closestWord = activeWord || [...beforeCaret.matchAll(/[a-zа-яё]+/gi)].at(-1)?.[0] || '';

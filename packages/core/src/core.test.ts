@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTIVE_ITEM_VIEW_QUERY, APP_ID, APP_NAME, APP_RELEASED_AT, APP_VERSION, LEGACY_STANDARD_VIEW_SORT_SOURCE, PREVIOUS_STANDARD_ATTENTION_VIEW_SORT_SOURCE, SCHEMA_VERSION, STANDARD_ATTENTION_VIEW_SORT_SOURCE, VIEW_CREATION_DUE_PERIOD_EXTENSION, advanceCompletionAnchoredSeries, applyPortableImport, backfillItemCreationVersions, buildPortableImportPreview, buildRecurrenceRule,
-  compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, expressionContinuouslyDependsOnCurrentTime, expressionDependsOnCurrentTime, fromCanonicalJSON, fromICS, makeSeries,
+  compileQuery, compileSort, createId, createItem, createOccurrence, createPortablePackage, createWorkspace, evaluateFormulas, evaluateItemScripts, evaluateScriptsForItem, expressionContinuouslyDependsOnCurrentTime, expressionDependsOnCurrentTime, expressionToDsl, fromCanonicalJSON, fromICS, makeSeries, pythonToFilter,
   materializeProjectedOccurrence, migrateItem, migrateView, migrateWorkspace, moveCalendarItems, moveRecurringOccurrence, parseExpression, parsePortablePackage, parseSortSource,
   projectOccurrences, reconcileRecurrences, recurrenceCompletionHistory, reminderTime, removeDuplicateReminders, resizeCalendarItem, restoreCalendarSchedules, runAutomationEvents,
   scheduleDateKeysInRange,
@@ -114,6 +114,29 @@ describe('safe expression language', () => {
     expect(query(future, now)).toBe(false);
   });
 
+  it('limits weekly preparation to its Monday–Thursday active window while retaining ordinary overdue tasks', () => {
+    const workspace = createWorkspace('Active window');
+    const source = Object.values(workspace.views).find(view => view.name === 'Today')!.query.source;
+    const query = compileQuery(source, undefined, { timeZone: 'Europe/Moscow', weekStartsOn: 1 });
+    const preparation = createItem('Подготовка к .чт');
+    preparation.role = 'series_template'; preparation.canBeCompleted = true;
+    preparation.schedule = { timezone: 'Europe/Moscow', startAt: '2026-09-20T21:00:00.000Z', endAt: '2026-09-20T21:45:00.000Z', dueAt: '2026-09-24T16:00:00.000Z', estimatedDuration: 'PT45M' };
+    preparation.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', rdates: [], exdates: [], timezone: 'Europe/Moscow', activationOffset: 'PT0M', anchor: 'schedule', closeAt: 'due', autoRenew: true };
+    const friday = new Date('2026-10-16T10:00:00.000Z');
+    expect(query(preparation, friday)).toBe(false);
+    const upcoming = createOccurrence(preparation, new Date('2026-10-18T21:00:00.000Z'), 4);
+    expect(query(upcoming, friday)).toBe(false);
+    expect(query(upcoming, new Date('2026-10-18T20:59:59.000Z'))).toBe(false);
+    expect(query(upcoming, new Date('2026-10-18T21:00:00.000Z'))).toBe(true);
+    expect(query(upcoming, new Date('2026-10-22T15:59:59.000Z'))).toBe(true);
+    expect(query(upcoming, new Date('2026-10-22T16:00:01.000Z'))).toBe(false);
+    const overdue = createItem('Ordinary overdue task');
+    overdue.schedule = { timezone: 'Europe/Moscow', dueAt: '2026-10-15T16:00:00.000Z' };
+    expect(query(overdue, friday)).toBe(true);
+    overdue.schedule.startAt = overdue.schedule.dueAt;
+    expect(query(overdue, friday)).toBe(true);
+  });
+
   it('interprets legacy presence checks for computed booleans as explicit true or false', () => {
     const item = createItem('Future active range');
     item.schedule = { startAt: '2026-09-03T21:15:00.000Z', dueAt: '2026-09-06T11:00:00.000Z' };
@@ -151,17 +174,26 @@ describe('safe expression language', () => {
   it('creates the configured starter Home views as completable tables', () => {
     const workspace = createWorkspace('Starter views', new Date(2026, 7, 26, 12));
     const views = Object.values(workspace.views);
-    expect(views.map((view) => view.name)).toEqual(['Inbox', 'All items', 'Today', 'No date', 'Tomorrow', 'This week']);
+    expect(views.map((view) => view.name)).toEqual(['Inbox', 'All items', 'Today', 'Non-specific', 'Tomorrow', 'This week']);
     expect(views.find((view) => view.name === 'Today')?.extensions?.[VIEW_CREATION_DUE_PERIOD_EXTENSION]).toBe('today');
-    expect(workspace.viewOrder.map((id) => workspace.views[id]?.name)).toEqual(['Inbox', 'Today', 'No date', 'Tomorrow', 'This week', 'All items']);
+    expect(workspace.viewOrder.map((id) => workspace.views[id]?.name)).toEqual(['Inbox', 'Today', 'Non-specific', 'Tomorrow', 'This week', 'All items']);
     expect(views.every((view) => view.renderer === 'table')).toBe(true);
+    expect(Object.fromEntries(views.map((view) => [view.name, view.accent]))).toMatchObject({
+      Inbox: '#e83e77', Today: '#72c644', Tomorrow: '#a26ae8', 'Non-specific': '#858585', 'This week': '#4285f4',
+    });
     for (const view of views) expect(() => compileQuery(view.query.source)).not.toThrow();
     const defaultFields = ['title', 'bodyMarkdown', 'schedule.startAt', 'schedule.dueAt', 'tags', 'area', 'project', 'view_scripts'];
     expect(views.every((view) => JSON.stringify(view.fields) === JSON.stringify(defaultFields))).toBe(true);
     const source = (name: string) => views.find((view) => view.name === name)?.query.source;
     expect(source('Inbox')).toBe('((state == "open" && role == "standalone" && isTemplate != true && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT"))) && isGoogleEvent != true) && canComplete == true');
-    expect(source('Today')).toBe('((state == "open" && isTemplate != true && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true) && isGoogleEvent != true) && canComplete == true');
-    expect(source('No date')).toBe('(state == "open" && isTemplate != true && schedule.plannedDate == null && schedule.startAt == null && schedule.endAt == null && schedule.dueAt == null && schedule.availableFrom == null && external.transparency == null && isGoogleEvent != true) && canComplete == true');
+    const today = views.find((view) => view.name === 'Today')!;
+    expect(source('Today')).toBe('(((((((((state == "open" && isTemplate != true) && scheduleInPeriod("today", "active,due,event,event_open", true, 7, "", "")) && activeRangeWhenSetOrOverdue == true) && occurrence.seriesId != "1fd89183-dac7-402f-9c08-435bf9088122") && occurrence.seriesId != "8f10974b-a53a-466d-80ff-c7fdb961cc8b") && length(external.calendarId) == 0) && isGoogleEvent != true) && withinReservedBlockWhenSet == true))');
+    expect(today.extensions?.filterPython).toBe(`return (((((((((state == "open") and (isTemplate != True)) and scheduleInPeriod("today", "active,due,event,event_open", True, 7, "", "")) and (activeRangeWhenSetOrOverdue == True)) and (occurrence.seriesId != "1fd89183-dac7-402f-9c08-435bf9088122")) and (occurrence.seriesId != "8f10974b-a53a-466d-80ff-c7fdb961cc8b")) and (length(external.calendarId) == 0)) and (isGoogleEvent != True)) and (withinReservedBlockWhenSet == True))`);
+    expect(expressionToDsl(parseExpression(pythonToFilter(today.extensions!.filterPython as string)))).toBe(expressionToDsl(parseExpression(today.query.source)));
+    const nonSpecific = views.find((view) => view.name === 'Non-specific')!;
+    expect(source('Non-specific')).toBe('(((((((((state == "open") && (isTemplate != true)) && (external.transparency == null)) && (schedule.startAt == null)) && (schedule.endAt == null)) && (schedule.dueAt == null)) && (length(tags) == 0)) && (length(areas) == 0)) && (length(projects) == 0))');
+    expect(nonSpecific.extensions?.filterPython).toBe(`return (((((((((state == "open") and (isTemplate != True)) and (external.transparency == None)) and (schedule.startAt == None)) and (schedule.endAt == None)) and (schedule.dueAt == None)) and (length(tags) == 0)) and (length(areas) == 0)) and (length(projects) == 0))`);
+    expect(expressionToDsl(parseExpression(pythonToFilter(nonSpecific.extensions!.filterPython as string)))).toBe(expressionToDsl(parseExpression(nonSpecific.query.source)));
     expect(source('Tomorrow')).toBe('((state == "open" && isTemplate != true && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")) && isGoogleEvent != true) && canComplete == true');
     expect(source('This week')).toBe('((state == "open" && isTemplate != true && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true) && isGoogleEvent != true) && canComplete == true');
     expect(source('All items')).toBe('state == "open" && isTemplate != true && canComplete == true');

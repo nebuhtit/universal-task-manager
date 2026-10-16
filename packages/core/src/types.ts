@@ -1,8 +1,8 @@
 export const SCHEMA_VERSION = '1.26.0';
 export const APP_ID = 'dev.universal-task-manager';
 export const APP_NAME = 'Universal Task Manager';
-export const APP_VERSION = '4.7.0';
-export const APP_RELEASED_AT = '2026-10-14T13:50:31.729Z';
+export const APP_VERSION = '4.7.1';
+export const APP_RELEASED_AT = '2026-10-16T14:21:33.257Z';
 export const LEGACY_APP_VERSION = '0.1.0';
 export const ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && isTemplate != true';
 export const LEGACY_ACTIVE_ITEM_VIEW_QUERY = 'state == "open" && role != "series_template" && isTemplate != true';
@@ -798,7 +798,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
     customFields: {},
     views: {
       [inboxId]: {
-        id: inboxId, name: 'Inbox',
+        id: inboxId, name: 'Inbox', accent: '#e83e77',
         query: { source: `((state == "open" && role == "standalone" && isTemplate != true && external.transparency == null && ((length(areas) == 0 && length(projects) == 0) || includes(tags, "IMPORTANT"))) && isGoogleEvent != true) && canComplete == true` },
         renderer: 'table', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
       },
@@ -814,20 +814,25 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       [todayId]: {
         id: todayId,
         name: 'Today',
-        query: { source: `((state == "open" && isTemplate != true && scheduleInPeriod("today", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true) && isGoogleEvent != true) && canComplete == true` },
+        accent: '#72c644',
+        query: { source: `(((((((((state == "open" && isTemplate != true) && scheduleInPeriod("today", "active,due,event,event_open", true, 7, "", "")) && activeRangeWhenSetOrOverdue == true) && occurrence.seriesId != "1fd89183-dac7-402f-9c08-435bf9088122") && occurrence.seriesId != "8f10974b-a53a-466d-80ff-c7fdb961cc8b") && length(external.calendarId) == 0) && isGoogleEvent != true) && withinReservedBlockWhenSet == true))` },
         renderer: 'table',
         sort: defaultSort.map((rule) => ({ ...rule })),
         sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE,
         scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
-        extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'today' },
+        extensions: {
+          [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'today',
+          filterPython: `return (((((((((state == "open") and (isTemplate != True)) and scheduleInPeriod("today", "active,due,event,event_open", True, 7, "", "")) and (activeRangeWhenSetOrOverdue == True)) and (occurrence.seriesId != "1fd89183-dac7-402f-9c08-435bf9088122")) and (occurrence.seriesId != "8f10974b-a53a-466d-80ff-c7fdb961cc8b")) and (length(external.calendarId) == 0)) and (isGoogleEvent != True)) and (withinReservedBlockWhenSet == True))`,
+        },
       },
       [noDateId]: {
-        id: noDateId, name: 'No date',
-        query: { source: `(${activeQuery} && schedule.plannedDate == null && schedule.startAt == null && schedule.endAt == null && schedule.dueAt == null && schedule.availableFrom == null && external.transparency == null && isGoogleEvent != true) && canComplete == true` },
+        id: noDateId, name: 'Non-specific', accent: '#858585',
+        query: { source: `(((((((((state == "open") && (isTemplate != true)) && (external.transparency == null)) && (schedule.startAt == null)) && (schedule.endAt == null)) && (schedule.dueAt == null)) && (length(tags) == 0)) && (length(areas) == 0)) && (length(projects) == 0))` },
         renderer: 'table', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
+        extensions: { filterPython: `return (((((((((state == "open") and (isTemplate != True)) and (external.transparency == None)) and (schedule.startAt == None)) and (schedule.endAt == None)) and (schedule.dueAt == None)) and (length(tags) == 0)) and (length(areas) == 0)) and (length(projects) == 0))` },
       },
       [tomorrowId]: {
-        id: tomorrowId, name: 'Tomorrow',
+        id: tomorrowId, name: 'Tomorrow', accent: '#a26ae8',
         query: { source: `((state == "open" && isTemplate != true && scheduleInPeriod("tomorrow", "event_open,active,due", false, 7, "", "")) && isGoogleEvent != true) && canComplete == true` },
         renderer: 'table', sort: defaultSort.map((rule) => ({ ...rule })), sortSource: STANDARD_ATTENTION_VIEW_SORT_SOURCE, scripts: defaultViewScripts(), fields: [...defaultFields, 'view_scripts'],
         extensions: { [VIEW_CREATION_DUE_PERIOD_EXTENSION]: 'tomorrow' },
@@ -835,6 +840,7 @@ export function createWorkspace(name = 'My workspace', now = new Date()): Worksp
       [weekId]: {
         id: weekId,
         name: 'This week',
+        accent: '#4285f4',
         query: { source: `((state == "open" && isTemplate != true && scheduleInPeriod("this_week", "event_open,event,active,due", true, 7, "", "") && activeRangeWhenSetOrOverdue == true) && isGoogleEvent != true) && canComplete == true` },
         renderer: 'table',
         sort: defaultSort.map((rule) => ({ ...rule })),

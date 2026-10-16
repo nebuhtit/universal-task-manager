@@ -17,6 +17,49 @@ function fixture() {
   return { w, series, first, second, third, edited };
 }
 describe('recurrence editor scope', () => {
+  it('updates reminders on future exceptions without erasing their other edits', () => {
+    const { w, first, second, third, edited } = fixture();
+    edited.reminders = [{ id: 'notice', mode: 'relative', relativeTo: 'start', offset: '-PT30M', repeatUntilAcknowledged: false }];
+    const past = structuredClone(first);
+    const result = editRecurringItem(w, edited, { occurrenceId: second.id, scope: 'this_and_future' }, new Date('2030-09-08T00:00:00Z'));
+    expect(third.reminders).toEqual(edited.reminders);
+    expect(third.bodyMarkdown).toBe('Keep override');
+    expect(first).toEqual(past);
+    const projected = createOccurrence(result.item, new Date('2030-09-23T10:00:00Z'), 2);
+    expect(projected.reminders).toEqual(edited.reminders);
+    expect(projected.recurrenceOverride).toBeUndefined();
+  });
+  it('updates already materialized cycles after a second future-series edit', () => {
+    const { w, second, edited } = fixture();
+    const now = new Date('2030-09-08T00:00:00Z');
+    const split = editRecurringItem(w, edited, { occurrenceId: second.id, scope: 'this_and_future' }, now).item;
+    const future = createOccurrence(split, new Date('2030-09-23T10:00:00Z'), 2);
+    // Reproduce a cycle saved by older builds with the split provenance copied.
+    future.recurrenceOverride = structuredClone(split.recurrenceOverride!);
+    w.items[future.id] = future;
+    const draft = structuredClone(itemEditorSource(w, second));
+    draft.reminders = [{ id: 'new', mode: 'relative', relativeTo: 'start', offset: '-PT1H', repeatUntilAcknowledged: false }];
+    editRecurringItem(w, draft, { occurrenceId: second.id, scope: 'this_and_future' }, now);
+    expect(future.reminders).toEqual(draft.reminders);
+    expect(future.recurrenceOverride).toBeUndefined();
+  });
+  it('shifts absolute reminders for future exceptions while retaining their rescheduled time', () => {
+    const { w, second, third, edited } = fixture();
+    third.schedule!.startAt = '2030-09-16T12:00:00Z';
+    third.schedule!.endAt = '2030-09-16T13:00:00Z';
+    edited.reminders = [{ id: 'absolute', mode: 'absolute', at: '2030-09-09T09:00:00Z', repeatUntilAcknowledged: false }];
+    editRecurringItem(w, edited, { occurrenceId: second.id, scope: 'this_and_future' }, new Date('2030-09-08T00:00:00Z'));
+    expect(third.reminders[0]?.at).toBe('2030-09-16T09:00:00.000Z');
+    expect(third.schedule!.startAt).toBe('2030-09-16T12:00:00Z');
+    expect(third.schedule!.endAt).toBe('2030-09-16T13:00:00Z');
+  });
+  it('keeps reminders local to the selected cycle with Only this occurrence', () => {
+    const { w, series, first, second, third, edited } = fixture();
+    edited.reminders = [{ id: 'only', mode: 'relative', relativeTo: 'start', offset: '-PT1H', repeatUntilAcknowledged: false }];
+    editRecurringItem(w, edited, { occurrenceId: second.id, scope: 'this_occurrence' }, new Date('2030-09-08T00:00:00Z'));
+    expect(second.reminders).toEqual(edited.reminders);
+    expect([series.reminders, first.reminders, third.reminders]).toEqual([[], [], []]);
+  });
   it('keeps a pending instance write while accepting a newer title for the same occurrence', () => {
     const { w, series, second, edited } = fixture();
     const pending = { kind: 'edit', eventId: 'instance', draft: { title: second.title }, attempted: true };
@@ -71,6 +114,6 @@ describe('recurrence editor scope', () => {
     expect(second.occurrence?.seriesId).toBe(result.item.id);
     expect(second.schedule?.travelDuration).toBe('PT30M');
     expect(third.bodyMarkdown).toBe('Keep override');
-    expect(third.schedule?.travelDuration).toBe('PT10M');
+    expect(third.schedule?.travelDuration).toBe('PT30M');
   });
 });

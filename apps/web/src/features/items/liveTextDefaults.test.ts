@@ -43,7 +43,7 @@ describe('creation defaults and recognized commands', () => {
     expect(parsed.errors).toEqual([]);
     expect(parsed.commandSpans?.map(s => text.slice(s.start, s.end))).toEqual(['area', 'завтра', 'длительность', 'бн']);
     const note = '. завтра нап 30м бн project:"Работа"';
-    expect(parseLiveEntry(note, now).commandSpans?.map(s => note.slice(s.start, s.end))).toEqual(['project']);
+    expect(parseLiveEntry(note, now).commandSpans).toEqual([]);
     expect(parseLiveEntry('"завтра бн"', now).commandSpans).toEqual([]);
     expect(parseLiveEntry('Текст нап', now).commandSpans).toEqual([]);
     const short = 'Хлеб area:Дом 20м';

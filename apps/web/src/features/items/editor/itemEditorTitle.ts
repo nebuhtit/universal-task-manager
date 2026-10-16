@@ -1,5 +1,5 @@
 import { withinDay, withinTargets, type UniversalItem, type WorkspaceDocument } from '@utm/core';
-import { applyQuickEntryEditorText, quickEntrySource, syncQuickEntrySource, withQuickEntryCalendar, quickEntryCalendar } from '../quickEntry';
+import { applyQuickEntryEditorText, quickEntrySource, syncQuickEntrySource, withQuickEntryCalendar, quickEntryCalendar, QUICK_ENTRY_SOURCE } from '../quickEntry';
 import { clearCreationDefaultBounds, withoutCreationDefaultBounds } from '../creationDefaultBounds';
 import { extractWithinRelations } from '../../../../quick-entry-lab/relations';
 
@@ -14,7 +14,7 @@ export function applyEditorTitleDraft(current: UniversalItem, initial: Universal
   // Use the same editor parser for validation and application: it restores
   // compact dates and hidden reminders before checking existing event bounds.
   const fromSource = Boolean(quickEntrySource(initial));
-  const { item: interpreted, draft: parsed } = applyQuickEntryEditorText(fromSource ? { ...current, tags: commaList(tags) } : current, text, now);
+  const { item: interpreted, draft: parsed } = applyQuickEntryEditorText({ ...current, tags: commaList(tags) }, text, now);
   const anchor = (item: UniversalItem): UniversalItem => {
     // Resolve a newly selected undated relation now, not at the old item's creation.
     if (!workspace || !withinTargets(item).length || item.schedule?.plannedDate || item.schedule?.startAt || item.schedule?.endAt || item.schedule?.dueAt) return item;
@@ -50,9 +50,12 @@ export function applyEditorTitleDraft(current: UniversalItem, initial: Universal
     const span = Date.parse(parsed.end) - Date.parse(schedule.startAt);
     if (Number.isFinite(span) && span > 0) schedule.estimatedDuration = `PT${span / 60_000}M`;
   }
-  let result = { ...base, title: parsed.title, schedule, relations: interpreted.relations, ...(interpreted.canBeCompleted !== undefined ? { canBeCompleted: interpreted.canBeCompleted } : {}), reminders: parsed.reminders.length ? interpreted.reminders : current.reminders };
+  let result = { ...base, title: parsed.title, areas: interpreted.areas, projects: interpreted.projects, tags: interpreted.tags, schedule, relations: interpreted.relations, ...(interpreted.isNote ? { isNote: true } : {}), ...(interpreted.canBeCompleted !== undefined ? { canBeCompleted: interpreted.canBeCompleted } : {}), reminders: parsed.reminders.length ? interpreted.reminders : current.reminders };
   if (parsed.start || parsed.end) result = clearCreationDefaultBounds(result) as typeof result;
   // Keep selected IDs in the canonical source too, so reopening restores chips
   // and removing one can remove its relation instead of leaving a hidden link.
-  return anchor(hasWithinCommand ? { ...result, extensions: interpreted.extensions ?? {} } : withQuickEntryCalendar(syncQuickEntrySource(current, result), quickEntryCalendar(interpreted)));
+  const synced = hasWithinCommand ? { ...result, extensions: interpreted.extensions ?? {} } : withQuickEntryCalendar(syncQuickEntrySource(current, result), quickEntryCalendar(interpreted));
+  // Keep the authored syntax, including literal markers and quoted words.
+  // The displayed title is intentionally not a safe substitute for Live Text.
+  return anchor({ ...synced, extensions: { ...synced.extensions, [QUICK_ENTRY_SOURCE]: interpreted.extensions![QUICK_ENTRY_SOURCE]! } });
 }

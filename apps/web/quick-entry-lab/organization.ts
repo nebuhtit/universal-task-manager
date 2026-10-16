@@ -1,9 +1,11 @@
+import { isLiteralEntry } from './literal';
 export type OrganizationKind = 'area' | 'project' | 'tag';
 export type OrganizationCatalog = Record<OrganizationKind, string[]> & { projectAreas?: Record<string, string[]> };
 const kinds: Record<string, OrganizationKind> = { э: 'area', ar: 'area', п: 'project', p: 'project', area: 'area', эриа: 'area', область: 'area', project: 'project', проект: 'project', tag: 'tag', тег: 'tag', тэг: 'tag', '#': 'tag' };
 export function extractOrganization(input: string) {
   const values: OrganizationCatalog = { area: [], project: [], tag: [] };
   const commandSpans: Array<{ start: number; end: number }> = [];
+  if (isLiteralEntry(input)) return { text: input.trim(), maskedText: input, commandSpans, areas: [], projects: [], tags: [] };
   const masked = input.split('');
   // Quoted prose is consumed as an alternative, never interpreted as a command.
   const pattern = /"(?:\\.|[^"\\])*"|«[^»]*»|(^|\s)(area|эриа|область|project|проект|tag|тег|тэг|ar|э|п|p|#)(?:\s*:\s*|\s+|(?<=#))("(?:\\.|[^"\\])*"|«[^»]*»|[^\s"«]+)/giu;
@@ -24,6 +26,7 @@ export function extractOrganization(input: string) {
 }
 
 export function organizationSuggestions(input: string, caret: number, catalog: OrganizationCatalog) {
+  if (isLiteralEntry(input)) return null;
   const before = input.slice(0, caret);
   const commands = [...before.matchAll(/(?:^|\s)(area|эриа|область|project|проект|tag|тег|тэг|ar|э|п|p|#)(?:\s*:\s*|\s+|(?<=#))/giu)];
   const command = commands.at(-1);

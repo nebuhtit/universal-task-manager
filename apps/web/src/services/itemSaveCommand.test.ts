@@ -11,6 +11,68 @@ import { prepareTimelineData } from '../features/calendar/timelineData';
 import { createCalendarProjectionCache } from '../features/calendar/calendarProjectionCache';
 import { itemEditorSource } from '../features/items/editor/itemEditorSource';
 import { buildSegments, layoutEvents } from '../features/calendar/timelineLayout';
+import { applyEditorTitleDraft } from '../features/items/editor/itemEditorTitle';
+import { normalizeItemForSave } from '../features/items/editor/itemEditorModel';
+import { createQuickEntryItem, quickEntryEditorText, quickEntryCalendar } from '../features/items/quickEntry';
+
+it.each([false, true])('persists all supported Live Text fields through editor saves and reloads (existing source: %s)', withSource => {
+  const now = new Date('2030-09-01T00:00:00Z');
+  const workspace = createWorkspace('Live Text persistence', now);
+  const item = withSource ? createQuickEntryItem('Task p Old ar Original #old', now) : createItem('Task', 'task', now);
+  if (!withSource) { item.projects = ['Old']; item.areas = ['Original']; item.tags = ['old']; }
+  item.tags.push('manual');
+  workspace.items[item.id] = item;
+  let doc = createAutomergeDocument(workspace);
+  let current = item;
+  const text = 'Task п New э NewArea #new начало 23.09.2030 12:00 конец 23.09.2030 12:30 длительность 30м срок 24.09.2030 18:00 дорога 15м обратно 20м напомнить начало-10м rr [Block](item:block) cc [Calendar](calendar:calendar)';
+  for (let pass = 0; pass < 2; pass++) {
+    const edited = applyEditorTitleDraft(current, current, pass ? quickEntryEditorText(current) : text, current.tags.join(', '), now, Automerge.toJS(doc));
+    const normalized = normalizeItemForSave({ item: edited, workspace: Automerge.toJS(doc), tags: edited.tags.join(', '), contexts: '', isTemplate: false, recurring: false, activeRange: false, repeatFrequency: 'WEEKLY', repeatIntervalDraft: '1', repeatDays: [], now });
+    doc = commitWorkspaceDocument(doc, 'Save Live Text fields', draft => { saveItemInWorkspace(draft, normalized, undefined, now); });
+    doc = Automerge.load<WorkspaceDocument>(Automerge.save(doc));
+    current = JSON.parse(JSON.stringify(doc.items[item.id]!));
+    expect(current.projects).toEqual(withSource ? ['New'] : ['Old', 'New']);
+    expect(current.areas).toEqual(withSource ? ['NewArea'] : ['Original', 'NewArea']);
+    expect(current.tags).toEqual(withSource ? ['manual', 'new'] : ['old', 'manual', 'new']);
+    expect(current.schedule).toMatchObject({ estimatedDuration: 'PT30M', travelDuration: 'PT15M', travelBackDuration: 'PT20M' });
+    expect(current.schedule?.dueAt).toBeTruthy();
+    expect(Date.parse(current.schedule!.endAt!) - Date.parse(current.schedule!.startAt!)).toBe(30 * 60_000);
+    expect(current.reminders).toHaveLength(1); expect(current.reminders[0]).toMatchObject({ relativeTo: 'start', offset: '-PT10M' });
+    expect(current.relations).toContainEqual(expect.objectContaining({ type: 'scheduled_within', targetId: 'block' }));
+    expect(quickEntryCalendar(current)?.id).toBe('calendar');
+  }
+});
+
+it.each([false, true])('persists future reminders through a workspace reload (autoRenew: %s)', autoRenew => {
+  const now = new Date('2030-08-01T00:00:00Z');
+  const workspace = createWorkspace('Reminder scope regression', now);
+  const series = createItem('Weekly', 'event', now); series.role = 'series_template';
+  series.schedule = { timezone: 'UTC', startAt: '2030-09-02T10:00:00Z', endAt: '2030-09-02T11:00:00Z' };
+  series.recurrence = { rrule: 'FREQ=WEEKLY;COUNT=4', timezone: 'UTC', rdates: [], exdates: [], activationOffset: 'PT0M', closeAt: 'next_activation', anchor: 'schedule', autoRenew };
+  const past = createOccurrence(series, new Date(series.schedule.startAt!), 0);
+  const selected = createOccurrence(series, new Date('2030-09-09T10:00:00Z'), 1);
+  const exception = createOccurrence(series, new Date('2030-09-16T10:00:00Z'), 2);
+  exception.bodyMarkdown = 'Individual description';
+  exception.recurrenceOverride = { kind: 'this_occurrence', sourceSeriesId: series.id, recurrenceId: exception.occurrence!.recurrenceId };
+  for (const item of [series, past, selected, exception]) workspace.items[item.id] = item;
+  const edited = structuredClone(itemEditorSource(workspace, selected));
+  edited.reminders = [{ id: 'notice', mode: 'relative', relativeTo: 'start', offset: '-PT30M', repeatUntilAcknowledged: false }];
+  let doc = createAutomergeDocument(workspace);
+  doc = commitWorkspaceDocument(doc, 'Edit future reminders', draft => {
+    saveItemInWorkspace(draft, edited, { recurrenceEdit: { occurrenceId: selected.id, scope: 'this_and_future' } }, now);
+  });
+  const reopened = Automerge.load<WorkspaceDocument>(Automerge.save(doc));
+  try {
+    const saved = Automerge.toJS(reopened);
+    expect(saved.items[past.id]?.reminders).toEqual([]);
+    expect(saved.items[exception.id]?.reminders).toEqual(edited.reminders);
+    expect(saved.items[exception.id]?.bodyMarkdown).toBe('Individual description');
+    const nextSeries = Object.values(saved.items).find(item => item.role === 'series_template' && item.id !== series.id)!;
+    const future = createOccurrence(nextSeries, new Date('2030-09-23T10:00:00Z'), 2);
+    expect(future.reminders).toEqual(edited.reminders);
+    expect(future.recurrenceOverride).toBeUndefined();
+  } finally { Automerge.free(reopened); Automerge.free(doc); }
+});
 
 it.each([
   { scope: 'this_and_future' as const, split: false },
@@ -146,9 +208,9 @@ describe('item save transaction and reload contract', () => {
     expect(apply).not.toHaveBeenCalled(); expect(pending.extensions!['utm:googleSave']).toMatchObject({ kind: 'delete' });
     expect(pending.schedule?.endAt).toBeUndefined();
   });
-  it('detaches atomically, reopens without the end, and ignores repeated stale sync batches', () => {
+  it.each(['startAt', 'endAt'] as const)('detaches atomically after clearing %s without Due, and ignores stale sync batches', field => {
     const { workspace, item } = fixture();
-    const edited = structuredClone(item); delete edited.schedule!.endAt;
+    const edited = structuredClone(item); delete edited.schedule![field]; delete edited.schedule!.dueAt;
     let doc = createAutomergeDocument(workspace);
     doc = commitWorkspaceDocument(doc, 'Save confirmed detachment', draft => { saveItemInWorkspace(draft, edited, { deleteGoogleEvent: true }, new Date('2030-09-21T00:00:00Z')); });
     doc = Automerge.load<WorkspaceDocument>(Automerge.save(doc));
@@ -158,7 +220,8 @@ describe('item save transaction and reload contract', () => {
       });
       doc = Automerge.load<WorkspaceDocument>(Automerge.save(doc));
       const reopened = googleCalendarProjection(doc.items[item.id]!);
-      expect(reopened.schedule?.endAt).toBeUndefined(); expect(reopened.external).toBeUndefined();
+      expect(reopened.schedule?.[field]).toBeUndefined(); expect(reopened.external).toBeUndefined();
+      expect(reopened.schedule?.dueAt).toBeUndefined();
       expect(reopened.schedule?.estimatedDuration).toBe('PT45M'); expect(reopened.tags).not.toContain('C.Test');
       expect(reopened.extensions?.['utm:googleSave']).toMatchObject({ kind: 'delete', eventId: 'remote-event' });
       expect(Object.keys(doc.items)).toEqual([item.id]);

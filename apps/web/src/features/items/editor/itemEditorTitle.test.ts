@@ -2,9 +2,37 @@ import { describe, expect, it } from 'vitest';
 import { canManuallyComplete, createItem, createWorkspace, withinPlacementWorkspace } from '@utm/core';
 import { markCreationDefaultBounds, clearCreationDefaultBounds } from '../creationDefaultBounds';
 import { applyEditorTitleDraft } from './itemEditorTitle';
-import { createQuickEntryItem, formatQuickEntryForEditor, quickEntrySource } from '../quickEntry';
+import { createQuickEntryItem, formatQuickEntryForEditor, quickEntrySource, quickEntryEditorText, parseQuickEntryForItem, syncQuickEntrySource } from '../quickEntry';
 
 describe('item editor title draft', () => {
+  it.each(['«напоминания»', '"напоминание"', '. напоминания завтра длительность абракадабра project Work #tag cc [Work](calendar:work) rr [Work](item:work)', '.напоминание срок 99:88 «незакрытая кавычка'])('preserves literal syntax through blur, save and reopening: %s', text => {
+    const now = new Date('2026-10-16T10:00:00Z');
+    let item = createItem('Old title', 'task', now);
+    item.schedule = { timezone: 'UTC', estimatedDuration: 'PT10M' };
+    for (let pass = 0; pass < 3; pass++) {
+      const input = pass === 0 ? text : formatQuickEntryForEditor(quickEntryEditorText(item));
+      expect(input).toBe(text);
+      expect(parseQuickEntryForItem(input, now, item).errors).toEqual([]);
+      item = JSON.parse(JSON.stringify(applyEditorTitleDraft(item, item, input, '', now)));
+      expect(quickEntrySource(item)?.text).toBe(text);
+      expect(item.schedule?.startAt).toBeUndefined(); expect(item.schedule?.dueAt).toBeUndefined();
+      expect(item.reminders).toEqual([]); expect(item.projects).toEqual([]); expect(item.tags).toEqual([]); expect(item.relations).toEqual([]);
+    }
+  });
+  it('keeps leading-dot capture fully literal before extracting metadata or defaults', () => {
+    const now = new Date('2026-10-16T10:00:00Z');
+    const text = '.напоминания завтра длительность 45м project Work #tag cc [Work](calendar:work) rr [Work](item:work)';
+    const item = createQuickEntryItem(text, now, '2026-10-17');
+    expect(quickEntryEditorText(item)).toBe(text);
+    expect(item.title).toBe(text.slice(1));
+    expect(item.schedule?.plannedDate).toBeUndefined(); expect(item.schedule?.startAt).toBeUndefined();
+    expect(item.schedule?.estimatedDuration).toBeUndefined(); expect(item.reminders).toEqual([]);
+    expect(item.projects).toEqual([]); expect(item.tags).toEqual([]); expect(item.relations).toEqual([]);
+    expect(item.extensions?.['utm:quickEntryCalendar']).toBeUndefined();
+    const edited = syncQuickEntrySource(item, { ...item, schedule: { timezone: 'UTC', dueAt: '2026-10-20T12:00:00Z', estimatedDuration: 'PT10M' } });
+    expect(quickEntryEditorText(edited)).toBe(text);
+    expect(parseQuickEntryForItem(quickEntryEditorText(edited), now, edited).errors).toEqual([]);
+  });
   it('does not recreate an event end from Live Text duration for a related availability task', () => {
     const now = new Date('2026-10-09T07:00:00Z');
     const item = createItem('Task', 'task', now);

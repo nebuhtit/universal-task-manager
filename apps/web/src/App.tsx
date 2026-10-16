@@ -30,7 +30,7 @@ import {
 } from './features/items';
 import { OrganizationManager, createParaStructurePackage } from './features/settings/OrganizationManager';
 import { applyQuickEntryText, createQuickEntryItem, syncQuickEntrySource } from './features/items/quickEntry';
-import { markCreationDefaultBounds } from './features/items/creationDefaultBounds';
+import { createUiItem } from './features/items/createUiItem';
 import { duplicateItemDraft } from './features/items/editor/itemEditorModel';
 import { LiveTextInput } from './features/items/LiveTextInput';
 import { AppShell, type AppNotice as Notice, type AppPage as Page } from './components/layout/AppShell';
@@ -76,7 +76,7 @@ import {
   advanceCompletionAnchoredSeries, parseExpression, reconcileRecurrences,
   runAutomationEvents, serializePortablePackage,
   createWorkspace, effectiveWorkspaceNow, ensureAreaDefinition, ensureListDefinition, ensureProjectDefinition, ensureTagDefinition, fromICS, migrateWorkspace, packageToTabular, parseCsv, tabularToPackage, toCanonicalJSON, toCsv, toICS, workspaceForExport,
-  type ItemPreset, type PortableImportPreview, type PortableSelection, type RecurrenceCompletionRecord, type SavedView, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
+  type PortableImportPreview, type PortableSelection, type RecurrenceCompletionRecord, type SavedView, type UniversalItem, type WorkspaceDocument, type WorkspaceLanguage,
 } from '@utm/core';
 import {
   createLocalWorkspace, createUnencryptedLocalWorkspace, decryptWorkspaceFile, disableFaceIdUnlock, disableLocalWorkspaceEncryption, enableLocalWorkspaceEncryption, enableFaceIdUnlock, exportContainer, exportEncryptedLocalBackup, faceIdStatus, importAsLocalWorkspace,
@@ -98,12 +98,6 @@ const UNDO_WINDOW_MS = 3_000;
 // Some iOS Files providers do not implement File.text() reliably for custom
 // extensions. Reading bytes ourselves keeps .utmb recovery working reliably.
 const readEncryptedBackup = async (file: File): Promise<string> => new TextDecoder().decode(await file.arrayBuffer());
-const createUiItem = (title = '', preset: ItemPreset = 'task', now = new Date()) => {
-  const item = createItem(title, preset, now);
-  const startAt = now.toISOString();
-  item.schedule = { ...item.schedule, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, startAt, endAt: new Date(now.getTime() + 10 * 60_000).toISOString() };
-  return markCreationDefaultBounds(item);
-};
 const applyCalendarReminderDefaults = (item: UniversalItem, workspace: WorkspaceDocument) => {
   const defaults = workspace.calendarPreferences.liveTextDefaultReminders;
   if (defaults?.enabled === false || item.reminders.length > 0) return item;
@@ -1449,8 +1443,8 @@ export default function App() {
     if (!value) return;
     try {
       const now = currentWorkspaceNow();
-      const base = applyViewCreationDefaults(createItem('', 'task', now), view, workspace);
-      persistQuickItem(applyQuickEntryText(base, value, now).item);
+      const base = applyViewCreationDefaults(createUiItem('', 'task', now), view, workspace);
+      persistQuickItem(applyQuickEntryText(base, value, now, { preserveUnspecifiedSchedule: true }).item);
     } catch (reason) { throw reason; }
   };
   const downloadDiagnostics = downloadDiagnosticsFile;

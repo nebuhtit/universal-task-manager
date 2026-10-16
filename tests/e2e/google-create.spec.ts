@@ -196,7 +196,7 @@ test('edits imported Google occurrences in the universal editor and keeps local 
   await page.keyboard.press('Escape'); await expect(itemEditor).toBeHidden();
 });
 
-test('saves one linked event directly and recovers a lost response', async ({ page }) => {
+for (const clearedField of ['Event opens', 'Event ends'] as const) test(`saves one linked event directly and detaches after clearing ${clearedField}`, async ({ page }) => {
   test.setTimeout(120_000);
   let inserts = 0; let patches = 0; let moves = 0; let deletes = 0;
   let created: Record<string, any> | undefined;
@@ -286,20 +286,28 @@ test('saves one linked event directly and recovers a lost response', async ({ pa
   await expect(editor.getByRole('combobox', { name: 'Google Calendar', exact: true })).toHaveValue('other');
   await expand(editor.locator('[data-editor-section="dates"] > summary'));
   const duration = await editor.getByLabel('Calendar duration amount', { exact: true }).inputValue();
-  await editor.getByLabel('Due / Active range ends', { exact: true }).fill('2030-09-24T13:00');
-  await editor.getByRole('button', { name: 'Clear Event ends', exact: true }).click();
-  await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('');
+  await editor.getByRole('button', { name: `Clear ${clearedField}`, exact: true }).click();
+  await expect(editor.getByLabel(clearedField, { exact: true })).toHaveValue('');
+  if (clearedField === 'Event opens') await expect(editor.getByLabel('Event ends', { exact: true })).toHaveCount(0);
+  else await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('');
+  page.once('dialog', async dialog => { expect(dialog.message()).toContain('Delete the linked event'); await dialog.dismiss(); });
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeVisible(); expect(deletes).toBe(0);
   page.once('dialog', async dialog => { expect(dialog.message()).toContain('Delete the linked event'); await dialog.accept(); });
   await editor.getByRole('button', { name: 'Save item', exact: true }).click();
   await expect(editor).toBeHidden(); await expect.poll(() => deletes).toBe(1);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('utm:pending-save:v1'))).toBeNull();
   await page.reload(); await page.getByLabel(/Безопасное открытие —/).uncheck();
   await page.getByLabel('Password', { exact: true }).fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await expect(page.locator('.app-shell')).toBeVisible();
   await navigate('All items');
   await expect(page.locator('.all-sections').getByText('Edited linked event', { exact: true })).toHaveCount(1);
   await page.locator('.all-sections').getByText('Edited linked event', { exact: true }).click();
   await expand(editor.locator('[data-editor-section="dates"] > summary'));
-  await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('');
+  if (clearedField === 'Event opens') await expect(editor.getByLabel('Event ends', { exact: true })).toHaveCount(0);
+  else await expect(editor.getByLabel('Event ends', { exact: true })).toHaveValue('');
+  await expect(editor.getByLabel(clearedField, { exact: true })).toHaveValue('');
   await expect(editor.getByLabel('Calendar duration amount', { exact: true })).toHaveValue(duration);
   expect(inserts).toBe(2); expect(deletes).toBe(1);
   await page.keyboard.press('Escape'); await expect(editor).toBeHidden();

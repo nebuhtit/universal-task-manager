@@ -7,6 +7,14 @@ const normalize = (overrides: Partial<Parameters<typeof normalizeItemForSave>[0]
   return normalizeItemForSave({ item, workspace, tags: 'work, test', contexts: 'desk', isTemplate: false, recurring: false, activeRange: false, repeatFrequency: 'WEEKLY', repeatIntervalDraft: '1', repeatDays: [], now: new Date('2026-08-26T12:00:00Z'), ...overrides });
 };
 describe('item editor normalization', () => {
+  it('preserves monthly weekday and week-position rules on save', () => {
+    for (const suffix of ['BYDAY=2TU', 'BYDAY=MO;BYMONTHDAY=8,9,10,11,12,13,14', 'BYDAY=TU;BYMONTHDAY=3,4,5,6,7,8,9']) {
+      const item = createItem('Monthly'); item.schedule = { timezone: 'UTC', startAt: '2026-01-01T12:00:00Z' };
+      item.recurrence = { rrule: `FREQ=MONTHLY;INTERVAL=1;${suffix}`, rdates: [], exdates: [], timezone: 'UTC', activationOffset: 'P7D', closeAt: 'next_activation', anchor: 'schedule', autoRenew: true };
+      const result = normalize({ item, recurring: true, repeatFrequency: 'MONTHLY', repeatDays: ['TU'] });
+      expect(result.recurrence?.rrule).toContain(suffix);
+    }
+  });
   it('duplicates with new identity and creation time but without history or Google link', () => {
     const source = createItem('Meeting', 'task', new Date('2026-08-26T10:00:00Z'));
     source.external = { provider: 'google_calendar', connectionId: 'conn', calendarId: 'cal', eventId: 'event', sourceUrl: 'https://calendar.google.com', syncedAt: '2026-08-26T10:00:00Z', readOnly: false };
@@ -44,6 +52,20 @@ describe('item editor normalization', () => {
     workspace.items[item.id] = { ...item, extensions: { 'utm:googleSave': { kind: 'create' } } };
     item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z' };
     expect(() => normalize({ item, workspace })).toThrow('require both');
+  });
+  it.each(['startAt', 'endAt'] as const)('allows confirmed calendar detachment without Due after clearing %s', field => {
+    const item = createItem('Linked task'); const workspace = createWorkspace('Linked');
+    item.schedule = { timezone: 'UTC', startAt: '2030-09-20T12:00:00Z', endAt: '2030-09-20T12:10:00Z', estimatedDuration: 'PT10M' };
+    item.external = { provider: 'google_calendar', connectionId: 'conn', calendarId: 'cal', eventId: 'event', sourceUrl: '', syncedAt: '2030-09-20T12:00:00Z', readOnly: false };
+    item.extensions = { 'utm:googleSave': { kind: 'edit' }, 'utm:quickEntryCalendar': { id: 'cal', name: 'Calendar' } };
+    workspace.items[item.id] = structuredClone(item);
+    delete item.schedule[field];
+    const result = normalize({ item, workspace, deleteGoogleEvent: true });
+    expect(result.external).toBeUndefined();
+    expect(result.extensions?.['utm:quickEntryCalendar']).toBeUndefined();
+    expect(result.schedule?.[field]).toBeUndefined();
+    expect(result.schedule?.estimatedDuration).toBe('PT10M');
+    expect(result.preset).toBe('task');
   });
   it('keeps a linked item with Due after Event ends is cleared', () => {
     const item = createItem('Linked'); const workspace = createWorkspace('Linked');

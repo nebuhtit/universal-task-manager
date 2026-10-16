@@ -142,6 +142,9 @@ export function createOccurrence(series: UniversalItem, anchor: Date, sequence: 
   // a new item would create forbidden cross-document references, so occurrences
   // are always materialized from a detached snapshot.
   const detached = JSON.parse(JSON.stringify(series)) as UniversalItem;
+  // A split marks the source series, not each newly generated cycle. Copying
+  // it makes ordinary future cycles look like individually edited exceptions.
+  delete detached.recurrenceOverride;
   // Calendar links and pending writes belong to a single cycle.
   delete detached.external;
   for (const key of ['utm:googleCreate', 'utm:googleEdit', 'utm:googleLinkKey', 'utm:googleSave', 'utm:googleDeletionReceipts', 'utm:googleSeriesEvent', 'utm:googleSplit']) delete detached.extensions?.[key];

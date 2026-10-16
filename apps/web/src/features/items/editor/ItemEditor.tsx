@@ -253,10 +253,10 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const patchScheduledDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => scheduleWithDuration(schedule, amount === undefined ? undefined : { amount: Math.max(1, amount), unit }));
   const patchTravelDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule((schedule) => { const next = { ...schedule }; if (amount === undefined || amount <= 0) delete next.travelDuration; else next.travelDuration = toIsoDuration(amount, unit); return next; });
   const patchTravelBackDuration = (amount: number | undefined, unit: FriendlyDurationUnit) => transformSchedule(schedule => { const next = { ...schedule }; if (amount === undefined || amount <= 0) delete next.travelBackDuration; else next.travelBackDuration = toIsoDuration(amount, unit); return next; });
-  const clearScheduleReason = googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION]
-    ? 'Linked Google events require both Event opens and Event ends. Disconnect the calendar link before clearing either field.'
-    : item.eventProgram?.blocks.length
+  const clearScheduleReason = item.eventProgram?.blocks.length
       ? 'Remove the event program before clearing Event opens or Event ends.'
+      : googleLink?.readOnly !== false && (googleLink || googleItem.extensions?.[GOOGLE_SAVE_EXTENSION])
+        ? 'Sync the calendar link before clearing Event opens or Event ends.'
       : undefined;
   const patchScheduledStart = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => {
     if (item.eventProgram?.blocks.length && value && schedule.startAt) {
@@ -265,7 +265,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
     }
     const next = scheduleWithStart(schedule, value); if (!value) delete next.travelDuration; else delete next.plannedDate; return next;
   }, true); };
-  const patchScheduledEnd = (value?: string) => { if (!value && item.eventProgram?.blocks.length) { setError('Remove the event program before clearing Event ends.'); return; } transformSchedule((schedule) => {
+  const patchScheduledEnd = (value?: string) => { if (!value && clearScheduleReason) { setError(clearScheduleReason); return; } transformSchedule((schedule) => {
     return scheduleWithLinkedEnd(schedule, value);
   }, true); };
   const patchScheduledDue = (value?: string) => transformSchedule((schedule) => ({ ...scheduleWithDue(schedule, value), dueDateOnly: false }));
@@ -441,7 +441,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
         suppressFocusRestore.current = true;
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       }
-      let itemToSave = commitTitleDraft(titleDraft.current);
+      let itemToSave = commitTitleDraft(titleDraft.current, { ...item, tags: commaList(tags) });
       if (complete && !completionOccurrenceId) itemToSave = { ...itemToSave, state: 'done' as const, closure: { at: now.toISOString(), actor: 'user' as const, reason: 'manual' as const } };
       const overflowingBlocks = programOverflow(itemToSave);
       const programStart = Date.parse(itemToSave.schedule?.startAt ?? '');
@@ -456,12 +456,12 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
         itemToSave = { ...itemToSave, schedule: { ...itemToSave.schedule!, endAt: suggestedEnd } };
         setItem(itemToSave);
       }
-      const normalized = measureProfile('item.prepare', () => normalizeItemForSave({ item: itemToSave, workspace, tags, contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now }), () => ({ recalculated: 1 }));
-      const deleteGoogleEvent = Boolean(googleLink && !normalized.schedule?.endAt);
+      const deleteGoogleEvent = Boolean(googleLink?.readOnly === false && (!itemToSave.schedule?.startAt || !itemToSave.schedule.endAt));
       if (deleteGoogleEvent && !workspace.items[item.id]?.external) throw new Error('This Google link belongs to a recurrence occurrence. Open that occurrence to remove its Event ends.');
       if (deleteGoogleEvent && !window.confirm(workspace.calendarPreferences.language === 'ru'
         ? 'Удалить связанное событие из Google Календаря? Item останется в UTM. Удаление произойдёт сейчас или при ближайшей синхронизации.'
         : 'Delete the linked event from Google Calendar? The item stays in UTM. Deletion will happen now or at the next sync.')) return;
+      const normalized = measureProfile('item.prepare', () => normalizeItemForSave({ item: itemToSave, workspace, tags: itemToSave.tags.join(', '), contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now, deleteGoogleEvent }), () => ({ recalculated: 1 }));
       syncCompletionCounter(normalized, now.toISOString());
       if (normalized.closure?.reason !== 'rule') recordCompletionTransition(normalized, initial.state, now.toISOString());
       syncCompletionCounter(normalized, now.toISOString());
@@ -518,7 +518,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
         <div className="item-title-field">
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
             if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars))); setSourceEditing(true); setError(''); return; }
-            try { const updated = applyEditorTitleDraft(item, item, sourceDraft, tags, now, workspace); setItem(updated); titleDraft.current = formatQuickEntryForEditor(quickEntryEditorText(updated, googlePreferences?.calendars)); titleEdited.current = false; setSourceDraft(quickEntryEditorText(updated, googlePreferences?.calendars)); setSourceEditing(false); setError(''); }
+            try { const updated = applyEditorTitleDraft(item, item, sourceDraft, tags, now, workspace); setItem(updated); setTags(updated.tags.join(', ')); titleDraft.current = formatQuickEntryForEditor(quickEntryEditorText(updated, googlePreferences?.calendars)); titleEdited.current = false; setSourceDraft(quickEntryEditorText(updated, googlePreferences?.calendars)); setSourceEditing(false); setError(''); }
             catch (reason) { recordItemTitleFailure('source', item, sourceDraft, reason); setError(reason instanceof Error ? reason.message : String(reason)); }
           }}>{sourceEditing ? (workspace.calendarPreferences.language === 'ru' ? 'Применить строку' : 'Apply line') : (workspace.calendarPreferences.language === 'ru' ? 'Быстрый ввод' : 'Quick entry')}</Button>}{!sourceEditing && canManuallyComplete(item) && item.state === 'open' && workspace.items[item.id] && <button type="button" className="state-toggle editor-complete" aria-label={workspace.calendarPreferences.language === 'ru' ? 'Выполнить item' : 'Complete item'} title={workspace.calendarPreferences.language === 'ru' ? 'Выполнить и сохранить' : 'Complete and save'} disabled={saving} onPointerDown={event => event.preventDefault()} onClick={() => void save({ complete: true, dismissKeyboard: true })} />}{!sourceEditing && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
           {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseQuickEntryForItem(sourceDraft, now, item).errors.length ? <WarningNotice language={workspace.calendarPreferences.language} message={parseQuickEntryForItem(sourceDraft, now, item).errors.join(' ')} /> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseQuickEntryForItem(sourceDraft, now, item).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars))} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); return true; } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return false; } }} />}

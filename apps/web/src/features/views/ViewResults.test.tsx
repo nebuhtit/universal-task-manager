@@ -2,8 +2,22 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { createItem, createWorkspace, type SavedView } from '@utm/core';
 import { VIEW_LIVE_TICK_MS, ViewResults, viewNeedsLiveClock } from './ViewResults';
+import { paraAreaViews, paraProjectView } from '../settings/OrganizationManager';
 
 describe('ViewResults manual ordering controls', () => {
+  it('shows point-deadline overdue age in PARA areas and projects and respects the setting', () => {
+    const workspace = createWorkspace('PARA overdue');
+    const item = createItem('Point deadline'); item.areas = ['Holy']; item.projects = ['Schedule'];
+    item.schedule = { timezone: 'Europe/Moscow', startAt: '2026-10-01T06:00:00Z', dueAt: '2026-10-01T06:00:00Z' };
+    workspace.items[item.id] = item;
+    const props = { workspace, evaluation: { items: [item], metrics: null, now: new Date('2026-10-16T10:02:54Z') }, onEdit: vi.fn(), onState: vi.fn() };
+    for (const view of [paraAreaViews(workspace, 'Holy').at(-1)!, paraProjectView('Schedule')]) {
+      expect(renderToStaticMarkup(<ViewResults {...props} view={view} />)).toContain('>15d</span>');
+      workspace.calendarPreferences.appearance.overdueAgeIndicator = false;
+      expect(renderToStaticMarkup(<ViewResults {...props} view={view} />)).not.toContain('item-overdue-due-indicator');
+      workspace.calendarPreferences.appearance.overdueAgeIndicator = true;
+    }
+  });
   it('enables the one-second clock only for displayed script results', () => {
     expect(VIEW_LIVE_TICK_MS).toBe(1_000);
     expect(viewNeedsLiveClock({ fields: ['title', 'scripts'] })).toBe(true);

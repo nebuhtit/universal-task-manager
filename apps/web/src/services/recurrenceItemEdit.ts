@@ -42,6 +42,33 @@ function applyFields(target: UniversalItem, edited: UniversalItem) {
   }
 }
 
+/** Future exceptions keep unrelated edits, but the fields changed in this
+ * operation apply to them too. Compare against the selected cycle, whose
+ * dates/reminders are what the user actually saw in the editor. */
+function changedFields(before: UniversalItem, edited: UniversalItem) {
+  return fields.filter(field => JSON.stringify(before[field]) !== JSON.stringify(edited[field])).map(field => ({
+    field,
+    keys: field === 'schedule' || field === 'custom'
+      ? [...new Set([...Object.keys(before[field] ?? {}), ...Object.keys(edited[field] ?? {})])].filter(key =>
+        JSON.stringify((before[field] as Record<string, unknown> | undefined)?.[key]) !== JSON.stringify((edited[field] as Record<string, unknown> | undefined)?.[key]))
+      : undefined,
+  }));
+}
+
+function applyChangedFields(target: UniversalItem, fresh: UniversalItem, changes: ReturnType<typeof changedFields>) {
+  for (const { field, keys } of changes) {
+    if (keys && fresh[field] && target[field]) {
+      const value = clone(target[field]) as unknown as Record<string, unknown>;
+      const source = fresh[field] as unknown as Record<string, unknown>;
+      for (const key of keys) {
+        if (source[key] === undefined) delete value[key]; else value[key] = clone(source[key]);
+      }
+      Object.assign(target, { [field]: value });
+    } else if (fresh[field] === undefined) delete target[field];
+    else Object.assign(target, { [field]: clone(fresh[field]) });
+  }
+}
+
 /** Save a selected cycle without rewriting the dates or history of past cycles. */
 export function editRecurringItem(workspace: WorkspaceDocument, edited: UniversalItem, intent: RecurrenceItemEdit, now: Date): { item: UniversalItem; previousSeries?: UniversalItem } {
   const selected = ensureRecurrenceEditOccurrence(workspace, edited.id, intent);
@@ -49,6 +76,7 @@ export function editRecurringItem(workspace: WorkspaceDocument, edited: Universa
   if (!selected?.occurrence || !series?.recurrence || series.id !== edited.id || selected.deletedAt) throw new Error('The selected recurrence is unavailable. Reopen the item.');
   if (recurrenceEditPendingIds(workspace, intent).length) throw new Error('A related Google save is still pending. Retry saving when connected; your draft is kept in the editor.');
   const anchor = selected.occurrence.recurrenceId;
+  const changes = changedFields(selected, edited);
   if (intent.scope === 'this_occurrence') {
     if (ruleKey(edited.recurrence) !== ruleKey(series.recurrence)) throw new Error('Choose “This and future” to change the recurrence rule.');
     applyFields(selected, edited);
@@ -84,6 +112,8 @@ export function editRecurringItem(workspace: WorkspaceDocument, edited: Universa
   const nextRule = buildRecurrenceRule(next);
   for (const cycle of Object.values(workspace.items)) {
     if (cycle.occurrence?.seriesId !== series.id || cycle.occurrence.recurrenceId < anchor) continue;
+    // Repair provenance inherited by ordinary cycles in older builds.
+    if (cycle.role === 'occurrence' && cycle.recurrenceOverride?.kind === 'future_split') delete cycle.recurrenceOverride;
     const newAnchor = new Date(Date.parse(cycle.occurrence.recurrenceId) + shift);
     // A changed frequency must not leave old projected slots alongside the new
     // rule. Keep completed history and explicit exceptions; regenerate defaults.
@@ -95,6 +125,7 @@ export function editRecurringItem(workspace: WorkspaceDocument, edited: Universa
     if (!onRule && cycle.recurrenceOverride) next.recurrence.rdates = [...new Set([...next.recurrence.rdates, newAnchor.toISOString()])];
     const fresh = createOccurrence(next, newAnchor, Math.max(0, cycle.occurrence.sequence - beforeCount));
     if (cycle.state === 'open' && (!cycle.recurrenceOverride || cycle.id === selected.id)) applyFields(cycle, fresh);
+    else if (cycle.state === 'open') applyChangedFields(cycle, fresh, changes);
     cycle.occurrence = fresh.occurrence!;
     if (cycle.recurrenceOverride) cycle.recurrenceOverride = { ...cycle.recurrenceOverride, sourceSeriesId: next.id, recurrenceId: fresh.occurrence!.recurrenceId };
     if (splitting && cycle.state === 'open') {

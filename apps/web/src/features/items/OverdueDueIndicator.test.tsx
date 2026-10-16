@@ -33,6 +33,13 @@ describe('due-only overdue indicator', () => {
     expect(overdueAgeWithoutActiveRange(item, now)).toEqual({ value: 1, unit: 'hour' });
     expect(renderToStaticMarkup(<OverdueDueIndicator item={item} now={now} label="Overdue" />)).toContain('>1h</span>');
   });
+  it('shows overdue age when Start and Due are the same instant', () => {
+    const item = createItem('Point deadline');
+    item.schedule = { timezone: 'Europe/Moscow', startAt: '2026-10-01T06:00:00Z', dueAt: '2026-10-01T06:00:00Z' };
+    const current = new Date('2026-10-16T10:02:54Z');
+    expect(overdueAgeWithoutActiveRange(item, current)).toEqual({ value: 15, unit: 'day' });
+    expect(renderToStaticMarkup(<OverdueDueIndicator item={item} now={current} label="Overdue" />)).toContain('>15d</span>');
+  });
 
   it('renders nothing when the preference is disabled', () => {
     const item = createItem('Late');

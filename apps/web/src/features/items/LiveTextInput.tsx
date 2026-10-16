@@ -14,6 +14,7 @@ import { calendarSuggestions, extractCalendarSelection, joinCalendarText } from 
 import { withinTargets, withinPlacementInfo, type UniversalItem } from '@utm/core';
 import { liveTextIndex, withinPreviewWorkspace } from './liveTextIndex';
 import { createQuickEntryItem, applyQuickEntryText, parseQuickEntryForItem } from './quickEntry';
+import { withinOrganizationOffer } from './withinOrganization';
 
 export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, workspaceId, workspace, previewItem, language = 'ru', suggestionsEnabled = true, inputRef, multiline = false, overlaySuggestions = false, placeholder = 'Add new item', ariaLabel, now, error, id: inputId, autoFocus, onViewCalendarDate, viewedTimelineDate, timeZone, onSubmit, onFocus, onBlur }: {
   value: string; onChange: (value: string) => void; workspaceId: string; suggestionsEnabled?: boolean;
@@ -59,6 +60,7 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   }, [onSubmit, multiline, overlaySuggestions, sourceValue]);
   const id = useId();
   const [focused, setFocused] = useState(false), [open, setOpen] = useState(false), [caret, setCaret] = useState(value.length), [selected, setSelected] = useState(-1);
+  const [inheritTargetId, setInheritTargetId] = useState<string>();
   const pendingCaret = useRef<number | null>(null);
   const [referenceTime, setReferenceTime] = useState(now);
   const [report, setReport] = useState<{ input: string; parsed: Draft; referenceTime: string } | null>(null);
@@ -69,15 +71,23 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   // update. Deferring them prevents a large workspace from delaying each key.
   const deferredValue = useDeferredValue(value);
   const analysisCurrent = deferredValue === value;
-  const parsed = useMemo(() => measureProfile('editor.parse', () => ({ ...parseQuickEntryForItem(deferredValue, referenceTime, previewItem), withinIds: references.ids, ...(calendarReference.selection ? { calendarId: calendarReference.selection.id } : {}) })), [deferredValue, referenceTime, references, previewItem, calendarReference]);
-  const withinPreview = useMemo(() => {
-    if (!workspace || !parsed.withinIds?.length || !focused || !open || parsed.errors.length) return null;
+  const parsed = useMemo(() => measureProfile('editor.parse', () => parseQuickEntryForItem(joinCalendarText(joinWithinText(deferredValue, references.tokens), calendarReference.selection), referenceTime, previewItem)), [deferredValue, referenceTime, references, previewItem, calendarReference]);
+  const withinPreviewResult = useMemo(() => {
+    if (!workspace || !parsed.withinIds?.length || !focused || !open || parsed.errors.length) return { preview: null, error: '' };
     const text = joinCalendarText(joinWithinText(deferredValue, references.tokens), calendarReference.selection);
-    const draft = previewItem ? applyQuickEntryText(previewItem, text, referenceTime, { preserveUnspecifiedSchedule: true }).item : createQuickEntryItem(text, referenceTime, undefined, [], workspace);
+    let draft: UniversalItem;
+    try {
+      draft = previewItem ? applyQuickEntryText(previewItem, text, referenceTime, { preserveUnspecifiedSchedule: true }).item : createQuickEntryItem(text, referenceTime, undefined, [], workspace);
+    } catch (reason) {
+      // An unfinished command or a changed relation can invalidate the draft.
+      // Validation belongs beside the field, never in the render boundary.
+      return { preview: null, error: reason instanceof Error ? reason.message : String(reason) };
+    }
     const projected = measureProfile('editor.within-preview', () => withinPreviewWorkspace(workspace, draft, referenceTime), value => ({ scanned: Object.keys(value.items).length })).items[draft.id];
     const info = projected ? withinPlacementInfo(projected) : undefined;
-    return projected?.schedule?.startAt ? { start: projected.schedule.startAt, end: projected.schedule.endAt, names: (info?.targets ?? withinTargets(draft)).map(id => workspace.items[id]?.title ?? id).join(', '), fallback: info?.fallback } : null;
+    return { preview: projected?.schedule?.startAt ? { start: projected.schedule.startAt, end: projected.schedule.endAt, names: (info?.targets ?? withinTargets(draft)).map(id => workspace.items[id]?.title ?? id).join(', '), fallback: info?.fallback } : null, error: '' };
   }, [workspace, previewItem, deferredValue, referenceTime, focused, open, parsed, calendarReference]);
+  const withinPreview = withinPreviewResult.preview;
   const highlight = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState(false);
   const highlighted = !composing && analysisCurrent && Boolean(parsed.commandSpans?.length);
@@ -128,8 +138,15 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => {
     const position = Math.min(caret, deferredValue.length);
     if (!focused || !open || !suggestionsEnabled) return { start: position, end: position, options: [] };
+    const target = inheritTargetId && references.ids.includes(inheritTargetId) ? workspace?.items[inheritTargetId] : undefined;
+    const offer = target ? withinOrganizationOffer(target, deferredValue, previewItem) : null;
+    if (offer && target) {
+      const ru = language === 'ru';
+      const detail = [offer.areas.length && `${ru ? 'Области' : 'Areas'}: ${offer.areas.join(', ')}`, offer.projects.length && `${ru ? 'Проекты' : 'Projects'}: ${offer.projects.join(', ')}`, offer.tags.length && `${ru ? 'Теги' : 'Tags'}: ${offer.tags.map(tag => `#${tag}`).join(', ')}`].filter(Boolean).join(' · ');
+      return { start: deferredValue.length, end: deferredValue.length, ordered: true, options: [{ label: ru ? 'Добавить все области, проекты и теги' : 'Add all Areas, Projects and Tags', detail: `${target.title} · ${detail}`, insert: `${deferredValue.endsWith(' ') ? '' : ' '}${offer.insert} ` }] };
+    }
     return measureProfile('editor.suggestions', () => calendarSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).calendars : []) ?? withinSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).candidates.filter(item => item.id !== previewItem?.id && !references.ids.includes(item.id)) : []) ?? organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
-  }, [deferredValue, caret, referenceTime, language, catalog, workspace, previewItem?.id, references, focused, open, suggestionsEnabled]);
+  }, [deferredValue, caret, referenceTime, language, catalog, workspace, previewItem, references, focused, open, suggestionsEnabled, inheritTargetId]);
   const [optionLimit, setOptionLimit] = useState(30);
   useEffect(() => { setOptionLimit(30); }, [value, caret]);
   useEffect(() => { if (selected >= optionLimit) setOptionLimit(selected + 30); }, [selected, optionLimit]);
@@ -149,9 +166,10 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   const choose = (index: number) => {
     const option = suggestions.options[index]; if (!option) return;
     if (option.calendar) { setCalendar({ ...suggestions, insert: option.insert, source: value }); setDate(''); setOpen(false); return; }
+    setInheritTargetId(extractWithinRelations(option.insert).ids.at(-1));
     replace(option.replaceStart ?? suggestions.start, option.replaceEnd ?? suggestions.end, option.insert);
   };
-  const message = error || parsed.errors.join(' ');
+  const message = error || parsed.errors.join(' ') || withinPreviewResult.error;
   const format = (at: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(at));
   const summary = [parsed.plannedDate && `${parsed.plannedDate} · без времени`, parsed.start && `▷ ${format(parsed.start)}`, parsed.end && `→ ${format(parsed.end)}`, parsed.due && `Due ${format(parsed.due)}`, parsed.travelMinutes !== null && `Дорога ${parsed.travelMinutes} мин`, parsed.reminders.length > 0 && `Напоминания: ${parsed.reminders.length}`].filter(Boolean).join(' · ');
   const previewClock = (at: number) => new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-GB', { timeZone: timeZone ?? workspace?.calendarPreferences.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
@@ -191,8 +209,8 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
     role: 'combobox', 'aria-autocomplete': 'list' as const, 'aria-expanded': expanded, 'aria-controls': `${id}-options`,
     'aria-activedescendant': expanded && selected >= 0 ? `${id}-option-${selected}` : undefined,
     onFocus: () => { setFocused(true); setOpen(true); setReferenceTime(now); onFocus?.(); },
-    onBlur: () => { setFocused(false); setOpen(false); onBlur?.(); },
-    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { onChange(event.target.value); setCaret(event.target.selectionStart ?? 0); setSelected(-1); setOpen(true); setNotice(''); setReferenceTime(now); },
+    onBlur: () => { setFocused(false); setOpen(false); setInheritTargetId(undefined); onBlur?.(); },
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setInheritTargetId(undefined); onChange(event.target.value); setCaret(event.target.selectionStart ?? 0); setSelected(-1); setOpen(true); setNotice(''); setReferenceTime(now); },
     onSelect: (event: React.SyntheticEvent<HTMLInputElement | HTMLTextAreaElement>) => { setCaret(event.currentTarget.selectionStart ?? 0); requestAnimationFrame(syncHighlight); },
     onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) return;

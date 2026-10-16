@@ -621,7 +621,10 @@ export function compileQuery(source: string, relationContext?: (item: UniversalI
     // are actually present. Items without that range keep following the other
     // View conditions, such as Schedule in period.
     const activeRangeWhenSet = !activeDuration || activeRange;
-    const activeRangeWhenSetOrOverdue = activeRangeWhenSet || (due !== undefined && !Number.isNaN(due) && due < current.getTime());
+    // A real Start → Due interval is a visibility window, even after Due.
+    // Legacy point deadlines (Start === Due) may still use the overdue path.
+    const hasActiveWindow = activeDuration && start! < due!;
+    const activeRangeWhenSetOrOverdue = activeRangeWhenSet || (!hasActiveWindow && due !== undefined && !Number.isNaN(due) && due < current.getTime());
     try {
       const relations = relationContext?.(item, current) ?? {};
       const dueBuckets = { ...(relations.dueDateBuckets ?? dueDateBuckets(item, current, temporalOptions)), withinReservedBlockWhenSet: relations.withinReservedBlockWhenSet ?? true };

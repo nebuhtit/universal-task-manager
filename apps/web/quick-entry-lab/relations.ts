@@ -1,5 +1,7 @@
+import { isLiteralEntry } from './literal';
 /** Explicit selected references survive duplicate titles and later renames. */
 export function extractWithinRelations(input: string) {
+  if (isLiteralEntry(input)) return { text: input, displayText: input, ids: [], tokens: [] };
   const ids: string[] = [];
   const tokens: string[] = [];
   const spans: Array<{ start: number; end: number }> = [];
@@ -18,6 +20,7 @@ export function extractWithinRelations(input: string) {
 export const joinWithinText = (text: string, tokens: string[]) => tokens.length ? `${text}\n${tokens.join('\n')}` : text;
 
 export function withinSuggestions(input: string, caret: number, items: Array<{ id: string; title: string; preferred?: boolean }> | (() => Array<{ id: string; title: string; preferred?: boolean }>)) {
+  if (isLiteralEntry(input)) return null;
   const match = /(?:^|\s)(rr|рр)(?:\s+([^\[\]\n]*))?$/iu.exec(input.slice(0, caret));
   if (!match || /^\d/.test((match[2] ?? '').trim())) return null; // legacy numeric rr alarm shorthand
   const query = (match[2] ?? '').trimStart().toLocaleLowerCase();

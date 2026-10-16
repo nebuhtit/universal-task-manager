@@ -1,3 +1,4 @@
+import { isLiteralEntry } from './literal';
 export interface CalendarSelection { id: string; name: string }
 
 export function calendarToken(calendar: CalendarSelection) {
@@ -6,6 +7,7 @@ export function calendarToken(calendar: CalendarSelection) {
 
 /** Keep names out of date parsing and preserve identity across calendar renames. */
 export function extractCalendarSelection(input: string) {
+  if (isLiteralEntry(input)) return { text: input, displayText: input, selection: undefined };
   let selection: CalendarSelection | undefined;
   const spans: Array<{ start: number; end: number }> = [];
   const text = input.replace(/"(?:\\.|[^"\\])*"|«[^»]*»|(?:^|\s)(?:cc|кк)\s+\[([^\]\n]*)\]\(calendar:([^\s)]+)\)/giu, (match, name: string | undefined, encoded: string | undefined, offset: number) => {
@@ -26,6 +28,7 @@ export function extractCalendarSelection(input: string) {
 export const joinCalendarText = (text: string, selection?: CalendarSelection) => selection ? `${text}\n${calendarToken(selection)}` : text;
 
 export function calendarSuggestions(input: string, caret: number, calendars: CalendarSelection[] | (() => CalendarSelection[])) {
+  if (isLiteralEntry(input)) return null;
   const match = /(?:^|\s)(cc|кк)(?:\s+([^\[\]\n]*))?$/iu.exec(input.slice(0, caret));
   if (!match) return null;
   const query = (match[2] ?? '').trimStart().toLocaleLowerCase();

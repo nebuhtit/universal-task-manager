@@ -8,7 +8,8 @@ export function overdueAgeWithoutActiveRange(item: UniversalItem, now: Date): Ov
   if (item.state !== 'open' || !item.schedule?.dueAt) return null;
   const due = Date.parse(item.schedule.dueAt);
   const start = item.schedule.startAt ? Date.parse(item.schedule.startAt) : Number.NaN;
-  if (!Number.isFinite(due) || due >= now.getTime() || Number.isFinite(start)) return null;
+  const hasActiveRange = Number.isFinite(start) && start < due;
+  if (!Number.isFinite(due) || due >= now.getTime() || hasActiveRange) return null;
   const elapsed = now.getTime() - due;
   return elapsed < DAY_MS
     ? { value: Math.max(1, Math.floor(elapsed / HOUR_MS)), unit: 'hour' }

@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
 import { currentTimeline } from './calendar-locators';
 import * as Automerge from '@automerge/automerge';
-import { createWorkspace, createItem, ensureAreaDefinition, type WorkspaceDocument } from '../../packages/core/dist/index.js';
+import { createWorkspace, createItem, ensureAreaDefinition, ensureProjectDefinition, type WorkspaceDocument } from '../../packages/core/dist/index.js';
 import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wrapKey } from '../../packages/sdk/dist/index.js';
 
 const password = 'calendar-planning-fixture';
@@ -45,6 +45,123 @@ async function unlock(page: Page) {
   await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.locator('.app-shell')).toBeVisible({ timeout: 30_000 });
 }
+
+for (const route of ['Home', 'All items', 'Calendar', 'Project', 'Area']) test(`Live Text selections persist when editing from ${route}`, async ({ page }) => {
+  const { read } = await setup(page, false, workspace => {
+    ensureAreaDefinition(workspace, 'OriginalArea'); ensureAreaDefinition(workspace, 'NewArea');
+    ensureProjectDefinition(workspace, 'OriginalProject', { areas: ['OriginalArea'] }); ensureProjectDefinition(workspace, 'LaunchProject');
+    workspace.items.task!.projects = ['OriginalProject']; workspace.items.task!.areas = ['OriginalArea'];
+    workspace.views = { __all_items__: workspace.views.__all_items__!, pinned: { id: 'pinned', name: 'Pinned project', project: 'OriginalProject', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] } };
+    workspace.viewOrder = ['pinned'];
+  }, route === 'Project' || route === 'Area' ? 'PARA' : route);
+  if (route === 'Project' || route === 'Area') await page.locator('.organization-priority').getByRole('button', { name: route === 'Project' ? 'OriginalProject' : 'OriginalArea', exact: true }).click();
+  await page.getByText('A task', { exact: true }).first().click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const title = editor.getByLabel('Title', { exact: true });
+  await title.fill('A task п Launch'); await page.clock.runFor(300);
+  await expect(editor.getByRole('option').filter({ hasText: 'LaunchProject' })).toBeVisible();
+  await title.press('ArrowDown'); await title.press('Space');
+  await title.fill((await title.inputValue()) + ' э NewArea #urgent дл 25м до 26.09.2026 18:00 напомнить срок-10м');
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => (await read()).items.task!.projects).toEqual(['OriginalProject', 'LaunchProject']);
+  const saved = (await read()).items.task!;
+  expect(saved.areas).toEqual(['OriginalArea', 'NewArea']); expect(saved.tags).toEqual(['urgent']);
+  expect(saved.schedule?.estimatedDuration).toBe('PT25M'); expect(saved.schedule?.dueAt).toContain('2026-09-26');
+  expect(saved.reminders).toHaveLength(1); expect(saved.reminders[0]).toMatchObject({ relativeTo: 'due', offset: '-PT10M' });
+  if (route === 'Calendar') await navigate(page, 'All items');
+  await page.getByText('A task', { exact: true }).first().click();
+  await expect(title).toHaveValue(/LaunchProject/);
+  await expect(title).toHaveValue(/NewArea/);
+  if (route === 'Home') {
+    await editor.getByRole('button', { name: 'Quick entry', exact: true }).click();
+    const source = editor.getByPlaceholder('Строка быстрого ввода', { exact: true });
+    await source.fill((await source.inputValue()) + ' #lineTag');
+    const apply = editor.getByRole('button', { name: 'Apply line', exact: true });
+    await apply.focus(); await apply.press('Enter');
+    await expect(source).toHaveCount(0);
+  }
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden();
+  await expect.poll(async () => (await read()).items.task!.tags).toEqual(route === 'Home' ? ['urgent', 'lineTag'] : ['urgent']);
+});
+
+for (const text of ['.напоминания завтра длительность абракадабра project Work #tag', 'Проверить «напоминания» и "reminder"']) test(`literal Live Text survives blur, save and reopening: ${text}`, async ({ page }) => {
+  const { read } = await setup(page, false, workspace => {
+    workspace.views = { fixture: { id: 'fixture', name: 'Fixture', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] } };
+    workspace.viewOrder = ['fixture'];
+  }, 'Home');
+  const before = (await read()).items.task!;
+  await page.locator('[data-view-item-id="task"] .item-title').click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const title = editor.getByLabel('Title', { exact: true });
+  await title.fill(text);
+  await editor.getByRole('button', { name: 'Save item', exact: true }).focus();
+  await expect(title).toHaveValue(text);
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => ((await read()).items.task?.extensions?.['utm:quickEntrySource'] as { text?: string })?.text).toBe(text);
+  const saved = (await read()).items.task!;
+  expect(saved.schedule).toEqual(before.schedule); expect(saved.projects).toEqual(before.projects); expect(saved.tags).toEqual(before.tags);
+  await page.locator('[data-view-item-id="task"] .item-title').click();
+  await expect(title).toHaveValue(text);
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+});
+
+test('pinned project capture saves an undated completable task with a ten-minute estimate', async ({ page }) => {
+  const { read } = await setup(page, false, workspace => {
+    workspace.views = { pinned: { id: 'pinned', name: 'Pinned project', project: 'Launch', query: { source: 'true' }, renderer: 'list', fields: ['title'], sort: [] } };
+    workspace.viewOrder = ['pinned'];
+  }, 'Home');
+  await page.getByRole('button', { name: '+ Add item to Launch', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await editor.getByLabel('Title', { exact: true }).fill('Customer followup');
+  const dates = editor.locator('[data-editor-section="dates"]');
+  await dates.locator(':scope > summary').focus(); await dates.locator(':scope > summary').press('Enter');
+  await expect(editor.getByLabel('Event opens', { exact: true })).toHaveValue('');
+  await expect(editor.getByLabel('Event ends', { exact: true })).toHaveCount(0);
+  await expect(editor.getByLabel('Calendar duration amount', { exact: true })).toHaveValue('10 min');
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => Object.values((await read()).items).find(item => item.title === 'Customer followup')?.schedule?.estimatedDuration).toBe('PT10M');
+  const saved = Object.values((await read()).items).find(item => item.title === 'Customer followup')!;
+  expect(saved.schedule?.startAt).toBeUndefined(); expect(saved.schedule?.endAt).toBeUndefined();
+  expect(saved.canBeCompleted).toBe(true); expect(saved.preset).toBe('task'); expect(saved.projects).toEqual(['Launch']);
+});
+
+for (const theme of ['light', 'dark'] as const) test(`monthly recurrence options save the chosen weekday in ${theme} theme`, async ({ page }, testInfo) => {
+  const { read } = await setup(page, false, workspace => { workspace.calendarPreferences.appearance.mode = theme; workspace.calendarPreferences.showExplanations = true; });
+  await page.locator('[data-view-item-id="task"] .item-title').click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const dates = editor.locator('details[data-editor-section="dates"]');
+  await dates.locator(':scope > summary').focus();
+  await dates.locator(':scope > summary').press('Enter');
+  await expect(dates).toHaveAttribute('open', '');
+  const recurrence = editor.locator('summary').filter({ hasText: 'Recurrence & auto-renew' });
+  await recurrence.focus(); await recurrence.press('Enter');
+  await page.clock.runFor(400);
+  await editor.getByLabel('Make this a recurring series').check();
+  await editor.getByLabel('Repeat frequency').selectOption('MONTHLY');
+  await editor.getByLabel('When in the month', { exact: true }).selectOption('full');
+  await editor.getByLabel('Position', { exact: true }).selectOption('2');
+  await editor.getByLabel('Weekday', { exact: true }).selectOption('TU');
+  await expect(editor.getByLabel('When in the month', { exact: true })).toHaveValue('full');
+  expect(await editor.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('monthly-recurrence.png') });
+  await editor.getByLabel('When in the month', { exact: true }).selectOption('partial');
+  await editor.getByLabel('Position', { exact: true }).selectOption('2');
+  await expect(editor.getByLabel('When in the month', { exact: true })).toHaveValue('partial');
+  await editor.getByLabel('When in the month', { exact: true }).selectOption('weekday');
+  await editor.getByLabel('Position', { exact: true }).selectOption('2');
+  await editor.getByLabel('Weekday', { exact: true }).focus();
+  await expect(editor.getByLabel('Weekday', { exact: true })).toBeFocused();
+  const guide = editor.locator('summary').filter({ hasText: 'Activate before and recurrence codes' });
+  await guide.focus(); await guide.press('Enter');
+  await expect(editor.getByText('Activation lets you work on an upcoming cycle early.', { exact: false })).toBeVisible();
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => Object.values((await read()).items).some(item => item.recurrence?.rrule.includes('BYDAY=2TU'))).toBe(true);
+});
 async function navigate(page: Page, label: string) {
   if (label === 'Home' || label === 'Calendar') { await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name: label, exact: true }).click(); return; }
   if ((page.viewportSize()?.width ?? 0) <= 620) { await page.getByRole('button', { name: 'Open navigation' }).click(); await page.locator('.mobile-nav-menu').getByRole('button', { name: label, exact: true }).click(); }
@@ -85,6 +202,56 @@ async function activateLiveTextControl(control: Locator, touch: boolean) {
   await control.page().clock.runFor(400);
   if (touch) await control.tap(); else await control.click();
 }
+
+test('rr preview validation and unfinished reminder prefixes never crash the editor', async ({ page }) => {
+  await setup(page, false, liveTextSelectionsFixture, 'Home');
+  await page.getByText('A task', { exact: true }).first().click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const title = editor.getByRole('combobox', { name: 'Title', exact: true });
+  await title.fill('A task начало 24.09.2026 10:00 дл 30м обратно 15м rr Work');
+  await page.clock.runFor(400);
+  await title.press('ArrowDown'); await title.press('Space');
+  await expect(editor.getByRole('button', { name: 'Убрать связь: Work', exact: true })).toBeVisible();
+  await expect(editor.getByText('Для дороги обратно нужно время конца события.', { exact: false }).first()).toBeVisible();
+  const original = await title.inputValue();
+  for (const base of [original, original.replace('обратно 15м', '')]) {
+    for (const prefix of ['р', 'r', 'рр', 'rr']) {
+      await title.fill(`${base} ${prefix}`); await page.clock.runFor(400);
+      await expect(page.locator('.app-shell')).toBeVisible(); await expect(title).toBeVisible();
+    }
+  }
+  await title.fill(original.replace('обратно 15м', ''));
+  await expect(editor.getByText('Для дороги обратно нужно время конца события.', { exact: false })).toHaveCount(0);
+  await editor.getByRole('button', { name: 'Save item', exact: true }).focus();
+  await expect(editor).toBeVisible();
+});
+
+for (const surface of ['capture', 'editor'] as const) test(`rr membership offer copies and saves all organization in ${surface}`, async ({ page }, testInfo) => {
+  const { read } = await setup(page, false, workspace => {
+    liveTextSelectionsFixture(workspace);
+    workspace.items.work!.areas = ['Work']; workspace.items.work!.projects = ['Launch']; workspace.items.work!.tags = ['block-tag'];
+  }, 'Home');
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  if (surface === 'editor') await page.getByText('A task', { exact: true }).first().click();
+  const root = surface === 'editor' ? editor : page.locator('.capture-dock .live-text-input');
+  const input = surface === 'editor' ? editor.getByRole('combobox', { name: 'Title', exact: true }) : root.getByRole('combobox');
+  await input.fill(`Selected task ${surface === 'capture' ? 'rr' : 'рр'} Work`);
+  await page.clock.runFor(300);
+  await input.press('ArrowDown'); await input.press('Space');
+  await expect(root.getByRole('button', { name: 'Убрать связь: Work', exact: true })).toBeVisible();
+  const offer = root.getByRole('option').filter({ hasText: 'Add all Areas, Projects and Tags' });
+  await expect(offer).toBeVisible();
+  await expect(offer).toContainText('Work'); await expect(offer).toContainText('Launch'); await expect(offer).toContainText('#block-tag');
+  if (testInfo.project.use.hasTouch) await offer.tap(); else await offer.click();
+  await expect(offer).toHaveCount(0);
+  await expect(input).toHaveValue(/area:"Work"/); await expect(input).toHaveValue(/project:"Launch"/); await expect(input).toHaveValue(/#"block-tag"/);
+  if (surface === 'capture') await input.press('Enter');
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click(); await expect(editor).toBeHidden();
+  await expect.poll(async () => Object.values((await read()).items).find(item => item.title === 'Selected task')?.projects).toEqual(['Launch']);
+  const saved = Object.values((await read()).items).find(item => item.title === 'Selected task')!;
+  expect(saved.areas).toEqual(['Work']); expect(saved.tags).toEqual(['block-tag']);
+  expect(saved.relations).toContainEqual(expect.objectContaining({ type: 'scheduled_within', targetId: 'work' }));
+});
 
 test('Live Text calendar and preferred rr blocks work in capture, item title and source editor', async ({ page }, testInfo) => {
   test.setTimeout(90_000);

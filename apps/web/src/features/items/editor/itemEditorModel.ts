@@ -1,6 +1,7 @@
 import { canManuallyComplete, buildRecurrenceRule, createId, createItem, makeSeries, removeDuplicateReminders, validateScriptDefinitions, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { inferredPreset } from '../fieldDisplay';
 import { clearCreationDefaultBounds } from '../creationDefaultBounds';
+import { withQuickEntryCalendar } from '../quickEntry';
 import { syncEventProgramScript, validateEventProgram, programOverflow } from '@utm/core';
 
 const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -32,6 +33,7 @@ export function duplicateItemDraft(source: UniversalItem, now = new Date()): Uni
 export type NormalizeItemEditorInput = {
   item: UniversalItem; workspace: WorkspaceDocument; tags: string; contexts: string; isTemplate: boolean; recurring: boolean; activeRange: boolean;
   repeatFrequency: string; repeatIntervalDraft: string; repeatDays: string[]; now?: Date;
+  deleteGoogleEvent?: boolean;
 };
 
 export function normalizeItemForSave(input: NormalizeItemEditorInput): UniversalItem {
@@ -42,11 +44,12 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
   if (item.progress?.durationGoal?.comparison === 'between' && (item.progress.durationGoal.minSeconds ?? 0) > (item.progress.durationGoal.maxSeconds ?? 0)) throw new Error('Maximum duration must be at least the minimum.');
   validateEventProgram(item);
   const saved = workspace.items[item.id];
+  const detachingGoogle = input.deleteGoogleEvent === true && saved?.external?.readOnly === false && (!item.schedule?.startAt || !item.schedule.endAt);
   if (item.eventProgram?.blocks.length && item.schedule?.allDay && !saved?.schedule?.allDay) throw new Error('Remove the program before switching to All day.');
   if (programOverflow(item).length && (JSON.stringify(saved?.eventProgram) !== JSON.stringify(item.eventProgram) || saved?.schedule?.startAt !== item.schedule?.startAt || saved?.schedule?.endAt !== item.schedule?.endAt)) throw new Error('Program blocks are outside the event. Extend the event or adjust the program.');
   const pendingGoogle = workspace.items[item.id]?.extensions?.['utm:googleSave'] as { kind?: string } | undefined;
-  if (pendingGoogle && pendingGoogle.kind !== 'delete' && (!item.schedule?.startAt || !item.schedule.endAt)) throw new Error('Linked events require both Event opens and Event ends.');
-  if (item.external && !item.schedule?.endAt && !item.schedule?.dueAt) throw new Error('Keep a Due date when removing Event ends from a linked item.');
+  if (!detachingGoogle && pendingGoogle && pendingGoogle.kind !== 'delete' && (!item.schedule?.startAt || !item.schedule.endAt)) throw new Error('Linked events require both Event opens and Event ends.');
+  if (!detachingGoogle && item.external && !item.schedule?.endAt && !item.schedule?.dueAt) throw new Error('Keep a Due date when removing Event ends from a linked item.');
   if (!canManuallyComplete(item) && item.state === 'done' && workspace.items[item.id]?.state !== 'done') throw new Error('Calendar events cannot be marked completed.');
   let result = {
     ...clean(item), title: item.title.trim(), tags: commaList(input.tags), contexts: commaList(input.contexts),
@@ -54,6 +57,11 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
     projects: [...new Set([...(item.projects ?? []), ...(item.project ? [item.project] : [])].map((value) => value.trim()).filter(Boolean))],
     updatedAt: now.toISOString(), revision: item.revision + (workspace.items[item.id] ? 1 : 0),
   };
+  if (detachingGoogle) {
+    result = withQuickEntryCalendar(result);
+    delete result.external;
+    if (result.schedule) delete result.schedule.allDay;
+  }
   delete result.area; delete result.project;
   if (result.eventProgram?.blocks.length && result.schedule?.startAt && !result.schedule.endAt) result.schedule.endAt = new Date(Date.parse(result.schedule.startAt) + Math.max(...result.eventProgram.blocks.map((block) => block.endOffsetSeconds)) * 1000).toISOString();
   syncEventProgramScript(result, workspace.calendarPreferences.language);
@@ -75,7 +83,9 @@ export function normalizeItemForSave(input: NormalizeItemEditorInput): Universal
     const recurrence = result.recurrence;
     const parts = new Map((recurrence?.rrule ?? 'FREQ=WEEKLY;INTERVAL=1').replace(/^RRULE:/i, '').split(';').filter(Boolean).map((part) => { const [key, ...rest] = part.split('='); return [key!.trim().toUpperCase(), rest.join('=').trim()]; }));
     parts.set('FREQ', repeatFrequency || 'WEEKLY'); parts.set('INTERVAL', String(Math.max(1, Number.parseInt(repeatIntervalDraft, 10) || 1)));
-    if (activeRange || repeatFrequency !== 'WEEKLY' || !repeatDays.length) parts.delete('BYDAY'); else parts.set('BYDAY', repeatDays.join(','));
+    if (repeatFrequency === 'WEEKLY') {
+      if (activeRange || !repeatDays.length) parts.delete('BYDAY'); else parts.set('BYDAY', repeatDays.join(','));
+    }
     const normalizedRecurrence: NonNullable<UniversalItem['recurrence']> = { rrule: [...parts].map(([key, value]) => `${key}=${value}`).join(';'), rdates: Array.isArray(recurrence?.rdates) ? [...recurrence.rdates] : [], exdates: Array.isArray(recurrence?.exdates) ? [...recurrence.exdates] : [], timezone: recurrence?.timezone ?? result.schedule?.timezone ?? 'UTC', activationOffset: recurrence?.activationOffset ?? 'P7D', closeAt: recurrence?.closeAt ?? 'next_activation', anchor: recurrence?.anchor ?? 'schedule', autoRenew: recurrence?.autoRenew !== false };
     result.recurrence = normalizedRecurrence;
     buildRecurrenceRule(result);

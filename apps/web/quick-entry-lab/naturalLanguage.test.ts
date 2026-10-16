@@ -28,7 +28,7 @@ describe('natural bilingual durations and return travel', () => {
     expect(extractOrganization('Текст п Работа э Дом #важно').projects).toEqual(['Работа']);
     expect(extractOrganization('Текст p Work ar Home tag urgent').areas).toEqual(['Home']);
     const draft = parseLiveEntry('.н .p .#метка .завтра', now);
-    expect(draft.isNote).toBeUndefined(); expect(draft.reminders).toEqual([]); expect(draft.plannedDate).toBeUndefined(); expect(draft.title).toBe('.н .p .#метка .завтра');
+    expect(draft.isNote).toBe(true); expect(draft.reminders).toEqual([]); expect(draft.plannedDate).toBeUndefined(); expect(draft.title).toBe('н .p .#метка .завтра');
     expect(parseLiveEntry('. текст п Работа', now).isNote).toBe(true);
     expect(organizationSuggestions('pro', 3, { area: [], project: [], tag: [] })?.options[0]?.label).toBe('project');
   });
