@@ -13,7 +13,7 @@ function moveEntry<T>(items: T[], from: number, target: number, after = false) {
 }
 
 /** Pointer/touch reorder with an explicit handle; Arrow/Home/End keep it keyboard accessible. */
-export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { enabled = true, visualPreview = false, holdDelayMs = 0 } = {}) {
+export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { enabled = true, visualPreview = false, holdDelayMs = 0, lockScrollOnDrag = false } = {}) {
   const listId = useId();
   const container = useRef<HTMLDivElement | null>(null);
   const drag = useRef<DragState | null>(null);
@@ -62,7 +62,7 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
       if (target !== drag.current.from) row.dataset.reorderDrop = drag.current.after ? 'after' : 'before';
     }
   };
-  const surface = (index: number): HTMLAttributes<HTMLElement> => ({
+  const surface = (index: number, lockScrollOnHold = false): HTMLAttributes<HTMLElement> => ({
     onPointerDown: (event) => {
       if (!enabled) return;
       if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
@@ -71,19 +71,33 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
       const startY = event.clientY;
       const startX = event.clientX;
       const pointerId = event.pointerId;
+      let restoreScroll: (() => void) | undefined;
+      const lockScroll = () => {
+        if (restoreScroll) return;
+        const bodyOverflow = document.body.style.overflow, rootOverflow = document.documentElement.style.overflow;
+        document.body.style.overflow = 'hidden'; document.documentElement.style.overflow = 'hidden';
+        restoreScroll = () => { document.body.style.overflow = bodyOverflow; document.documentElement.style.overflow = rootOverflow; };
+      };
+      // Only explicit handles reserve the gesture before the hold timer fires.
+      // Ordinary card surfaces must remain available for page scrolling.
+      if (lockScrollOnHold) lockScroll();
       const timer = window.setTimeout(() => {
         drag.current = { from: index, target: index, after: false };
+        if (lockScrollOnDrag) lockScroll();
         if (holdDelayMs > 0) {
           target.dataset.reorderHolding = 'true';
           try { target.setPointerCapture?.(pointerId); } catch { /* Window listeners remain active. */ }
         }
         if (visualPreview) {
-          const bounds = target.getBoundingClientRect();
-          const clone = target.cloneNode(true) as HTMLElement;
-          clone.className = 'ui-reorder-preview';
+          const source = lockScrollOnDrag ? target.closest<HTMLElement>('[data-reorder-index]') ?? target : target;
+          const bounds = source.getBoundingClientRect();
+          const clone = source.cloneNode(true) as HTMLElement;
+          clone.className = lockScrollOnDrag ? `${source.className} ui-reorder-preview is-scroll-locked-drag` : 'ui-reorder-preview';
           clone.setAttribute('aria-hidden', 'true'); clone.setAttribute('tabindex', '-1');
+          clone.inert = true;
           clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'));
           Object.assign(clone.style, { left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, color: getComputedStyle(target).color });
+          if (lockScrollOnDrag) clone.style.height = 'auto';
           document.body.appendChild(clone); preview.current = clone;
           target.closest<HTMLElement>('[data-reorder-index]')?.setAttribute('data-reorder-dragging', 'true');
         }
@@ -106,11 +120,14 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
         drag.current = null; cleanup();
       };
       const cancel = () => { window.clearTimeout(timer); drag.current = null; cleanup(); };
-      const touchMove = (touchEvent: TouchEvent) => { if (drag.current && touchEvent.cancelable) touchEvent.preventDefault(); };
-      const cleanup = () => { delete target.dataset.reorderHolding; clearPreview(); cancelSurface.current = undefined; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', cancel); target.removeEventListener('touchmove', touchMove); };
+      const touchMove = (touchEvent: TouchEvent) => { if ((drag.current || lockScrollOnHold) && touchEvent.cancelable) touchEvent.preventDefault(); };
+      const blockWheel = (event: WheelEvent) => { if (drag.current || lockScrollOnHold) event.preventDefault(); };
+      const touchSurface = lockScrollOnDrag ? document : target;
+      const cleanup = () => { restoreScroll?.(); delete target.dataset.reorderHolding; clearPreview(); cancelSurface.current = undefined; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', cancel); touchSurface.removeEventListener('touchmove', touchMove as EventListener); document.removeEventListener('wheel', blockWheel); };
       cancelSurface.current = cancel;
       window.addEventListener('pointermove', move, { passive: false }); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', cancel);
-      if (holdDelayMs > 0) target.addEventListener('touchmove', touchMove, { passive: false });
+      if (lockScrollOnDrag) document.addEventListener('wheel', blockWheel, { passive: false });
+      if (holdDelayMs > 0) touchSurface.addEventListener('touchmove', touchMove as EventListener, { passive: false });
       else try { target.setPointerCapture?.(event.pointerId); } catch { /* Window listeners also cover unavailable or cancelled capture. */ }
     },
     onClick: (event) => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } },
@@ -119,7 +136,7 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
   const handle = (index: number, label: string): ReactNode => <button
     type="button"
     draggable={holdDelayMs === 0}
-    className={`ui-reorder-handle${holdDelayMs > 0 ? ' requires-hold' : ''}`}
+    className={`ui-reorder-handle${holdDelayMs > 0 ? ' requires-hold' : ''}${holdDelayMs > 0 && lockScrollOnDrag ? ' locks-scroll-on-hold' : ''}`}
     aria-label={`Reorder ${label}`}
     onContextMenu={(event) => { if (holdDelayMs > 0) event.preventDefault(); }}
     onDragStart={(event) => {
@@ -135,7 +152,7 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
       onChange(moveEntry(items, index, target, target > index));
     }}
     onPointerDown={(event) => {
-      if (holdDelayMs > 0) { surface(index).onPointerDown?.(event); return; }
+      if (holdDelayMs > 0) { surface(index, lockScrollOnDrag).onPointerDown?.(event); return; }
       const target = event.currentTarget;
       target.focus();
       drag.current = { from: index, target: index, after: false };

@@ -11,11 +11,12 @@ import { manualOrderFor, type ViewEvaluation } from './viewSelectors';
 import { useViewEvaluation } from './useViewEvaluation';
 import { UserDataText, useTranslation } from '../../i18n-react';
 
-export function SavedViewSection({ view, workspace, suppliedEvaluation, hiddenItemIds, onEditView, onEditItem, onState, onRendererChange: _onRendererChange, onAddItem, onQuickAddItem, onReorderItems, onResetOrder, onOpenChange, initialOpen, celebrationColors, showTechnicalSummary = true, reorderHandle, reorderSurface, headerActions, allowAdd = false }: {
+export function SavedViewSection({ view, workspace, suppliedEvaluation, hiddenItemIds, onEditView, onEditItem, onState, onRendererChange: _onRendererChange, onAddItem, onQuickAddItem, onReorderItems, onResetOrder, onOpenChange, onOpenView, fixedExpanded = false, initialOpen, celebrationColors, showTechnicalSummary = true, reorderHandle, reorderSurface, headerActions, allowAdd = false }: {
   suppliedEvaluation?: ViewEvaluation | undefined;
   view: SavedView; workspace: WorkspaceDocument; onEditView?: () => void; onEditItem: (item: UniversalItem) => void;
   onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void; onRendererChange: (renderer: SavedView['renderer']) => void; onAddItem: (view: SavedView) => void; onReorderItems?: (itemIds: string[]) => void; onResetOrder?: () => void; onOpenChange?: (open: boolean) => void; initialOpen?: boolean; celebrationColors?: ReadonlyMap<string, string> | undefined; showTechnicalSummary?: boolean; reorderHandle?: ReactNode;
   headerActions?: ReactNode;
+  onOpenView?: () => void; fixedExpanded?: boolean;
   hiddenItemIds?: ReadonlySet<string> | undefined;
   allowAdd?: boolean; reorderSurface?: HTMLAttributes<HTMLElement>;
   onQuickAddItem?: (view: SavedView, title: string) => void;
@@ -23,7 +24,8 @@ export function SavedViewSection({ view, workspace, suppliedEvaluation, hiddenIt
   const [open, setOpen] = useState(() => initialOpen ?? readUiBoolean(`view:${view.id}`, true));
   const [quickTitle, setQuickTitle] = useState('');
   const [quickError, setQuickError] = useState('');
-  const titleTouchStart = useRef<{ x: number; y: number } | null>(null);
+  const titleTouchStart = useRef<{ x: number; y: number; at: number } | null>(null);
+  const titlePress = useRef<{ x: number; y: number; at: number; cancelled: boolean } | null>(null);
   const suppressTitleClickUntil = useRef(0);
   const t = useTranslation(workspace.calendarPreferences.language);
   const evaluation = useViewEvaluation(workspace, view, open, suppliedEvaluation);
@@ -52,12 +54,13 @@ export function SavedViewSection({ view, workspace, suppliedEvaluation, hiddenIt
   const onTitleTouchStart = (event: TouchEvent<HTMLButtonElement>) => {
     if (!reorderHandle || !onEditView || event.touches.length !== 1) return;
     const touch = event.touches[0]!;
-    titleTouchStart.current = { x: touch.clientX, y: touch.clientY };
+    titleTouchStart.current = { x: touch.clientX, y: touch.clientY, at: performance.now() };
   };
   const onTitleTouchEnd = (event: TouchEvent<HTMLButtonElement>) => {
     const start = titleTouchStart.current;
     titleTouchStart.current = null;
     if (!start || !reorderHandle || !onEditView || event.changedTouches.length !== 1) return;
+    if (onOpenView && performance.now() - start.at >= 500) return;
     const touch = event.changedTouches[0]!;
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
@@ -67,7 +70,45 @@ export function SavedViewSection({ view, workspace, suppliedEvaluation, hiddenIt
     onEditView();
   };
   return <section className={`view-section${reorderHandle ? ' home-view' : ''}${open ? '' : ' is-collapsed'}${view.renderer === 'list' || view.renderer === 'table' ? ' is-reorderable' : ''}`} style={viewStyle}>
-    <header className="view-section-summary">{!open && reorderSurface && <div className="view-section-reorder" aria-hidden="true" /> }<button type="button" className={`view-section-title${!open && reorderSurface ? ' is-reorder-surface' : ''}`} {...(!open && reorderSurface ? reorderSurface : {})} aria-label={`${t(`${open ? 'Collapse' : 'Expand'} ${view.name}`)}${open && metricsSummary ? `. ${metricsSummary.ariaLabel}` : ''}`} aria-expanded={open} onTouchStart={onTitleTouchStart} onTouchEnd={(event) => { if (!open) reorderSurface?.onTouchEnd?.(event); if (!event.defaultPrevented) onTitleTouchEnd(event); }} onClick={(event) => { if (!open) reorderSurface?.onClick?.(event); if (event.defaultPrevented) return; if (performance.now() < suppressTitleClickUntil.current) return; toggleOpen(); }}><h2><UserDataText>{view.name}</UserDataText></h2>{open && metrics && <ViewMetricsSummary metrics={metrics} language={workspace.calendarPreferences.language} showFreeTime={view.statistics?.showFreeTime === true} />}</button><div className="view-section-actions">{headerActions}{open && onEditView && !reorderHandle && <button type="button" className="icon-button view-settings-button" aria-label={t(`Edit ${view.name}`)} title={t('Edit view')} onClick={onEditView}><LineIcon name="settings" /></button>}</div></header>
+    <header className="view-section-summary">
+      {!open && reorderSurface && <div className="view-section-reorder" aria-hidden="true" />}
+      <button type="button" disabled={fixedExpanded} className={`view-section-title${onOpenView ? ' has-home-gestures' : ''}${!open && reorderSurface ? ' is-reorder-surface' : ''}`}
+        aria-label={`${t(`${onOpenView ? 'Open' : open ? 'Collapse' : 'Expand'} ${view.name}`)}${open && metricsSummary ? `. ${metricsSummary.ariaLabel}` : ''}`} aria-expanded={open}
+        onPointerDown={(event) => {
+          if (!onOpenView || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+          titlePress.current = { x: event.clientX, y: event.clientY, at: performance.now(), cancelled: false };
+          if (!open) reorderSurface?.onPointerDown?.(event);
+        }}
+        onPointerMove={(event) => {
+          const press = titlePress.current;
+          if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) press.cancelled = true;
+        }}
+        onPointerCancel={() => { if (onOpenView) { titlePress.current = null; suppressTitleClickUntil.current = performance.now() + 500; } }}
+        onPointerUp={() => {
+          const press = titlePress.current; titlePress.current = null;
+          if (!onOpenView || !press) return;
+          suppressTitleClickUntil.current = performance.now() + 500;
+          const elapsed = performance.now() - press.at;
+          if (press.cancelled) return;
+          if (elapsed >= 500 && elapsed <= 1500) { if (open) toggleOpen(); }
+          else if (elapsed < 500) { if (open) onOpenView(); else toggleOpen(); }
+        }}
+        onContextMenu={(event) => { if (onOpenView) event.preventDefault(); }}
+        onKeyDown={(event) => {
+          if (onOpenView && event.key === ' ') { event.preventDefault(); toggleOpen(); }
+        }}
+        onTouchStart={onTitleTouchStart}
+        onTouchEnd={(event) => { if (!open) reorderSurface?.onTouchEnd?.(event); if (!event.defaultPrevented) onTitleTouchEnd(event); }}
+        onClick={(event) => {
+          if (!open) reorderSurface?.onClick?.(event);
+          if (event.defaultPrevented || (event.detail !== 0 && performance.now() < suppressTitleClickUntil.current)) return;
+          if (onOpenView && open) onOpenView(); else if (!fixedExpanded) toggleOpen();
+        }}>
+        <h2><UserDataText>{view.name}</UserDataText></h2>
+        {open && metrics && <ViewMetricsSummary metrics={metrics} language={workspace.calendarPreferences.language} showFreeTime={view.statistics?.showFreeTime === true} />}
+      </button>
+      <div className="view-section-actions">{headerActions}{open && onEditView && !reorderHandle && <button type="button" className="icon-button view-settings-button" aria-label={t(`Edit ${view.name}`)} title={t('Edit view')} onClick={onEditView}><LineIcon name="settings" /></button>}</div>
+    </header>
     {open && <div className="view-section-body">{showTechnicalSummary && <div className="view-query-summary"><CodeEditor readOnly language="dsl" ariaLabel="View filter" value={view.query.source.trim() || 'true'} />{view.area && <code className="sort-preview">Area: {view.area}</code>}{view.project && <code className="sort-preview">Project: {view.project}</code>}{view.list && <code className="sort-preview">List: {view.list}</code>}{Object.keys(view.creationDefaults ?? {}).length > 0 && <code className="sort-preview">New item defaults: {Object.keys(view.creationDefaults ?? {}).length}</code>}{(view.sortSource || view.sort?.length) && <code className="sort-preview">Sort: {view.sortSource ?? view.sort.map((sort) => `${sort.field} ${sort.direction}`).join(' · ')}</code>}<p>{t(`${matchingItems} matching items`)}</p></div>}{hasManualOrder && <div className="manual-order-bar"><span>{t('Manual order')}</span><button type="button" onClick={onResetOrder}>{t('Reset order')}</button></div>}<div className="view-results-scroll"><ViewResults view={view} workspace={workspace} evaluation={evaluation} hiddenItemIds={hiddenItemIds} onEdit={onEditItem} onState={onState} onReorder={onReorderItems} celebrationColors={celebrationColors} /></div>{canAdd && (onQuickAddItem ? <form className="view-quick-add" data-quick-capture onSubmit={submitQuickAdd}><LiveTextInput value={quickTitle} onChange={(value) => { setQuickTitle(value); setQuickError(''); }} placeholder={t(addLabel)} ariaLabel={t(`Quick ${addLabel.toLowerCase()}`)} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={evaluation.now} error={quickError} /></form> : <Button className="view-add-item" size="compact" onClick={() => onAddItem(view)}>+ {t(addLabel)}</Button>)}</div>}
   </section>;
 }

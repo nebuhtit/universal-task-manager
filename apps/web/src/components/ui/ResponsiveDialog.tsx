@@ -15,12 +15,15 @@ export interface ResponsiveDialogProps {
   finalFocus?: ComponentProps<typeof Dialog.Popup>['finalFocus'];
   closeLabel?: string;
   ariaLabel?: string;
+  modal?: boolean;
+  disablePointerDismissal?: boolean;
 }
 
 /**
- * One accessible modal contract: centered dialog on desktop and bottom sheet
+ * One accessible dialog contract: modal by default, centered on desktop and bottom sheet
  * presentation on narrow screens. Base UI owns focus trapping/restoration,
- * Escape handling, outside interaction, and portal behavior.
+ * Escape handling, outside interaction, and portal behavior. Non-modal windows
+ * can keep app navigation and capture controls interactive.
  */
 export function ResponsiveDialog({
   open,
@@ -35,11 +38,13 @@ export function ResponsiveDialog({
   finalFocus,
   closeLabel = 'Close dialog',
   ariaLabel,
+  modal = true,
+  disablePointerDismissal = false,
 }: ResponsiveDialogProps) {
   const [noticeHost, setNoticeHost] = useState<HTMLDivElement | null>(null);
-  return <Dialog.Root open={open} onOpenChange={onOpenChange}>
+  return <Dialog.Root open={open} onOpenChange={onOpenChange} modal={modal} disablePointerDismissal={disablePointerDismissal}>
     <Dialog.Portal>
-      <Dialog.Backdrop className={['ui-dialog-backdrop', 'is-glass', backdropClassName].filter(Boolean).join(' ')} />
+      {modal && <Dialog.Backdrop className={['ui-dialog-backdrop', 'is-glass', backdropClassName].filter(Boolean).join(' ')} />}
       <Dialog.Viewport className="ui-dialog-viewport">
         <Dialog.Popup
           className={['ui-dialog-popup', 'is-glass', className].filter(Boolean).join(' ')}

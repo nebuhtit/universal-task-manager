@@ -31,6 +31,7 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-pill: 999px;
+  --color-home-view-background: color-mix(in srgb, var(--color-text) 2%, transparent);
   --control-height-compact: 36px;
   --control-height-default: 40px;
   --control-height-touch: 44px;
@@ -124,6 +125,8 @@
   --layout-capture-input-max: 560px;
   --layout-quick-nav-width: calc(var(--layout-capture-control-height) * 2 + var(--space-2));
   --z-overlay: 100;
+  --z-view-window: 30;
+  --z-app-chrome: 40;
 
   /* Temporary compatibility aliases. Remove only after legacy migration. */
   --ink: var(--color-text);

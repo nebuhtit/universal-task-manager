@@ -46,6 +46,98 @@ async function unlock(page: Page) {
   await expect(page.locator('.app-shell')).toBeVisible({ timeout: 30_000 });
 }
 
+for (const theme of ['light', 'dark'] as const) test(`Home title gestures separate opening, collapsing and dragging in ${theme}`, async ({ page }, testInfo) => {
+  await page.addInitScript(() => { for (const id of ['one', 'two', 'project', 'area']) localStorage.setItem(`utm-ui:view:${id}`, '0'); });
+  const { read } = await setup(page, false, workspace => {
+    workspace.calendarPreferences.appearance.mode = theme;
+    ensureAreaDefinition(workspace, 'Focus'); ensureProjectDefinition(workspace, 'Launch', { areas: ['Focus'] });
+    const base = { renderer: 'list' as const, query: { source: 'true' }, fields: ['title'], sort: [] };
+    workspace.views = {
+      one: { ...base, id: 'one', name: 'One', creationDefaults: { project: 'Launch' } }, two: { ...base, id: 'two', name: 'Two' },
+      project: { ...base, id: 'project', name: 'Pinned Launch', extensions: { 'utm:para-view': true, 'utm:para-scope': JSON.stringify({ kind: 'project', project: 'Launch' }) } },
+      area: { ...base, id: 'area', name: 'Pinned Focus', extensions: { 'utm:para-view': true, 'utm:para-scope': JSON.stringify({ kind: 'area', area: 'Focus', project: null }) } },
+    };
+    workspace.viewOrder = ['one', 'two', 'project', 'area'];
+  }, 'Home');
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 1000)));
+  const title = page.locator('.views-stack .view-section-title').filter({ hasText: 'One' });
+  const tap = async () => { if (testInfo.project.use.hasTouch) await title.tap(); else await title.click(); };
+  await tap();
+  await expect(title).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('dialog', { name: 'View One', exact: true })).toHaveCount(0);
+  await tap();
+  const full = page.getByRole('dialog', { name: 'View One', exact: true });
+  await expect(full).toBeVisible(); await expect(full.getByText('A task', { exact: true })).toBeVisible();
+  const box = (await full.boundingBox())!;
+  const topbar = (await page.locator('.topbar').boundingBox())!;
+  const dock = (await page.locator('.capture-dock').boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(topbar.y + topbar.height);
+  expect(box.y + box.height).toBeLessThanOrEqual(dock.y);
+  expect(box.width).toBeLessThan(page.viewportSize()!.width);
+  await expect(full.getByRole('button', { name: 'Back to Home', exact: true })).toBeInViewport();
+  await expect(page.locator('.capture-dock input')).toHaveAttribute('placeholder', 'Add new item for One');
+  await page.locator('.capture-dock input').fill('Scoped draft');
+  await expect(full).toBeVisible();
+  await page.locator('.capture-dock input').fill('');
+  await page.screenshot({ path: test.info().outputPath('home-fullscreen.png'), animations: 'disabled' });
+  await full.getByRole('button', { name: 'Back to Home', exact: true }).focus();
+  await page.keyboard.press('Escape'); await expect(full).toBeHidden();
+  await expect(title).toHaveAttribute('aria-expanded', 'true');
+  await title.focus(); await title.press('Enter'); await expect(full).toBeVisible();
+  await full.getByRole('button', { name: 'Back to Home', exact: true }).click();
+  await expect(full).toBeHidden();
+  await expect(title).toBeFocused();
+  await title.focus();
+  const bounds = (await title.boundingBox())!;
+  const down = { pointerId: 33, pointerType: testInfo.project.use.hasTouch ? 'touch' : 'mouse', isPrimary: true, button: 0, clientX: bounds.x + bounds.width / 2, clientY: bounds.y + bounds.height / 2 };
+  for (const duration of [500, 1500]) {
+    await title.dispatchEvent('pointerdown', down); await page.clock.runFor(duration);
+    await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
+    await title.dispatchEvent('pointerup', down);
+    await expect(title).toHaveAttribute('aria-expanded', 'false');
+    await expect(full).toBeHidden();
+  }
+  await title.dispatchEvent('pointerdown', down); await page.clock.runFor(1500);
+  await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
+  await page.clock.runFor(1); await expect(page.locator('.ui-reorder-preview')).toBeVisible();
+  await title.dispatchEvent('pointercancel', down);
+  await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
+  await expect(title).toHaveAttribute('aria-expanded', 'false');
+  const surface = title.locator('xpath=ancestor::section[1]');
+  await expect(surface).toHaveCSS('border-radius', '16px');
+  expect(await surface.evaluate(node => getComputedStyle(node).backgroundColor)).toContain('0.02');
+  await page.screenshot({ path: test.info().outputPath('home-surfaces.png'), animations: 'disabled' });
+  await page.clock.runFor(501);
+  await tap(); await tap();
+  await expect(full).toBeVisible();
+  await page.locator('.quick-page-nav').getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(full).toBeHidden();
+  await expect(page.locator('.capture-dock input')).toHaveAttribute('placeholder', 'Add new item');
+  await tap();
+  await page.locator('.capture-dock input').fill('Window capture');
+  await page.locator('.capture-dock input').press('Enter');
+  const itemEditor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  await expect.poll(async () => { await page.clock.runFor(100); return itemEditor.isVisible(); }).toBe(true);
+  await itemEditor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(itemEditor).toBeHidden();
+  await page.clock.runFor(1200);
+  await expect.poll(async () => Object.values((await read()).items).find(item => item.title === 'Window capture')?.projects).toEqual(['Launch']);
+  await page.locator('.quick-page-nav').getByRole('button', { name: 'Calendar', exact: true }).click();
+  await expect(full).toBeHidden();
+  await expect.poll(async () => { await page.clock.runFor(100); return page.locator('.calendar-page').isVisible(); }).toBe(true);
+  await navigate(page, 'Home');
+  await page.locator('.views-stack .view-section-title').filter({ hasText: 'Pinned Launch' }).click();
+  await page.locator('.views-stack .view-section-title').filter({ hasText: 'Pinned Launch' }).click();
+  await expect(page.locator('.organization-detail-header h2')).toHaveText('Launch');
+  await expect(page.getByRole('button', { name: 'Rename Project Launch', exact: true })).toBeVisible();
+  await expect(page.locator('.capture-dock input')).toHaveAttribute('placeholder', 'Add new item for Launch');
+  await navigate(page, 'Home');
+  await page.locator('.views-stack .view-section-title').filter({ hasText: 'Pinned Focus' }).click();
+  await page.locator('.views-stack .view-section-title').filter({ hasText: 'Pinned Focus' }).click();
+  await expect(page.locator('.organization-detail-header h2')).toHaveText('Focus');
+  await expect(page.locator('.organization-detail-header .organization-entity-controls')).toBeVisible();
+});
+
 test('backup filenames stay stable unless version and timestamp metadata is enabled', async ({ page }) => {
   await setup(page, false, undefined, 'Settings');
   await page.getByText('Backup filenames', { exact: true }).click();
@@ -88,23 +180,32 @@ test('PARA native touch swipes scroll while a held touch reorders', async ({ pag
   await handle.scrollIntoViewIfNeeded();
   const start = (await handle.boundingBox())!;
   const x = start.x + start.width / 2, y = start.y + start.height / 2;
+  const card = (await rows.first().boundingBox())!;
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true });
-  const touch = (type: string, atY?: number) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: atY === undefined ? [] : [{ x, y: atY, id: 0 }] });
+  const touch = (type: string, atY?: number, atX = x) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: atY === undefined ? [] : [{ x: atX, y: atY, id: 0 }] });
   const scrollBefore = await page.evaluate(() => window.scrollY);
-  await touch('touchStart', y);
-  for (const offset of [15, 40, 70, 100]) { await touch('touchMove', y - offset); await page.clock.runFor(20); }
+  const cardX = card.x + card.width - 30;
+  await touch('touchStart', y, cardX);
+  for (const offset of [15, 40, 70, 100]) { await touch('touchMove', y - offset, cardX); await page.clock.runFor(20); }
   await touch('touchEnd'); await page.clock.runFor(200);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(scrollBefore);
   expect(await rows.allTextContents()).toEqual(before);
   await handle.scrollIntoViewIfNeeded();
   const held = (await handle.boundingBox())!, next = (await rows.nth(1).boundingBox())!;
   await touch('touchStart', held.y + held.height / 2);
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden');
   await page.clock.runFor(550);
   await expect(handle).toHaveAttribute('data-reorder-holding', 'true');
+  await expect(page.locator('.ui-reorder-preview')).toBeVisible();
+  const heldScroll = await page.evaluate(() => window.scrollY);
   await touch('touchMove', next.y + next.height - 2);
+  await page.clock.runFor(30);
+  expect(await page.evaluate(() => window.scrollY)).toBe(heldScroll);
   await touch('touchEnd');
   await expect(rows.nth(1)).toHaveText(before[0]!);
+  await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
   await cdp.detach();
 });
 
@@ -129,27 +230,40 @@ for (const theme of ['light', 'dark'] as const) test(`PARA requires a half-secon
     const down = { pointerId: 91, pointerType: 'touch', isPrimary: true, button: 0, clientX: start.x + 5, clientY: start.y + 5 };
     const move = { ...down, clientY: end.y + end.height - 2 };
     await expect(handle).toHaveAttribute('draggable', 'false');
+    await expect(handle).toHaveCSS('touch-action', 'none');
     await handle.dispatchEvent('pointerdown', down);
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden');
     await page.clock.runFor(499);
     await expect(handle).not.toHaveAttribute('data-reorder-holding');
     await handle.dispatchEvent('pointermove', move);
     await page.clock.runFor(501);
     await handle.dispatchEvent('pointerup', move);
+    expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
     expect(await rows.allTextContents()).toEqual(before);
     await handle.dispatchEvent('pointerdown', down);
     await page.clock.runFor(200);
     await handle.dispatchEvent('pointercancel', down);
+    expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
     await page.clock.runFor(500);
     await expect(handle).not.toHaveAttribute('data-reorder-holding');
     expect(await rows.allTextContents()).toEqual(before);
     await handle.dispatchEvent('pointerdown', down);
     await page.clock.runFor(500);
     await expect(handle).toHaveAttribute('data-reorder-holding', 'true');
+    await expect(page.locator('.ui-reorder-preview')).toBeVisible();
+    await expect(rows.first()).toHaveCSS('outline-style', 'solid');
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden');
+    if (selector === '.organization-area-groups') await page.screenshot({ path: test.info().outputPath('para-drag-outline.png'), animations: 'disabled' });
     await handle.dispatchEvent('pointermove', move);
     await handle.dispatchEvent('pointerup', move);
     await expect(rows.nth(1)).toHaveText(before[0]!);
     await rows.nth(1).locator(':scope > .ui-reorder-handle').press('ArrowUp');
     expect(await rows.allTextContents()).toEqual(before);
+    await handle.dispatchEvent('pointerdown', down); await page.clock.runFor(500);
+    await expect(page.locator('.ui-reorder-preview')).toBeVisible();
+    await handle.dispatchEvent('pointercancel', down);
+    await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
+    expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
   }
 });
 
@@ -505,7 +619,7 @@ test('Home View dragging requires all collapsed or more than ten and shows a mov
   const titles = page.locator('.views-stack .view-section-title');
   await expect(titles).toHaveCount(12);
   await expect(page.locator('.views-stack .is-reorder-surface')).toHaveCount(0);
-  await titles.nth(10).click();
+  await titles.nth(10).focus(); await titles.nth(10).press('Space');
   await expect(page.locator('.views-stack .is-reorder-surface')).toHaveCount(11);
   await titles.first().scrollIntoViewIfNeeded();
   const source = await titles.first().boundingBox(), target = await titles.nth(1).boundingBox();
@@ -514,7 +628,7 @@ test('Home View dragging requires all collapsed or more than ten and shows a mov
   const touch = Boolean(testInfo.project.use.hasTouch);
   if (touch) await titles.first().dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y });
   else { await page.mouse.move(x, y); await page.mouse.down(); }
-  await page.clock.fastForward(400);
+  await page.clock.fastForward(1600);
   await expect(page.locator('.ui-reorder-preview')).toBeVisible();
   if (touch) await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, cancelable: true })), { x, y: endY });
   else await page.mouse.move(x, endY);

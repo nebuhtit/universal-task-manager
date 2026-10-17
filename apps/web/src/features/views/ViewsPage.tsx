@@ -15,6 +15,8 @@ import { SectionGuide } from '../../components/ui/SectionGuide';
 import { readUiBoolean } from '../../components/ui/PersistedDetails';
 import { useReorderList } from '../../components/ui/useReorderList';
 import { canReorderHomeViews } from './homeViewReorder';
+import { requestAreaNavigation, requestProjectNavigation } from '../../services/projectNavigation';
+import { homeViewDestination } from './homeViewDestination';
 import './home-view-reorder.css';
 import { dateInput, fromDateInput } from '../../utils/dates';
 import { diagnosticFailureCode, recordDiagnostic } from '../../services/diagnostics';
@@ -55,7 +57,8 @@ const viewAccentOptions = [
   { value: '#8d3f78', label: 'Plum' }, { value: '#5d6470', label: 'Slate' },
 ] as const;
 
-export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onAddItem, onExportView, celebrationColors, createRequest = 0, onCreateRequestHandled }: {
+export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalendar, onAddItem, onExportView, celebrationColors, createRequest = 0, onCreateRequestHandled, focusedViewId, onFocusedViewChange }: {
+  focusedViewId?: string | null; onFocusedViewChange?: (id: string | null) => void;
   workspace: WorkspaceDocument; commit: (message: string, mutation: (draft: WorkspaceDocument) => void) => void;
   onEditItem: (item: UniversalItem) => void; onState: (item: UniversalItem, state: UniversalItem['state'], celebrationColor?: string) => void;
   onOpenCalendar?: (viewId: string) => void; onAddItem: (view: SavedView) => void; onExportView: (view: SavedView, mode: 'definition' | 'results' | 'bundle', format?: PortableFormat, metadata?: boolean) => void; celebrationColors?: ReadonlyMap<string, string> | undefined; createRequest?: number; onCreateRequestHandled?: () => void;
@@ -80,6 +83,16 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
   const [templateArea, setTemplateArea] = useState(() => orderedOrganizationNames(workspace, 'area')[0] ?? '');
   const [templateProject, setTemplateProject] = useState(() => orderedOrganizationNames(workspace, 'project')[0] ?? '');
   const [viewExpansion, setViewExpansion] = useState<Record<string, boolean>>(() => Object.fromEntries(Object.values(workspace.views).map((view) => [view.id, readUiBoolean(`view:${view.id}`, true)])));
+  const [localFocusedViewId, setLocalFocusedViewId] = useState<string | null>(null);
+  const fullscreenViewId = focusedViewId === undefined ? localFocusedViewId : focusedViewId;
+  const setFullscreenViewId = onFocusedViewChange ?? setLocalFocusedViewId;
+  const fullscreenView = fullscreenViewId ? workspace.views[fullscreenViewId] : undefined;
+  const openHomeView = (view: SavedView) => {
+    const target = homeViewDestination(view, workspace);
+    if (target?.kind === 'project') requestProjectNavigation(target.name);
+    else if (target?.kind === 'area') requestAreaNavigation(target.name);
+    else setFullscreenViewId(view.id);
+  };
   const handledCreateRequest = useRef(0);
   const lastEditorId = useRef<string | null>(null);
   const editorOpenedAt = useRef<number | null>(null);
@@ -377,11 +390,21 @@ export function ViewsPage({ workspace, commit, onEditItem, onState, onOpenCalend
     ? hiddenItemIdsByExpandedView(workspace, homeViews, expandedViewIds, undefined, evaluations)
     : new Map<string, ReadonlySet<string>>(), [workspace, homeViews, expandedViewIds, evaluations]);
   const reorderEnabled = canReorderHomeViews(views.length, expandedViewIds.size);
-  const viewReorder = useReorderList(views, (next) => commit('Reorder Home Views', (draft) => { draft.viewOrder = next.map((view) => view.id); }), { enabled: reorderEnabled, visualPreview: true });
-const renderView = (view: SavedView, index: number) => <div className={`saved-view-slot${isExpanded(view) ? '' : ' is-collapsed'}`} key={view.id} {...viewReorder.rowProps(index)}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={homeViews[index]!} workspace={workspace} suppliedEvaluation={evaluations.get(view.id)} hiddenItemIds={hiddenItemsByView.get(view.id)} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set([...Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id), ...Object.keys(draft.projectDefinitions).map((name) => `project:${encodeURIComponent(name)}`)])); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebrationColors={celebrationColors} showTechnicalSummary={false} {...(reorderEnabled ? { reorderSurface: viewReorder.surface(index) } : {})} reorderHandle={viewReorder.handle(index, `view ${view.name}`)} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
+  const viewReorder = useReorderList(views, (next) => commit('Reorder Home Views', (draft) => { draft.viewOrder = next.map((view) => view.id); }), { enabled: reorderEnabled, visualPreview: true, holdDelayMs: 1501 });
+const renderView = (view: SavedView, index: number) => <div className={`saved-view-slot${isExpanded(view) ? '' : ' is-collapsed'}`} key={view.id} {...viewReorder.rowProps(index)}>{view.renderer === 'calendar' && onOpenCalendar && <button className="open-calendar-button" onClick={() => onOpenCalendar(view.id)}>Open {view.name} in Calendar</button>}<SavedViewSection view={homeViews[index]!} workspace={workspace} suppliedEvaluation={evaluations.get(view.id)} hiddenItemIds={hiddenItemsByView.get(view.id)} onOpenView={() => openHomeView(view)} initialOpen={isExpanded(view)} onOpenChange={(open) => setViewExpansion((current) => ({ ...current, [view.id]: open }))} onEditView={() => beginEditing(view)} onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onReorderItems={(itemIds) => commit('Set manual view order', (draft) => { const target = draft.views[view.id]; if (!target) return; target.extensions ??= {}; target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set([...Object.values(draft.items).filter((item) => !item.deletedAt).map((item) => item.id), ...Object.keys(draft.projectDefinitions).map((name) => `project:${encodeURIComponent(name)}`)])); })} onResetOrder={() => commit('Reset manual view order', (draft) => { const target = draft.views[view.id]; if (!target?.extensions || !manualOrderFor(target).length) return; delete target.extensions[MANUAL_ORDER_EXTENSION]; })} celebrationColors={celebrationColors} showTechnicalSummary={false} {...(reorderEnabled ? { reorderSurface: viewReorder.surface(index) } : {})} reorderHandle={viewReorder.handle(index, `view ${view.name}`)} onRendererChange={(renderer) => commit('Change view renderer', (draft) => { const target = draft.views[view.id]; if (target) target.renderer = renderer; })} /></div>;
 
   return <section className="page-section views-page">
     <div className="views-stack" ref={viewReorder.container}>{views.map(renderView)}</div>
+    {fullscreenView && <ResponsiveDialog open modal={false} disablePointerDismissal title={<span translate="no" data-utm-user-data>{fullscreenView.name}</span>} ariaLabel={`View ${fullscreenView.name}`} className="home-view-window" closeLabel="Back to Home" onOpenChange={(open) => { if (!open) setFullscreenViewId(null); }}>
+      <div className="home-fullscreen-actions"><Button size="compact" onClick={() => { setFullscreenViewId(null); beginEditing(fullscreenView); }}>Edit view</Button></div>
+      <SavedViewSection key={fullscreenView.id} view={fullscreenView} workspace={workspace} initialOpen fixedExpanded showTechnicalSummary={false}
+        onEditItem={onEditItem} onState={onState} onAddItem={onAddItem} onRendererChange={() => {}} celebrationColors={celebrationColors}
+        onReorderItems={(itemIds) => commit('Set manual view order', (draft) => {
+          const target = draft.views[fullscreenView.id]; if (!target) return;
+          target.extensions ??= {};
+          target.extensions[MANUAL_ORDER_EXTENSION] = mergeManualOrder(target, itemIds, new Set([...Object.values(draft.items).filter(item => !item.deletedAt).map(item => item.id), ...Object.keys(draft.projectDefinitions).map(name => `project:${encodeURIComponent(name)}`)]));
+        })} />
+    </ResponsiveDialog>}
     {editing && <ResponsiveDialog
       open
       onOpenChange={(open) => { if (!open) { recordDiagnostic({ kind: 'action', message: 'View editor close requested', operation: 'View editor lifecycle', outcome: 'started', details: JSON.stringify({ viewId: editing.id, reason: 'dialog-dismiss' }) }); closeEditor(); } }}

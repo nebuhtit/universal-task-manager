@@ -134,7 +134,7 @@ test('entry screens follow system theme and keep explanations collapsed', async 
 });
 
 test('shows the release version on registration, login and settings', async ({ page }) => {
-  const releaseLabel = /^v4\.7\.2 · (?:local changes · )?commit [0-9a-f]{7}$/;
+  const releaseLabel = /^v4\.7\.3 · (?:local changes · )?commit [0-9a-f]{7}$/;
   await expect(page.locator('.lock-version')).toHaveText(releaseLabel);
 
   await page.getByLabel('Workspace name').fill('Release version');
@@ -143,7 +143,7 @@ test('shows the release version on registration, login and settings', async ({ p
   await page.getByRole('button', { name: 'Create encrypted workspace' }).click();
 
   await goToSettings(page);
-  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v4\.7\.2 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
+  await expect(page.locator('.settings-release-info')).toHaveText(/^Universal Task Manager · v4\.7\.3 · build [0-9a-f]{7}(?: · local changes)?(?: · .+)?$/);
 
   await lockWorkspace(page);
   await expect(page.getByRole('heading', { name: 'Unlock your workspace' })).toBeVisible();
@@ -401,8 +401,8 @@ test('shows compact completion and remaining duration summaries on saved views a
   await allView.locator('.item-card').filter({ hasText: 'Finished work' }).getByRole('button', { name: 'Complete item' }).click();
   const savedSummary = allView.locator('.view-metrics-summary');
   await expect(savedSummary).toHaveText('14% · 1h');
-  await expect(allView.getByRole('button', { name: /^Collapse All items/ })).toHaveAttribute('aria-label', /14 percent completed.*1 hour remaining/);
-  await allView.getByRole('button', { name: /^Collapse All items/ }).click();
+  await expect(allView.getByRole('button', { name: /^Open All items/ })).toHaveAttribute('aria-label', /14 percent completed.*1 hour remaining/);
+  await allView.getByRole('button', { name: /^Open All items/ }).press('Space');
   await expect(savedSummary).toBeVisible();
   await expect(allView.locator('.item-card')).toBeHidden();
 
@@ -480,7 +480,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
   await goHome(page);
   const nowSection = page.locator('.view-section').filter({ hasText: 'All items' });
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
-  await nowSection.getByRole('button', { name: 'Collapse All items' }).click();
+  await nowSection.getByRole('button', { name: 'Open All items' }).press('Space');
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeHidden();
   await expect(page.locator('.collapsed-views-stack').locator('.view-section').filter({ hasText: 'All items' })).toBeVisible();
   await expect.poll(async () => {
@@ -488,7 +488,7 @@ test('create, lock, unlock and edit a universal item', async ({ page }) => {
     const collapsed = await page.locator('.collapsed-views-stack').boundingBox();
     return stack && collapsed ? Math.abs(stack.y + stack.height - collapsed.y - collapsed.height) : Number.POSITIVE_INFINITY;
   }).toBeLessThan(2);
-  await nowSection.getByRole('button', { name: 'Expand All items' }).click();
+  await nowSection.getByRole('button', { name: 'Open All items' }).press('Space');
   await expect(nowSection.getByText('Prepare material by Thursday', { exact: true })).toBeVisible();
   await expect(page.locator('.expanded-views-stack').locator('.view-section').filter({ hasText: 'All items' })).toBeVisible();
 

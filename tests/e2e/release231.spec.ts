@@ -46,10 +46,10 @@ test('text program validates, switches modes and saves; home controls remain com
   const clock = page.locator('.responsive-clock > span').first();
   await expect(clock).not.toHaveText(/\d+\/\d+/);
   const home = page.locator('.home-view').first();
-  if (await home.locator('.view-section-title').getAttribute('aria-expanded') === 'true') await home.locator('.view-section-title').click();
+  if (await home.locator('.view-section-title').getAttribute('aria-expanded') === 'true') await home.locator('.view-section-title').press('Space');
   await expect(home.locator('.view-section-reorder')).toBeVisible();
   await expect(home.locator('.view-metrics-summary')).toHaveCount(0);
-  await home.locator('.view-section-title').click();
+  await home.locator('.view-section-title').press('Space');
   await expect(home.locator('.view-section-reorder')).toHaveCount(0);
   await expect(home.getByText('No items match this view.')).toBeHidden();
   await page.getByPlaceholder('Add new item').fill('Text workshop');

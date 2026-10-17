@@ -10,13 +10,10 @@ test('All items stays collapsed or expanded after navigation and reopening', asy
   const section = page.locator('.view-section').filter({ has: page.getByRole('heading', { name: 'All items', exact: true }) });
   const toggle = section.locator('.view-section-title');
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-  await toggle.click();
+  await toggle.press('Space');
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   for (const name of ['Calendar', 'Home']) {
-    if ((page.viewportSize()?.width ?? 0) <= 620) {
-      await page.getByRole('button', { name: 'Open navigation' }).click();
-      await page.locator('.mobile-nav-menu').getByRole('button', { name, exact: true }).click();
-    } else await page.locator('.sidebar').getByRole('button', { name, exact: true }).click();
+    await page.getByRole('navigation', { name: 'Quick navigation' }).getByRole('button', { name, exact: true }).click();
   }
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await page.clock.fastForward(11_000);
@@ -26,7 +23,7 @@ test('All items stays collapsed or expanded after navigation and reopening', asy
     await page.getByRole('button', { name: 'Unlock', exact: true }).click();
     await expect(toggle).toHaveAttribute('aria-expanded', String(expanded));
     if (!expanded) {
-      await toggle.click();
+      await toggle.press('Space');
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
       await page.clock.fastForward(11_000);
     }
