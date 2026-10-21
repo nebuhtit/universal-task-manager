@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy policy for Universal Task Manager, including its optional Google Calendar integration.">
+  <title>Privacy policy — Universal Task Manager</title>
+</head>
+<body>
+  <header><h1>Universal Task Manager — Privacy policy</h1><nav><a href="about.html">About Universal</a> · <a href="./">Open the app</a> · <a href="#ru" lang="ru">Русский</a></nav></header>
+  <main>
+    <section aria-labelledby="privacy-en">
+      <h2 id="privacy-en">English</h2>
+      <p>Last updated: 21 October 2026. Developer and data contact: Konstantin Petrov, <a href="mailto:const.perfect@gmail.com">const.perfect@gmail.com</a>.</p>
+      <h3>Local workspace</h3>
+      <p>Universal stores tasks, notes, events, schedules, history and settings on your device. A developer-hosted user account is not required. Password-protected workspaces are encrypted; password-free mode does not provide the same protection. Some settings, caches and diagnostic logs are stored separately. We cannot recover a forgotten workspace password. Native iOS uses app-bundled interface files.</p>
+      <h3>Google Calendar data and permissions</h3>
+      <p>Google Calendar connection is optional. Google handles authorization; Universal never receives your Google password. The app accesses calendar identifiers, names and permissions, and event identifiers, titles, descriptions, locations, dates, times, recurrence and availability information to show selected calendars, calculate busy time, plan tasks and synchronize linked events.</p>
+      <ul>
+        <li><code>calendar.readonly</code>: read calendars and events for display and planning.</li>
+        <li><code>calendar.events</code>: create, edit, move and delete linked events when you authorize write features.</li>
+        <li><code>calendar.calendarlist.readonly</code>: list calendars so you can select an appropriate destination.</li>
+      </ul>
+      <p>Calendar API requests go directly from the device to Google. Calendar data and connection metadata are stored locally. The web app keeps access tokens in memory during the session. The native iOS app stores its refresh credential in the device-only Keychain and uses it to renew access. Credentials are not included in ordinary workspace exports or sent to a developer-hosted calendar server.</p>
+      <p>Universal Task Manager's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. Google data is used only to provide and improve user-facing calendar and planning features. It is not sold, used for advertising or creditworthiness decisions, or used to train general-purpose AI models. Human access is limited to the exceptions permitted by that policy, such as support with your explicit consent, security, applicable law, or aggregated data for internal operations.</p>
+      <h3>Sharing and optional online features</h3>
+      <p>The app does not send your entire workspace to the developer. Online services receive the requests required for the features you use: Google for authorization and calendar operations; GitHub Pages for website hosting; Open-Meteo for place searches and weather at chosen coordinates; Apple and selected file providers for native features and files. These providers may receive your IP address and technical request details and apply their own privacy policies.</p>
+      <p>Background web notifications require a separately configured Cloudflare delivery service. That service is not operational in the current public deployment, so background web delivery is unavailable. Attempting the experimental setup may request browser permission, create a browser Push subscription and send its subscription details to the configured Cloudflare endpoint; the current endpoint does not accept or store reminder jobs in its database. Provider infrastructure may retain technical request logs under its own policies. We will update this policy before enabling the delivery service. Native iOS local notifications use the device's system services.</p>
+      <p>Voluntary support links open an external YooMoney page. Universal does not collect payment card details. Diagnostic or backup files are transmitted only when you choose to share them; review their contents before sending them to support.</p>
+      <h3>Retention, removal and your choices</h3>
+      <p>Local workspace and cached data remain until you remove them or clear the app/site storage. You can disconnect Google in the app and revoke access through <a href="https://myaccount.google.com/connections">Google Account connections</a>. Disconnecting or revoking access does not automatically delete local event copies or events already saved in Google; manage these separately. The native app removes its stored authorization grant when you disconnect.</p>
+      <p>Workspace exports remove imported read-only Google events and connection credentials. Your own UTM items, including writable items linked to Google, can remain in exports. You control where backup and export files are saved and must delete those copies separately.</p>
+      <p>For access or deletion requests concerning data actually received by the developer, email the contact above. Support correspondence is retained while handling your request and as needed for applicable legal requirements; you may request its deletion. We cannot remotely retrieve or erase an encrypted workspace stored only on your device. Changes to this policy will appear here with an updated date.</p>
+    </section>
+    <hr>
+    <section id="ru" lang="ru" aria-labelledby="privacy-ru">
+      <h2 id="privacy-ru">Русский</h2>
+      <p>Редакция от 21 октября 2026 года. Разработчик и контакт по вопросам данных: Konstantin Petrov, <a href="mailto:const.perfect@gmail.com">const.perfect@gmail.com</a>.</p>
+      <h3>Локальный workspace</h3>
+      <p>Задачи, заметки, события, расписания, история и настройки хранятся на вашем устройстве. Учётная запись на сервере разработчика не требуется. Защищённые паролем workspace зашифрованы; режим без пароля не предоставляет такую же защиту. Часть настроек, кэшей и диагностических журналов хранится отдельно. Восстановление забытого пароля workspace недоступно. Интерфейс нативной iOS-версии включён в файлы приложения.</p>
+      <h3>Данные и разрешения Google Calendar</h3>
+      <p>Подключение Google Calendar добровольное. Авторизацию выполняет Google; Universal не получает ваш пароль Google. Приложение использует идентификаторы, названия и права доступа календарей, а также идентификаторы, названия, описания, местоположения, даты, время, повторения и сведения о занятости событий для отображения выбранных календарей, расчёта занятого времени, планирования задач и синхронизации связанных событий.</p>
+      <ul>
+        <li><code>calendar.readonly</code> — чтение календарей и событий для отображения и планирования.</li>
+        <li><code>calendar.events</code> — создание, изменение, перемещение и удаление связанных событий при разрешении функций записи.</li>
+        <li><code>calendar.calendarlist.readonly</code> — получение списка календарей для выбора назначения.</li>
+      </ul>
+      <p>Запросы к Calendar API идут с устройства непосредственно в Google. Данные календарей и сведения о подключении хранятся локально. Веб-версия хранит access token в памяти во время сессии. Нативная iOS-версия хранит refresh credential в Keychain только на этом устройстве и обновляет с его помощью доступ. Учётные данные авторизации не включаются в обычные экспорты workspace и не отправляются на сервер календарей разработчика.</p>
+      <p>Использование и передача Universal Task Manager информации, полученной через Google API, соответствуют <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, включая требования Limited Use. Данные Google используются только для предоставления и улучшения пользовательских функций календаря и планирования. Они не продаются, не используются для рекламы, оценки кредитоспособности или обучения универсальных моделей ИИ. Доступ человека ограничен исключениями, разрешёнными этой политикой, например поддержкой с вашим явным согласием, обеспечением безопасности, применимым законом или агрегированными данными для внутренних операций.</p>
+      <h3>Передача данных и дополнительные сетевые функции</h3>
+      <p>Приложение не отправляет весь workspace разработчику. Сетевые сервисы получают запросы, необходимые для используемых вами функций: Google — авторизация и операции с календарём; GitHub Pages — размещение сайта; Open-Meteo — поиск места и погода по выбранным координатам; Apple и выбранные файловые провайдеры — системные функции и файлы. Поставщики могут получать IP-адрес и технические сведения запроса и применяют собственные политики.</p>
+      <p>Для фоновых веб-уведомлений нужен отдельно настроенный сервис доставки Cloudflare. В текущем публичном развёртывании он не работает, поэтому фоновая доставка веб-уведомлений недоступна. Попытка экспериментальной настройки может запросить разрешение браузера, создать Push-подписку браузера и отправить сведения о подписке на настроенный адрес Cloudflare; текущий сервер не принимает и не сохраняет задания напоминаний в своей базе. Инфраструктура поставщика может хранить технические журналы запросов по собственным правилам. Перед включением сервиса доставки мы обновим эту политику. Локальные уведомления нативной iOS-версии используют системные службы устройства.</p>
+      <p>Ссылки добровольной поддержки открывают внешнюю страницу ЮMoney. Universal не собирает данные банковской карты. Диагностические файлы и резервные копии передаются только при вашем выборе поделиться ими; перед отправкой поддержке проверьте содержимое.</p>
+      <h3>Хранение, удаление и управление данными</h3>
+      <p>Локальный workspace и кэш сохраняются до их удаления или очистки хранилища приложения/сайта. Можно отключить Google в приложении и отозвать доступ в <a href="https://myaccount.google.com/connections">подключениях Google Account</a>. Отключение или отзыв доступа не удаляют автоматически локальные копии событий и события, ранее записанные в Google; управляйте ими отдельно. При отключении нативная версия удаляет сохранённое разрешение авторизации.</p>
+      <p>Экспорт workspace исключает импортированные события Google только для чтения и учётные данные подключения. Ваши UTM-элементы, включая связанные с Google элементы с разрешением записи, могут сохраняться в экспорте. Место сохранения копий и экспортов выбираете вы; удалять эти файлы нужно отдельно.</p>
+      <p>Запросы о доступе или удалении данных, фактически полученных разработчиком, отправляйте на адрес выше. Переписка поддержки хранится во время обработки запроса и при необходимости выполнения применимых правовых требований; можно запросить её удаление. Мы не можем дистанционно получить или удалить зашифрованный workspace, который хранится только на вашем устройстве. Изменения политики публикуются здесь с новой датой редакции.</p>
+    </section>
+  </main>
+</body>
+</html>
