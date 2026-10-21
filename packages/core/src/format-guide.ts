@@ -24,7 +24,7 @@ export const WORKSPACE_FORMAT_GUIDE = {
     items: 'Object keyed by item ID. title/bodyMarkdown are user text; state is lifecycle; role distinguishes standalone, series_template and occurrence.',
     views: 'Object keyed by view ID. query and sort are UTM DSL expressions; displayedFields controls visible columns.',
     areasProjectsTags: 'Items may contain multiple areas, projects and tags. Project definitions may belong to several Areas.',
-    organizationOrder: 'Unified manual priority ladder. Earlier matching entries have a larger rank and sort first with organizationOrder desc.',
+    organizationOrder: 'Unified manual priority ladder. With organizationOrder desc, earlier matching entries sort first; shared matches are followed by remaining named Areas, Projects and Tags. A complete prefix sorts before a longer set (Work alone before Work + UTM). Manual View order takes precedence when set.',
     attentionOrder: 'Virtual View sort: overdue open items, active ranges, nearest future Start or Due, undated items, then closed items.',
     durationOrder: 'Virtual numeric View sort based on estimatedDuration with Event opens to Event ends fallback; it is never stored on an item.',
     recurrence: 'RRULE-based repeating behavior. A quarantined recurrence is preserved in extensions but must not be executed.',

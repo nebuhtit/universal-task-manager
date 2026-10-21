@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createOrganizationPrioritySortKeyer } from './organization.js';
 import { applyPortableImport, buildPortableImportPreview, calculateItemSetMetrics, calculateProjectMetrics, createItem, createPortablePackage, createWorkspace, deleteOrganizationDefinition, ensureAreaDefinition, ensureProjectDefinition, ensureTagDefinition, migrateWorkspace, orderedOrganizationNames, orderedOrganizationPriorityEntries, orderedTagEntries, organizationAccentFor, organizationDeletionImpact, organizationPriorityRank, parsePortablePackage, renameAreaDefinition, renameProjectDefinition, renameTagDefinition, reorderAreaSubset, reorderOrganization, reorderOrganizationPriority, reorderProjectSubset, reorderTagSubset, SCHEMA_VERSION, serializePortablePackage } from './index.js';
 
 describe('PARA organization', () => {
@@ -172,6 +173,29 @@ describe('PARA organization', () => {
     const tagWins = createItem('Tag wins');
     tagWins.areas = ['Low area']; tagWins.projects = ['Low project']; tagWins.tags = ['high-tag'];
     expect(organizationPriorityRank(workspace, tagWins)).toBe(rankAt(2));
+  });
+
+  it('breaks shared project and tag matches using the remaining PARA ladder', () => {
+    const workspace = createWorkspace('Shared projects and tags');
+    ensureAreaDefinition(workspace, 'High'); ensureAreaDefinition(workspace, 'Low');
+    ensureProjectDefinition(workspace, 'Common');
+    ensureTagDefinition(workspace, 'common'); ensureTagDefinition(workspace, 'urgent');
+    reorderOrganizationPriority(workspace, [
+      { kind: 'project', name: 'Common' }, { kind: 'tag', name: 'common' },
+      { kind: 'tag', name: 'urgent' }, { kind: 'area', name: 'High' }, { kind: 'area', name: 'Low' },
+      { kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null },
+    ]);
+    const extraTag = createItem('Extra tag'); extraTag.projects = ['Common']; extraTag.tags = ['common', 'urgent']; extraTag.areas = ['Low'];
+    const extraArea = createItem('Extra area'); extraArea.projects = ['Common']; extraArea.tags = ['common']; extraArea.areas = ['High'];
+    const key = createOrganizationPrioritySortKeyer(workspace);
+    const compare = () => key(extraTag).localeCompare(key(extraArea), undefined, { numeric: true });
+    expect(compare()).toBeGreaterThan(0);
+    // The same rule applies when a common Tag is highest, with no common Project.
+    extraTag.projects = []; extraArea.projects = [];
+    expect(compare()).toBeGreaterThan(0);
+    // Same assignments in a different order (including duplicates) are equal.
+    const equivalent = { ...extraTag, tags: ['urgent', 'common', 'urgent'] };
+    expect(key(extraTag)).toBe(key(equivalent));
   });
 
   it('mirrors the complete Tags catalog order into existing Unified slots, including No Tags', () => {

@@ -5,6 +5,35 @@ import { applyEditorTitleDraft } from './itemEditorTitle';
 import { createQuickEntryItem, formatQuickEntryForEditor, quickEntrySource, quickEntryEditorText, parseQuickEntryForItem, syncQuickEntrySource } from '../quickEntry';
 
 describe('item editor title draft', () => {
+  it('hides committed organization syntax without losing memberships on later title edits', () => {
+    const now = new Date('2026-10-20T10:00:00Z');
+    let item = createQuickEntryItem('Счёт project:"БАТЯ" area:Work #urgent', now);
+    for (let pass = 0; pass < 3; pass++) {
+      const visible = formatQuickEntryForEditor(quickEntryEditorText(item), { hideOrganization: true });
+      expect(visible).not.toMatch(/project:|area:|#urgent/);
+      item = applyEditorTitleDraft(item, item, `${visible} ещё`, item.tags.join(', '), now, undefined, { hiddenOrganization: true });
+      expect(item.projects).toEqual(['БАТЯ']); expect(item.areas).toEqual(['Work']); expect(item.tags).toEqual(['urgent']);
+      expect(item.title).not.toMatch(/project:|area:|#urgent/);
+    }
+    expect(quickEntrySource(item)?.text).toContain('project:"БАТЯ"');
+    // The explicit source editor remains able to remove a command/membership.
+    const removed = applyEditorTitleDraft(item, item, quickEntrySource(item)!.text.replace('project:"БАТЯ"', ''), item.tags.join(', '), now);
+    expect(removed.projects).toEqual([]);
+  });
+
+  it('does not restore a membership removed in Organization and keeps literal titles untouched', () => {
+    const now = new Date('2026-10-20T10:00:00Z');
+    const item = createQuickEntryItem('Счёт project:"БАТЯ"', now);
+    const removed = { ...item, projects: [] };
+    expect(applyEditorTitleDraft(removed, item, 'Счёт новый', '', now, undefined, { hiddenOrganization: true }).projects).toEqual([]);
+    expect(formatQuickEntryForEditor('. project:"БАТЯ"', { hideOrganization: true })).toBe('. project:"БАТЯ"');
+    expect(formatQuickEntryForEditor('Сказать «project:БАТЯ»', { hideOrganization: true })).toBe('Сказать «project:БАТЯ»');
+    const references = 'Счёт project:"БАТЯ" rr [Work project Team](item:work) cc [Office project Team](calendar:office)';
+    const formatted = formatQuickEntryForEditor(references, { hideOrganization: true });
+    expect(formatted).not.toContain('project:"БАТЯ"');
+    expect(formatted).toContain('rr [Work project Team](item:work)');
+    expect(formatted).toContain('cc [Office project Team](calendar:office)');
+  });
   it.each(['«напоминания»', '"напоминание"', '. напоминания завтра длительность абракадабра project Work #tag cc [Work](calendar:work) rr [Work](item:work)', '.напоминание срок 99:88 «незакрытая кавычка'])('preserves literal syntax through blur, save and reopening: %s', text => {
     const now = new Date('2026-10-16T10:00:00Z');
     let item = createItem('Old title', 'task', now);

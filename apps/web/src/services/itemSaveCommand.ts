@@ -2,8 +2,9 @@ import { advanceCompletionAnchoredSeries, createId, ensureAreaDefinition, ensure
 import { GOOGLE_SAVE_EXTENSION, type GoogleSaveOptions } from './googleItemSave';
 import { googleActionItem } from '../features/items/editor/itemEditorSource';
 import { recordCompletionTransition, syncCompletionCounter } from '@utm/core';
-import { editRecurringItem, type RecurrenceItemEdit } from './recurrenceItemEdit';
+import { editRecurringItem, isCalendarOnlySeriesMove, type RecurrenceItemEdit } from './recurrenceItemEdit';
 import { itemGoogleDraft, itemGoogleBaseline } from './googleItemSave';
+import { quickEntryCalendar, withQuickEntryCalendar } from '../features/items/quickEntry';
 
 export interface ItemSaveIntent {
   recurrenceEdit?: RecurrenceItemEdit;
@@ -19,7 +20,18 @@ const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 /** Apply inside one workspace transaction. Network I/O follows durable persistence. */
 export function saveItemInWorkspace(draft: WorkspaceDocument, item: UniversalItem, options: ItemSaveIntent | undefined, actionNow: Date) {
-  const editIntent = options?.recurrenceEdit ?? (options?.completionOccurrenceId ? { occurrenceId: options.completionOccurrenceId, ...(options.completionRecurrenceId ? { recurrenceId: options.completionRecurrenceId } : {}), scope: 'this_occurrence' as const } : undefined);
+  const wholeSeriesMove = options?.google?.moveWholeSeries === true;
+  if (wholeSeriesMove) {
+    const source = draft.items[item.id];
+    const pending = source?.extensions?.[GOOGLE_SAVE_EXTENSION] as { kind?: string } | undefined;
+    if (!options?.google || !isCalendarOnlySeriesMove(item, options.google) || !source?.recurrence || !source.external || source.deletedAt || draft.tombstones[source.id]
+      || source.external.calendarId !== options.google.baseline.external?.calendarId || source.external.eventId !== options.google.baseline.external?.eventId
+      || (pending && pending.kind !== 'move') || options.completionOccurrenceId) throw new Error('The series changed. Reopen it before moving its calendar. Save other edits separately.');
+    const selection = quickEntryCalendar(item) ?? { id: options.google.calendarId, name: draft.calendarPreferences.googleCalendar?.calendars.find(calendar => calendar.id === options.google!.calendarId)?.name ?? options.google.calendarId };
+    item = withQuickEntryCalendar(clean(source), selection);
+    item.updatedAt = actionNow.toISOString(); item.revision += 1;
+  }
+  const editIntent = wholeSeriesMove ? undefined : options?.recurrenceEdit ?? (options?.completionOccurrenceId ? { occurrenceId: options.completionOccurrenceId, ...(options.completionRecurrenceId ? { recurrenceId: options.completionRecurrenceId } : {}), scope: 'this_occurrence' as const } : undefined);
   if (editIntent) {
     const selected = draft.items[editIntent.occurrenceId];
     const source = selected?.occurrence ? draft.items[selected.occurrence.seriesId] : undefined;
@@ -107,7 +119,7 @@ export function saveItemInWorkspace(draft: WorkspaceDocument, item: UniversalIte
     at: item.updatedAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0,
   };
   runAutomationEvents(draft, [event], { now: actionNow });
-  if (item.role === 'series_template') {
+  if (item.role === 'series_template' && !wholeSeriesMove) {
     try { reconcileRecurrences(draft, actionNow); }
     catch (reason) { recurrenceError = reason instanceof Error ? reason.message : String(reason); }
   }

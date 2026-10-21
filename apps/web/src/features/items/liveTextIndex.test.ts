@@ -1,13 +1,37 @@
 import { expect, it, vi } from 'vitest';
 import { createItem, createWorkspace, makeSeries, orderedOrganizationNames, withinPlacementWorkspace, type UniversalItem } from '@utm/core';
 import { withinSuggestions } from '../../../quick-entry-lab/relations';
-import { liveTextIndex, withinPreviewWorkspace } from './liveTextIndex';
+import { liveTextIndex, withinPreviewWorkspace, withinReferenceCandidates } from './liveTextIndex';
 
 it('loads relationship candidates only for a textual rr/рр command', () => {
   const load = vi.fn(() => [{ id: 'a', title: 'Work' }, { id: 'b', title: 'Work' }]);
   for (const text of ['hello', 'рр 30', 'rr 45m']) expect(withinSuggestions(text, text.length, load)).toBeNull();
   expect(load).not.toHaveBeenCalled();
   for (const text of ['rr W', 'рр W']) expect(withinSuggestions(text, text.length, load)?.options).toHaveLength(2);
+});
+
+it('disambiguates same-name blocks and prevents selecting two branches of one series', () => {
+  const workspace = createWorkspace('Same names'); workspace.calendarPreferences.language = 'en';
+  const old = createItem('Work', 'event'); old.id = 'old'; old.role = 'series_template';
+  old.schedule = { timezone: 'UTC', startAt: '2030-09-02T09:00:00Z', endAt: '2030-09-02T17:00:00Z' };
+  const next = structuredClone(old); next.id = 'next'; next.recurrenceOverride = { kind: 'future_split', sourceSeriesId: old.id, recurrenceId: '2030-09-09T09:00:00Z' };
+  const unrelated = createItem('Work'); unrelated.id = 'unrelated';
+  workspace.items = { old, next, unrelated };
+  workspace.calendarPreferences.dayView.statistics = { showTime: true, reservedItemIds: [old.id] };
+  const suggestions = withinSuggestions('rr Work', 7, () => withinReferenceCandidates(workspace, undefined, []), 'en')!;
+  expect(suggestions.options).toHaveLength(2);
+  expect(new Set(suggestions.options.map(option => option.detail)).size).toBe(2);
+  expect(suggestions.options.find(option => option.insert.includes('(item:old)'))?.detail).toContain('Entire series');
+  expect(suggestions.options.find(option => option.insert.includes('(item:old)'))?.detail).toContain('Continuation from');
+  expect(suggestions.options.some(option => option.insert.includes('(item:next)'))).toBe(false);
+  expect(liveTextIndex(workspace).candidates.find(item => item.id === next.id)?.preferred).toBe(true);
+  expect(withinReferenceCandidates(workspace, undefined, [old.id]).map(item => item.id)).toEqual(['unrelated']);
+  expect(withinReferenceCandidates(workspace, next, []).map(item => item.id)).toEqual(['unrelated']);
+  expect(withinReferenceCandidates(workspace, undefined, ['occ_old_20300902090000000']).map(item => item.id)).toEqual(['unrelated']);
+  for (const prefix of ['rr', 'рр']) {
+    const options = withinSuggestions(`${prefix} Work`, 7, () => withinReferenceCandidates(workspace, undefined, []), 'ru')!.options;
+    expect(options.find(option => option.insert.includes('(item:old)'))?.detail).toContain('Вся серия');
+  }
 });
 
 it('shares organization catalog and retains legacy project/area order', () => {

@@ -2,6 +2,9 @@ import { withinDay, withinTargets, type UniversalItem, type WorkspaceDocument } 
 import { applyQuickEntryEditorText, quickEntrySource, syncQuickEntrySource, withQuickEntryCalendar, quickEntryCalendar, QUICK_ENTRY_SOURCE } from '../quickEntry';
 import { clearCreationDefaultBounds, withoutCreationDefaultBounds } from '../creationDefaultBounds';
 import { extractWithinRelations } from '../../../../quick-entry-lab/relations';
+import { extractOrganization } from '../../../../quick-entry-lab/organization';
+import { isLiteralEntry } from '../../../../quick-entry-lab/literal';
+import { extractCalendarSelection } from '../../../../quick-entry-lab/calendars';
 
 const commaList = (value: string) => value.split(',').map((part) => part.trim()).filter(Boolean);
 
@@ -10,11 +13,24 @@ const commaList = (value: string) => value.split(',').map((part) => part.trim())
  * lets the textarea remain responsive without rebuilding the complete editor on
  * every keystroke, while Save still applies the exact latest text synchronously.
  */
-export function applyEditorTitleDraft(current: UniversalItem, initial: UniversalItem, text: string, tags: string, now: Date, workspace?: WorkspaceDocument): UniversalItem {
+export function applyEditorTitleDraft(current: UniversalItem, initial: UniversalItem, text: string, tags: string, now: Date, workspace?: WorkspaceDocument, { hiddenOrganization = false }: { hiddenOrganization?: boolean } = {}): UniversalItem {
   // Use the same editor parser for validation and application: it restores
   // compact dates and hidden reminders before checking existing event bounds.
   const fromSource = Boolean(quickEntrySource(initial));
-  const { item: interpreted, draft: parsed } = applyQuickEntryEditorText({ ...current, tags: commaList(tags) }, text, now);
+  let input = text;
+  if (hiddenOrganization && !isLiteralEntry(text)) {
+    // The ordinary Title field hides committed organization commands. Restore
+    // only memberships still present in the form; never resurrect a removed chip.
+    const previous = extractOrganization(extractWithinRelations(extractCalendarSelection(quickEntrySource(current)?.text ?? '').displayText).text);
+    const retained = [
+      ...previous.areas.filter(value => current.areas.includes(value)).map(value => `area:${JSON.stringify(value)}`),
+      ...previous.projects.filter(value => current.projects.includes(value)).map(value => `project:${JSON.stringify(value)}`),
+      ...previous.tags.filter(value => commaList(tags).includes(value)).map(value => `tag:${JSON.stringify(value)}`),
+    ];
+    input = [text, ...retained].join(' ');
+  }
+  let { item: interpreted, draft: parsed } = applyQuickEntryEditorText({ ...current, tags: commaList(tags) }, input, now);
+  if (hiddenOrganization && isLiteralEntry(text)) interpreted = { ...interpreted, areas: current.areas, projects: current.projects, tags: commaList(tags) };
   const anchor = (item: UniversalItem): UniversalItem => {
     // Resolve a newly selected undated relation now, not at the old item's creation.
     if (!workspace || !withinTargets(item).length || item.schedule?.plannedDate || item.schedule?.startAt || item.schedule?.endAt || item.schedule?.dueAt) return item;

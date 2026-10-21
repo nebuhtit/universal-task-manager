@@ -5,16 +5,20 @@ import { effectiveItemDurationMs } from './organization.js';
 import { zonedDateStart } from './view-statistics.js';
 import type { UniversalItem, WorkspaceDocument } from './types.js';
 import { canManuallyComplete } from './item-event.js';
+import { seriesReferenceIds, seriesReferenceOwner, seriesReferenceAncestors } from './series-references.js';
 
 export const withinTargets = (item: UniversalItem) => [...new Set(item.relations.filter(r => r.type === 'scheduled_within').map(r => r.targetId))];
-export const withinTargetsFor = (workspace: WorkspaceDocument, item: UniversalItem) => [...new Set(withinTargets(item).map(id => workspace.items[id]?.occurrence?.seriesId ?? id))];
+export const withinTargetsFor = (workspace: WorkspaceDocument, item: UniversalItem) => [...new Set(withinTargets(item).map(id => seriesReferenceAncestors(workspace, seriesReferenceOwner(workspace, id)).at(-1)!))];
 /** A completable task's opening bound is availability, not a fixed event slot. */
 export const hasWithinAvailabilityStart = (item: UniversalItem) => canManuallyComplete(item) && withinTargets(item).length > 0 && Boolean(item.schedule?.startAt) && !item.schedule?.endAt && !item.external?.endAt;
 type Interval = { start: number; end: number; target: string };
 const blockCache = new Map<string, Interval[]>();
 function blocks(workspace: WorkspaceDocument, ids: string[], start: Date, end: Date): Interval[] {
   const roots = new Set(ids);
-  const items = Object.fromEntries(Object.values(workspace.items).filter(i => roots.has(i.id) || (i.occurrence && roots.has(i.occurrence.seriesId))).map(i => [i.id, googleCalendarProjection(i)]));
+  const targets = new Map<string, string>();
+  for (const root of roots) for (const id of seriesReferenceIds(workspace, [root])) if (!targets.has(id)) targets.set(id, root);
+  for (const root of roots) targets.set(root, root);
+  const items = Object.fromEntries(Object.values(workspace.items).filter(i => targets.has(i.id) || (i.occurrence && targets.has(i.occurrence.seriesId))).map(i => [i.id, googleCalendarProjection(i)]));
   const key = JSON.stringify([workspace.workspaceId, items, workspace.tombstones, +start, +end]);
   const cached = blockCache.get(key);
   if (cached) return cached;
@@ -25,7 +29,7 @@ function blocks(workspace: WorkspaceDocument, ids: string[], start: Date, end: D
     if (!source || source.deletedAt || ['cancelled', 'archived'].includes(row.state)) return [];
     const from = Date.parse(row.schedule.startAt ?? '');
     const to = Date.parse(row.schedule.endAt ?? '') || from + effectiveItemDurationMs(source);
-    return Number.isFinite(from) && to > from ? [{ start: from, end: to, target: roots.has(row.sourceItemId) ? row.sourceItemId : row.materializedItemId ?? row.sourceItemId }] : [];
+    return Number.isFinite(from) && to > from ? [{ start: from, end: to, target: targets.get(row.sourceItemId) ?? row.materializedItemId ?? row.sourceItemId }] : [];
   });
   if (blockCache.size >= 128) blockCache.delete(blockCache.keys().next().value!);
   blockCache.set(key, result);
@@ -86,7 +90,8 @@ export function withinPlacementWorkspace(workspace: WorkspaceDocument, now = new
   for (const [day, tasks] of groups) {
     tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
     const ids = [...new Set(tasks.flatMap(item => withinTargetsFor(workspace, item)))];
-    const sources = Object.values(workspace.items).filter(i => ids.includes(i.id) || (i.occurrence && ids.includes(i.occurrence.seriesId)));
+    const sourceIds = new Set(seriesReferenceIds(workspace, ids));
+    const sources = Object.values(workspace.items).filter(i => sourceIds.has(i.id) || (i.occurrence && sourceIds.has(i.occurrence.seriesId)));
     const key = `${workspace.workspaceId}:${day}`;
     const begin = zonedDateStart(day, workspace.calendarPreferences.timezone);
     const nextDay = new Date(Date.parse(day + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);

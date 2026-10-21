@@ -5,6 +5,7 @@ import { googleCalendarProjection, viewStatisticsItems, evaluateExpression, pars
 import { projectResults, type ViewResult } from './projectResults';
 import { activeWithinBlockIds, withinTargetsFor } from '@utm/core';
 import { itemIsExcludedBySource } from './viewItemExclusions';
+import { seriesReferenceIds, seriesReferenceQuery } from '@utm/core';
 import { beginProfileSpan, measureProfile } from '../../services/performanceProfile';
 
 export const COMPLETION_EXIT_MS = 200;
@@ -17,9 +18,10 @@ export const MANUAL_ORDER_EXTENSION = 'utm:manualOrder';
 function viewQueryContext(workspace: WorkspaceDocument, view: SavedView, now: Date) {
   const index = getWorkspaceIndex(workspace);
   const enabled = /\bwithinReservedBlockWhenSet\b/.test(view.query.source);
-  const visible = enabled ? compileQuery(view.query.source, (item, at) => index.queryContextFor(item, at), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn }) : undefined;
+  const visible = enabled ? compileQuery(seriesReferenceQuery(workspace, view.query.source), (item, at) => index.queryContextFor(item, at), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn }) : undefined;
   const hidden = enabled ? (view.statistics?.reservedItemIds ?? []).filter(id => {
-    const block = workspace.items[id];
+    const original = workspace.items[id] ?? seriesReferenceIds(workspace, [id]).map(key => workspace.items[key]).find(Boolean);
+    const block = original && original.id !== id ? { ...original, id } : original;
     if (!block || !itemIsExcludedBySource(block, view.query.source)) return false;
     const queryItem = index.queryItemFor(block);
     const candidate = block.role === 'series_template' ? { ...queryItem, occurrence: { seriesId: block.id, recurrenceId: block.schedule?.startAt ?? block.createdAt, sequence: 0, templateRevision: block.revision } } : queryItem;
@@ -185,7 +187,7 @@ function evaluateViewInternal(workspace: WorkspaceDocument, view: SavedView, now
   if (view.statistics?.includeHiddenCompleted) {
     const index = getWorkspaceIndex(workspace);
     try {
-      const query = compileQuery(view.query.source || 'true', viewQueryContext(workspace, view, now), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
+      const query = compileQuery(seriesReferenceQuery(workspace, view.query.source || 'true'), viewQueryContext(workspace, view, now), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
       matchesForStatistics = (item) => query(index.queryItemFor(item), now);
     } catch { matchesForStatistics = () => false; }
   }
@@ -208,7 +210,7 @@ function evaluateViewInternal(workspace: WorkspaceDocument, view: SavedView, now
     }
     const item = viewItemForEvaluation(entry.item);
     if (expression === 'completionOrder') return item.state === 'open' ? 0 : 1;
-    if (expression === 'organizationOrder') return index.organizationRankFor(item);
+    if (expression === 'organizationOrder') return index.organizationSortKeyFor(item);
     if (expression === 'durationOrder' || expression === 'remainingDurationMs') return item.state === 'open' ? effectiveItemDurationMs(item) : 0;
     if (expression === 'completionPercent') return effectiveItemDurationMs(item) ? (['done', 'auto_closed'].includes(item.state) ? 100 : 0) : undefined;
     if (expression === 'attentionOrder') { const value = attentionSortValues(item, now); return [value.bucket, value.at ?? Infinity]; }
@@ -305,7 +307,7 @@ function sortViewItemsInternal(workspace: WorkspaceDocument, view: SavedView, so
           __utm_completion_percent: effectiveItemDurationMs(item) ? (['done', 'auto_closed'].includes(item.state) ? 100 : 0) : null,
           __utm_remaining_duration: item.state === 'open' ? attention.durationMs : 0,
           ...(list ? { __utm_list_priority: list.priority, __utm_list_order: 0, __utm_list_created_at: list.createdAt } : {}),
-          __utm_organization_order: index.organizationRankFor(item),
+          __utm_organization_order: index.organizationSortKeyFor(item),
           __utm_attention_bucket: attention.bucket,
           __utm_attention_at: attention.at ?? null,
           __utm_duration_order: attention.durationMs,
@@ -350,7 +352,7 @@ export function selectViewItems(workspace: WorkspaceDocument, view?: SavedView, 
 
   let items: UniversalItem[];
   try {
-    const predicate = compileQuery(view.query.source || 'true', viewQueryContext(workspace, view, now), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
+    const predicate = compileQuery(seriesReferenceQuery(workspace, view.query.source || 'true'), viewQueryContext(workspace, view, now), { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
     const matchingRows = available.filter((item) => {
       const source = selectionSource(item);
       const queryItem = index.queryItemFor(source);

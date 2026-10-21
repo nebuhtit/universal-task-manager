@@ -1,0 +1,9 @@
+.organization-combobox-control { position: relative; display: flex; align-items: center; min-width: 0; }
+.organization-combobox-control .ui-input { width: 100%; padding-inline-end: var(--control-height-touch); }
+.organization-combobox-control .ui-button { position: absolute; inset-inline-end: var(--space-1); padding: var(--space-1); min-width: var(--control-height-compact); }
+.organization-combobox-positioner { z-index: var(--z-overlay); width: var(--anchor-width); max-width: var(--available-width); }
+.organization-combobox-popup { max-height: min(var(--available-height), 40dvh); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-1); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-elevated); box-shadow: var(--shadow-elevated); }
+.organization-combobox-option { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-height-touch); padding: var(--space-2); border-radius: var(--radius-sm); cursor: pointer; overflow-wrap: anywhere; }
+.organization-combobox-option[data-highlighted] { background: var(--color-surface-muted); outline: 1px solid var(--color-border-strong); }
+.organization-combobox-option small { color: var(--color-text-secondary); margin-inline-start: auto; }
+.organization-combobox-empty { padding: var(--space-2); color: var(--color-text-secondary); }

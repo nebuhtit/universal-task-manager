@@ -1,6 +1,6 @@
 import * as Automerge from '@automerge/automerge';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyGoogleCalendarSync, createItem, createOccurrence, createWorkspace, reconcileCalendarOrganization, type GoogleCalendarEvent, type WorkspaceDocument } from '@utm/core';
+import { applyGoogleCalendarSync, createItem, createOccurrence, createWorkspace, reconcileCalendarOrganization, withinPlacementWorkspace, type GoogleCalendarEvent, type WorkspaceDocument } from '@utm/core';
 import { itemEditorSource } from '../features/items/editor/itemEditorSource';
 import { prepareGoogleSave } from './googleItemSave';
 import { googleCreationId } from './googleCalendarCreate';
@@ -26,6 +26,57 @@ vi.mock('./googleCalendar', async importOriginal => ({
 afterEach(() => { vi.unstubAllGlobals(); refresh.mockReset(); });
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const account = 'test@example.invalid';
+
+// Audit regressions below deliberately exercise the ordinary coordinator and
+// persisted Automerge reload, not only the detached sync-plan calculator.
+// Known audit failures: sync implementation remains unchanged by request.
+it.fails('KNOWN BUG: retains a blocked cross-calendar move after synchronize and a durable reload', async () => {
+  const { workspace, item } = fixture(true);
+  item.role = 'series_template';
+  item.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+  workspace.calendarPreferences.googleCalendar!.calendars.push({ id: 'destination', name: 'Destination', selected: true });
+  const task = createItem('Related task'); task.id = 'linked-task';
+  task.relations = [{ id: 'relation', type: 'scheduled_within', targetId: item.id }]; workspace.items[task.id] = task;
+  const pending = await prepareGoogleSave({ workspaceId: workspace.workspaceId, accountEmail: account, item,
+    options: { calendarId: 'destination', busy: true, baseline: copy(item), moveWholeSeries: true } });
+  item.extensions = { ...item.extensions, 'utm:googleSave': { ...pending, blocked: 'Previous acknowledgement was interrupted' } };
+  const master: GoogleCalendarEvent = { id: item.external!.eventId, summary: item.title, recurrence: ['RRULE:FREQ=DAILY'],
+    start: { dateTime: item.schedule!.startAt! }, end: { dateTime: item.schedule!.endAt! } };
+  const syncedAt = '2099-09-21T00:00:00Z';
+  refresh.mockResolvedValue({ calendars: workspace.calendarPreferences.googleCalendar!.calendars, syncTokens: {},
+    syncWindow: { timeMin: '2099-09-01T00:00:00Z', timeMax: '2099-10-01T00:00:00Z', refreshedAt: syncedAt }, syncedAt,
+    batches: [{ calendarId: account, connectionId: 'connection', fullSync: false, syncedAt, events: [{ id: master.id, status: 'cancelled' }] },
+      { calendarId: 'destination', connectionId: 'connection', fullSync: false, syncedAt, events: [master] }] });
+  const fetch = vi.fn(() => { throw new Error('Live Google access forbidden'); }); vi.stubGlobal('fetch', fetch);
+  const runtime = app(workspace);
+  await runtime.service.synchronize('test'); runtime.reload();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(runtime.workspace.items[task.id]!.relations).toEqual(task.relations);
+  expect(runtime.workspace.items[item.id]!.extensions?.['utm:googleSave']).toBeDefined();
+  expect(Object.values(runtime.workspace.items).filter(entry => entry.external?.eventId === master.id)).toHaveLength(1);
+});
+
+it.fails('KNOWN BUG: uses a recurrence changed on Google after synchronize and durable reload', async () => {
+  const { workspace, item } = fixture(true);
+  item.role = 'series_template';
+  item.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
+  const task = createItem('Related task'); task.id = 'linked-task';
+  task.schedule = { timezone: 'UTC', plannedDate: '2099-09-21', estimatedDuration: 'PT10M' };
+  task.relations = [{ id: 'relation', type: 'scheduled_within', targetId: item.id }]; workspace.items[task.id] = task;
+  const master: GoogleCalendarEvent = { id: item.external!.eventId, summary: item.title, recurrence: ['RRULE:FREQ=WEEKLY'],
+    start: { dateTime: item.schedule!.startAt! }, end: { dateTime: item.schedule!.endAt! } };
+  const syncedAt = '2099-09-21T00:00:00Z';
+  refresh.mockResolvedValue({ calendars: workspace.calendarPreferences.googleCalendar!.calendars, syncTokens: {},
+    syncWindow: { timeMin: '2099-09-01T00:00:00Z', timeMax: '2099-10-01T00:00:00Z', refreshedAt: syncedAt }, syncedAt,
+    batches: [{ calendarId: account, connectionId: 'connection', fullSync: true, syncedAt, events: [master] }] });
+  const fetch = vi.fn(() => { throw new Error('Live Google access forbidden'); }); vi.stubGlobal('fetch', fetch);
+  const runtime = app(workspace);
+  await runtime.service.synchronize('test'); runtime.reload();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(runtime.workspace.items[task.id]!.relations).toEqual(task.relations);
+  expect(runtime.workspace.items[item.id]!.recurrence!.rrule).toBe('FREQ=WEEKLY');
+  expect(withinPlacementWorkspace(runtime.workspace, new Date(syncedAt)).items[task.id]!.schedule?.startAt).toBeUndefined();
+});
 
 function fixture(linked = false) {
   const workspace = createWorkspace('Synthetic crash recovery');

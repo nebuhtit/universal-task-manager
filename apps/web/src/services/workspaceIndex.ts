@@ -2,6 +2,7 @@ import {
   activeReminders,
   recurrenceDisplayItems,
   createOrganizationPriorityRanker,
+  createOrganizationPrioritySortKeyer,
   dueDateBuckets,
   evaluateFormulas,
   evaluateItemScripts,
@@ -69,6 +70,7 @@ export interface WorkspaceIndex {
   parentFor(item: UniversalItem): UniversalItem | undefined;
   rankFor(kind: 'area' | 'project' | 'tag', name: string | null): number;
   organizationRankFor(item: UniversalItem): number;
+  organizationSortKeyFor(item: UniversalItem): string;
   listDefinitionFor(name: string | undefined, now?: Date): ListDefinition | undefined;
   remindersFor(item: UniversalItem): readonly IndexedReminder[];
   formulasFor(item: UniversalItem, now?: Date): FormulaResult;
@@ -163,6 +165,8 @@ function buildWorkspaceIndex(workspace: WorkspaceDocument): WorkspaceIndex {
   addRanks('area', areaOrder); addRanks('project', projectOrder); addRanks('tag', tagOrder);
   const organizationRank = createOrganizationPriorityRanker(workspace);
   const organizationRanksByItem = new Map(items.map((item) => [item, organizationRank(item)]));
+  const organizationSortKey = createOrganizationPrioritySortKeyer(workspace);
+  const organizationSortKeysByItem = new Map(items.map((item) => [item, organizationSortKey(item)]));
 
   const listDefinitions = new Map<string, ListDefinition>();
   const listNames = new Set(items.map((item) => item.list?.trim()).filter((name): name is string => Boolean(name)));
@@ -233,6 +237,7 @@ function buildWorkspaceIndex(workspace: WorkspaceDocument): WorkspaceIndex {
     parentFor: (item) => itemById.get(parentIdsByItemId.get(item.id)?.[0] ?? ''),
     rankFor: (kind, name) => ranks.get(`${kind}:${name ?? '\u0000'}`) ?? 0,
     organizationRankFor: (item) => organizationRanksByItem.get(item) ?? organizationRank(item),
+    organizationSortKeyFor: (item) => organizationSortKeysByItem.get(item) ?? organizationSortKey(item),
     listDefinitionFor: (name, now = new Date()) => name?.trim() ? listDefinitions.get(name.trim()) ?? listDefinitionFor(workspace, name, now) : undefined,
     remindersFor: (item) => (itemById.get(item.id) === item ? remindersByItemId.get(item.id) : undefined) ?? activeReminders(item).map((reminder) => {
       const resolvedAt = reminderTime(item, reminder);

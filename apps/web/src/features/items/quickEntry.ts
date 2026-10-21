@@ -2,7 +2,7 @@ import { canManuallyComplete, createId, createItem, durationToMs, withinDay, wit
 import { clearCreationDefaultBounds, withoutCreationDefaultBounds } from './creationDefaultBounds';
 import { bareDurationInsertion, dateValueExpression, duration, parseDate, parseLiveEntry as parseEntry, type Draft } from '../../../quick-entry-lab/parser';
 import { extractOrganization } from '../../../quick-entry-lab/organization';
-import { extractWithinRelations } from '../../../quick-entry-lab/relations';
+import { extractWithinRelations, joinWithinText } from '../../../quick-entry-lab/relations';
 import { extractCalendarSelection, joinCalendarText, type CalendarSelection } from '../../../quick-entry-lab/calendars';
 import { isLiteralEntry } from '../../../quick-entry-lab/literal';
 
@@ -134,10 +134,14 @@ function reminderItems(draft: Draft): UniversalItem['reminders'] {
 }
 
 /** Presentation only: keep quoted titles and decimal commas untouched. */
-export function formatQuickEntryForEditor(text: string): string {
+export function formatQuickEntryForEditor(text: string, { hideOrganization = false }: { hideOrganization?: boolean } = {}): string {
   if (isLiteralEntry(text)) return text;
   const calendar = extractCalendarSelection(text);
   text = calendar.displayText;
+  if (hideOrganization) {
+    const within = extractWithinRelations(text);
+    text = joinWithinText(extractOrganization(within.displayText).text, within.tokens);
+  }
   text = text.replace(editorDefaultReminders, '').trimEnd();
   // Compact only parser-recognized commands, and verify semantic parity. Never
   // rewrite a title, quoted text, dates, or an ambiguous/unfinished command.

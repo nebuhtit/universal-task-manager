@@ -249,6 +249,31 @@ describe('view selectors', () => {
     expect(selectViewItems(workspace, { ...view(), sortSource: 'organizationOrder asc' }).map((item) => item.title)).toEqual(['No organization', 'Work item', 'Urgent exception']);
   });
 
+  it('compares further PARA assignments after a shared area or project, before dates and duration', () => {
+    const workspace = createWorkspace('Shared PARA assignments');
+    ensureAreaDefinition(workspace, 'Work');
+    ensureProjectDefinition(workspace, 'UTM', { areas: ['Work'] });
+    ensureProjectDefinition(workspace, 'utm.important', { areas: ['Work'] });
+    const plain = createItem('UTM only'); plain.areas = ['Work']; plain.projects = ['UTM'];
+    plain.schedule = { timezone: 'UTC', dueAt: '2026-01-01T09:00:00Z', estimatedDuration: 'PT5H' };
+    const important = createItem('Important UTM'); important.areas = ['Work']; important.projects = ['UTM', 'utm.important'];
+    const areaOnly = createItem('Work only'); areaOnly.areas = ['Work'];
+    [plain, important, areaOnly].forEach(item => { workspace.items[item.id] = item; });
+    reorderOrganizationPriority(workspace, [
+      { kind: 'area', name: 'Work' }, { kind: 'project', name: 'utm.important', area: 'Work' },
+      { kind: 'project', name: 'UTM', area: 'Work' },
+      { kind: 'area', name: null }, { kind: 'project', name: null }, { kind: 'tag', name: null },
+    ]);
+    const sorted = (direction: string) => selectViewItems(workspace, { ...view(), sortSource: `organizationOrder ${direction}\nattentionOrder asc\ndurationOrder desc` }).map(item => item.title);
+    expect(sorted('desc')).toEqual(['Work only', 'Important UTM', 'UTM only']);
+    expect(sorted('asc')).toEqual(['UTM only', 'Important UTM', 'Work only']);
+    // The order of assignments in an item does not determine its priority.
+    important.projects.reverse();
+    expect(sorted('desc')).toEqual(['Work only', 'Important UTM', 'UTM only']);
+    expect(selectViewItems(workspace, { ...view(), sortSource: 'organizationOrder desc', extensions: { [MANUAL_ORDER_EXTENSION]: [plain.id, important.id, areaOnly.id] } }).map(item => item.title))
+      .toEqual(['UTM only', 'Important UTM', 'Work only']);
+  });
+
   it('uses unified priority before smart time attention, duration and creation time', () => {
     const now = new Date('2026-09-02T12:00:00.000Z');
     const workspace = createWorkspace('Standard attention sort', now);

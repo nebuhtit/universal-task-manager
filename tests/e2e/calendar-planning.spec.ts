@@ -90,13 +90,30 @@ for (const theme of ['light', 'dark'] as const) test(`Home title gestures separa
   await title.focus();
   const bounds = (await title.boundingBox())!;
   const down = { pointerId: 33, pointerType: testInfo.project.use.hasTouch ? 'touch' : 'mouse', isPrimary: true, button: 0, clientX: bounds.x + bounds.width / 2, clientY: bounds.y + bounds.height / 2 };
-  for (const duration of [500, 1500]) {
+  for (const [index, duration] of [500, 1500].entries()) {
     await title.dispatchEvent('pointerdown', down); await page.clock.runFor(duration);
     await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
     await title.dispatchEvent('pointerup', down);
-    await expect(title).toHaveAttribute('aria-expanded', 'false');
+    await expect(title).toHaveAttribute('aria-expanded', index === 0 ? 'false' : 'true');
     await expect(full).toBeHidden();
   }
+  await title.press('Space');
+  await expect(title).toHaveAttribute('aria-expanded', 'false');
+  for (const duration of [1501, 3000]) {
+    await title.dispatchEvent('pointerdown', down); await page.clock.runFor(duration);
+    await title.dispatchEvent('pointerup', down);
+    await expect(title).toHaveAttribute('aria-expanded', 'true');
+    await expect(full).toBeHidden();
+    await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
+    await title.press('Space');
+    await expect(title).toHaveAttribute('aria-expanded', 'false');
+  }
+  await title.dispatchEvent('pointerdown', down); await page.clock.runFor(2000);
+  const moved = { ...down, clientX: down.clientX + 20 };
+  await title.dispatchEvent('pointermove', moved);
+  await title.dispatchEvent('pointerup', moved);
+  await expect(title).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
   await title.dispatchEvent('pointerdown', down); await page.clock.runFor(1500);
   await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
   await page.clock.runFor(1); await expect(page.locator('.ui-reorder-preview')).toBeVisible();
@@ -209,7 +226,7 @@ test('PARA native touch swipes scroll while a held touch reorders', async ({ pag
   await cdp.detach();
 });
 
-for (const theme of ['light', 'dark'] as const) test(`PARA requires a half-second hold before reordering in ${theme}`, async ({ page }) => {
+for (const theme of ['light', 'dark'] as const) test(`PARA requires a 300ms hold before reordering in ${theme}`, async ({ page }) => {
   await setup(page, false, workspace => {
     workspace.calendarPreferences.appearance.mode = theme;
     ensureAreaDefinition(workspace, 'Alpha'); ensureAreaDefinition(workspace, 'Beta');
@@ -233,10 +250,10 @@ for (const theme of ['light', 'dark'] as const) test(`PARA requires a half-secon
     await expect(handle).toHaveCSS('touch-action', 'none');
     await handle.dispatchEvent('pointerdown', down);
     expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden');
-    await page.clock.runFor(499);
+    await page.clock.runFor(299);
     await expect(handle).not.toHaveAttribute('data-reorder-holding');
     await handle.dispatchEvent('pointermove', move);
-    await page.clock.runFor(501);
+    await page.clock.runFor(301);
     await handle.dispatchEvent('pointerup', move);
     expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
     expect(await rows.allTextContents()).toEqual(before);
@@ -248,7 +265,7 @@ for (const theme of ['light', 'dark'] as const) test(`PARA requires a half-secon
     await expect(handle).not.toHaveAttribute('data-reorder-holding');
     expect(await rows.allTextContents()).toEqual(before);
     await handle.dispatchEvent('pointerdown', down);
-    await page.clock.runFor(500);
+    await page.clock.runFor(300);
     await expect(handle).toHaveAttribute('data-reorder-holding', 'true');
     await expect(page.locator('.ui-reorder-preview')).toBeVisible();
     await expect(rows.first()).toHaveCSS('outline-style', 'solid');
@@ -259,12 +276,80 @@ for (const theme of ['light', 'dark'] as const) test(`PARA requires a half-secon
     await expect(rows.nth(1)).toHaveText(before[0]!);
     await rows.nth(1).locator(':scope > .ui-reorder-handle').press('ArrowUp');
     expect(await rows.allTextContents()).toEqual(before);
-    await handle.dispatchEvent('pointerdown', down); await page.clock.runFor(500);
+    await handle.dispatchEvent('pointerdown', down); await page.clock.runFor(300);
     await expect(page.locator('.ui-reorder-preview')).toBeVisible();
     await handle.dispatchEvent('pointercancel', down);
     await expect(page.locator('.ui-reorder-preview')).toHaveCount(0);
     expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
   }
+});
+
+for (const command of ['rr', 'рр']) test(`${command} selects the whole recurring family rather than an occurrence or continuation`, async ({ page }, testInfo) => {
+  const { read } = await setup(page, false, workspace => {
+    const old = createItem('Work', 'event', now); old.id = 'old-work'; old.role = 'series_template';
+    old.schedule = { timezone: 'UTC', startAt: '2026-09-07T09:00:00Z', endAt: '2026-09-07T17:00:00Z' };
+    old.recurrence = { rrule: 'FREQ=DAILY;UNTIL=20260920T235959Z', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, exdates: [], rdates: [] };
+    const next = structuredClone(old); next.id = 'next-work'; next.recurrence!.rrule = 'FREQ=DAILY';
+    next.recurrenceOverride = { kind: 'future_split', sourceSeriesId: old.id, recurrenceId: '2026-09-21T09:00:00Z' };
+    next.schedule = { timezone: 'UTC', startAt: '2026-09-21T10:00:00Z', endAt: '2026-09-21T18:00:00Z' };
+    workspace.items[old.id] = old; workspace.items[next.id] = next;
+  });
+  await page.locator('article').getByText('A task', { exact: true }).first().click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const input = editor.getByLabel('Title', { exact: true });
+  await input.fill(`A task ${command} Work`);
+  const choice = editor.getByRole('option').filter({ hasText: 'Entire series' });
+  await expect(choice).toHaveCount(1);
+  if (testInfo.project.use.hasTouch) await choice.tap(); else await choice.click();
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => (await read()).items.task!.relations.filter(relation => relation.type === 'scheduled_within').map(relation => relation.targetId)).toEqual(['old-work']);
+});
+
+for (const theme of ['light', 'dark'] as const) test(`Relationship names stay visible with explanations off and long choices never overlap in ${theme}`, async ({ page }) => {
+  const { read } = await setup(page, false, workspace => {
+    workspace.calendarPreferences.appearance.mode = theme;
+    for (let index = 0; index < 20; index++) {
+      const source = createItem(`Linked ${index}: При удержании значка перетаскивания в PARA блокировать прокрутку страницы и показывать границы карточки`, 'task', now);
+      source.id = `linked-${index}`; source.areas = ['Work']; source.projects = ['UTM', 'utm.important'];
+      source.relations = [{ id: `relation-${index}`, type: index === 0 ? 'scheduled_within' : 'related', targetId: 'task' }];
+      workspace.items[source.id] = source;
+    }
+  });
+  await page.locator('article').getByText('A task', { exact: true }).first().click();
+  await page.evaluate(() => { document.documentElement.dataset.explanations = 'off'; });
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const more = editor.locator('.editor-scroll > details > summary').filter({ hasText: 'More' }).first();
+  await more.focus(); await more.press('Enter');
+  const summary = editor.locator('details > summary').filter({ hasText: 'Relations & links' }).first();
+  await summary.focus(); await summary.press('Enter');
+  const incoming = editor.getByRole('region', { name: 'Incoming relationships' });
+  await expect(incoming.locator('.relation-card')).toHaveCount(20);
+  await expect(incoming.locator('.relation-card').first()).toBeVisible();
+  await expect(incoming.locator('.relation-card').first()).toContainText('Linked 0:');
+  await expect(incoming.locator('.relation-card').first()).toContainText('Scheduled within this block');
+  const picker = editor.locator('.relation-picker');
+  await picker.locator(':scope > summary').focus(); await picker.locator(':scope > summary').press('Enter');
+  await picker.getByLabel('Search related items').fill('Linked');
+  const choices = picker.locator('.relation-choice');
+  await expect(choices).toHaveCount(20);
+  const geometry = await choices.evaluateAll(nodes => nodes.map(node => {
+    const row = node.getBoundingClientRect(), title = node.querySelector('span')!.getBoundingClientRect(), detail = node.querySelector('small')!.getBoundingClientRect();
+    return { top: row.top, bottom: row.bottom, titleBottom: title.bottom, detailTop: detail.top, detailBottom: detail.bottom };
+  }));
+  for (let index = 0; index < geometry.length; index++) {
+    const row = geometry[index]!;
+    expect(row.detailTop).toBeGreaterThanOrEqual(row.titleBottom);
+    expect(row.detailBottom).toBeLessThanOrEqual(row.bottom);
+    if (index) expect(row.top).toBeGreaterThanOrEqual(geometry[index - 1]!.bottom);
+  }
+  await choices.last().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath('readable-relationships.png'), animations: 'disabled' });
+  const chosenIndex = /Linked (\d+):/.exec((await choices.last().textContent())!)![1];
+  await choices.last().click();
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => (await read()).items.task!.relations.some(relation => relation.targetId === `linked-${chosenIndex}`)).toBe(true);
 });
 
 for (const theme of ['light', 'dark'] as const) test(`Live Text stays anchored while suggestions change in ${theme}`, async ({ page }) => {
@@ -303,6 +388,43 @@ for (const theme of ['light', 'dark'] as const) test(`Live Text stays anchored w
     expect(Math.abs((await timer.boundingBox())!.y - timerInitial!.y)).toBeLessThanOrEqual(1);
     await expect(input).toBeFocused();
   }
+});
+
+for (const theme of ['light', 'dark'] as const) test(`Live Text last suggestions stay above the keyboard accessory in ${theme}`, async ({ page }, testInfo) => {
+  await setup(page, false, workspace => {
+    workspace.calendarPreferences.appearance.mode = theme;
+    for (let index = 0; index < 25; index++) ensureProjectDefinition(workspace, `Project ${index} with a long name`);
+  });
+  await page.locator('article').getByText('A task', { exact: true }).first().click();
+  const editor = page.getByRole('dialog', { name: 'Item editor', exact: true });
+  const input = editor.getByLabel('Title', { exact: true });
+  await input.fill('tomorrow project ');
+  const panel = editor.locator('.live-text-panel');
+  await expect(panel.getByRole('option').first()).toBeVisible();
+  const initial = (await input.boundingBox())!;
+  const top = (await panel.boundingBox())!.y;
+  await page.evaluate(visibleHeight => {
+    Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: visibleHeight - 17 });
+    Object.defineProperty(window.visualViewport!, 'offsetTop', { configurable: true, value: 17 });
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  }, top + 180);
+  await page.clock.runFor(100);
+  const bounds = (await panel.boundingBox())!;
+  const safety = await panel.evaluate(node => parseFloat(getComputedStyle(node).getPropertyValue('--control-height-compact')));
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(top + 180 - safety);
+  const body = panel.locator('.live-text-panel-body');
+  await body.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await page.clock.runFor(100);
+  const last = (await panel.getByRole('option').last().boundingBox())!;
+  const scrollBounds = (await body.boundingBox())!;
+  expect(last.y + last.height).toBeLessThanOrEqual(scrollBounds.y + scrollBounds.height);
+  expect(last.y).toBeGreaterThanOrEqual(scrollBounds.y);
+  expect(Math.abs((await input.boundingBox())!.y - initial.y)).toBeLessThanOrEqual(1);
+  await expect(input).toBeFocused();
+  await page.screenshot({ path: test.info().outputPath('live-text-keyboard-clearance.png'), animations: 'disabled' });
+  if (testInfo.project.use.hasTouch) await panel.getByRole('option').last().tap();
+  else await panel.getByRole('option').last().click();
+  await expect(input).toHaveValue(/project "Project 0 with a long name"/);
 });
 
 for (const route of ['Home', 'All items', 'Calendar', 'Project', 'Area']) test(`Live Text selections persist when editing from ${route}`, async ({ page }) => {

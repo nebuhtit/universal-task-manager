@@ -230,6 +230,9 @@ Object.assign(extraTranslations.ru, {
   'Or type a new list': 'Или введите новый список', 'Add existing Tag…': 'Добавьте существующий тег…', 'Choose above or type comma-separated Tags': 'Выберите выше или введите теги через запятую',
   'Add a tag and press Enter': 'Введите тег и нажмите Enter', 'Choose Area…': 'Выберите область…', 'Choose Project…': 'Выберите проект…',
   'Choose or create an Area': 'Выберите или создайте область', 'Choose or create a Project': 'Выберите или создайте проект',
+  'Choose or create a Task list': 'Выберите или создайте список задач',
+  'Show options': 'Показать варианты',
+  'Type to create a new value': 'Введите название, чтобы создать новое значение',
   'Choose or type an Area': 'Выберите или введите область', 'Choose or type a Project': 'Выберите или введите проект',
   'Choose or type a list': 'Выберите или введите список', 'Choose or type comma-separated values': 'Выберите или введите значения через запятую',
   'Choose related item…': 'Выберите связанный элемент…', 'No Area': 'Без области', 'No Tags': 'Без тегов', 'No list': 'Без списка',
@@ -370,6 +373,11 @@ Object.assign(extraTranslations.ru, {
 });
 Object.assign(extraTranslations.ru, {
   'Recurrence & auto-renew': 'Повторы и автообновление', 'RRULE — Recurrence Rule': 'RRULE — правило повторения', 'Schedule RRULE': 'Расписание RRULE',
+  'Repeat': 'Повтор', 'Activate before': 'Активировать заранее', 'Activate before (ISO code)': 'Активировать заранее (код ISO)',
+  'Repeat rule': 'Правило повтора', 'Repeat after completion': 'Повторять после выполнения',
+  'Next cycle starts from': 'Начало следующего цикла отсчитывать от', 'Remaining time': 'Оставшееся время',
+  'Completion — open items first': 'Выполнение — сначала открытые', 'Completion by time — percent': 'Выполнение по времени — %',
+  'Next reminder in period': 'Следующее напоминание в периоде',
   'Repeat frequency': 'Частота повторения', 'Repeat interval': 'Интервал повторения', 'Repeat on': 'Повторять по', 'Repeat on weekdays': 'Повторять по дням недели',
   'Advanced recurrence behavior': 'Расширенные настройки повторения', 'Entire series': 'Вся серия', 'This occurrence': 'Только это повторение', 'This and future': 'Это и будущие',
   'Which part of the series should move?': 'Какую часть серии переместить?', 'Move repeating item': 'Переместить повторяющийся элемент',

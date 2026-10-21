@@ -655,17 +655,47 @@ export function reorderTagSubset(workspace: WorkspaceDocument, orderedTags: Arra
   preferences.priorityOrder = normalizedOrganizationPriorityOrder(priorityOrder, workspace);
 }
 
-export function createOrganizationPriorityRanker(workspace: WorkspaceDocument): (item: UniversalItem) => number {
-  const order = orderedOrganizationPriorityEntries(workspace);
-  return (item) => {
-    const areas = itemAreas(item); const projects = itemProjects(item); const tags = uniqueNames(item.tags);
-    const matches = (entry: OrganizationPriorityEntry) => entry.kind === 'area'
+function organizationPriorityMatcher(item: UniversalItem): (entry: OrganizationPriorityEntry) => boolean {
+  const areas = itemAreas(item); const projects = itemProjects(item); const tags = uniqueNames(item.tags);
+  return (entry) => entry.kind === 'area'
       ? entry.name === null ? areas.length === 0 : areas.includes(entry.name)
       : entry.kind === 'project'
         ? entry.name === null ? projects.length === 0 : projects.includes(entry.name)
         : entry.name === null ? tags.length === 0 : tags.includes(entry.name);
-    const index = order.findIndex(matches);
+}
+
+export function createOrganizationPriorityRanker(workspace: WorkspaceDocument): (item: UniversalItem) => number {
+  const order = orderedOrganizationPriorityEntries(workspace);
+  return (item) => {
+    const index = order.findIndex(organizationPriorityMatcher(item));
     return index < 0 ? 0 : order.length - index;
+  };
+}
+
+/** Numeric-aware string comparison follows every named match in ladder order.
+ * The highest match (including No Area/Project/Tags) remains the primary rank.
+ * A higher end marker puts a bare parent before its more specific assignments.
+ */
+export function createOrganizationPrioritySortKeyer(workspace: WorkspaceDocument): (item: UniversalItem) => string {
+  const order = orderedOrganizationPriorityEntries(workspace);
+  return (item) => {
+    const matches = organizationPriorityMatcher(item);
+    const ranks: number[] = [];
+    const seen = new Set<string>();
+    let primaryRank = 0;
+    order.forEach((entry, index) => {
+      if (!matches(entry)) return;
+      const rank = order.length - index;
+      const primary = primaryRank === 0;
+      if (primary) primaryRank = rank;
+      // Empty-category rows affect the primary rank, not the remaining path.
+      if (entry.name === null) return;
+      const identity = JSON.stringify([entry.kind, entry.name]);
+      if (seen.has(identity)) return;
+      seen.add(identity);
+      if (!primary) ranks.push(rank);
+    });
+    return [primaryRank, ...ranks, order.length + 1].join(':');
   };
 }
 

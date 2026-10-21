@@ -1,5 +1,7 @@
 import {
   withinPlacementWorkspace,
+  seriesReferenceIds,
+  seriesReferenceQuery,
   compileQuery,
   expressionDependsOnCurrentTime,
   parseSortSource,
@@ -194,7 +196,7 @@ function evaluateCalendarRangeInternal(
   const templateFilterRequested = /\bisTemplate\b/.test(filterSource);
   let predicate: ReturnType<typeof compileQuery> | null = null;
   try {
-    predicate = compileQuery(filterSource, (item, at) => index.queryContextFor(item, at), {
+    predicate = compileQuery(seriesReferenceQuery(workspace, filterSource), (item, at) => index.queryContextFor(item, at), {
       timeZone,
       weekStartsOn: workspace.calendarPreferences.weekStartsOn,
     });
@@ -273,7 +275,7 @@ function evaluateCalendarRangeInternal(
     }
   }
 
-  const reservedIds = new Set(settings.statistics?.reservedItemIds ?? []);
+  const reservedIds = new Set(seriesReferenceIds(workspace, settings.statistics?.reservedItemIds ?? []));
   if (settings.statistics?.includeHiddenCompleted && predicate) {
     for (const { item } of projected) {
       if ((item.state !== 'done' && item.state !== 'auto_closed') || item.deletedAt || item.role === 'series_template' || !predicate(index.queryItemFor({ ...item, state: 'open' }), now)) continue;

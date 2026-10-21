@@ -2,6 +2,7 @@ import { calendarDateKey, compileQuery, schedulePeriodBounds, type QueryTemporal
 import { actualTimeMs } from './item-history.js';
 import { projectOccurrences } from './calendar.js';
 import { withinPlacementWorkspace } from './within-placement.js';
+import { seriesReferenceIds, seriesReferenceQuery } from './series-references.js';
 import { effectiveItemDurationMs, participatesInTimeStatistics, type ItemSetMetrics } from './organization.js';
 import { durationToMs, type SavedView, type UniversalItem, type WorkspaceDocument } from './types.js';
 
@@ -258,7 +259,7 @@ export function viewStatisticsItems(workspace: WorkspaceDocument, view: SavedVie
     let predicate = matchesForStatistics;
     if (!predicate) {
       try {
-        const query = compileQuery(view.query.source || 'true', undefined, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
+        const query = compileQuery(seriesReferenceQuery(workspace, view.query.source || 'true'), undefined, { timeZone: workspace.calendarPreferences.timezone, weekStartsOn: workspace.calendarPreferences.weekStartsOn });
         predicate = (item) => query(item, now);
       } catch { predicate = () => false; }
     }
@@ -289,7 +290,7 @@ export function calculateViewTimeMetrics(workspace: WorkspaceDocument, view: Sav
   const matchingIds = new Set(items.filter(eligible).map((item) => item.id));
   let reservedDurationMs = 0;
   const reservedIntervals: TimeInterval[] = [];
-  const reservedIds = new Set(view.statistics?.reservedItemIds ?? []);
+  const reservedIds = new Set(seriesReferenceIds(workspace, view.statistics?.reservedItemIds ?? []));
   if (reservedIds.size) {
     let occurrences: ReturnType<typeof projectOccurrences> = [];
     try { occurrences = projectOccurrences(workspace, period.start, period.endExclusive); } catch { /* A malformed imported recurrence must not break the view. */ }

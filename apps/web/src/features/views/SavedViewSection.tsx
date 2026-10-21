@@ -90,8 +90,9 @@ export function SavedViewSection({ view, workspace, suppliedEvaluation, hiddenIt
           suppressTitleClickUntil.current = performance.now() + 500;
           const elapsed = performance.now() - press.at;
           if (press.cancelled) return;
-          if (elapsed >= 500 && elapsed <= 1500) { if (open) toggleOpen(); }
-          else if (elapsed < 500) { if (open) onOpenView(); else toggleOpen(); }
+          // A long hold only arms reordering; without movement a collapsed view still opens.
+          if (!open || (elapsed >= 500 && elapsed <= 1500)) toggleOpen();
+          else if (elapsed < 500) onOpenView();
         }}
         onContextMenu={(event) => { if (onOpenView) event.preventDefault(); }}
         onKeyDown={(event) => {

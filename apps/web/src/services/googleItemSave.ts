@@ -20,7 +20,7 @@ export interface GoogleSaveOperation {
   instance?: { calendarId: string; masterId: string; originalStart: string; baseline?: GoogleCalendarEvent };
   split?: { seriesId: string; calendarId: string; eventId: string; baseline: GoogleCalendarEvent; recurrence: string[]; completedEvent?: GoogleCalendarEvent; createdEvent?: GoogleCalendarEvent };
 }
-export interface GoogleSaveOptions { calendarId: string; busy: boolean; baseline: UniversalItem; rebased?: boolean }
+export interface GoogleSaveOptions { calendarId: string; busy: boolean; baseline: UniversalItem; rebased?: boolean; moveWholeSeries?: boolean }
 const eventUrl = (calendar: string, id: string) => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events/${encodeURIComponent(id)}`;
 
 export function itemGoogleDraft(item: UniversalItem, busy: boolean): GoogleEventDraft {
@@ -59,6 +59,7 @@ export async function prepareGoogleSave(args: { workspaceId: string; accountEmai
   const { item, options } = args;
   const pending = item.extensions?.[GOOGLE_SAVE_EXTENSION] as unknown as GoogleSaveOperation | undefined;
   const link = options.baseline.external;
+  if (options.moveWholeSeries && (!link || item.role !== 'series_template' || !item.recurrence)) throw new Error('A calendar-only series move requires an existing linked series.');
   if (pending) {
     const desired = { ...pending, desiredDestination: options.calendarId, desiredBusy: options.busy };
     delete desired.blocked;
@@ -80,7 +81,7 @@ export async function prepareGoogleSave(args: { workspaceId: string; accountEmai
     return desired;
   }
   const operation: GoogleSaveOperation = {
-    kind: link ? 'edit' : 'create', calendarId: link?.calendarId ?? options.calendarId, destination: options.calendarId,
+    kind: link ? options.moveWholeSeries ? 'move' : 'edit' : 'create', calendarId: link?.calendarId ?? options.calendarId, destination: options.calendarId,
     eventId: link?.eventId ?? await googleCreationId(args.workspaceId, item.occurrence ? `${item.id}:${item.occurrence.recurrenceId}` : item.id),
     accountEmail: args.accountEmail, draft: itemGoogleDraft(item, options.busy), ...(link ? { baseline: itemGoogleBaseline(options.baseline) } : {}),
   };
@@ -108,12 +109,13 @@ export async function saveGoogleItem(args: {
   }
   const draft = itemGoogleDraft(item, options.busy);
   if (pending && options.rebased && pending.kind !== 'create' && pending.baseline?.etag !== options.baseline.external?.etag) pending = { ...pending, draft, baseline: itemGoogleBaseline(options.baseline), attempted: false };
-  const newerDraft = Boolean(pending && ((Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => key === 'travelDuration' ? (pending!.draft[key] ?? '') !== (draft[key] ?? '') : JSON.stringify(pending!.draft[key]) !== JSON.stringify(draft[key])) || pending.destination !== options.calendarId));
+  const draftChanged = Boolean(pending && (Object.keys(draft) as Array<keyof GoogleEventDraft>).some((key) => key === 'travelDuration' ? (pending!.draft[key] ?? '') !== (draft[key] ?? '') : JSON.stringify(pending!.draft[key]) !== JSON.stringify(draft[key])));
+  const newerDraft = Boolean(pending && (draftChanged || pending.destination !== options.calendarId));
   const finish = async (calendarId: string, event: GoogleCalendarEvent) => {
     if (!newerDraft || !pending) { await apply(calendarId, event, true); return; }
     // Atomically link the completed operation and queue the newer draft. A crash
     // between the two remote writes must never discard the user's latest edit.
-    const next: GoogleSaveOperation = { kind: 'edit', calendarId, destination: options.calendarId, eventId: event.id, accountEmail: args.accountEmail, baseline: event, draft };
+    const next: GoogleSaveOperation = { kind: pending.kind === 'move' && (!draftChanged || options.moveWholeSeries) ? 'move' : 'edit', calendarId, destination: options.calendarId, eventId: event.id, accountEmail: args.accountEmail, baseline: event, draft };
     await apply(calendarId, event, true, next);
     await saveGoogleItem({ ...args, item: { ...item, extensions: { ...item.extensions, [GOOGLE_SAVE_EXTENSION]: next } }, options: { ...options, rebased: false } });
   };

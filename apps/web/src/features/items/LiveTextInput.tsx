@@ -12,7 +12,7 @@ import './live-text.css';
 import { withinSuggestions, extractWithinRelations, joinWithinText } from '../../../quick-entry-lab/relations';
 import { calendarSuggestions, extractCalendarSelection, joinCalendarText } from '../../../quick-entry-lab/calendars';
 import { withinTargets, withinPlacementInfo, type UniversalItem } from '@utm/core';
-import { liveTextIndex, withinPreviewWorkspace } from './liveTextIndex';
+import { liveTextIndex, withinReferenceCandidates, withinPreviewWorkspace } from './liveTextIndex';
 import { createQuickEntryItem, applyQuickEntryText, parseQuickEntryForItem } from './quickEntry';
 import { withinOrganizationOffer } from './withinOrganization';
 
@@ -32,6 +32,7 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
     onSourceChange(joinCalendarText(joinWithinText(added.displayText, [...references.tokens, ...added.tokens]), addedCalendar.selection ?? calendarReference.selection));
   });
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), ownInput = useRef<HTMLInputElement>(null), textarea = useRef<HTMLTextAreaElement>(null);
+  const suggestionBounds = useRef<HTMLDivElement>(null);
   const touchStartY = useRef<number | null>(null);
   const lastTouchSelection = useRef(0);
   const calendarTouchStartY = useRef<number | null>(null);
@@ -138,19 +139,51 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
   const suggestions = useMemo<ReturnType<typeof suggest>>(() => {
     const position = Math.min(caret, deferredValue.length);
     if (!focused || !open || !suggestionsEnabled) return { start: position, end: position, options: [] };
-    const target = inheritTargetId && references.ids.includes(inheritTargetId) ? workspace?.items[inheritTargetId] : undefined;
+    const target = inheritTargetId && references.ids.includes(inheritTargetId) && workspace
+      ? workspace.items[withinReferenceCandidates(workspace, undefined, []).find(candidate => candidate.referenceId === inheritTargetId)?.id ?? inheritTargetId] : undefined;
     const offer = target ? withinOrganizationOffer(target, deferredValue, previewItem) : null;
     if (offer && target) {
       const ru = language === 'ru';
       const detail = [offer.areas.length && `${ru ? 'Области' : 'Areas'}: ${offer.areas.join(', ')}`, offer.projects.length && `${ru ? 'Проекты' : 'Projects'}: ${offer.projects.join(', ')}`, offer.tags.length && `${ru ? 'Теги' : 'Tags'}: ${offer.tags.map(tag => `#${tag}`).join(', ')}`].filter(Boolean).join(' · ');
       return { start: deferredValue.length, end: deferredValue.length, ordered: true, options: [{ label: ru ? 'Добавить все области, проекты и теги' : 'Add all Areas, Projects and Tags', detail: `${target.title} · ${detail}`, insert: `${deferredValue.endsWith(' ') ? '' : ' '}${offer.insert} ` }] };
     }
-    return measureProfile('editor.suggestions', () => calendarSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).calendars : []) ?? withinSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).candidates.filter(item => item.id !== previewItem?.id && !references.ids.includes(item.id)) : []) ?? organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
+    return measureProfile('editor.suggestions', () => calendarSuggestions(deferredValue, position, () => workspace ? liveTextIndex(workspace).calendars : []) ?? withinSuggestions(deferredValue, position, () => workspace ? withinReferenceCandidates(workspace, previewItem, references.ids) : [], language) ?? organizationSuggestions(deferredValue, position, catalog) ?? suggest(deferredValue, position, referenceTime, language === 'ru' ? 'ru' : 'en'));
   }, [deferredValue, caret, referenceTime, language, catalog, workspace, previewItem, references, focused, open, suggestionsEnabled, inheritTargetId]);
   const [optionLimit, setOptionLimit] = useState(30);
   useEffect(() => { setOptionLimit(30); }, [value, caret]);
   useEffect(() => { if (selected >= optionLimit) setOptionLimit(selected + 30); }, [selected, optionLimit]);
   const expanded = focused && open && analysisCurrent && suggestionsEnabled && suggestions.options.length > 0;
+  useLayoutEffect(() => {
+    const container = suggestionBounds.current;
+    if (!focused || !container) return;
+    const viewport = window.visualViewport;
+    const update = () => {
+      const styles = getComputedStyle(container);
+      const gap = parseFloat(styles.getPropertyValue('--space-2')) || 0;
+      const top = viewport?.offsetTop ?? 0;
+      const bottom = top + (viewport?.height ?? window.innerHeight);
+      const keyboardOpen = document.documentElement.dataset.nativeKeyboardOpen === 'true'
+        || ((viewport?.scale ?? 1) === 1 && window.innerHeight - bottom > 80);
+      // Safari's keyboard accessory bar can cover the final row even after the
+      // visual viewport shrinks. Keep a control-sized safety margin above it.
+      const accessory = keyboardOpen ? parseFloat(styles.getPropertyValue('--control-height-compact')) || 0 : 0;
+      const below = multiline || overlaySuggestions;
+      const available = below ? bottom - accessory - gap - container.getBoundingClientRect().top
+        : (control()?.getBoundingClientRect().top ?? top) - top - gap;
+      container.style.setProperty('--live-text-available-height', `${Math.max(0, available)}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    if (root.current) observer.observe(root.current);
+    viewport?.addEventListener('resize', update); viewport?.addEventListener('scroll', update);
+    window.addEventListener('resize', update); window.addEventListener('scroll', update, true);
+    window.addEventListener('utm:native-keyboard', update);
+    return () => {
+      observer.disconnect(); viewport?.removeEventListener('resize', update); viewport?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update); window.removeEventListener('scroll', update, true);
+      window.removeEventListener('utm:native-keyboard', update);
+    };
+  }, [focused, open, multiline, overlaySuggestions, Boolean(value.trim())]);
   useLayoutEffect(() => { if (expanded && panel.current) panel.current.scrollTop = panel.current.scrollHeight; }, [expanded, value, suggestions.ordered]);
   useEffect(() => {
     const body = panel.current;
@@ -230,14 +263,14 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
       else if (expanded && selected >= 0 && event.key === ' ') { event.preventDefault(); choose(selected); }
     },
   };
-  const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div className={`live-text-panel${overlaySuggestions ? ' live-text-panel-inline' : ''}`}>
+  const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div ref={suggestionBounds} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-inline' : ''}`}>
+      <div ref={panel} className="live-text-panel-body">
       {dayPreview && calendarDate && visiblePreview && <button ref={previewButton} type="button" className="live-day-preview" aria-label={language === 'ru' ? `Открыть ${calendarDate} в Timeline` : `Open ${calendarDate} in Timeline`} onPointerDown={(event) => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => { if (Date.now() - lastCalendarTouch.current > 500) viewCalendarDate(); }}>
         <div className="live-day-preview-heading"><strong>{new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${calendarDate}T12:00:00Z`))}</strong><span>{language === 'ru' ? `Событий: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · весь день: ${dayPreview.allDay.length}` : ''}` : `Events: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · all day: ${dayPreview.allDay.length}` : ''}`}</span></div>
         <div className="live-day-preview-track" aria-hidden="true">{previewSegments.filter(segment => segment.hidden).map(segment => <span key={segment.start} className="live-day-preview-hidden" style={{ left: `${previewPercent(segment.start)}%`, width: `${segment.height / previewHeight * 100}%` }} />)}{dayPreview.reserves.map((reserve, index) => <span key={`reserve-${index}`} className="live-day-preview-reserve" style={{ left: `${previewPercent(reserve.start)}%`, width: `${Math.max(0.8, previewPercent(reserve.end) - previewPercent(reserve.start))}%` }} />)}{dayPreviewEvents.filter(event => !previewSegments.some(segment => segment.hidden && event.start >= segment.start && event.end <= segment.end)).map((event, index) => <span key={`${event.item.id}-${index}`} className="live-day-preview-event" style={{ left: `${previewPercent(event.start)}%`, width: `${Math.max(0.8, previewPercent(Math.min(event.end, dayPreview.day.end)) - previewPercent(Math.max(event.start, dayPreview.day.start)))}%` }} />)}</div>
         <div className="live-day-preview-hours" aria-hidden="true">{[dayPreview.day.start, dayPreview.day.start + (dayPreview.day.end - dayPreview.day.start) / 4, dayPreview.day.start + (dayPreview.day.end - dayPreview.day.start) / 2, dayPreview.day.start + (dayPreview.day.end - dayPreview.day.start) * 3 / 4, dayPreview.day.end].filter((at, index, values) => index === 0 || index === values.length - 1 || (previewPercent(at) - previewPercent(values[index - 1]!) >= 15 && previewPercent(at) <= 85)).map(at => <span key={at} style={{ left: `${previewPercent(at)}%` }}>{previewClock(at)}</span>)}</div>
         {dayPreviewEvents.length > 0 && <div className="live-day-preview-labels">{dayPreviewEvents.slice(0, 3).map((event, index) => <span key={`${event.item.id}-${index}`}>{previewClock(event.start)} {event.item.title}</span>)}{dayPreviewEvents.length > 3 && <span>+{dayPreviewEvents.length - 3}</span>}</div>}
       </button>}
-      <div ref={panel} className="live-text-panel-body">
       {suggestionsEnabled && summary && <div className="live-text-preview">{summary}</div>}
       {message && <div role="alert" className="ui-field-error">{message}</div>}
       {expanded && overlaySuggestions && <Button size="compact" variant="ghost" aria-label="Close Live text suggestions" onPointerDown={(event) => event.preventDefault()} onClick={() => setOpen(false)}>×</Button>}

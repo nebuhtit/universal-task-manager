@@ -1,10 +1,14 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { addTimerActualTime, calendarDateKey, shiftCalendarDateKey, zonedDateStart, canManuallyComplete, googleCalendarEventToItem, googleCalendarProjection, initializeItemHistory, recordCompletionTransition, syncCompletionCounter } from '@utm/core';
 import { googleActionItem } from './itemEditorSource';
 import type { GoogleCalendarEvent } from '@utm/core';
 import { ItemHistoryJournals } from './sections/ItemHistoryJournals';
 import { CompletionGoalsSettings } from './sections/CompletionGoalsSettings';
+import { IncomingRelations } from './sections/IncomingRelations';
+import { ItemIdentityNotice } from './sections/ItemIdentityNotice';
+import { incomingItemRelations, itemReferenceDetail } from '../itemIdentity';
+import { isCalendarOnlySeriesMove } from '../../../services/recurrenceItemEdit';
 import { EventProgramSection } from './sections/EventProgramSection';
 import { programOverflow, trimEventProgram } from '@utm/core';
 import {
@@ -17,6 +21,7 @@ import { SearchableDisclosureList } from '../../../components/ui/SearchableDiscl
 import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/primitives';
 import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
 import { WarningNotice } from '../../../components/ui/WarningNotice';
+import { UserDataText } from '../../../i18n-react';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
 import { calendarDurationMs, parseOptionalEstimateDuration, toIsoDuration, parseFriendlyDuration, scheduleWithDue, scheduleWithLinkedEnd, scheduleWithStart, scheduleWithDuration, type FriendlyDurationUnit } from '../../../utils/durations';
@@ -30,6 +35,7 @@ import { recordItemTitleFailure } from './itemEditorDiagnostics';
 import { ItemSection } from './ItemSection';
 import { QuickItemTimer } from './QuickItemTimer';
 import { DateTimeField } from './fields/DateTimeField';
+import { OrganizationCombobox } from './fields/OrganizationCombobox';
 import { DatesSection } from './sections/DatesSection';
 import { dueDateOnlyToIso } from '../dueQuickActions';
 import { RemindersSection } from './sections/RemindersSection';
@@ -55,26 +61,22 @@ function TokenField({ label, values, draft, suggestions, placeholder, colorForVa
   colorForValue?: (value: string) => string | undefined;
   onDraft: (value: string) => void; onAdd: (value: string) => void; onRemove: (value: string) => void;
 }) {
-  const normalizedDraft = draft.trim().replace(/^#+/, '').toLocaleLowerCase();
-  const visibleSuggestions = normalizedDraft ? suggestions.filter((suggestion) => suggestion.value.toLocaleLowerCase().includes(normalizedDraft)) : suggestions;
-  const commitDraft = () => { const value = label === 'Tags' ? draft.trim().replace(/^#+/, '') : draft.trim(); if (value) onAdd(value); onDraft(''); };
-  const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' || event.key === ',') { event.preventDefault(); event.stopPropagation(); commitDraft(); }
-    else if (event.key === 'Backspace' && !draft && values.length) { event.preventDefault(); onRemove(values[values.length - 1]!); }
-  };
   const iconPath = label === 'Areas' ? 'areas' : label === 'Projects' ? 'projects' : 'tags';
   return <Field label={<FieldIconLabel path={iconPath} label={label} />} optional><div className="organization-token-field">
     {values.length > 0 && <div className="organization-token-values">{values.map((value) => <Button size="compact" variant="ghost" key={value} aria-label={`Remove ${label.slice(0, -1)} ${value}`} onClick={() => onRemove(value)}><span style={colorForValue?.(value) ? { color: colorForValue(value) } : undefined}>{label !== 'Tags' && <FieldIcon path={iconPath} label={label} />}{label === 'Tags' ? '#' : ''}{value}</span><CloseIcon /></Button>)}</div>}
-    <Input aria-label={`Add ${label.slice(0, -1)}`} value={draft} onChange={(event) => onDraft(event.target.value)} onKeyDown={keyDown} placeholder={placeholder} />
-    {suggestions.length > 0 && <details className="organization-token-picker"><summary><FieldIcon path={iconPath} label={label} />Choose existing {label.toLowerCase()}…</summary><div className="organization-token-suggestions" aria-label={`${label} suggestions`}>{visibleSuggestions.map((suggestion) => <Button size="compact" variant="ghost" className={values.includes(suggestion.value) ? 'active' : ''} aria-pressed={values.includes(suggestion.value)} key={suggestion.value} onClick={() => values.includes(suggestion.value) ? onRemove(suggestion.value) : onAdd(suggestion.value)}><span style={colorForValue?.(suggestion.value) ? { color: colorForValue(suggestion.value) } : undefined}>{label === 'Tags' ? '#' : ''}{suggestion.value}</span>{suggestion.meta && <small>{suggestion.meta}</small>}</Button>)}</div></details>}
+    <OrganizationCombobox label={`Add ${label.slice(0, -1)}`} placeholder={placeholder} draft={draft} values={values} suggestions={suggestions} colorForValue={colorForValue} onDraft={onDraft} onValuesChange={next => {
+      for (const value of values) if (!next.includes(value)) onRemove(value);
+      for (const value of next) if (!values.includes(value)) onAdd(value);
+    }} />
   </div></Field>;
 }
 
-function EditorTitleInput({ initialValue, inputRef, id, autoFocus, workspace, previewItem, now, onDraft, onCommit }: {
+function EditorTitleInput({ initialValue: sourceInitialValue, inputRef, id, autoFocus, workspace, previewItem, now, onDraft, onCommit }: {
   initialValue: string; inputRef: RefObject<HTMLInputElement | null>; id: string; autoFocus: boolean;
   workspace: WorkspaceDocument; now: Date; onDraft: (value: string, edited: boolean) => void; onCommit: (value: string) => boolean;
   previewItem: UniversalItem;
 }) {
+  const initialValue = formatQuickEntryForEditor(sourceInitialValue, { hideOrganization: true });
   const [value, setValue] = useState(initialValue);
   const focused = useRef(false);
   const dirty = useRef(false);
@@ -146,13 +148,15 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const [error, setError] = useState('');
   const [sourceEditing, setSourceEditing] = useState(false);
   const [sourceDraft, setSourceDraft] = useState(() => formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars)));
-  const initialTitleText = formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars));
+  const initialTitleText = formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars), { hideOrganization: true });
   const titleDraft = useRef(initialTitleText);
   const titleEdited = useRef(false);
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(initial, null, 2));
   const [jsonDirty, setJsonDirty] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isTemplate, setIsTemplate] = useState(Boolean(item.extensions?.['utm:template']));
+  const wholeSeriesCalendarMove = Boolean(recurring && !isTemplate && workspace.items[item.id]?.external
+    && isCalendarOnlySeriesMove({ ...item, tags: commaList(tags), contexts: commaList(contexts) }, { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline }));
   const googleItem = googleActionItem(workspace, item);
   const googleLink = googleItem.external?.provider === 'google_calendar' ? googleItem.external : undefined;
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -171,6 +175,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   // Parent links are stored on the parent item (parent -> child). Derive the
   // reverse side so a child always shows its parent in the editor.
   const parentItems = useMemo(() => workspaceItems.filter((candidate) => !candidate.deletedAt && candidate.id !== item.id && candidate.relations.some((relation) => relation.type === 'parent' && relation.targetId === item.id)), [workspaceItems, item.id]);
+  const incomingRelations = useMemo(() => incomingItemRelations(workspace, item), [workspace, item]);
   const applyTemplate = (template: UniversalItem) => {
     const identity = { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, revision: item.revision, createdWithAppId: item.createdWithAppId, createdWithAppName: item.createdWithAppName, createdWithVersion: item.createdWithVersion };
     const next = clean({ ...template, ...identity, state: 'open' as const, role: 'standalone' as const, extensions: { ...template.extensions } });
@@ -196,7 +201,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const commitTitleDraft = (text: string, current = item) => {
     if (!titleEdited.current) return current;
     let interpreted: UniversalItem;
-    try { interpreted = applyEditorTitleDraft(current, initial, text, tags, now, workspace); }
+    try { interpreted = applyEditorTitleDraft(current, initial, text, tags, now, workspace, { hiddenOrganization: true }); }
     catch (reason) { recordItemTitleFailure('commit', current, text, reason); throw reason; }
     setItem(interpreted);
     setTags(interpreted.tags.join(', '));
@@ -462,10 +467,13 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
         ? 'Удалить связанное событие из Google Календаря? Item останется в UTM. Удаление произойдёт сейчас или при ближайшей синхронизации.'
         : 'Delete the linked event from Google Calendar? The item stays in UTM. Deletion will happen now or at the next sync.')) return;
       const normalized = measureProfile('item.prepare', () => normalizeItemForSave({ item: itemToSave, workspace, tags: itemToSave.tags.join(', '), contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now, deleteGoogleEvent }), () => ({ recalculated: 1 }));
+      if (!complete && wholeSeriesCalendarMove && !isCalendarOnlySeriesMove(normalized, { calendarId: googleCalendarId, busy: googleBusyValue, baseline: googleBaseline })) {
+        throw new Error(workspace.calendarPreferences.language === 'ru' ? 'Есть другие изменения. Сохраните их отдельно перед переносом всей серии в другой календарь.' : 'There are other edits. Save them separately before moving the whole series to another calendar.');
+      }
       syncCompletionCounter(normalized, now.toISOString());
       if (normalized.closure?.reason !== 'rule') recordCompletionTransition(normalized, initial.state, now.toISOString());
       syncCompletionCounter(normalized, now.toISOString());
-      await onSave(normalized, { ...(!complete && completionOccurrenceId ? { recurrenceEdit: { occurrenceId: completionOccurrenceId, ...(completionRecurrenceId ? { recurrenceId: completionRecurrenceId } : {}), scope: recurrenceScope } } : {}), ...(complete ? { completedFromEditor: true, ...(completionOccurrenceId ? { completionOccurrenceId, ...(completionRecurrenceId ? { completionRecurrenceId } : {}) } : {}) } : {}), ...(convertedProject ? { convertedProject } : {}), ...(deleteGoogleEvent ? { deleteGoogleEvent: true } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { calendarId: quickEntryCalendar(normalized)?.id || defaultGoogleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
+      await onSave(normalized, { ...(!complete && completionOccurrenceId && !wholeSeriesCalendarMove ? { recurrenceEdit: { occurrenceId: completionOccurrenceId, ...(completionRecurrenceId ? { recurrenceId: completionRecurrenceId } : {}), scope: recurrenceScope } } : {}), ...(complete ? { completedFromEditor: true, ...(completionOccurrenceId ? { completionOccurrenceId, ...(completionRecurrenceId ? { completionRecurrenceId } : {}) } : {}) } : {}), ...(convertedProject ? { convertedProject } : {}), ...(deleteGoogleEvent ? { deleteGoogleEvent: true } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { moveWholeSeries: !complete && wholeSeriesCalendarMove, calendarId: quickEntryCalendar(normalized)?.id || defaultGoogleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
     } catch (reason) { setGoogleConflict(reason instanceof GoogleEditConflict); setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { savingRef.current = false; setSaving(false); }
   };
@@ -518,12 +526,13 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
         <div className="item-title-field">
           <div className="item-title-heading"><label htmlFor={titleFieldId}><FieldIconLabel path="title" label="Title" /></label>{quickEntrySource(item) && <Button size="compact" variant="secondary" aria-pressed={sourceEditing} onClick={() => {
             if (!sourceEditing) { setSourceDraft(formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars))); setSourceEditing(true); setError(''); return; }
-            try { const updated = applyEditorTitleDraft(item, item, sourceDraft, tags, now, workspace); setItem(updated); setTags(updated.tags.join(', ')); titleDraft.current = formatQuickEntryForEditor(quickEntryEditorText(updated, googlePreferences?.calendars)); titleEdited.current = false; setSourceDraft(quickEntryEditorText(updated, googlePreferences?.calendars)); setSourceEditing(false); setError(''); }
+            try { const updated = applyEditorTitleDraft(item, item, sourceDraft, tags, now, workspace); setItem(updated); setTags(updated.tags.join(', ')); titleDraft.current = formatQuickEntryForEditor(quickEntryEditorText(updated, googlePreferences?.calendars), { hideOrganization: true }); titleEdited.current = false; setSourceDraft(quickEntryEditorText(updated, googlePreferences?.calendars)); setSourceEditing(false); setError(''); }
             catch (reason) { recordItemTitleFailure('source', item, sourceDraft, reason); setError(reason instanceof Error ? reason.message : String(reason)); }
           }}>{sourceEditing ? (workspace.calendarPreferences.language === 'ru' ? 'Применить строку' : 'Apply line') : (workspace.calendarPreferences.language === 'ru' ? 'Быстрый ввод' : 'Quick entry')}</Button>}{!sourceEditing && canManuallyComplete(item) && item.state === 'open' && workspace.items[item.id] && <button type="button" className="state-toggle editor-complete" aria-label={workspace.calendarPreferences.language === 'ru' ? 'Выполнить item' : 'Complete item'} title={workspace.calendarPreferences.language === 'ru' ? 'Выполнить и сохранить' : 'Complete and save'} disabled={saving} onPointerDown={event => event.preventDefault()} onClick={() => void save({ complete: true, dismissKeyboard: true })} />}{!sourceEditing && <><Checkbox checked={Boolean(item.isNote)} onChange={(event) => patchItem({ isNote: event.target.checked || undefined, ...(event.target.checked ? { canBeCompleted: false } : {}) })} label="Note" /><Checkbox checked={canManuallyComplete(item)} onChange={(event) => patchItem({ canBeCompleted: event.target.checked, ...(event.target.checked ? { isNote: undefined } : {}) })} label="Can be completed" /></>}</div>
           {sourceEditing ? <><LiveTextInput multiline previewItem={item} id={titleFieldId} placeholder="Строка быстрого ввода" value={sourceDraft} onChange={setSourceDraft} workspace={workspace} workspaceId={workspace.workspaceId} language={workspace.calendarPreferences.language} suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} now={now} /><div aria-live="polite">{parseQuickEntryForItem(sourceDraft, now, item).errors.length ? <WarningNotice language={workspace.calendarPreferences.language} message={parseQuickEntryForItem(sourceDraft, now, item).errors.join(' ')} /> : <p className="schedule-explainer">{workspace.calendarPreferences.language === 'ru' ? 'Название' : 'Title'}: {parseQuickEntryForItem(sourceDraft, now, item).title}</p>}</div><Button size="compact" variant="ghost" onClick={() => { setSourceEditing(false); setSourceDraft(quickEntrySource(item)?.text ?? ''); setError(''); }}>{workspace.calendarPreferences.language === 'ru' ? 'Отмена' : 'Cancel'}</Button></> : <EditorTitleInput previewItem={item} initialValue={formatQuickEntryForEditor(quickEntryEditorText(item, googlePreferences?.calendars))} id={titleFieldId} inputRef={titleInputRef} autoFocus={focusTitleOnOpen} workspace={workspace} now={now} onDraft={(value, edited) => { titleDraft.current = value; if (edited) titleEdited.current = true; }} onCommit={(value) => { try { commitTitleDraft(value); setError(''); return true; } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return false; } }} />}
           {item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
+        <ItemIdentityNotice item={item} workspace={workspace} />
         {error && <WarningNotice message={error} onDismiss={() => setError('')} language={workspace.calendarPreferences.language} />}
         {!sourceEditing && <>
         <QuickItemTimer soundEnabled defaultDurationSeconds={item.schedule?.estimatedDuration ? durationToMs(item.schedule.estimatedDuration) / 1000 : 600} timerTitle={item.title || 'Universal'} activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
@@ -569,7 +578,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
           <div className="form-grid two organization-fields">
             <TokenField label="Areas" values={selectedAreas} draft={areaDraft} suggestions={areaSuggestions} placeholder="Choose or create an Area" colorForValue={(value) => organizationAccentFor(workspace, 'area', value)} onDraft={setAreaDraft} onAdd={addArea} onRemove={removeArea} />
             <TokenField label="Projects" values={selectedProjects} draft={projectDraft} suggestions={projectSuggestions} placeholder="Choose or create a Project" colorForValue={(value) => organizationAccentFor(workspace, 'project', value)} onDraft={setProjectDraft} onAdd={addProject} onRemove={removeProject} />
-            <Field label="Task list" optional><div className="creation-default-choice"><SearchableDisclosureList uiKey={`item-editor:task-list:${item.id}`} className="item-list-picker" summary={item.list || 'Choose existing Task list…'} items={orderedListNames(workspace)} getSearchText={(name) => name} searchLabel="Search Task lists" searchPlaceholder="Search Task lists" emptyText="No Task lists yet." noMatchesText="No matching Task lists." renderItem={(name) => <Button size="compact" variant="ghost" key={name} aria-pressed={item.list === name} onClick={(event) => { patchItem({ list: name }); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{name}</Button>} /><Input aria-label="Create Task list" value={item.list ?? ''} onChange={(event) => patchItem({ list: event.target.value.trim() || undefined })} placeholder="Or create a new list" /></div></Field>
+            <Field label="Task list" optional><OrganizationCombobox label="Create Task list" placeholder="Choose or create a Task list" multiple={false} draft={item.list ?? ''} values={item.list ? [item.list] : []} suggestions={orderedListNames(workspace).map(value => ({ value }))} onDraft={value => patchItem({ list: value || undefined })} onValuesChange={values => patchItem({ list: values[0] || undefined })} /></Field>
           </div>
           <TokenField label="Tags" values={selectedTags} draft={tagDraft} suggestions={collectedTags.map((value) => ({ value }))} placeholder="Add a tag and press Enter" colorForValue={(value) => organizationAccentFor(workspace, 'tag', value)} onDraft={setTagDraft} onAdd={(tag) => { if (!selectedTags.includes(tag)) setTags([...selectedTags, tag].join(', ')); }} onRemove={(tag) => { if (selectedTags.includes(tag)) toggleTag(tag); }} />
           <div className="organization-convert"><Button size="compact" onClick={convertItemToProject} disabled={!item.title.trim() || convertedProject === item.title.trim()}>{convertedProject === item.title.trim() ? 'Item will be kept in this Project' : 'Convert item to Project'}</Button></div>
@@ -604,11 +613,12 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
 
         <ItemSection sectionKey="status" title="Status" iconPath="state" filledMark={sectionMark(item.state !== 'open')}><Field label="Item status" hint="Status normally changes through completion, cancellation, auto-renew or archiving."><Select aria-label="Item status" disabled={!canManuallyComplete(item)} value={item.state} onChange={(event) => { const state = event.target.value as UniversalItem['state']; patchItem({ state, closure: state === 'open' ? undefined : { at: item.closure?.at ?? now.toISOString(), actor: item.closure?.actor ?? 'user', reason: state === 'cancelled' ? 'cancelled' : 'manual' } }); }}>{['open', 'done', 'cancelled', 'auto_closed', 'archived'].map((state) => <option key={state} value={state}>{stateNames[state as UniversalItem['state']]}</option>)}</Select></Field>{(item.state === 'done' || item.state === 'cancelled') && <label>Actually {item.state === 'done' ? 'completed' : 'cancelled'} at {dateField(`Actually ${item.state === 'done' ? 'completed' : 'cancelled'} at`, item.closure?.at, (value) => { if (value) patchItem({ closure: { at: value, actor: item.closure?.actor ?? 'user', reason: item.state === 'cancelled' ? 'cancelled' : 'manual' } }); else patchItem({ closure: undefined }); }, 'Defaults to now. Change this when you are recording the item after it happened. For a completion-anchored series, the next cycle uses this time when this cycle is first closed.')}</label>}</ItemSection>
 
-        <details><summary><FieldIconLabel path="relations" label="Relations & links" /> {sectionMark(item.relations.length > 0 || parentItems.length > 0)}</summary><div className="details-body">
+        <details><summary><FieldIconLabel path="relations" label="Relations & links" /> {sectionMark(item.relations.length > 0 || parentItems.length > 0 || incomingRelations.length > 0)}</summary><div className="details-body">
           <SectionGuide title="Linking items"><p>Relations connect two items without making either one a subtask. Links are URL references only; files are not stored in this workspace.</p></SectionGuide>
+          <IncomingRelations item={item} workspace={workspace} />
           {parentItems.map((parent) => <div className="chip" key={`parent-${parent.id}`}><span>Parent: {parent.title}</span><small className="hint">This item is a subtask</small></div>)}
-          {item.relations.map((relation) => <div className="chip" key={relation.id}>{relation.type === 'scheduled_within' ? 'Выполняется внутри' : relation.type}: {workspace.items[relation.targetId]?.title ?? relation.targetId}<button aria-label="Remove relation" onClick={() => patchItem({ relations: item.relations.filter((entry) => entry.id !== relation.id) })}><CloseIcon /></button></div>)}
-          <SearchableDisclosureList uiKey={`item-editor:relations:${item.id}`} className="relation-picker" summary="Choose related item…" items={Object.values(workspace.items).filter((candidate) => candidate.id !== item.id && !candidate.deletedAt)} getSearchText={(candidate) => candidate.title} searchLabel="Search related items" searchPlaceholder="Search items" emptyText="No other items yet." renderItem={(candidate) => <Button size="compact" variant="ghost" key={candidate.id} onClick={(event) => { if (!item.relations.some((relation) => relation.targetId === candidate.id && relation.type === 'related')) patchItem({ relations: [...item.relations, { id: createId(), targetId: candidate.id, type: 'related' }] }); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{candidate.title || 'Untitled item'}</Button>} />
+          {item.relations.map((relation) => <div className="chip" key={relation.id}>{relation.type === 'scheduled_within' ? (workspace.calendarPreferences.language === 'ru' ? 'Выполняется внутри' : 'Scheduled within') : relation.type}: <UserDataText>{workspace.items[relation.targetId]?.title ?? relation.targetId}</UserDataText><small> · ID {relation.targetId.slice(-8)}</small><button aria-label="Remove relation" onClick={() => patchItem({ relations: item.relations.filter((entry) => entry.id !== relation.id) })}><CloseIcon /></button></div>)}
+          <SearchableDisclosureList uiKey={`item-editor:relations:${item.id}`} className="relation-picker" summary="Choose related item…" items={Object.values(workspace.items).filter((candidate) => candidate.id !== item.id && !candidate.deletedAt)} getSearchText={(candidate) => `${candidate.title} ${itemReferenceDetail(workspace, candidate)}`} searchLabel="Search related items" searchPlaceholder="Search items" emptyText="No other items yet." renderItem={(candidate) => <Button className="relation-choice" size="compact" variant="ghost" key={candidate.id} onClick={(event) => { if (!item.relations.some((relation) => relation.targetId === candidate.id && relation.type === 'related')) patchItem({ relations: [...item.relations, { id: createId(), targetId: candidate.id, type: 'related' }] }); event.currentTarget.closest('details')?.removeAttribute('open'); }}><UserDataText>{candidate.title || 'Untitled item'}</UserDataText><small><UserDataText>{itemReferenceDetail(workspace, candidate)}</UserDataText></small></Button>} />
         </div></details>
 
         <ScriptsSection scripts={item.scripts ?? []} onChange={(scripts) => patchItem({ scripts: scripts.length ? scripts : undefined })} scriptResults={scriptResults} getViewScriptErrors={() => readViewScriptErrors(item, workspace, now)} onEditProgram={() => { const section = editorScrollRef.current?.querySelector<HTMLDetailsElement>('.event-program'); if (section) { section.open = true; let parent = section.parentElement?.closest('details'); while (parent) { parent.open = true; parent = parent.parentElement?.closest('details'); } section.scrollIntoView({ block: 'nearest' }); } }} />
@@ -646,7 +656,8 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
           titleDraft.current = merged.title; titleEdited.current = true; setGoogleBusyValue(merged.busy); setGoogleRebased(true); setGoogleConflict(false); setError('');
         } catch (reason) { setError(String(reason)); }
       }}>Load current event; keep my draft</Button>}
-        {completionOccurrenceId && <Field label={workspace.calendarPreferences.language === 'ru' ? 'Применить изменения' : 'Apply changes'}><Select aria-label="Recurrence edit scope" value={recurrenceScope} onChange={event => setRecurrenceScope(event.target.value as typeof recurrenceScope)}><option value="this_occurrence">{workspace.calendarPreferences.language === 'ru' ? 'Только это повторение' : 'Only this occurrence'}</option><option value="this_and_future">{workspace.calendarPreferences.language === 'ru' ? 'Это и все будущие' : 'This and all future occurrences'}</option></Select></Field>}
+        {wholeSeriesCalendarMove && <p className="field-hint" role="status">{workspace.calendarPreferences.language === 'ru' ? 'Смена календаря перенесёт текущую ветку серии целиком с тем же ID. Новая ветка не создаётся; даты, связи и история сохраняются.' : 'Changing the calendar moves this entire series branch with the same ID. Dates, relationships and history are preserved, without creating a new branch.'}</p>}
+        {completionOccurrenceId && !wholeSeriesCalendarMove && <Field label={workspace.calendarPreferences.language === 'ru' ? 'Применить изменения' : 'Apply changes'}><Select aria-label="Recurrence edit scope" value={recurrenceScope} onChange={event => setRecurrenceScope(event.target.value as typeof recurrenceScope)}><option value="this_occurrence">{workspace.calendarPreferences.language === 'ru' ? 'Только это повторение' : 'Only this occurrence'}</option><option value="this_and_future">{workspace.calendarPreferences.language === 'ru' ? 'Это и все будущие' : 'This and all future occurrences'}</option></Select></Field>}
     </div>
   </ResponsiveDialog>;
 }

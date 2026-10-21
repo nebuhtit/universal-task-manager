@@ -32,6 +32,19 @@ describe('Russian interface translation', () => {
     expect(translateInterfaceText('backup regularly and keep it in Files, iCloud Drive, or another trusted cloud.', 'ru')).toContain('резервную копию');
   });
 
+  it('translates remaining recurrence and sorting controls', () => {
+    expect(translateInterfaceText('Repeat', 'ru')).toBe('Повтор');
+    expect(translateInterfaceText('Activate before', 'ru')).toBe('Активировать заранее');
+    expect(translateInterfaceText('Activate before (ISO code)', 'ru')).toBe('Активировать заранее (код ISO)');
+    expect(translateInterfaceText('Repeat rule', 'ru')).toBe('Правило повтора');
+    expect(translateInterfaceText('Repeat after completion', 'ru')).toBe('Повторять после выполнения');
+    expect(translateInterfaceText('Next cycle starts from', 'ru')).toBe('Начало следующего цикла отсчитывать от');
+    expect(translateInterfaceText('Remaining time', 'ru')).toBe('Оставшееся время');
+    expect(translateInterfaceText('Completion — open items first', 'ru')).toBe('Выполнение — сначала открытые');
+    expect(translateInterfaceText('Completion by time — percent', 'ru')).toBe('Выполнение по времени — %');
+    expect(translateInterfaceText('Next reminder in period', 'ru')).toBe('Следующее напоминание в периоде');
+  });
+
   it('translates dynamic labels without changing user-provided names', () => {
     expect(translateInterfaceText('Loading My calendar (1/2)…', 'ru')).toBe('Загрузка: My calendar (1/2)…');
     expect(translateInterfaceText('Sync complete: 12 events in 0.4s.', 'ru')).toBe('Синхронизация завершена. Событий: 12, время: 0.4 с.');

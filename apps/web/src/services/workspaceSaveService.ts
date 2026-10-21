@@ -525,7 +525,8 @@ export function createWorkspaceSaveService(ports: WorkspaceSavePorts) {
       const google = workspace.calendarPreferences.googleCalendar;
       let selection: GoogleSaveOptions | undefined;
       if (options?.google && google && !item.extensions?.['utm:template']) {
-        const baseline = options.recurrenceEdit?.scope === 'this_occurrence'
+        const baseline = options.google.moveWholeSeries ? googleActionItem(workspace, options.google.baseline)
+          : options.recurrenceEdit?.scope === 'this_occurrence'
           ? workspace.items[options.recurrenceEdit.occurrenceId] ?? candidate
           : options.recurrenceEdit && candidate.id !== item.id ? candidate
           : item.role === 'series_template' ? googleActionItem(workspace, options.google.baseline) : options.google.baseline;

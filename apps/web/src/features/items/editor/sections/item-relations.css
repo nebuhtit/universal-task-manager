@@ -1,0 +1,8 @@
+.relation-cards { display: grid; gap: var(--space-2); margin-block: var(--space-2); min-width: 0; }
+.relation-card { display: grid; gap: var(--space-1); min-width: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); overflow-wrap: anywhere; }
+.relation-card strong { font-size: var(--font-size-body); font-weight: var(--font-weight-medium); }
+.relation-card small { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.relation-picker .ui-searchable-disclosure-list { grid-auto-rows: max-content; align-content: start; min-width: 0; }
+.relation-picker .relation-choice.ui-button { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); height: auto; min-width: 0; padding: var(--space-3); text-align: start; white-space: normal; overflow-wrap: anywhere; }
+.relation-choice > span, .relation-choice > small { min-width: 0; }
+.relation-choice > small { color: var(--color-text-secondary); font-size: var(--font-size-caption); }

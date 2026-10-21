@@ -1,4 +1,4 @@
-import { effectiveItemDurationMs, inferViewPeriod, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { effectiveItemDurationMs, inferViewPeriod, seriesReferenceAncestors, type SavedView, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { SearchableDisclosureList } from '../../components/ui/SearchableDisclosureList';
 import { Checkbox } from '../../components/ui/primitives';
 import { ViewEditorSection } from './ViewEditorSection';
@@ -24,7 +24,12 @@ export function ViewStatisticsEditor({ workspace, view, rows, visualDirty, onVie
     .filter((item) => !item.deletedAt && item.role !== 'occurrence' && Boolean(item.schedule) && effectiveItemDurationMs(item) > 0)
     .sort((left, right) => left.title.localeCompare(right.title));
   const byId = new Map(candidates.map(item => [item.id, item]));
-  const excluded = (item: UniversalItem) => visualDirty ? itemIsExcludedBySource(item, view.query.source) : itemIsExcludedByRows(item, rows);
+  const directlyExcluded = (item: UniversalItem) => visualDirty ? itemIsExcludedBySource(item, view.query.source) : itemIsExcludedByRows(item, rows);
+  const ancestors = (item: UniversalItem) => seriesReferenceAncestors(workspace, item.id).slice(1);
+  const inheritedExclusion = (item: UniversalItem) => ancestors(item).some(id => directlyExcluded({ ...item, id, role: 'series_template' }));
+  const inheritedReservation = (item: UniversalItem) => ancestors(item).some(id => statistics.reservedItemIds.includes(id));
+  const excluded = (item: UniversalItem) => directlyExcluded(item) || inheritedExclusion(item);
+  const inheritedLabel = workspace.calendarPreferences.language === 'ru' ? 'Наследуется от исходной серии. Измените настройку у неё.' : 'Inherited from the source series. Change the setting there.';
   const updateStatistics = (showTime: boolean, reservedItemIds = statistics.reservedItemIds) => onViewChange({
     ...view,
     statistics: { ...statistics, showTime, reservedItemIds: [...new Set(reservedItemIds)] },
@@ -43,7 +48,7 @@ export function ViewStatisticsEditor({ workspace, view, rows, visualDirty, onVie
     grouped.set(key, [...(grouped.get(key) ?? []), item]);
   }
   const choices = [...grouped.values()].map(items => ({ items, title: items[0]!.title }));
-  const itemControls = (item: UniversalItem) => <div className="view-statistics-item-controls" key={item.id}><span className="view-statistics-item-title">{item.title}{item.role === 'series_template' && <small> · repeats</small>}{item.external?.readOnly && item.schedule?.startAt && <small> · {new Intl.DateTimeFormat(workspace.calendarPreferences.language, { timeZone: workspace.calendarPreferences.timezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.schedule.startAt))}</small>}</span><Checkbox checked={statistics.reservedItemIds.includes(item.id)} onChange={(event) => updateStatistics(statistics.showTime, event.target.checked ? [...statistics.reservedItemIds, item.id] : statistics.reservedItemIds.filter((id) => id !== item.id))} label="Reserve time" /><Checkbox checked={excluded(item)} onChange={(event) => toggleExcluded(item, event.target.checked)} label="Exclude from View" /></div>;
+  const itemControls = (item: UniversalItem) => <div className="view-statistics-item-controls" key={item.id}><span className="view-statistics-item-title">{item.title}{item.role === 'series_template' && <small> · repeats</small>}{item.external?.readOnly && item.schedule?.startAt && <small> · {new Intl.DateTimeFormat(workspace.calendarPreferences.language, { timeZone: workspace.calendarPreferences.timezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.schedule.startAt))}</small>}</span><Checkbox checked={statistics.reservedItemIds.includes(item.id) || inheritedReservation(item)} disabled={inheritedReservation(item)} title={inheritedReservation(item) ? inheritedLabel : undefined} onChange={(event) => updateStatistics(statistics.showTime, event.target.checked ? [...statistics.reservedItemIds, item.id] : statistics.reservedItemIds.filter((id) => id !== item.id))} label="Reserve time" /><Checkbox checked={excluded(item)} disabled={inheritedExclusion(item)} title={inheritedExclusion(item) ? inheritedLabel : undefined} onChange={(event) => toggleExcluded(item, event.target.checked)} label="Exclude from View" />{(inheritedExclusion(item) || inheritedReservation(item)) && <small className="field-hint">{inheritedLabel}</small>}</div>;
 
   return <ViewEditorSection sectionKey={`statistics:${view.id}`} title="Statistics"><fieldset className="view-statistics-settings">
     <Checkbox checked={statistics.showTime} onChange={(event) => updateStatistics(event.target.checked)} label="Show time statistics" />

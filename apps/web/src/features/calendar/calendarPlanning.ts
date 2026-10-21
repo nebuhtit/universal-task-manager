@@ -1,6 +1,7 @@
 import {
   activeRangeBounds, activeRangeDailyDuration, calendarDateKey, createOccurrence, effectiveItemDurationMs, googleCalendarProjection, itemDeletionTime,
-  occupiedIntervals, viewPeriodBoundsForDates, zonedDateTime,
+  occupiedIntervals, projectOccurrences, viewPeriodBoundsForDates, zonedDateTime,
+  seriesReferenceAt,
   type CalendarPin, type CalendarSourceReference, type UniversalItem, type WorkspaceDocument,
 } from '@utm/core';
 import { dayBounds, intersects, itemInterval, mergeIntervals, type Interval, type TimelineEvent } from './timelineLayout';
@@ -25,6 +26,34 @@ export const referenceKey = (ref: CalendarSourceReference) => ref.seriesId && re
 
 /** Resolution is read-only: a virtual occurrence is never inserted into items. */
 export function resolveCalendarSource(workspace: WorkspaceDocument, ref: CalendarSourceReference): UniversalItem | null {
+  if (ref.seriesId && ref.recurrenceId) {
+    const stored = workspace.items[ref.itemId];
+    // Finished historical rows must never turn into a new open occurrence.
+    if (!stored || stored.state === 'open') {
+      const seriesId = seriesReferenceAt(workspace, ref.seriesId, ref.recurrenceId);
+      if (seriesId !== ref.seriesId) {
+        const series = workspace.items[seriesId];
+        if (!series?.recurrence || series.recurrence.exdates.includes(ref.recurrenceId)
+          || series.cycleHistory?.some(entry => entry.recurrenceId === ref.recurrenceId)
+          || series.completionEntries?.some(entry => entry.recurrenceId === ref.recurrenceId && !entry.revokedAt)) return null;
+        try {
+          const zone = series.schedule?.timezone ?? workspace.calendarPreferences.timezone;
+          const date = calendarDateKey(new Date(ref.recurrenceId), zone);
+          const period = viewPeriodBoundsForDates(date, date, zone);
+          const rows = projectOccurrences({ ...workspace, items: { [seriesId]: series } }, period.start, period.endExclusive)
+            .filter(row => row.recurrenceId && calendarDateKey(new Date(row.recurrenceId), zone) === date)
+            .sort((a, b) => Math.abs(Date.parse(a.recurrenceId!) - Date.parse(ref.recurrenceId!)) - Math.abs(Date.parse(b.recurrenceId!) - Date.parse(ref.recurrenceId!)));
+          const anchor = rows[0]?.recurrenceId;
+          if (!anchor) return null;
+          if (series.cycleHistory?.some(entry => entry.recurrenceId === anchor)
+            || series.completionEntries?.some(entry => entry.recurrenceId === anchor && !entry.revokedAt)) return null;
+          const occurrence = createOccurrence(series, new Date(anchor), 0);
+          const concrete = workspace.items[occurrence.id];
+          return concrete ? itemDeletionTime(workspace, concrete) ? null : concrete : occurrence;
+        } catch { return null; }
+      }
+    }
+  }
   if (ref.seriesId && workspace.items[ref.seriesId] && itemDeletionTime(workspace, workspace.items[ref.seriesId]!)) return null;
   let item = workspace.items[ref.itemId];
   if (!item && ref.seriesId && ref.recurrenceId) {
@@ -43,7 +72,17 @@ export function activeCalendarPins(workspace: WorkspaceDocument, day: string, no
   return Object.values(workspace.calendarPreferences.planning?.pins ?? {}).flatMap(pin => {
     if (pin.day !== day) return [];
     const item = resolveCalendarSource(workspace, pin);
-    return item && item.state === 'open' ? [{ pin, item }] : [];
+    return item && item.state === 'open' ? [{ pin: { ...pin, ...sourceReference(item) }, item }] : [];
+  });
+}
+
+function matchingCalendarPin(workspace: WorkspaceDocument, ref: CalendarSourceReference): [string, CalendarPin] | undefined {
+  const pins = workspace.calendarPreferences.planning?.pins ?? {};
+  const exact = pins[referenceKey(ref)];
+  if (exact) return [referenceKey(ref), exact];
+  return Object.entries(pins).find(([, pin]) => {
+    const item = resolveCalendarSource(workspace, pin);
+    return item && referenceKey(sourceReference(item)) === referenceKey(ref);
   });
 }
 
@@ -51,20 +90,23 @@ export function activeCalendarPins(workspace: WorkspaceDocument, day: string, no
 export function setCalendarPin(workspace: WorkspaceDocument, pin: CalendarPin) {
   workspace.calendarPreferences.planning ??= {};
   workspace.calendarPreferences.planning.pins ??= {};
-  const previous = workspace.calendarPreferences.planning.pins[referenceKey(pin)];
+  const existing = matchingCalendarPin(workspace, pin);
+  const previous = existing?.[1];
   if (previous && previous.day !== pin.day) {
     const placements = workspace.calendarPreferences.planning.parallel?.[previous.day];
     if (placements) delete placements[previous.itemId];
   }
+  if (existing && existing[0] !== referenceKey(pin)) delete workspace.calendarPreferences.planning.pins[existing[0]];
   workspace.calendarPreferences.planning.pins[referenceKey(pin)] = { ...pin };
 }
 export function removeCalendarPin(workspace: WorkspaceDocument, ref: CalendarSourceReference) {
   const pins = workspace.calendarPreferences.planning?.pins;
-  const pin = pins?.[referenceKey(ref)];
+  const existing = matchingCalendarPin(workspace, ref);
+  const pin = existing?.[1];
   if (pin) {
     const placements = workspace.calendarPreferences.planning?.parallel?.[pin.day];
-    if (placements) delete placements[pin.itemId];
-    delete pins![referenceKey(ref)];
+    if (placements) { delete placements[pin.itemId]; delete placements[ref.itemId]; }
+    delete pins![existing![0]];
   }
 }
 

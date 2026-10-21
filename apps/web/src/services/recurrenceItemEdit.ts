@@ -1,4 +1,5 @@
-import { createId, createOccurrence, buildRecurrenceRule, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { createId, createOccurrence, buildRecurrenceRule, canManuallyComplete, recurrenceAnchor, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import type { GoogleSaveOptions } from './googleItemSave';
 
 export interface RecurrenceItemEdit { occurrenceId: string; recurrenceId?: string; scope: 'this_occurrence' | 'this_and_future' }
 
@@ -35,6 +36,27 @@ function ruleKey(value: UniversalItem['recurrence']) {
   return JSON.stringify({ rrule: [...parts].sort(), rdates: [...(value.rdates ?? [])].sort(), exdates: [...(value.exdates ?? [])].sort(), timezone: value.timezone ?? 'UTC', anchor: value.anchor ?? 'schedule', closeAt: value.closeAt ?? 'next_activation', activationOffset: value.activationOffset ?? 'P7D', autoRenew: value.autoRenew !== false });
 }
 const fields = ['title', 'bodyMarkdown', 'preset', 'canBeCompleted', 'isNote', 'areas', 'projects', 'tags', 'contexts', 'location', 'schedule', 'reminders', 'eventProgram', 'priority', 'list', 'custom', 'attachments', 'relations', 'scripts'] as const;
+
+const stable = (value: unknown): unknown => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, stable(entry)])) : value;
+
+/** A calendar-only move is a series operation, not a new future recurrence owner. */
+export function isCalendarOnlySeriesMove(item: UniversalItem, options: GoogleSaveOptions): boolean {
+  const before = options.baseline;
+  const pending = item.extensions?.['utm:googleSave'] as { kind?: string; destination?: string } | undefined;
+  if (item.role !== 'series_template' || !item.recurrence || !before.recurrence || !before.external || item.id !== before.id
+    || (options.calendarId === before.external.calendarId && (!pending || pending.destination === options.calendarId)) || options.busy !== (before.external.transparency !== 'transparent')
+    || (pending && pending.kind !== 'move') || item.extensions?.['utm:googleSplit'] || item.extensions?.['utm:googleInstance']) return false;
+  const signature = (value: UniversalItem) => {
+    const schedule = { ...value.schedule, allDay: value.schedule?.allDay === true, dueDateOnly: value.schedule?.dueDateOnly === true };
+    for (const key of ['availableFrom', 'startAt', 'endAt', 'dueAt'] as const) if (schedule[key] && Number.isFinite(Date.parse(schedule[key]!))) schedule[key] = new Date(schedule[key]!).toISOString();
+    const extensions = Object.fromEntries(Object.entries(value.extensions ?? {}).filter(([key]) => !['utm:quickEntrySource', 'utm:quickEntryCalendar'].includes(key)));
+    return JSON.stringify(stable({ ...Object.fromEntries([...fields, 'progress', 'habit', 'state'].map(field => [field, value[field as keyof UniversalItem]])),
+      canBeCompleted: canManuallyComplete(value), isNote: value.isNote === true, schedule,
+      recurrence: ruleKey(value.recurrence), dueOffset: value.recurrence?.dueOffset ?? '', extensions }));
+  };
+  try { return signature(item) === signature(before); } catch { return false; }
+}
 function applyFields(target: UniversalItem, edited: UniversalItem) {
   for (const field of fields) {
     if (edited[field] === undefined) delete target[field];

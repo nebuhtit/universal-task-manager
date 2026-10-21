@@ -41,12 +41,36 @@ sanitized copy when assistance is necessary.
 - `name`, `createdAt`, `updatedAt`: workspace metadata.
 - `items`: object keyed by stable item ID. Contains tasks, events, habits,
   recurrence templates and materialized occurrences.
+  A `future_split` recurrence override identifies a continuation by
+  `sourceSeriesId` and its boundary `recurrenceId`. References to the source
+  inherit its live continuations for related-task placement, exact ID filters
+  and reserved time. Calendar pins resolve to the branch owning their cycle
+  date. These are display projections; source relations, filters and past
+  occurrence records are not rewritten, and matching titles alone never link series.
+  Relationships in the editor also show derived incoming links. Same-name
+  independent items stay separate and are identified by calendar/date/context
+  and a short ID in pickers. Selecting one `scheduled_within` series covers its
+  continuation branches, so the same family is not offered twice after selection.
+  `rr`/`рр` pickers offer one representative per series family, mark it as
+  "Entire series", and store the root series ID rather than an occurrence ID.
+  Legacy `scheduled_within` targets using missing UTM-generated `occ_<series>_<UTC stamp>`
+  IDs resolve to that series only when its template or a known continuation proves
+  ownership. This does not broaden dated calendar pins or occurrence edit scopes,
+  and does not rewrite historical records or infer identity from names.
+  Changing only the Google Calendar of a linked recurring item moves the entire
+  current series branch with the same local and remote IDs. The editor explains
+  this scope; it does not create a future split or rewrite dates/history. Other
+  recurrence edits retain their selected occurrence/future scope.
 - `views`: saved filters, sort expressions, renderer choice, displayed fields and optional time-statistics settings. Derived percentages and capacity are never persisted.
 - `areas`, `projects`, `lists`, `tags` and their order arrays: reusable PARA and
   classification definitions. Items can refer to multiple Areas and Projects;
   Projects can belong to multiple Areas.
 - `organizationOrder`: unified manual priority ladder. Earlier matching entries
-  rank higher for the normal `Organization order` sort.
+  rank higher for the normal `Organization order` sort. Shared matches are
+  followed by the remaining named Areas, Projects and Tags in ladder order.
+  With `desc`, a complete prefix ranks before a longer set (Work alone before
+  Work + UTM). Empty-category rows still affect the highest match but are not
+  additional tie-breakers. Manual View order takes precedence when set.
 - `attentionOrder`: virtual sort tuple for overdue Due, active ranges, nearest
   future Start/Due and undated items. `durationOrder` is the effective numeric
   Duration with Event opens → Event ends fallback. Neither value is persisted.

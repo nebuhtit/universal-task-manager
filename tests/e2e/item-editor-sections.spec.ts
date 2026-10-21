@@ -16,6 +16,7 @@ async function openSection(page: Page, title: string) {
 }
 
 async function goTo(page: Page, name: 'Home' | 'Settings' | 'PARA') {
+  if (name === 'Home') { await page.locator('.quick-page-nav').getByRole('button', { name: 'Home', exact: true }).click(); return; }
   if ((page.viewportSize()?.width ?? 0) > 620) await page.locator('.sidebar').getByRole('button', { name }).click();
   else {
     await page.getByRole('button', { name: 'Open navigation' }).click();
@@ -29,13 +30,16 @@ async function openArea(page: Page, name: string) {
   return group;
 }
 
-test('organization tokens save multiple values and editor sections reopen cleanly', async ({ page }) => {
+for (const theme of ['light', 'dark'] as const) test(`organization tokens save multiple values and editor sections reopen cleanly in ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme });
   await createWorkspace(page);
   await page.getByPlaceholder('Add new item').fill('Design system item');
   await page.getByPlaceholder('Add new item').press('Enter');
 
   const organization = await openSection(page, 'Organization');
   await expect(organization.getByLabel('Priority')).toHaveCount(0);
+  await expect(organization.getByRole('combobox')).toHaveCount(4);
+  await expect(organization.locator('.organization-token-picker, .item-list-picker')).toHaveCount(0);
   await organization.getByLabel('Add Area').fill('Work');
   await organization.getByLabel('Add Area').press('Enter');
   await organization.getByLabel('Add Area').fill('Learning');
@@ -47,24 +51,55 @@ test('organization tokens save multiple values and editor sections reopen cleanl
   await organization.getByLabel('Add Tag').fill('calm');
   await organization.getByLabel('Add Tag').press('Enter');
   await organization.getByLabel('Create Task list').fill('Phase 3');
+  await organization.getByLabel('Create Task list').press('Tab');
   await page.getByRole('button', { name: 'Save item' }).click();
 
   await page.getByText('Design system item', { exact: true }).first().click();
   const reopenedOrganization = page.locator('.editor-scroll > details').filter({ has: page.getByText('Organization', { exact: true }) }).first();
   await expect(reopenedOrganization).not.toHaveAttribute('open', '');
-  await reopenedOrganization.locator(':scope > summary').click();
+  await reopenedOrganization.locator(':scope > summary').focus();
+  await reopenedOrganization.locator(':scope > summary').press('Enter');
   await expect(reopenedOrganization.getByLabel('Priority')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Remove Area Work' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove Area Learning' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove Project Phase 3' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove Tag design' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove Tag calm' })).toBeVisible();
-  const tagPicker = reopenedOrganization.locator('details.organization-token-picker').filter({ hasText: 'Choose existing tags' });
-  await expect(tagPicker).not.toHaveAttribute('open', '');
-  await tagPicker.locator(':scope > summary').click();
-  await expect(reopenedOrganization.getByLabel('Tags suggestions')).toBeVisible();
+  const tagPicker = reopenedOrganization.getByRole('combobox', { name: 'Add Tag' });
+  await expect(tagPicker).toHaveAttribute('aria-expanded', 'false');
+  await tagPicker.click();
+  await expect(page.getByRole('option', { name: /design/ })).toBeVisible();
+  await tagPicker.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Item editor', exact: true })).toBeVisible();
   await expect(page.getByLabel('Create Task list')).toHaveValue('Phase 3');
+  const listPicker = reopenedOrganization.getByRole('combobox', { name: 'Create Task list' });
+  await listPicker.fill('Pha');
+  await listPicker.press('ArrowDown');
+  await listPicker.press('Enter');
+  await expect(listPicker).toHaveValue('Phase 3');
+  await expect(reopenedOrganization).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath(`organization-combined-${theme}.png`), animations: 'disabled' });
   await expect(page.locator('.editor-scroll > details > summary').filter({ hasText: 'Organization' }).first().locator('.section-dot')).toHaveCount(1);
+});
+
+test('Title hides saved organization commands while retaining projects after further edits', async ({ page }) => {
+  await createWorkspace(page);
+  const capture = page.getByPlaceholder('Add new item');
+  await capture.fill('Invoice project:"БАТЯ"'); await capture.press('Enter');
+  const title = page.getByRole('dialog', { name: 'Item editor', exact: true }).getByLabel('Title', { exact: true });
+  await expect(title).toHaveValue(/^Invoice(?:\s+дл 10м)?$/);
+  await title.fill('Invoice revised project:"Second"');
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await page.getByText('Invoice revised', { exact: true }).first().click();
+  await expect(title).toHaveValue(/^Invoice revised(?:\s+дл 10м)?$/);
+  await title.fill('Invoice final');
+  await page.getByRole('button', { name: 'Save item', exact: true }).click();
+  await page.getByText('Invoice final', { exact: true }).first().click();
+  await expect(title).toHaveValue(/^Invoice final(?:\s+дл 10м)?$/);
+  const summary = page.locator('.editor-scroll > details > summary').filter({ hasText: 'Organization' }).first();
+  await summary.focus(); await summary.press('Enter');
+  await expect(page.getByRole('button', { name: 'Remove Project БАТЯ', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove Project Second', exact: true })).toBeVisible();
 });
 
 test('template toggle uses the shared checkbox without changing template semantics', async ({ page }) => {
@@ -128,9 +163,9 @@ test('related PARA suggestions support many-to-many selection and item conversio
   await page.getByPlaceholder('Add new item').fill('Connected item');
   await page.getByPlaceholder('Add new item').press('Enter');
   const organization = await openSection(page, 'Organization');
-  const projectPicker = organization.locator('details.organization-token-picker').filter({ hasText: 'Choose existing projects' });
-  await projectPicker.locator(':scope > summary').click();
-  const launchSuggestion = organization.locator('[aria-label="Projects suggestions"] button').filter({ hasText: 'Launch' });
+  const projectPicker = organization.getByRole('combobox', { name: 'Add Project' });
+  await projectPicker.click();
+  const launchSuggestion = page.getByRole('option').filter({ hasText: 'Launch' });
   await expect(launchSuggestion).toContainText('In: Work');
   await launchSuggestion.click();
   await expect(organization.getByRole('button', { name: 'Remove Project Launch' })).toBeVisible();
@@ -138,9 +173,11 @@ test('related PARA suggestions support many-to-many selection and item conversio
 
   await organization.getByRole('button', { name: 'Remove Area Work' }).click();
   await expect(organization.getByRole('button', { name: 'Remove Project Launch' })).toBeVisible();
-  const areaPicker = organization.locator('details.organization-token-picker').filter({ hasText: 'Choose existing areas' });
-  await areaPicker.locator(':scope > summary').click();
-  await organization.locator('[aria-label="Areas suggestions"] button').filter({ hasText: 'Work' }).click();
+  const areaPicker = organization.getByRole('combobox', { name: 'Add Area' });
+  await areaPicker.fill('Wor');
+  await areaPicker.press('ArrowDown');
+  await areaPicker.press('Enter');
+  if (await areaPicker.getAttribute('aria-expanded') === 'true') await areaPicker.press('Escape');
   await organization.getByRole('button', { name: 'Convert item to Project' }).click();
   await page.getByRole('button', { name: 'Save item' }).click();
 
