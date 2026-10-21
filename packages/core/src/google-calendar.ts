@@ -1,7 +1,8 @@
 import { APP_ID, APP_NAME, APP_VERSION, SCHEMA_VERSION, createId, durationToMs, type UniversalItem, type WorkspaceDocument } from './types.js';
 import { retainedItemHistory, syncActualDuration } from './item-history.js';
 import { reconcileCalendarOrganization } from './calendar-organization.js';
-import { createOccurrence } from './recurrence.js';
+import { buildRecurrenceRule, createOccurrence } from './recurrence.js';
+import { googleRecurrence } from './google-recurrence.js';
 import { zonedDateStart } from './view-statistics.js';
 import { googleSeriesIdentity } from './google-series-identity.js';
 
@@ -204,6 +205,27 @@ function linkGoogleCopy(workspace: WorkspaceDocument, target: UniversalItem, mir
       target = occurrence;
     }
   }
+  const remoteSeries = mirror.extensions?.['utm:googleSeriesEvent'] as GoogleCalendarEvent | undefined;
+  if (target.role === 'series_template' && target.recurrence && remoteSeries) {
+    // Parse before mutation; unsupported Google rules must not break the whole
+    // refresh or partially replace the local recurrence. Keep UTM-only policy.
+    try {
+      const remote = googleRecurrence(remoteSeries, mirror.schedule!.timezone);
+      const previousEvent = target.extensions?.['utm:googleSeriesEvent'] as GoogleCalendarEvent | undefined;
+      let previous: ReturnType<typeof googleRecurrence> | undefined;
+      try { if (previousEvent) previous = googleRecurrence(previousEvent, target.recurrence.timezone); }
+      catch { /* An older unsupported payload must not block a supported update. */ }
+      const recurrence = { ...target.recurrence, rrule: remote.rrule, timezone: remote.timezone };
+      for (const key of ['rdates', 'exdates'] as const) {
+        const oldRemote = new Set(previous?.[key].map(value => Date.parse(value)));
+        // Cancelled instances and local exclusions are not necessarily listed
+        // on Google's master. Remove only dates proven to belong to its old rule.
+        recurrence[key] = [...new Set([...remote[key], ...target.recurrence[key].filter(value => !oldRemote.has(Date.parse(value)))])];
+      }
+      buildRecurrenceRule({ ...target, recurrence, schedule: { ...target.schedule, ...mirror.schedule, timezone: remote.timezone } });
+      target.recurrence = recurrence;
+    } catch { /* Retain the last supported local rule for unsupported payloads. */ }
+  }
   target.external = { ...mirror.external, readOnly: false,
     ...(mirror.schedule?.startAt ? { startAt: mirror.schedule.startAt } : {}),
     ...(mirror.schedule?.endAt ? { endAt: mirror.schedule.endAt } : {}),
@@ -359,6 +381,14 @@ export function applyGoogleCalendarSync(workspace: WorkspaceDocument, batch: Goo
     const original = event.originalStartTime?.dateTime ?? (event.originalStartTime?.date ? zonedDateStart(event.originalStartTime.date, master?.schedule?.timezone ?? workspace.calendarPreferences.timezone).toISOString() : undefined);
     const originalAnchor = original && Number.isFinite(Date.parse(original)) ? new Date(original).toISOString() : undefined;
     if (event.status === 'cancelled') {
+      const pendingMove = linked?.extensions?.['utm:googleSave'] as { kind?: string; calendarId?: string; destination?: string; eventId?: string; accountEmail?: string } | undefined;
+      // A move cancels the source master before its destination acknowledgement
+      // may be persisted. Only that exact pending source cancellation is safe
+      // to ignore; normal deletions and cancelled instances still apply below.
+      if (!event.recurringEventId && pendingMove?.kind === 'move'
+        && pendingMove.accountEmail === workspace.calendarPreferences.googleCalendar?.accountEmail
+        && pendingMove.calendarId === batch.calendarId && pendingMove.eventId === event.id
+        && pendingMove.destination && pendingMove.destination !== batch.calendarId) continue;
       // Google can return hundreds of cancelled instances after a recurring
       // master was deleted or moved. Never materialize an occurrence merely to
       // delete it: that used to create years of empty items and tombstones.

@@ -524,6 +524,10 @@ function translatedRussianDynamic(value: string) {
   return value;
 }
 
+Object.assign(extraTranslations.ru, {
+  'This local log is available before unlocking. It records operation names, timing and technical failures — never item titles, passwords, encryption keys or workspace contents. Startup checkpoints include encrypted/plaintext storage mode and elapsed time through first frame, so test launches can be compared.': 'Этот локальный журнал доступен до входа. Он записывает названия операций, время и технические ошибки, но не названия элементов, пароли, ключи шифрования или содержимое пространства. Контрольные точки запуска включают режим хранения (с шифрованием или без него) и время до первого кадра, чтобы можно было сравнивать тестовые запуски.',
+});
+
 export function translateInterfaceText(value: string, language: WorkspaceLanguage) {
   if (language === 'en') return value;
   if (language === 'ru' && release305Russian[value]) return release305Russian[value];

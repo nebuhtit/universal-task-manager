@@ -1,0 +1,13 @@
+.installation-guide {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.installation-guide li + li { margin-top: var(--space-3); }
+.installation-guide pre {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

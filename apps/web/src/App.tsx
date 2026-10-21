@@ -1,4 +1,6 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
+import { InstallationGuide } from './components/InstallationGuide';
+import { SupportDevelopment } from './components/SupportDevelopment';
 import type { CalendarPageCache } from './features/calendar/calendarPageCache';
 import { safeItemTitleFailureDetails } from './features/items/editor/itemEditorDiagnostics';
 import { readSyncTrace } from './services/syncTrace';
@@ -494,17 +496,15 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
         <summary>Help</summary>
         <div>
           <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
-          {exists && interrupted && <p>Предыдущий запуск не подтвердил завершение. Это не обязательно означает повреждение данных и не запрещает обычный вход.</p>}
+          {exists && interrupted && <p translate="no">{language === 'ru' ? 'Предыдущий запуск не подтвердил завершение. Это не обязательно означает повреждение данных и не запрещает обычный вход.' : 'The previous launch did not confirm completion. This does not necessarily mean data is damaged and does not prevent normal sign-in.'}</p>}
           {!online && <p className="offline-notice"><strong>No internet connection.</strong> Offline mode is active. You can still download the encrypted local database and troubleshooting log below; online hosting features are unavailable.</p>}
           {exists && <div id="workspace-opening-help">
-            <p>Для обычного входа введите пароль или используйте Face ID. «Только просмотр» отключает сохранение, синхронизацию и фоновую обработку.</p>
+            <p translate="no">{language === 'ru' ? 'Для обычного входа введите пароль или используйте Face ID. «Только просмотр» отключает сохранение, синхронизацию и фоновую обработку.' : 'For normal sign-in, enter your password or use Face ID. View-only mode disables saving, synchronization and background processing.'}</p>
             <p>Password unlock is always available, including if Face ID is unavailable, cancelled, or changes on this device.</p>
           </div>}
           <p>{exists ? 'A selected backup can be previewed without changing this workspace, or restored as the active workspace after turning off read-only mode.' : 'Choose the file first, enter its password, then tap Import selected backup.'}</p>
-          <h3>Install on your phone</h3>
-          <p><strong>iPhone or iPad:</strong> open this page in Safari, tap Share, then choose <em>Add to Home Screen</em>.</p>
-          <p><strong>Android:</strong> open it in Chrome, tap the menu, then choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
-          <p>Each device has its own encrypted workspace. Use an encrypted <code>.utmb</code> backup file to move or merge your data between devices.</p><p><strong>Important:</strong> if you remove Universal from the Home Screen, clear website data, or delete the browser profile, the local workspace may be lost. Export an encrypted <code>.utmb</code> backup regularly and keep it in Files, iCloud Drive, or another trusted cloud.</p>
+          <InstallationGuide language={language} />
+          <SupportDevelopment language={language} />
           <button className="secondary" type="button" onClick={() => void downloadOfflineRecoveryKit().catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button><p><small>Save this standalone HTML beside your encrypted <code>.utmb</code>. It can decrypt the backup without Universal or GitHub.</small></p>
           {import.meta.env.DEV && <><hr/><h3>Complete test workspace</h3><p>A deterministic encrypted workspace covers filters, sorting, reminders, recurrence, Calendar, scripts, relations, time statistics and conflicting PARA priorities.</p><a className="secondary" href="/fixtures/test-workspace-1.98.0.utmb" download>Download test workspace</a><p><small>Import it as a separate test workspace. Its password is intentionally kept outside the interface.</small></p></>}
           <details className="notification-help"><summary>If the hosting site is unavailable</summary><div>

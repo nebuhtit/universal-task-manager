@@ -74,6 +74,9 @@ describe('AppShell', () => {
     expect(markup).toContain('aria-label="Dismiss backup reminder"');
     expect(markup).not.toContain('>0</b>');
     expect(markup).toContain('notification-center-scrim');
+    expect(markup).toContain('donate-button');
+    expect(markup).toContain('https://yoomoney.ru/fundraise/1L286389BIR.261021');
+    expect(markup).toContain('Buy me a coffee');
   });
 
   it('shows Google Calendar sync on Home and Calendar only when connected', () => {

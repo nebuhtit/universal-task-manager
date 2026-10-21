@@ -125,20 +125,57 @@ describe('Google sync response replay: relationship stability', () => {
     }
   });
 
-  // Confirmed audit regression, intentionally not fixed: user excluded sync changes.
-  // Expected-failure tests turn red if the bug disappears, prompting removal of .fails.
-  it.fails.each([false, true])('KNOWN BUG: preserves an unacknowledged move while Google cancels the source and returns the destination, reverse batches: %s', async reverse => {
+  it.each([
+    { reverse: false, full: false }, { reverse: true, full: false },
+    { reverse: false, full: true }, { reverse: true, full: true },
+  ])('preserves an unacknowledged move through repeated source cancellations and destination echoes: %j', async ({ reverse, full }) => {
     const { workspace, series } = fixture('missing occurrence');
     const options = { calendarId: 'destination', busy: true, baseline: clone(series), moveWholeSeries: true };
     series.extensions ??= {};
     series.extensions['utm:googleSave'] = await prepareGoogleSave({ workspaceId: workspace.workspaceId, accountEmail: 'test@example.invalid', item: series, options });
-    replay(workspace, { source: [{ id: 'master', status: 'cancelled' }], destination: [eventFor(series)] }, false, reverse);
-    assertLinks(workspace);
-    expect(workspace.items.work!.extensions?.['utm:googleSave']).toBeDefined();
-    expect(Object.values(workspace.items).filter(item => item.external?.eventId === 'master')).toHaveLength(1);
+    const pending = clone(series.extensions['utm:googleSave']);
+    const external = clone(series.external);
+    for (let repeat = 0; repeat < 3; repeat++) {
+      replay(workspace, { source: [{ id: 'master', status: 'cancelled' }], destination: [eventFor(series)] }, full, reverse);
+      assertLinks(workspace);
+      expect(workspace.items.work!.extensions?.['utm:googleSave']).toEqual(pending);
+      expect(workspace.items.work!.external).toEqual(external);
+      expect(Object.values(workspace.items).filter(item => item.external?.eventId === 'master')).toHaveLength(1);
+    }
   });
 
-  it.fails('KNOWN BUG: uses a remotely changed recurrence rule for related task placement after refresh', () => {
+  it('still cancels a stored cycle while its master has a pending calendar move', async () => {
+    const { workspace, series } = fixture('stored occurrence');
+    const occurrence = Object.values(workspace.items).find(item => item.occurrence)!;
+    const anchor = occurrence.schedule!.startAt!;
+    occurrence.external = { ...series.external!, eventId: 'cancelled-cycle' };
+    series.extensions = { ...series.extensions, 'utm:googleSave': await prepareGoogleSave({ workspaceId: workspace.workspaceId,
+      accountEmail: 'test@example.invalid', item: series,
+      options: { calendarId: 'destination', busy: true, baseline: clone(series), moveWholeSeries: true } }) };
+    replay(workspace, { source: [{ id: 'cancelled-cycle', status: 'cancelled', recurringEventId: 'master', originalStartTime: { dateTime: anchor } }] }, false);
+    expect(workspace.items[occurrence.id]!.deletedAt).toBeDefined();
+    expect(workspace.items[occurrence.id]!.external).toBeUndefined();
+    expect(workspace.items.work!.extensions?.['utm:googleSave']).toBeDefined();
+  });
+
+  it.each(['none', 'edit', 'same calendar', 'other account', 'destination cancellation'] as const)('still handles a real master cancellation: %s', async scenario => {
+    const { workspace, series } = fixture();
+    const pending = await prepareGoogleSave({ workspaceId: workspace.workspaceId, accountEmail: 'test@example.invalid', item: series,
+      options: { calendarId: 'destination', busy: true, baseline: clone(series), moveWholeSeries: true } });
+    if (scenario !== 'none') {
+      series.extensions = { ...series.extensions, 'utm:googleSave': { ...pending,
+        ...(scenario === 'edit' ? { kind: 'edit' } : {}),
+        ...(scenario === 'same calendar' ? { destination: 'source' } : {}),
+        ...(scenario === 'other account' ? { accountEmail: 'other@example.invalid' } : {}),
+      } };
+    }
+    replay(workspace, { [scenario === 'destination cancellation' ? 'destination' : 'source']: [{ id: 'master', status: 'cancelled' }] }, false);
+    expect(workspace.items.work!.external).toBeUndefined();
+    expect(workspace.items.work!.extensions?.['utm:googleSave']).toBeUndefined();
+    assertLinks(workspace);
+  });
+
+  it('uses a remotely changed recurrence rule for related task placement after refresh', () => {
     const { workspace, series } = fixture('missing occurrence');
     replay(workspace, { source: [eventFor(series, { recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO'] })] }, true);
     assertLinks(workspace);

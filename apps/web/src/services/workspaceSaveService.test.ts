@@ -29,8 +29,7 @@ const account = 'test@example.invalid';
 
 // Audit regressions below deliberately exercise the ordinary coordinator and
 // persisted Automerge reload, not only the detached sync-plan calculator.
-// Known audit failures: sync implementation remains unchanged by request.
-it.fails('KNOWN BUG: retains a blocked cross-calendar move after synchronize and a durable reload', async () => {
+it('retains a blocked cross-calendar move after synchronize and a durable reload', async () => {
   const { workspace, item } = fixture(true);
   item.role = 'series_template';
   item.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };
@@ -56,7 +55,7 @@ it.fails('KNOWN BUG: retains a blocked cross-calendar move after synchronize and
   expect(Object.values(runtime.workspace.items).filter(entry => entry.external?.eventId === master.id)).toHaveLength(1);
 });
 
-it.fails('KNOWN BUG: uses a recurrence changed on Google after synchronize and durable reload', async () => {
+it('uses a recurrence changed on Google after synchronize and durable reload', async () => {
   const { workspace, item } = fixture(true);
   item.role = 'series_template';
   item.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, rdates: [], exdates: [] };

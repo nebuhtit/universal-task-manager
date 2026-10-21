@@ -7,6 +7,60 @@ import { workspaceForExport } from './export-privacy.js';
 import { createOccurrence, makeSeries, reconcileRecurrences } from './recurrence.js';
 
 const event = { id: 'remote', summary: 'Google title', start: { dateTime: '2026-09-20T12:00:00Z' }, end: { dateTime: '2026-09-20T13:00:00Z' }, etag: 'v1' };
+describe('remote recurrence updates on an existing linked series', () => {
+  function setup() {
+    const { workspace, item, batch } = fixture();
+    item.role = 'series_template';
+    item.schedule!.startAt = event.start.dateTime; item.schedule!.endAt = event.end.dateTime;
+    item.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', activationOffset: 'P7D',
+      autoRenew: false, closeAt: 'due', rdates: [], exdates: [] };
+    applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, recurrence: ['RRULE:FREQ=DAILY'] }] });
+    return { workspace, item, batch };
+  }
+
+  it('replaces the remote rule and timezone without losing UTM policy, identity or history', () => {
+    const { workspace, item, batch } = setup();
+    const before = JSON.stringify({ id: item.id, history: item.actualTimeEntries, completion: item.completionEntries, tags: item.tags, projects: item.projects });
+    for (let repeat = 0; repeat < 3; repeat++) applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event,
+      recurrence: ['RRULE:FREQ=MONTHLY;BYDAY=2MO'], start: { ...event.start, timeZone: 'Europe/Moscow' } }] });
+    expect(item.recurrence).toMatchObject({ rrule: 'FREQ=MONTHLY;BYDAY=2MO', timezone: 'Europe/Moscow',
+      activationOffset: 'P7D', autoRenew: false, closeAt: 'due', anchor: 'schedule' });
+    expect(JSON.stringify({ id: item.id, history: item.actualTimeEntries, completion: item.completionEntries, tags: item.tags, projects: item.projects })).toBe(before);
+  });
+
+  it('updates remote RDATE/EXDATE while retaining exclusions not owned by the old master', () => {
+    const { workspace, item, batch } = setup();
+    const sync = (recurrence: string[]) => applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, recurrence }] });
+    sync(['RRULE:FREQ=WEEKLY', 'EXDATE:20260927T120000Z', 'RDATE:20260928T120000Z']);
+    item.recurrence!.exdates.push('2026-10-04T12:00:00.000Z'); // Cancelled instance, not a master EXDATE.
+    sync(['RRULE:FREQ=WEEKLY', 'EXDATE;TZID=Europe/Moscow:20261011T150000', 'RDATE:20261012T120000Z']);
+    expect(item.recurrence!.exdates).toEqual(['2026-10-11T12:00:00.000Z', '2026-10-04T12:00:00.000Z']);
+    expect(item.recurrence!.rdates).toEqual(['2026-10-12T12:00:00.000Z']);
+    sync(['RRULE:FREQ=WEEKLY']);
+    expect(item.recurrence!.exdates).toEqual(['2026-10-04T12:00:00.000Z']);
+    expect(item.recurrence!.rdates).toEqual([]);
+  });
+
+  it.each([
+    ['RRULE:FREQ=INVALID'], ['RRULE:FREQ=WEEKLY', 'EXRULE:FREQ=MONTHLY'],
+    ['RRULE:FREQ=WEEKLY', 'EXDATE:not-a-date'], ['RRULE:FREQ=DAILY', 'RRULE:FREQ=WEEKLY'],
+  ])('does not partially change local recurrence for unsupported payload %j', (...recurrence) => {
+    const { workspace, item, batch } = setup();
+    const before = JSON.stringify(item.recurrence);
+    expect(() => applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, recurrence }] })).not.toThrow();
+    expect(JSON.stringify(item.recurrence)).toBe(before);
+    applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, recurrence: ['RRULE:FREQ=WEEKLY'] }] });
+    expect(item.recurrence!.rrule).toBe('FREQ=WEEKLY');
+  });
+
+  it('does not overwrite an unsent local recurrence edit', () => {
+    const { workspace, item, batch } = setup();
+    item.recurrence!.rrule = 'FREQ=MONTHLY';
+    item.extensions!['utm:googleSave'] = { kind: 'edit' };
+    applyGoogleCalendarSync(workspace, { ...batch, events: [{ ...event, recurrence: ['RRULE:FREQ=WEEKLY'] }] });
+    expect(item.recurrence!.rrule).toBe('FREQ=MONTHLY');
+  });
+});
 it('merges stored destination instances after a master move, without title matching or losing history', () => {
   const w = createWorkspace(); w.items = {};
   const series = createItem('Weekly'); series.role = 'series_template';

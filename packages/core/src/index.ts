@@ -19,6 +19,7 @@ export * from './organization.js';
 export * from './series-references.js';
 export * from './view-statistics.js';
 export * from './google-calendar.js';
+export * from './google-recurrence.js';
 export * from './google-series-identity.js';
 export * from './workspace-maintenance.js';
 export * from './export-privacy.js';

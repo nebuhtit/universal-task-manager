@@ -1,0 +1,13 @@
+.donate-button.ui-button {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-border));
+}
+.donate-button.ui-button:hover {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--color-success) 18%, var(--color-surface));
+}
+.donate-button.ui-button:active {
+  background: color-mix(in srgb, var(--color-success) 24%, var(--color-surface));
+}
+.donate-button[data-size='compact'] { font-size: var(--font-size-caption); }
