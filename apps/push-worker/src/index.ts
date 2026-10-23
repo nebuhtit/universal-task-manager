@@ -10,6 +10,7 @@ export interface Env {
 type Subscription = { endpoint: string; keys: { p256dh: string; auth: string } };
 type Job = { id: string; at: string; title: string; body: string; url: string };
 type StoredJob = { job_id: string; device_id: string; fire_at: number; payload_json: string; attempts: number };
+const JOB_RETENTION_MS = 7 * 86_400_000;
 
 const json = (value: unknown, init: ResponseInit = {}) => new Response(JSON.stringify(value), { ...init, headers: { 'content-type': 'application/json; charset=utf-8', ...(init.headers ?? {}) } });
 const base64Url = (bytes: ArrayBuffer | Uint8Array) => {
@@ -42,6 +43,23 @@ async function authenticate(env: Env, deviceId: unknown, deviceSecret: unknown) 
   const row = await env.DB.prepare('SELECT secret_hash FROM devices WHERE device_id = ? AND enabled = 1').bind(deviceId).first<{ secret_hash: string }>();
   if (!row || row.secret_hash !== await sha256(deviceSecret)) throw new Error('Unknown device credentials.');
   return String(deviceId);
+}
+
+async function deleteDevice(env: Env, deviceId: string): Promise<void> {
+  // D1 batches are transactional; remove children before their parent.
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM jobs WHERE device_id = ?').bind(deviceId),
+    env.DB.prepare('DELETE FROM devices WHERE device_id = ?').bind(deviceId),
+  ]);
+}
+
+async function purgeExpiredRecords(env: Env): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM jobs WHERE state IN ('sent', 'cancelled') AND updated_at <= ?").bind(Date.now() - JOB_RETENTION_MS),
+    // Clean up subscriptions disabled by older versions as well.
+    env.DB.prepare('DELETE FROM jobs WHERE device_id IN (SELECT device_id FROM devices WHERE enabled = 0)'),
+    env.DB.prepare('DELETE FROM devices WHERE enabled = 0'),
+  ]);
 }
 
 async function importP256(jwk: JsonWebKey, usage: KeyUsage[]): Promise<CryptoKey> {
@@ -95,7 +113,7 @@ async function sendDue(env: Env): Promise<void> {
       const result = await deliver(JSON.parse(device.subscription_json) as Subscription, JSON.parse(job.payload_json) as Job, env);
       if (result.ok) await env.DB.prepare("UPDATE jobs SET state = 'sent', updated_at = ? WHERE job_id = ?").bind(now, job.job_id).run();
       else if (result.status === 404 || result.status === 410) {
-        await env.DB.batch([env.DB.prepare('UPDATE devices SET enabled = 0, updated_at = ? WHERE device_id = ?').bind(now, job.device_id), env.DB.prepare("UPDATE jobs SET state = 'cancelled', updated_at = ? WHERE job_id = ?").bind(now, job.job_id)]);
+        await deleteDevice(env, job.device_id);
       } else await env.DB.prepare("UPDATE jobs SET state = 'scheduled', attempts = attempts + 1, fire_at = ?, updated_at = ? WHERE job_id = ?").bind(now + 15 * 60_000, now, job.job_id).run();
     } catch {
       await env.DB.prepare("UPDATE jobs SET state = 'scheduled', attempts = attempts + 1, fire_at = ?, updated_at = ? WHERE job_id = ?").bind(now + 15 * 60_000, now, job.job_id).run();
@@ -123,8 +141,12 @@ export default {
         return response(request, env, { subscriptionUpdatedAt: new Date(now).toISOString() });
       }
       if (request.method === 'DELETE' && url.pathname === '/v1/subscriptions') {
-        const body = await requestJson<{ deviceId: string; deviceSecret: string }>(request); const deviceId = await authenticate(env, body.deviceId, body.deviceSecret); const now = Date.now();
-        await env.DB.batch([env.DB.prepare('UPDATE devices SET enabled = 0, updated_at = ? WHERE device_id = ?').bind(now, deviceId), env.DB.prepare("UPDATE jobs SET state = 'cancelled', updated_at = ? WHERE device_id = ? AND state = 'scheduled'").bind(now, deviceId)]);
+        const body = await requestJson<{ deviceId: string; deviceSecret: string }>(request);
+        if (!validId(body.deviceId) || !validSecret(body.deviceSecret)) throw new Error('Invalid device credentials.');
+        // Allow retries after a lost successful response and cleanup of legacy disabled devices.
+        const row = await env.DB.prepare('SELECT secret_hash FROM devices WHERE device_id = ?').bind(body.deviceId).first<{ secret_hash: string }>();
+        if (row && row.secret_hash !== await sha256(body.deviceSecret)) throw new Error('Unknown device credentials.');
+        if (row) await deleteDevice(env, body.deviceId);
         return response(request, env, { ok: true });
       }
       if (request.method === 'PUT' && url.pathname === '/v1/jobs') {
@@ -140,5 +162,7 @@ export default {
       return response(request, env, { error: error instanceof Error ? error.message : 'Request failed.' }, { status: 400 });
     }
   },
-  async scheduled(_controller, env, ctx) { ctx.waitUntil(sendDue(env)); },
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil((async () => { await purgeExpiredRecords(env); await sendDue(env); })());
+  },
 } satisfies ExportedHandler<Env>;

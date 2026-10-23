@@ -71,11 +71,16 @@ export function withinPlacementWorkspace(workspace: WorkspaceDocument, now = new
     let day = withinDay(workspace, item, now);
     // A missed day is a display placement, not a mutation of the user's date.
     // Explicit event times (including linked Google times) and closed tasks stay put.
-    if (day && day < today && item.schedule?.plannedDate && item.state === 'open'
-      && !item.schedule.startAt && !item.schedule.endAt && !item.external?.startAt && !item.external?.endAt) {
+    if (day && day <= today && item.state === 'open'
+      && !item.schedule?.startAt && !item.schedule?.endAt && !item.external?.startAt && !item.external?.endAt) {
       const first = withinTargetsFor(workspace, item)[0]!;
-      const upcoming = blocks(workspace, [first], new Date(+todayStart - 86400000), new Date(+todayStart + 366 * 86400000))
-        .filter(block => block.end > +now).sort((a, b) => a.start - b.start);
+      const all = blocks(workspace, [first], new Date(+todayStart - 86400000), new Date(+todayStart + 366 * 86400000));
+      const currentDay = all.filter(block => block.start < +zonedDateStart(tomorrow, zone) && block.end > +todayStart);
+      // Due is a deadline, not a fixed event slot. An unfinished task must not
+      // remain attached to an elapsed occurrence just because its Due is today.
+      const elapsed = day < today || (currentDay.length > 0 && currentDay.every(block => block.end <= +now));
+      const upcoming = elapsed ? all.filter(block => block.end > +now).sort((a, b) => a.start - b.start) : [];
+      for (const block of currentDay) if (block.end > +now) until = Math.min(until, block.end);
       const next = upcoming[0];
       if (next) {
         day = calendarDateKey(new Date(Math.max(next.start, +todayStart)), zone);

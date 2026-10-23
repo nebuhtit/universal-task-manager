@@ -8,7 +8,7 @@ import { planUndatedTasks } from './timelinePlanning';
 import { isCompletelyUndated, showUndatedItem, showOverdueToday } from './calendarVisibility';
 import { calendarProjectionPadding, type CalendarProjectionCache } from './calendarProjectionCache';
 import { beginProfileSpan } from '../../services/performanceProfile';
-import { withinPlacementWorkspace } from '@utm/core';
+import { withinPlacementInfo, withinPlacementWorkspace } from '@utm/core';
 
 /** Visibility until Due is distinct from fixed occupancy ending at Event ends. */
 export function timelineActiveRangeBounds(item: UniversalItem) {
@@ -86,6 +86,9 @@ export function prepareTimelineData(workspace: WorkspaceDocument, key: string, n
     const interval = itemInterval(item);
     if (interval && isSleep(item) && !item.schedule?.allDay && item.state !== 'cancelled' && item.state !== 'archived' && !interval.invalid && !interval.point && intersects(interval, day)) sleep.push(interval);
     if (!accepted(item)) continue;
+    // A related task already has a read-only slot in its current/next block.
+    // Its old Due must not also create an unrelated overdue proposal today.
+    if (withinPlacementInfo(workspace.items[item.id]!) && interval && !intersects(interval, day)) continue;
     const schedule = item.schedule;
     if (!schedule?.startAt && !schedule?.endAt && schedule?.dueDateOnly && schedule.dueAt && calendarDateKey(new Date(schedule.dueAt), preferences.timezone) === key && sources.some(value => value === 'due' || value === 'active')) dateOnlyTasks.push(item);
     const completelyUndated = isCompletelyUndated(item);

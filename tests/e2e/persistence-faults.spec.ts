@@ -35,9 +35,21 @@ test('quota at second write rolls back all records; retry commits and backup con
   });
   await draft(page, 'Latest durable sentinel');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
-  await expect(page.getByTestId('save-status')).toContainText('Не сохранено');
+  await expect(page.getByTestId('save-status')).toContainText(/Не сохранено|Not saved/);
   expect(await records(page)).toBe(before);
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toBeVisible();
+  await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as any).copiedRecovery = text; } } }); });
+  const editor = page.getByRole('dialog', { name: 'Item editor' });
+  await editor.getByRole('button', { name: 'Copy item JSON', exact: true }).click();
+  const recovered = JSON.parse(await page.evaluate(() => (window as any).copiedRecovery));
+  expect(recovered.title).toBe('Latest durable sentinel');
+  expect(recovered.schedule.estimatedDuration).toBe('PT10M');
+  await editor.getByRole('button', { name: 'Copy unsaved items JSON', exact: true }).click();
+  const unsaved = JSON.parse(await page.evaluate(() => (window as any).copiedRecovery));
+  expect((Array.isArray(unsaved) ? unsaved : [unsaved]).some((item: any) => item.id === recovered.id && item.title === recovered.title)).toBe(true);
+  // Copying is recovery only, never an acknowledgement of durable saving.
+  expect(await records(page)).toBe(before);
+  await expect(editor.getByTestId('editor-save-status')).toContainText(/only in memory|только в памяти/);
   await page.evaluate(() => (window as any).restorePut());
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Item editor' })).toHaveCount(0);
@@ -50,9 +62,38 @@ test('quota at second write rolls back all records; retry commits and backup con
   await page.getByRole('button', { name: 'Save encrypted recovery copy + log' }).click();
   const file = await (await download).path();
   await page.locator('input[type=file]').first().setInputFiles(file!);
+  await page.getByRole('checkbox', { name: /Безопасное открытие/ }).check();
   await page.getByLabel('Backup password', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Посмотреть бэкап без импорта' }).click();
+  await page.getByRole('button', { name: /Preview backup without importing|Посмотреть бэкап без импорта/ }).click();
   await expect(page.getByText('Latest durable sentinel', { exact: true })).toBeVisible();
+});
+
+test('a stalled storage read fails visibly; retry and reload retain the recovered item', async ({ page }) => {
+  await create(page);
+  await page.clock.install();
+  await page.evaluate(() => {
+    const original = IDBObjectStore.prototype.get;
+    (window as any).restoreGet = () => { IDBObjectStore.prototype.get = original; };
+    IDBObjectStore.prototype.get = function (key) {
+      if (key === 'workspace-verified-mirror-1') return {} as IDBRequest;
+      return original.call(this, key);
+    };
+  });
+  await draft(page, 'Stalled read sentinel');
+  // Let the persistence worker reach the intercepted storage read first.
+  await page.waitForTimeout(300);
+  await page.clock.runFor(31_000);
+  await expect(page.getByTestId('save-status')).toContainText(/Не сохранено|Not saved/);
+  const editor = page.getByRole('dialog', { name: 'Item editor' });
+  await expect(editor.getByRole('button', { name: /Copy unsaved items JSON|Скопировать JSON несохранённых items/ })).toBeVisible();
+  await page.evaluate(() => (window as any).restoreGet());
+  await editor.getByRole('button', { name: 'Save item', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByTestId('save-status')).toHaveCount(0);
+  await page.reload();
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await expect(page.getByText('Stalled read sentinel', { exact: true }).first()).toBeVisible();
 });
 
 test('closing with unconfirmed write reopens previous confirmed data with an explicit warning', async ({ page, context }) => {
@@ -65,7 +106,7 @@ test('closing with unconfirmed write reopens previous confirmed data with an exp
   });
   await draft(page, 'Not yet saved');
   await page.getByRole('button', { name: 'Save item', exact: true }).click();
-  await expect(page.getByTestId('save-status')).toContainText('Сохранение');
+  await expect(page.getByTestId('save-status')).toContainText(/Сохранение|Saving/);
   await page.close();
   const reopened = await context.newPage();
   await reopened.goto('/');

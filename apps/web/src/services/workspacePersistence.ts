@@ -154,7 +154,10 @@ async function prepareOffMainThread(session: UnlockedWorkspace, syncTrace: SaveT
     // failure can kill WebKit. Keep the old durable record and let the existing
     // persistence queue retain the unsaved document for an explicit retry.
     resetWorkspaceWorker(new Error('Workspace persistence worker stopped'));
-    throw new Error('Workspace save preparation failed. Existing saved data is retained; retry saving.');
+    const timedOut = reason instanceof Error && /timed out/i.test(reason.message);
+    throw new Error(timedOut
+      ? 'Workspace persistence worker timed out. Existing saved data is retained; retry saving.'
+      : 'Workspace save preparation failed. Existing saved data is retained; retry saving.');
   }
 }
 
@@ -246,7 +249,9 @@ export class LatestPersistenceQueue<T> {
     recordProfileSpan('save.queue', performance.now() - this.enqueuedAt, { coalesced: this.coalesced }, actionId);
     this.coalesced = 0;
     this.pending = undefined;
-    const task = this.persist(value);
+    // Synchronous storage/bridge failures must follow the same retention and
+    // error-reporting path as rejected asynchronous writes.
+    const task = Promise.resolve().then(() => this.persist(value));
     this.active = task;
     void task.then(() => {
       this.onSuccess(value);

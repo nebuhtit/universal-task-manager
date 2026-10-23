@@ -100,10 +100,15 @@ export function createPushPreferences(_contentMode: WorkspaceDocument['pushPrefe
 
 export async function unsubscribeBackgroundPush(workspace: WorkspaceDocument): Promise<void> {
   const settings = identity(workspace);
-  const registration = await navigator.serviceWorker?.ready;
-  const subscription = await registration?.pushManager.getSubscription();
-  await subscription?.unsubscribe();
-  await fetch(`${settings.serviceUrl}/v1/subscriptions`, {
+  const response = await fetch(`${settings.serviceUrl}/v1/subscriptions`, {
     method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(settings),
-  }).catch(() => undefined);
+  });
+  if (!response.ok) return responseError(response);
+  // Server deletion is authoritative. A failed local unsubscribe must not
+  // turn its successful, retry-safe removal into a misleading failure.
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    await subscription?.unsubscribe();
+  } catch { /* The server no longer holds this device or its jobs. */ }
 }

@@ -40,7 +40,16 @@ function actionReferencesRemovedItem(action: AutomationAction, removedIds: Reado
  * by a later sign-in instead of travelling with UTM data.
  */
 export function workspaceForExport(workspace: WorkspaceDocument): WorkspaceDocument {
-  const safe = clone(workspace);
+  return sanitizeWorkspaceForExport(workspace, false);
+}
+
+/** Sanitize a detached snapshot in place to avoid a second full-workspace copy. */
+export function workspaceForExportInPlace(snapshot: WorkspaceDocument): WorkspaceDocument {
+  return sanitizeWorkspaceForExport(snapshot, true);
+}
+
+function sanitizeWorkspaceForExport(workspace: WorkspaceDocument, inPlace: boolean): WorkspaceDocument {
+  const safe = inPlace ? workspace : clone(workspace);
   // This runs while an encrypted workspace is still locked, before normal
   // schema migration can repair legacy/partial arrays. Keep recovery export
   // generation tolerant so an old workspace can always reach migration.

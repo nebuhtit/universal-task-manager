@@ -41,11 +41,13 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const [saveStatusStore] = useState(createSaveStatusStore);
   const setSaveStatus = saveStatusStore.set;
   const sessionRef = useRef<UnlockedWorkspace | null>(null);
+  const durableDocument = useRef<WorkspaceDocument | undefined>(undefined);
   const persistenceQueue = useRef<LatestPersistenceQueue<PersistenceOperation> | null>(null);
   if (!persistenceQueue.current) {
     persistenceQueue.current = new LatestPersistenceQueue(
       async ({ session: target, profileActionId }) => persistWorkspace(target, profileActionId ?? null),
       ({ session: target, message, startedAt }) => {
+        durableDocument.current = target.document;
         if (sessionRef.current?.document === target.document) { clearPendingSave(); setSaveStatus('saved'); }
         recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
       },
@@ -278,6 +280,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       await activationPersistence;
       clearPendingSave(); setSaveStatus('loaded');
     }
+    durableDocument.current = persistenceOutcome === 'saved' || persistenceOutcome === 'pending' ? activated.document : unlocked.document;
     sessionRef.current = activated; setSession(activated);
     setPasswordProtection(unlocked.storageMode === 'plaintext' ? 'plaintext' : await passwordProtectionStatus());
     setBoot('ready');
@@ -387,6 +390,14 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const flushPersistence = async () => {
     await persistenceQueue.current?.flush();
   };
+  const getUnsavedItems = () => {
+    const current = sessionRef.current?.document;
+    if (!current) return [];
+    return Object.values(current.items).filter(item => {
+      const saved = durableDocument.current?.items[item.id];
+      return !saved || JSON.stringify(item) !== JSON.stringify(saved);
+    });
+  };
 
   useEffect(() => {
     const flushForHost = (event: Event) => {
@@ -440,10 +451,11 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     await flushPersistence();
     if (lockCurrent && sessionRef.current) lock(sessionRef.current);
     persistenceQueue.current?.clearPending();
+    durableDocument.current = next.document;
     deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); void refreshPasswordProtection();
   };
   const resetReminderDelivery = (ids: string[]) => ids.forEach((id) => deliveredReminderIds.current.delete(id));
   const getCurrentWorkspace = () => (sessionRef.current?.document as WorkspaceDocument | undefined) ?? null;
   const getCurrentSessionKey = () => sessionRef.current?.dataKey ?? null;
-  return { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey };
+  return { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, getUnsavedItems, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey };
 }

@@ -10,10 +10,14 @@ let nextRequestId = 1;
 const pending = new Map<number, PendingRequest>();
 
 function recurrenceWorkspaceSnapshot(workspace: WorkspaceDocument): WorkspaceDocument {
-  const items = Object.fromEntries(Object.entries(workspace.items).filter(([, item]) => item.role === 'series_template' || item.role === 'occurrence' || Boolean(item.recurrence) || Boolean(item.habit)));
+  const items = Object.fromEntries(Object.entries(workspace.items)
+    .filter(([, item]) => item.role === 'series_template' || item.role === 'occurrence' || Boolean(item.recurrence) || Boolean(item.habit))
+    .map(([id, item]) => [id, clean(item)]));
   const ids = new Set(Object.keys(items));
-  const tombstones = Object.fromEntries(Object.entries(workspace.tombstones).filter(([id]) => ids.has(id)));
-  return clean({ ...workspace, items, tombstones });
+  const tombstones = Object.fromEntries(Object.entries(workspace.tombstones ?? {}).filter(([id]) => ids.has(id)));
+  // reconcileRecurrences only reads/writes these two maps. Avoid cloning and
+  // posting unrelated views, automations and workspace metadata to the worker.
+  return { items, tombstones } as WorkspaceDocument;
 }
 
 function rejectPending(message: string): void {

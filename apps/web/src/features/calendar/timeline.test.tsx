@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { applyGoogleCalendarSync, createItem, createOccurrence, createWorkspace, migrateWorkspace, validateWorkspace, type UniversalItem } from '@utm/core';
-import { dayBounds, itemInterval, hiddenIntervals, buildSegments, layoutEvents, placeActiveRangeCues, positionAt } from './timelineLayout';
+import { dayBounds, itemInterval, hiddenIntervals, buildSegments, layoutEvents, layoutWithinEvents, placeActiveRangeCues, positionAt } from './timelineLayout';
 import { timelineData, prepareTimelineData } from './timelineData';
 import { buildCalendarPlan } from './calendarPlanning';
 import { CalendarTimeline, TimelineNow } from './CalendarTimeline';
@@ -21,6 +21,81 @@ function workspace(...items: UniversalItem[]) {
 const day = dayBounds('2026-09-22', 'UTC');
 
 describe('timeline time geometry', () => {
+  it('does not propose a rolled related task outside Work on its old deadline day', () => {
+    const clock = new Date(iso(21));
+    const work = item('work', { startAt: iso(9), endAt: iso(16) });
+    work.role = 'series_template';
+    work.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', closeAt: 'next_activation', autoRenew: true, exdates: [], rdates: [] };
+    const task = item('child', { dueAt: iso(9), estimatedDuration: 'PT10M' });
+    task.relations = [{ id: 'r', type: 'scheduled_within', targetId: work.id }];
+    const w = workspace(work, task);
+    const today = prepareTimelineData(w, '2026-09-22', clock);
+    const todayPlan = buildCalendarPlan(w, '2026-09-22', today, clock);
+    expect(today.overdue.some(value => value.id === task.id)).toBe(false);
+    expect(todayPlan.events.some(value => value.item.id === task.id)).toBe(false);
+    const next = prepareTimelineData(w, '2026-09-23', clock);
+    expect(next.events.find(value => value.item.id === task.id)?.item.schedule?.startAt).toBe('2026-09-23T09:00:00.000Z');
+    expect(task.schedule?.dueAt).toBe(iso(9));
+  });
+
+  it('nests a root-linked task inside a split Work without counting the parent as an overlap', () => {
+    const work = item('work-split', { startAt: iso(9), endAt: iso(16) });
+    work.recurrenceOverride = { kind: 'future_split', sourceSeriesId: 'work-root', recurrenceId: iso(9) };
+    const root = item('work-root');
+    const task = item('child', { startAt: iso(9), endAt: iso(9, 10) });
+    task.relations = [{ id: 'r', type: 'scheduled_within', targetId: root.id }];
+    const w = workspace(root, work, task);
+    const events = [work, task].map(value => itemInterval(value)!);
+    const result = layoutWithinEvents(w, events, day, buildSegments(day, []), 2);
+    expect(result.more).toEqual([]);
+    const parent = result.events.find(row => row.item.id === work.id)!;
+    const child = result.events.find(row => row.item.id === task.id)!;
+    expect(parent.withinContainer).toBe(true);
+    expect(child.withinParent).toBe(work.id);
+    expect(child.columns).toBe(1);
+    expect(child.top).toBeGreaterThan(parent.top);
+    expect(child.top + child.height).toBeLessThanOrEqual(parent.top + parent.height);
+    expect(child.start).toBe(at(9));
+    // A real, unrelated overlap still receives its own column.
+    const external = item('unrelated', { startAt: iso(9), endAt: iso(10) });
+    const overlap = layoutWithinEvents(w, [...events, itemInterval(external)!], day, buildSegments(day, []), 2);
+    expect(overlap.events.find(row => row.item.id === work.id)?.columns).toBe(2);
+    expect(overlap.events.find(row => row.item.id === task.id)?.columns).toBe(2);
+    expect(overlap.more).toEqual([]);
+  });
+
+  it('does not nest unrelated same-name items or a task outside its related block', () => {
+    const work = item('work', { startAt: iso(9), endAt: iso(16) });
+    const other = item('other', { startAt: iso(9), endAt: iso(10) }); other.title = work.title;
+    other.relations = [{ id: 'r', type: 'scheduled_within', targetId: 'missing' }];
+    const outside = item('outside', { startAt: iso(16), endAt: iso(17) });
+    outside.relations = [{ id: 'r2', type: 'scheduled_within', targetId: work.id }];
+    const w = workspace(work, other, outside);
+    const result = layoutWithinEvents(w, [work, other, outside].map(value => itemInterval(value)!), day, buildSegments(day, []), 2);
+    expect(result.events.every(row => !row.withinParent)).toBe(true);
+  });
+
+  it('keeps overflowing related cards and their More control inside Work', () => {
+    const work = item('work', { startAt: iso(9), endAt: iso(11) });
+    const tasks = Array.from({ length: 8 }, (_, index) => {
+      const task = item(`child-${index}`, { startAt: iso(9, index * 10), endAt: iso(9, index * 10 + 10) });
+      task.relations = [{ id: `r-${index}`, type: 'scheduled_within', targetId: work.id }];
+      return task;
+    });
+    const w = workspace(work, ...tasks);
+    // The source tasks have no fixed time: these slots are display projections.
+    for (const task of tasks) w.items[task.id] = { ...task, schedule: { timezone: 'UTC', estimatedDuration: 'PT10M' } };
+    const result = layoutWithinEvents(w, [work, ...tasks].map(value => itemInterval(value)!), day, buildSegments(day, []), 2);
+    const parent = result.events.find(row => row.item.id === work.id)!;
+    expect(result.more).toHaveLength(1);
+    const more = result.more[0]!;
+    expect(more.withinParent).toBe(work.id);
+    const children = result.events.filter(row => row.withinParent);
+    expect(children.every(row => row.columns === 1 && row.top + row.height <= more.top)).toBe(true);
+    expect(more.top + more.height).toBe(parent.top + parent.height);
+    expect([...children.map(row => row.item.id), ...more.items.map(value => value.id)].sort()).toEqual(tasks.map(value => value.id).sort());
+  });
+
   it('labels hour marks with hours only while preserving minute precision for current time', () => {
     const clock = new Date(iso(12, 34));
     const html = renderToStaticMarkup(<CalendarTimeline workspace={workspace()} dateKey="2026-09-22" now={clock} suppliedNow={clock} onEdit={() => {}} onPreferences={() => {}} />);

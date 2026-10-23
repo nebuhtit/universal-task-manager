@@ -28,6 +28,9 @@ const bounded = (value: string | undefined, limit: number): string | undefined =
  */
 export const diagnosticFailureCode = (reason: unknown): string => {
   const message = reason instanceof Error ? reason.message.toLowerCase() : String(reason).toLowerCase();
+  if (/workspace save preparation failed|workspace persistence worker timed out/.test(message)) return 'local-save-worker';
+  if (/recurrence worker timed out|recurrence reconciliation timed out/.test(message)) return 'recurrence-worker-timeout';
+  if (/recurrence worker failed/.test(message)) return 'recurrence-worker-failed';
   if (/unreachable|memory access out of bounds|out of memory/.test(message)) return 'workspace-document';
   if (/wrong password|encrypted data|decrypt|damaged/.test(message)) return 'password-or-encrypted-data';
   if (/indexeddb|browser storage|transaction/.test(message)) return 'browser-storage';
@@ -102,7 +105,8 @@ export const recordDiagnostic = (entry: Omit<DiagnosticEntry, 'at'>): void => {
     const syncCheckpoint = /^Google sync stage: (queue|download|snapshot|calculate|apply|persist)$/.test(entry.operation ?? '');
     const encryptionModeCheckpoint = entry.operation === 'Workspace encryption mode change';
     const weatherCheckpoint = /^Weather (lifecycle|forecast|storage|location search|geolocation)$/.test(entry.operation ?? '');
-    if (!isProblem && !isSlow && !syncCheckpoint && !encryptionModeCheckpoint && !weatherCheckpoint) return;
+    const webdavCheckpoint = /^WebDAV (connection|sync|log upload)$/.test(entry.operation ?? '');
+    if (!isProblem && !isSlow && !syncCheckpoint && !encryptionModeCheckpoint && !weatherCheckpoint && !webdavCheckpoint) return;
     const safeEntry: DiagnosticEntry = {
       ...(entry.operation ? { operation: entry.operation.slice(0, 160) } : {}),
       ...(entry.outcome ? { outcome: entry.outcome } : {}),

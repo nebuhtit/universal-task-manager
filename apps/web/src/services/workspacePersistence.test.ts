@@ -5,6 +5,17 @@ import { clearPerformanceProfiles, profileInput, readPerformanceProfiles, setPer
 afterEach(() => { clearPerformanceProfiles(); setPerformanceProfilingEnabled(false); vi.useRealTimers(); });
 
 describe('LatestPersistenceQueue', () => {
+  it('retains a synchronous storage failure and retries the latest value', async () => {
+    const failure = vi.fn(); let fail = true;
+    const persist = vi.fn((value: number) => { if (fail) throw new Error('sync failure'); return Promise.resolve(); });
+    const queue = new LatestPersistenceQueue(persist, () => undefined, failure, 0);
+    queue.enqueue(1);
+    await expect(queue.flush()).rejects.toThrow('sync failure');
+    expect(failure).toHaveBeenCalledOnce();
+    queue.enqueue(2); fail = false;
+    await queue.flush();
+    expect(persist.mock.calls.map(([value]) => value)).toEqual([1, 2]);
+  });
   it('measures queue wait and coalescing against the originating action', async () => {
     vi.useFakeTimers(); setPerformanceProfilingEnabled(true);
     const origin = profileInput.start('click', 0)!;

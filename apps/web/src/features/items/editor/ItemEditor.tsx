@@ -21,6 +21,7 @@ import { SearchableDisclosureList } from '../../../components/ui/SearchableDiscl
 import { Button, Checkbox, Field, Input, Select } from '../../../components/ui/primitives';
 import { ResponsiveDialog } from '../../../components/ui/ResponsiveDialog';
 import { WarningNotice } from '../../../components/ui/WarningNotice';
+import { writeClipboardText } from '../../../services/clipboard';
 import { UserDataText } from '../../../i18n-react';
 import { SectionGuide } from '../../../components/ui/SectionGuide';
 import { formatViewDate } from '../../../utils/dates';
@@ -97,8 +98,9 @@ function EditorTitleInput({ initialValue: sourceInitialValue, inputRef, id, auto
     suggestionsEnabled={workspace.calendarPreferences.liveTextSuggestions !== false} overlaySuggestions now={now} placeholder="What needs to happen?" />;
 }
 
-export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, focusTitle = false, initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onDuplicate, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onOpenOccurrence }: {
+export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, focusTitle = false, initial, workspace, now: suppliedNow, isNew = false, onSave, onDelete, onDuplicate, onCreateSubtask, onToggleSubtask, onReadPortableFile, onExportItem, onClose, onHistorySave, onTimerStateSave, onOpenOccurrence, persistenceNotice }: {
   completionOccurrenceId?: string | undefined;
+  persistenceNotice?: React.ReactNode;
   completionRecurrenceId?: string | undefined;
   focusTitle?: boolean; onOpenOccurrence?: (item: UniversalItem) => void;
   onHistorySave?: (item: UniversalItem) => void | Promise<void>;
@@ -429,6 +431,20 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
   const exportItem = (format: PortableFormat, metadata = false) => onExportItem(item, format, metadata);
 
   const [programValid, setProgramValid] = useState(true);
+  const attemptedSave = useRef<UniversalItem | null>(null);
+  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [recoveryJson, setRecoveryJson] = useState('');
+  const copyRecoveryJson = async () => {
+    let snapshot = { ...item, tags: commaList(tags), contexts: commaList(contexts) };
+    try { snapshot = normalizeItemForSave({ item: commitTitleDraft(titleDraft.current, snapshot), workspace, tags: snapshot.tags.join(', '), contexts, isTemplate, recurring, activeRange, repeatFrequency, repeatIntervalDraft, repeatDays, now, deleteGoogleEvent: Boolean(googleLink?.readOnly === false && (!snapshot.schedule?.startAt || !snapshot.schedule.endAt)) }); }
+    catch { snapshot = { ...snapshot, extensions: { ...snapshot.extensions, 'utm:unsavedLiveText': titleDraft.current } }; }
+    // The attempted normalized save includes inferred dates, reminders and
+    // recurrence changes. Use it only while the draft has not changed.
+    if (attemptedSave.current && savingRef.current) snapshot = attemptedSave.current;
+    const source = JSON.stringify(snapshot, null, 2);
+    try { await writeClipboardText(source); setRecoveryMessage(workspace.calendarPreferences.language === 'ru' ? 'JSON скопирован. Вставьте его в заметку перед закрытием. Это не сохраняет item в приложении.' : 'JSON copied. Paste it into a note before closing. This does not save the item in the app.'); }
+    catch { setRecoveryJson(source); setRecoveryMessage(workspace.calendarPreferences.language === 'ru' ? 'Буфер обмена недоступен. Скопируйте JSON из поля ниже вручную.' : 'Clipboard unavailable. Copy the JSON below manually.'); }
+  };
   const save = async ({ dismissKeyboard = false, complete = false }: { dismissKeyboard?: boolean; complete?: boolean } = {}) => {
     if (sourceEditing) { setError('Примените или отмените правку строки быстрого ввода перед сохранением.'); return; }
     if (titleEdited.current) {
@@ -473,6 +489,7 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
       syncCompletionCounter(normalized, now.toISOString());
       if (normalized.closure?.reason !== 'rule') recordCompletionTransition(normalized, initial.state, now.toISOString());
       syncCompletionCounter(normalized, now.toISOString());
+      attemptedSave.current = normalized;
       await onSave(normalized, { ...(!complete && completionOccurrenceId && !wholeSeriesCalendarMove ? { recurrenceEdit: { occurrenceId: completionOccurrenceId, ...(completionRecurrenceId ? { recurrenceId: completionRecurrenceId } : {}), scope: recurrenceScope } } : {}), ...(complete ? { completedFromEditor: true, ...(completionOccurrenceId ? { completionOccurrenceId, ...(completionRecurrenceId ? { completionRecurrenceId } : {}) } : {}) } : {}), ...(convertedProject ? { convertedProject } : {}), ...(deleteGoogleEvent ? { deleteGoogleEvent: true } : {}), ...(googlePreferences && !isTemplate && normalized.schedule?.startAt && normalized.schedule.endAt ? { google: { moveWholeSeries: !complete && wholeSeriesCalendarMove, calendarId: quickEntryCalendar(normalized)?.id || defaultGoogleCalendarId, busy: googleBusyValue, baseline: googleBaseline, rebased: googleRebased } } : {}) });
     } catch (reason) { setGoogleConflict(reason instanceof GoogleEditConflict); setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { savingRef.current = false; setSaving(false); }
@@ -533,7 +550,11 @@ export function ItemEditor({ completionOccurrenceId, completionRecurrenceId, foc
           {item.isNote && <p className="schedule-explainer">Notes stay visible and editable, but cannot be marked completed.</p>}
         </div>
         <ItemIdentityNotice item={item} workspace={workspace} />
+        {persistenceNotice}
         {error && <WarningNotice message={error} onDismiss={() => setError('')} language={workspace.calendarPreferences.language} />}
+        {(error || saving) && <Button size="compact" onPointerDown={event => event.preventDefault()} onClick={() => void copyRecoveryJson()}>{workspace.calendarPreferences.language === 'ru' ? 'Скопировать JSON item' : 'Copy item JSON'}</Button>}
+        {recoveryMessage && <p role="status">{recoveryMessage}</p>}
+        {recoveryJson && <textarea aria-label="Item recovery JSON" readOnly value={recoveryJson} rows={8} />}
         {!sourceEditing && <>
         <QuickItemTimer soundEnabled defaultDurationSeconds={item.schedule?.estimatedDuration ? durationToMs(item.schedule.estimatedDuration) / 1000 : 600} timerTitle={item.title || 'Universal'} activeTimer={(timerOwner ?? item).activeTimer} initialStopwatchStartedAt={item.habit?.activeTimerStartedAt} onActiveTimerChange={async (runningTimer) => {
           if (onTimerStateSave && workspace.items[(timerOwner ?? item).id]) await onTimerStateSave((timerOwner ?? item).id, runningTimer);

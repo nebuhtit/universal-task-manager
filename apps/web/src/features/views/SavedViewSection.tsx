@@ -3,6 +3,7 @@ import { VIEW_CREATION_DUE_PERIOD_EXTENSION, type SavedView, type UniversalItem,
 import { LineIcon } from '../../components/ui/icons';
 import { CodeEditor } from '../../components/ui/CodeEditor';
 import { Button } from '../../components/ui/primitives';
+import { consumeReleaseClick } from '../../components/ui/consumeReleaseClick';
 import { LiveTextInput } from '../items/LiveTextInput';
 import { persistUiBoolean, readUiBoolean } from '../../components/ui/PersistedDetails';
 import { ViewResults } from './ViewResults';
@@ -67,6 +68,7 @@ export function SavedViewSection({ view, workspace, suppliedEvaluation, hiddenIt
     if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
     event.preventDefault();
     suppressTitleClickUntil.current = performance.now() + 400;
+    consumeReleaseClick(event.currentTarget.ownerDocument);
     onEditView();
   };
   return <section className={`view-section${reorderHandle ? ' home-view' : ''}${open ? '' : ' is-collapsed'}${view.renderer === 'list' || view.renderer === 'table' ? ' is-reorderable' : ''}`} style={viewStyle}>
@@ -84,12 +86,14 @@ export function SavedViewSection({ view, workspace, suppliedEvaluation, hiddenIt
           if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) press.cancelled = true;
         }}
         onPointerCancel={() => { if (onOpenView) { titlePress.current = null; suppressTitleClickUntil.current = performance.now() + 500; } }}
-        onPointerUp={() => {
+        onPointerUp={(event) => {
           const press = titlePress.current; titlePress.current = null;
           if (!onOpenView || !press) return;
           suppressTitleClickUntil.current = performance.now() + 500;
           const elapsed = performance.now() - press.at;
           if (press.cancelled) return;
+          event.preventDefault();
+          consumeReleaseClick(event.currentTarget.ownerDocument);
           // A long hold only arms reordering; without movement a collapsed view still opens.
           if (!open || (elapsed >= 500 && elapsed <= 1500)) toggleOpen();
           else if (elapsed < 500) onOpenView();

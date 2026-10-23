@@ -59,6 +59,7 @@ struct WebAppView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(context.coordinator.backupBridge, name: "utmNativeBackup")
+        configuration.userContentController.add(context.coordinator.webdavBridge, name: "utmNativeWebDAV")
         configuration.userContentController.add(context.coordinator.reminderBridge, name: "utmNativeReminders")
         configuration.userContentController.add(context.coordinator.googleBridge, name: "utmNativeGoogleAuth")
         configuration.userContentController.addScriptMessageHandler(context.coordinator.biometricBridge, contentWorld: .page, name: "utmNativeBiometrics")
@@ -71,6 +72,7 @@ struct WebAppView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.observeKeyboard(webView)
         context.coordinator.backupBridge.webView = webView
+        context.coordinator.webdavBridge.webView = webView
         context.coordinator.reminderBridge.webView = webView
         context.coordinator.googleBridge.webView = webView
         webView.navigationDelegate = context.coordinator
@@ -89,6 +91,7 @@ struct WebAppView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
         var localOrigin: URL
         let backupBridge = NativeBackupBridge()
+        let webdavBridge = NativeWebDAVBridge()
         let reminderBridge = NativeReminderBridge()
         let googleBridge = NativeGoogleAuthBridge()
         let biometricBridge = NativeBiometricBridge()

@@ -7,6 +7,51 @@ import { createAutomergeDocument, decryptWithKey, encryptWithKey, randomKey, wra
 const password = 'calendar-planning-fixture';
 test.use({ trace: 'retain-on-failure', screenshot: 'only-on-failure' });
 const now = new Date('2026-09-24T08:00:00Z');
+for (const theme of ['light', 'dark'] as const) test(`related Work tasks remain inside their block (${theme})`, async ({ page }) => {
+  const { read } = await setup(page, false, w => {
+    w.calendarPreferences.appearance.mode = theme;
+    w.calendarPreferences.timeline = { mode: 'timeline', hideSleep: false, showUndated: true };
+    const work = createItem('Work container', 'event', now); work.id = 'work-container';
+    work.schedule = { timezone: 'UTC', startAt: '2026-09-24T09:00:00Z', endAt: '2026-09-24T16:00:00Z' };
+    const meeting = createItem('Real meeting', 'event', now); meeting.id = 'meeting';
+    meeting.schedule = { timezone: 'UTC', startAt: '2026-09-24T09:00:00Z', endAt: '2026-09-24T10:00:00Z' };
+    w.items = { [work.id]: work, meeting };
+    for (let index = 0; index < 3; index++) {
+      const task = createItem(`Related task ${index}`, 'task', new Date(+now + index * 1000)); task.id = `related-${index}`;
+      task.schedule = { timezone: 'UTC', plannedDate: '2026-09-24', estimatedDuration: 'PT10M' };
+      task.relations = [{ id: `r-${index}`, type: 'scheduled_within', targetId: work.id }];
+      w.items[task.id] = task;
+    }
+  });
+  const timeline = currentTimeline(page);
+  const parent = timeline.locator('[data-within-container]');
+  const children = timeline.locator('[data-within-parent="work-container"]');
+  await expect(parent).toHaveCount(1); await expect(children).toHaveCount(3);
+  await expect(timeline.locator('.timeline-more')).toHaveCount(0);
+  await children.first().scrollIntoViewIfNeeded();
+  const parentBox = await parent.boundingBox();
+  let previousBottom = 0;
+  for (const child of await children.all()) {
+    const box = (await child.boundingBox())!;
+    expect(box.x).toBeGreaterThan(parentBox!.x);
+    expect(box.x + box.width).toBeLessThan(parentBox!.x + parentBox!.width);
+    expect(box.y).toBeGreaterThanOrEqual(previousBottom);
+    expect(box.y + box.height).toBeLessThanOrEqual(parentBox!.y + parentBox!.height);
+    previousBottom = box.y + box.height;
+  }
+  await page.screenshot({ path: test.info().outputPath('related-work.png'), animations: 'disabled' });
+  await children.first().focus(); await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Item editor', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // On desktop the automatically focused Live Text title may consume the
+  // first Escape to dismiss its own suggestions before the editor can close.
+  if (await page.getByRole('dialog', { name: 'Item editor', exact: true }).isVisible()) await page.keyboard.press('Escape');
+  await page.clock.runFor(400);
+  await expect(page.getByRole('dialog', { name: 'Item editor', exact: true })).toHaveCount(0);
+  await expect(children.first()).toBeFocused();
+  expect((await read()).items['related-0']?.schedule?.startAt).toBeUndefined();
+});
+
 async function setup(page: Page, conflict = true, customize?: (workspace: WorkspaceDocument) => void, initialPage = 'Calendar', keepCollapsed = false) {
   const w = createWorkspace('Planning', now); w.calendarPreferences.timezone = 'UTC';
   w.calendarPreferences.appearance.mode = 'light'; w.calendarPreferences.dayView.filter.source = 'true';
@@ -45,6 +90,34 @@ async function unlock(page: Page) {
   await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(page.locator('.app-shell')).toBeVisible({ timeout: 30_000 });
 }
+
+for (const theme of ['light', 'dark'] as const) test(`collapsing a Home view consumes retargeted release clicks (${theme})`, async ({ page }, testInfo) => {
+  await setup(page, false, w => {
+    w.calendarPreferences.appearance.mode = theme;
+    w.calendarPreferences.hideDuplicateItemsAcrossHomeViews = false;
+    const base = { renderer: 'list' as const, query: { source: 'true' }, fields: ['title'], sort: [] };
+    w.views = { first: { ...base, id: 'first', name: 'First' }, second: { ...base, id: 'second', name: 'Second' } };
+    w.viewOrder = ['first', 'second'];
+  }, 'Home');
+  const first = page.locator('.views-stack .view-section-title').filter({ hasText: 'First' });
+  const second = page.locator('.views-stack .view-section-title').filter({ hasText: 'Second' });
+  const secondItem = second.locator('xpath=ancestor::section').locator('.item-main').first();
+  await first.scrollIntoViewIfNeeded();
+  const box = (await first.boundingBox())!;
+  const pointer = { pointerId: 71, pointerType: testInfo.project.use.hasTouch ? 'touch' : 'mouse', isPrimary: true, button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
+  await first.dispatchEvent('pointerdown', pointer); await page.clock.runFor(700);
+  await first.dispatchEvent('pointerup', pointer);
+  await expect(first).toHaveAttribute('aria-expanded', 'false');
+  // iOS may retarget the compatibility release after collapse/scroll anchoring.
+  await second.dispatchEvent('touchend', { changedTouches: [] });
+  await second.dispatchEvent('click', { detail: 1 });
+  await secondItem.dispatchEvent('click', { detail: 1 });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(second).toHaveAttribute('aria-expanded', 'true');
+  // No arbitrary cooldown: a fresh deliberate press must work immediately.
+  await secondItem.click();
+  await expect(page.getByRole('dialog', { name: 'Item editor', exact: true })).toBeVisible();
+});
 
 for (const theme of ['light', 'dark'] as const) test(`Home title gestures separate opening, collapsing and dragging in ${theme}`, async ({ page }, testInfo) => {
   await page.addInitScript(() => { for (const id of ['one', 'two', 'project', 'area']) localStorage.setItem(`utm-ui:view:${id}`, '0'); });
@@ -388,6 +461,41 @@ for (const theme of ['light', 'dark'] as const) test(`Live Text stays anchored w
     expect(Math.abs((await timer.boundingBox())!.y - timerInitial!.y)).toBeLessThanOrEqual(1);
     await expect(input).toBeFocused();
   }
+});
+
+for (const theme of ['light', 'dark'] as const) test(`dock suggestions do not collapse when the keyboard pans the input near the top (${theme})`, async ({ page }) => {
+  await setup(page, false, w => { w.calendarPreferences.appearance.mode = theme; }, 'Home');
+  const input = page.locator('.capture-dock .quick-capture input');
+  await input.fill('Купить');
+  const panel = page.locator('.capture-dock .live-text-panel');
+  await expect(panel).toBeVisible();
+  await page.evaluate(() => {
+    const dock = document.querySelector<HTMLElement>('.capture-dock')!;
+    const anchor = dock.querySelector('input')!.getBoundingClientRect();
+    Object.defineProperty(window.visualViewport!, 'offsetTop', { configurable: true, value: anchor.top - 2 });
+    Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 400 });
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  });
+  await page.clock.runFor(100);
+  const anchor = (await input.boundingBox())!;
+  await expect(panel).toHaveAttribute('data-placement', 'above');
+  const bounds = (await panel.boundingBox())!;
+  expect(bounds.height).toBeGreaterThan(60);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(anchor.y);
+  await input.fill('Купить бустер rr [Work](item:event)'); await page.clock.runFor(100);
+  const chip = panel.getByRole('button', { name: 'Убрать связь: B event', exact: true });
+  await expect(chip).toBeVisible();
+  const controlBox = (await input.boundingBox())!;
+  const capsuleBox = (await page.locator('.capture-dock .quick-capture').boundingBox())!;
+  expect(controlBox.y).toBeGreaterThanOrEqual(capsuleBox.y);
+  expect(controlBox.y + controlBox.height).toBeLessThanOrEqual(capsuleBox.y + capsuleBox.height);
+  const highlight = page.locator('.capture-dock .live-text-highlight');
+  if (await highlight.count()) expect(Math.abs((await highlight.boundingBox())!.y - controlBox.y)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: test.info().outputPath('dock-relation.png'), animations: 'disabled' });
+  await input.fill('Купить завтра'); await page.clock.runFor(100);
+  expect(Math.abs((await input.boundingBox())!.y - anchor.y)).toBeLessThanOrEqual(1);
+  await expect(input).toBeFocused();
+  await page.screenshot({ path: test.info().outputPath('dock-suggestions.png'), animations: 'disabled' });
 });
 
 for (const theme of ['light', 'dark'] as const) test(`Live Text last suggestions stay above the keyboard accessory in ${theme}`, async ({ page }, testInfo) => {

@@ -41,6 +41,8 @@
   transition: grid-template-columns var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard), gap var(--keyboard-motion-duration, var(--motion-default)) var(--motion-easing-standard);
 }
 .capture-dock .quick-capture { min-width: 0; width: 100%; height: var(--layout-capture-control-height); padding: var(--space-1); }
+.capture-dock .quick-capture .live-text-input { height: 100%; }
+.capture-dock .quick-capture .live-text-relations .ui-button { display: inline-flex; align-items: center; gap: var(--space-1); width: auto; height: auto; min-height: var(--control-height-compact); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); font-family: inherit; }
 .capture-dock-actions { min-width: 0; }
 .capture-dock .quick-capture .live-text-input > .ui-control { display: block; height: 100%; padding-block: 0; }
 .keyboard-open .quick-page-nav { max-width: 0; opacity: 0; visibility: hidden; }

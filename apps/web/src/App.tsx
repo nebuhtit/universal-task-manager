@@ -2,18 +2,16 @@ import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
 import { InstallationGuide } from './components/InstallationGuide';
 import { SupportDevelopment } from './components/SupportDevelopment';
 import type { CalendarPageCache } from './features/calendar/calendarPageCache';
-import { safeItemTitleFailureDetails } from './features/items/editor/itemEditorDiagnostics';
-import { readSyncTrace } from './services/syncTrace';
-import { currentProfileActionId, labelProfileAction, readPerformanceProfiles, recordProfileCommit, recordProfileSpan } from './services/performanceProfile';
+import { exportSafeDiagnostics } from './services/diagnosticsExport';
+import { currentProfileActionId, labelProfileAction, recordProfileCommit, recordProfileSpan } from './services/performanceProfile';
 import { QuickTimerDialog } from './features/items/QuickTimerDialog';
 import { quickSessionCommand } from '../quick-entry-lab/commandGuide';
 import { PageErrorBoundary } from './components/layout/PageErrorBoundary';
 import { QuickPageNav } from './components/layout/QuickPageNav';
-import { renderFailureDetails, safeRenderFailureDetails } from './services/renderFailure';
+import { renderFailureDetails } from './services/renderFailure';
 import { NativeBackupGate } from './services/nativeBackupGate';
 import { planningEnabled } from './features/calendar/calendarPlanning';
 import { weatherService } from './features/weather/weatherService';
-import { safeWeatherDetails } from './features/weather/weatherDiagnostics';
 import { useDeviceSetupNotices } from './features/settings/useDeviceSetupNotices';
 import { createWorkspaceSaveService } from './services/workspaceSaveService';
 import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -45,7 +43,13 @@ import { playCompletionSoundUnlessPreviewed, useUiSounds } from './hooks/useUiSo
 import { useViewport } from './hooks/useViewport';
 import { useDisplayedBuild } from './hooks/useDisplayedBuild';
 import { useWorkspaceController } from './hooks/useWorkspaceController';
+import { useWebDavSync } from './hooks/useWebDavSync';
+import { WebDavSettings } from './features/settings/WebDavSettings';
+import { WebDavEntry } from './features/settings/WebDavEntry';
+import { downloadDavWorkspace } from './services/webdavSync';
+import { fromJSON as workspaceContainerFromJSON, writeLocalDeviceSecret } from '@utm/sdk';
 import { SaveStatusSubscription } from './components/SaveStatusSubscription';
+import { PersistenceStatusBanner } from './components/PersistenceStatusBanner';
 import { beginStartup, failStartup, finishStartup, interruptedStartup, readStartupLog, startupCheckpoint } from './services/startupDiagnostics';
 import { closeReadOnlyWorkspace, localWorkspaceMode, openLocalRecoveryReadOnly, unlockUnencryptedLocalWorkspace } from '@utm/sdk';
 import { acquireWorkspaceWriter, PENDING_SAVE_KEY } from './services/workspaceWriter';
@@ -58,7 +62,7 @@ import './features/settings/settings-hierarchy.css';
 import './features/recovery/recovery.css';
 import { canQuickChangeDue, dueDateOnlyToIso, itemTimeZone } from './features/items/dueQuickActions';
 import { reminderSnoozedUntil, type ReminderSnoozeOption } from './services/reminderSnooze';
-import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, googleCalendarFailureDetails, readDiagnostics, recordDiagnostic, safeGoogleCalendarFailureDetails, setDiagnosticsEnabled, type DiagnosticEntry, type GoogleCalendarSyncStage } from './services/diagnostics';
+import { clearDiagnostics, diagnosticFailureCode, DIAGNOSTICS_CHANGED_EVENT, googleCalendarFailureDetails, readDiagnostics, recordDiagnostic, setDiagnosticsEnabled, type DiagnosticEntry, type GoogleCalendarSyncStage } from './services/diagnostics';
 import { activeTimerDeadlines, watchTimerDeadlines } from './services/workspaceTimers';
 import { applyViewCreationDefaults } from './features/views/applyCreationDefaults';
 import { SettingsReleaseInfo } from './features/settings/SettingsReleaseInfo';
@@ -115,40 +119,7 @@ const downloadText = async (content: string, filename: string, type = 'applicati
   const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 };
-const exportSafeDiagnostics = () => [...readPerformanceProfiles().map(profile => ({ at: profile.at, kind: 'usage' as const, message: 'Performance profile', operation: 'Performance profile v1', details: JSON.stringify(profile) })), ...readSyncTrace().map(entry => ({ at: entry.at, kind: 'result' as const, message: `Sync trace ${entry.event}`, operation: 'Sync trace v1', details: JSON.stringify(entry) })), ...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
-  if (/^Weather (lifecycle|forecast|storage|location search|geolocation)$/.test(entry.operation ?? '')) {
-    const safe = safeWeatherDetails(details);
-    return { ...entry, ...(safe ? { details: safe } : {}) };
-  }
-  if (entry.operation === 'Workspace encryption mode change') {
-    try {
-      const value = JSON.parse(details ?? '') as { mode?: unknown };
-      const mode = value.mode === 'encrypted' || value.mode === 'plaintext' ? value.mode : undefined;
-      return { ...entry, ...(mode ? { details: JSON.stringify({ mode }) } : {}) };
-    } catch {
-      return details && ['password-or-encrypted-data', 'browser-storage', 'workspace-document', 'recurrence-processing', 'unexpected'].includes(details)
-        ? { ...entry, details }
-        : entry;
-    }
-  }
-  if (entry.operation === 'Item title validation') {
-    const safeDetails = safeItemTitleFailureDetails(details);
-    return { ...entry, ...(safeDetails ? { details: safeDetails } : {}) };
-  }
-  if (entry.operation === 'Render page' || entry.operation === 'Render application') {
-    const safeDetails = safeRenderFailureDetails(details);
-    return { ...entry, ...(safeDetails ? { details: safeDetails } : {}) };
-  }
-  if (/google|calendar/i.test(`${entry.operation} ${entry.message}`)) {
-    const safeDetails = entry.outcome === 'failed' ? safeGoogleCalendarFailureDetails(details) : undefined;
-    return { ...entry, message: 'External calendar operation details omitted from export', ...(safeDetails ? { details: safeDetails } : {}) };
-  }
-  // Failure categories are intentionally finite and contain no workspace
-  // content. Preserve them so an exported log can identify the failing stage.
-  return details && ['password-or-encrypted-data', 'browser-storage', 'workspace-document', 'recurrence-processing', 'unexpected'].includes(details)
-    ? { ...entry, details }
-    : entry;
-})];
+// Manual downloads and WebDAV uploads share the same diagnostic entries.
 const downloadDiagnosticsFile = () => downloadText(JSON.stringify(exportSafeDiagnostics(), null, 2), 'utm-diagnostics.json').catch(reason => window.alert(String(reason)));
 const downloadOfflineRecoveryKit = async () => {
   const module = document.querySelector<HTMLScriptElement>('script[type="module"][src]');
@@ -487,6 +458,17 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
         {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Working…' : safeEntry ? 'Preview backup without importing' : exists ? 'Restore and open backup' : 'Import selected backup'}</button>}
       </form>
       {exists && faceId === 'configured' && <button className="secondary wide" type="button" disabled={busy || safeEntry} onClick={() => void unlockWithFaceId('manual')}>Unlock with Face ID</button>}
+      {!storedExists && <WebDavEntry language={language} disabled={busy} onOpen={async (settings, code, localPassword) => {
+        setBusy(true);
+        try {
+          const incoming = await downloadDavWorkspace(settings, code);
+          const backup = await workspaceContainerFromJSON(JSON.stringify(incoming.workspace), localPassword);
+          await acquireWorkspaceWriter();
+          const unlocked = await importAsLocalWorkspace(backup, localPassword);
+          await writeLocalDeviceSecret(`webdav-${unlocked.document.workspaceId}`, incoming.settings, unlocked.dataKey);
+          await onReady(unlocked, language);
+        } finally { setBusy(false); }
+      }} />}
       {<div className="import-lock">
         <button className="text-button" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>Choose backup file</button>
         <input ref={fileRef} hidden type="file" accept=".utmb,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setSelectedBackup(file); setUnencryptedTestWorkspace(false); setName(file.name); setConfirm(''); setError(''); }} />
@@ -791,8 +773,9 @@ export default function App() {
   const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length + readStartupLog().length);
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string; backupPreview?: boolean | undefined; isolatedPreview?: boolean } | null>(null);
-  const { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey } = useWorkspaceController({ onToast: setToast, setNotices });
+  const { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, getUnsavedItems, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey } = useWorkspaceController({ onToast: setToast, setNotices });
   const calendarComputationCache = useRef<CalendarPageCache | null>(null);
+  const webDav = useWebDavSync({ workspace: recovery || boot !== 'ready' ? undefined : workspace, dataKey: session?.dataKey, getWorkspace: () => getCurrentWorkspace() ?? undefined, flush: flushPersistence, commit });
   const deviceSetup = useDeviceSetupNotices(recovery ? undefined : workspace, session?.storageMode, getCurrentSessionKey, () => setFaceId('configured'));
   if (boot !== 'ready') calendarComputationCache.current = null;
   const notices = [...(workspace ? visibleItemNotices(workspace, rawNotices) : rawNotices), ...deviceSetup.notices];
@@ -1177,7 +1160,13 @@ export default function App() {
   };
   const disableBackgroundNotifications = async () => {
     if (!workspace) return;
-    try { await unsubscribeBackgroundPush(workspace); } catch { /* Removing a local subscription must still work offline. */ }
+    try { await unsubscribeBackgroundPush(workspace); }
+    catch {
+      setToast(workspace.calendarPreferences.language === 'ru'
+        ? 'Не удалось удалить фоновые уведомления с сервера. Настройки сохранены; проверьте интернет и повторите отключение.'
+        : 'Could not delete background notifications from the server. Your settings are preserved; check your connection and try disabling again.');
+      return;
+    }
     commit('Disable background notifications', (draft) => { draft.pushPreferences = { enabled: false, contentMode: draft.pushPreferences.contentMode }; });
     setToast('Background notifications are disabled for this device.');
   };
@@ -1415,8 +1404,8 @@ export default function App() {
     const saved = commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
     if (!saved) throw new Error('Не удалось сохранить item. Текст остаётся в строке ввода.');
     if (workspace.calendarPreferences.googleCalendar && item.schedule?.startAt && item.schedule.endAt) setToast(workspace.calendarPreferences.language === 'ru'
-      ? 'Сохранено только в UTM. Выберите календарь Google и нажмите Save item для отправки события.'
-      : 'Saved in UTM only. Select a Google Calendar and tap Save item to send this event to Google.');
+      ? 'Локальное сохранение в UTM ожидает подтверждения. Для отправки события выберите календарь Google и нажмите Save item.'
+      : 'Local UTM saving is awaiting confirmation. Select a Google Calendar and tap Save item to send this event to Google.');
     setEditorIsNew(true); setEditor(item);
   };
   const captureQuickItem = (text = quick) => {
@@ -1458,7 +1447,7 @@ export default function App() {
   return <><AppShell page={page} onPage={navigatePage} workspace={workspace} openItems={openItems} notices={notices} popupNoticeIds={popupNoticeIds} noticeCenterOpen={noticeCenterOpen} onNewView={() => setNewViewRequest((value) => value + 1)} onGoogleCalendarSync={() => void syncGoogleCalendarFromHome()} googleCalendarSyncing={googleCalendarSyncing} googleCalendarSyncStatus={googleCalendarSyncStatus} onQuickBackup={() => void saveQuickBackup()} quickBackupBusy={quickBackupBusy} quickBackupPlaintext={session.storageMode === 'plaintext'} onToggleNotices={() => setNoticeCenterOpen((open) => !open)} onDismissPopup={dismissPopupNotice} onDeleteNotice={deleteNotice} onOpenNotice={openNoticeItem} onCompleteNotice={(notice) => { const item = notice.itemId ? workspace.items[notice.itemId] : undefined; if (item && item.state === 'open' && canManuallyComplete(item)) changeItemState(item, 'done'); }} onSnoozeNotice={snoozeNotice} onQuickPin={planningEnabled(workspace) ? setQuickPinTarget : undefined} onQuickDue={(selected) => { const item = resolveQuickDueItem(workspace, selected); if (item && canQuickChangeDue(item)) { setQuickDueError(''); setQuickDueTarget(selected); } }} onTransfer={() => setTransfer(true)} onLock={lockWorkspace} backupReminder={backupReminder && !transfer} onBackupReminder={() => setTransfer(true)} onDismissBackupReminder={() => setBackupReminder(false)}>
       <PageErrorBoundary key={page} page={page} language={workspace.calendarPreferences.language} onDiagnostics={() => void downloadDiagnostics()}>
       <Suspense fallback={<section className="page-section"><p className="empty">Loading…</p></section>}>
-      <SaveStatusSubscription store={saveStatusStore}>{saveStatus => (saveStatus === 'saving' || saveStatus === 'error') && <p className={`save-status-banner${saveStatus === 'error' ? ' is-error' : ''}`} role="status" aria-live="polite" data-testid="save-status">{saveStatus === 'saving' ? 'Сохранение… Не закрывайте приложение.' : 'Не сохранено. Последние изменения пока только в памяти.'}{saveStatus === 'error' && <Button onClick={() => void flushPersistence().catch(() => undefined)}>Повторить сохранение</Button>}</p>}</SaveStatusSubscription>
+      <PersistenceStatusBanner store={saveStatusStore} retry={flushPersistence} getUnsavedItems={getUnsavedItems} language={workspace.calendarPreferences.language} />
       {page === 'home' && <><ViewsPage focusedViewId={focusedViewId} onFocusedViewChange={setFocusedViewId} workspace={workspace} commit={commit} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} createRequest={newViewRequest} onCreateRequestHandled={() => setNewViewRequest(0)} onAddItem={(view) => { setEditorIsNew(true); setEditor(applyViewCreationDefaults(createUiItem('', 'task', currentWorkspaceNow()), view, workspace)); }} onExportView={(view, mode, format, metadata) => exportAfterFlush(() => exportSavedView(workspace, view, mode, format, metadata))} /></>}
       {page === 'calendar' && <CalendarPage computationCache={calendarComputationCache} onPlanningNotice={setToast} onCreateItem={item => { applyCalendarReminderDefaults(item, workspace); setEditorIsNew(true); setFocusEditorId(item.id); setEditor(item); }} workspace={workspace} commit={commit} createUiItem={createUiItem} onEditItem={openWorkspaceItem} onState={changeItemState} celebrationColors={celebrationColors} {...(calendarCaptureDate ? { initialDate: calendarCaptureDate } : {})} onSelectedDateChange={setCalendarCaptureDate} {...(calendarJump ? { requestedDate: calendarJump } : {})} />}
       {page === 'all' && <AllItemsPage workspace={workspace} view={allItemsView} onEdit={openWorkspaceItem} onState={changeItemState} onSaveView={(view) => commit('Customize all items view', (draft) => { draft.views[ALL_ITEMS_VIEW_ID] = clean(view); })} onRestore={restoreItem} onClearTrash={clearTrash} onDelete={permanentlyDeleteItem} />}
@@ -1467,6 +1456,7 @@ export default function App() {
       <QuickTimerDialog workspace={workspace} open={quickTimerOpen} onClose={() => setQuickTimerOpen(false)} commit={commit} />
       {page === 'settings' && <section className="page-section settings-page-shell">
         <SaveStatusSubscription store={saveStatusStore}>{saveStatus => <SettingsReleaseInfo saveStatus={saveStatus} />}</SaveStatusSubscription>
+        <WebDavSettings controller={webDav} language={workspace.calendarPreferences.language} />
         <details className="settings-disclosure"><summary>Backup and recovery</summary><section className="settings-card backup-controls"><p className="eyebrow">BACKUP SCHEDULE</p><h2>Backup reminders</h2><p>Choose how often the app should remind you to export an encrypted <code>.utmb</code> backup. The browser will not write to a folder by itself.</p><label>Remind every (days; 0 disables)<input type="text" inputMode="numeric" pattern="[0-9]*" value={backupReminderDraft} onChange={(event) => { const next = event.target.value; if (/^\d*$/.test(next)) setBackupReminderDraft(next); }} onBlur={applyBackupReminderDays} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label><label>Backup location note (optional)<input value={workspace.calendarPreferences.backupPreferences?.locationLabel ?? ''} placeholder="iCloud Drive / Universal" onChange={(event) => commit('Change backup location note', (draft) => { draft.calendarPreferences.backupPreferences = { ...(draft.calendarPreferences.backupPreferences ?? { reminderDays: 7 }), locationLabel: event.target.value }; })} /></label><button className="secondary" onClick={() => setTransfer(true)}>Create encrypted backup now</button><button className="secondary" onClick={() => void downloadOfflineRecoveryKit().then(() => setToast('Offline recovery kit downloaded.')).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Download offline recovery kit</button>{workspace.calendarPreferences.backupPreferences?.lastBackupAt && <small>Last backup: {formatRussianDateTime(workspace.calendarPreferences.backupPreferences.lastBackupAt)}</small>}</section></details>
         <SettingsPage deviceUnlockOptions={<section className="settings-card"><p className="eyebrow">DEVICE UNLOCK</p><h2>Face ID / Touch ID</h2>{faceId === 'unsupported' ? <p>Unavailable on this browser or device. Password unlock remains available.</p> : <><p>Optional quick unlock for this device only. Face ID never replaces your password, and exports still require the password.</p>{faceId === 'configured' ? <button className="secondary" onClick={() => void disableFaceIdUnlock().then(() => { setFaceIdConfiguredHint(false); setFaceId('available'); setToast('Face ID unlock disabled. Password unlock remains unchanged.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Disable Face ID</button> : <button className="secondary" onClick={() => void enableFaceIdUnlock(session.dataKey).then(() => { setFaceIdConfiguredHint(true); setFaceId('configured'); setToast('Face ID unlock is ready on this device.'); }).catch((reason) => setToast(reason instanceof Error ? reason.message : String(reason)))}>Enable Face ID</button>}<p className="hint">If Face ID fails, is cancelled, or the device changes, use the password field on the lock screen. Removing this option never removes your workspace.</p></>}</section>} developerTools={<DiagnosticsSettings workspace={workspace} count={diagnosticCount} getDataKey={getCurrentSessionKey} downloadPrivate={downloadText} onEnabledChange={(enabled) => { setDiagnosticsEnabled(enabled); commit('Toggle local diagnostics', (draft) => { draft.calendarPreferences.diagnosticsEnabled = enabled; }); }} onDownload={downloadDiagnostics} onClear={clearDiagnostics} />} workspace={workspace} passwordProtection={passwordProtection} onPasswordProtectionChanged={refreshPasswordProtection} onBeforeCriticalAction={flushPersistence} onSwitchEncryptionMode={async (mode, password) => {
           const startedAt = performance.now();
@@ -1515,7 +1505,7 @@ export default function App() {
         if (item) { setEditorIsNew(false); editorCompletionSelection.current = item.role === "occurrence" && item.occurrence ? { seriesId: item.occurrence.seriesId, occurrenceId: item.id, recurrenceId: item.occurrence.recurrenceId } : null; setEditor(itemEditorSource(workspace, item)); }
       }}
     />}
-    <Suspense fallback={null}>{editor && <ItemEditor completionOccurrenceId={editorCompletionSelection.current?.seriesId === editor.id ? editorCompletionSelection.current.occurrenceId : undefined} completionRecurrenceId={editorCompletionSelection.current?.seriesId === editor.id ? editorCompletionSelection.current.recurrenceId : undefined} focusTitle={editor.id === focusEditorId} key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onDuplicate={(item) => { const duplicate = duplicateItemDraft(item, currentWorkspaceNow()); const saved = commit('Duplicate item', draft => { draft.items[duplicate.id] = clean(duplicate); }); if (saved) { setEditorIsNew(false); setEditor(duplicate); setToast('Item duplicated'); void flushPersistence(); } }} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
+    <Suspense fallback={null}>{editor && <ItemEditor persistenceNotice={<PersistenceStatusBanner inline store={saveStatusStore} retry={flushPersistence} getUnsavedItems={getUnsavedItems} language={workspace.calendarPreferences.language} />} completionOccurrenceId={editorCompletionSelection.current?.seriesId === editor.id ? editorCompletionSelection.current.occurrenceId : undefined} completionRecurrenceId={editorCompletionSelection.current?.seriesId === editor.id ? editorCompletionSelection.current.recurrenceId : undefined} focusTitle={editor.id === focusEditorId} key={editor.id} initial={editor} workspace={workspace} isNew={editorIsNew} onDuplicate={(item) => { const duplicate = duplicateItemDraft(item, currentWorkspaceNow()); const saved = commit('Duplicate item', draft => { draft.items[duplicate.id] = clean(duplicate); }); if (saved) { setEditorIsNew(false); setEditor(duplicate); setToast('Item duplicated'); void flushPersistence(); } }} onOpenOccurrence={(item) => { setEditorIsNew(false); setEditor(item); }}
       onTimerStateSave={async (itemId, timer) => {
         const saved = commit('Update running timer', (draft) => {
           const target = draft.items[itemId]; if (!target || target.deletedAt) throw new Error('Item no longer exists.');

@@ -1,10 +1,10 @@
-import { activeRangeBounds, durationToMs, effectiveItemDurationMs, zonedDateStart, type UniversalItem } from '@utm/core';
+import { activeRangeBounds, durationToMs, effectiveItemDurationMs, seriesReferenceAncestors, seriesReferenceOwner, withinTargetsFor, zonedDateStart, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 
 export type Interval = { start: number; end: number };
 export type TimelineEvent = Interval & { item: UniversalItem; point: boolean; invalid: boolean; travel?: boolean; travelBack?: boolean; tentative?: boolean; tentativeOverdue?: boolean };
 export type Segment = Interval & { top: number; height: number; hidden: boolean };
-export type PlacedEvent = TimelineEvent & { top: number; height: number; column: number; columns: number; continuedBefore: boolean; continuedAfter: boolean; flexibleVisual?: boolean };
-export type MoreBlock = { top: number; height: number; column: number; columns: number; items: UniversalItem[] };
+export type PlacedEvent = TimelineEvent & { top: number; height: number; column: number; columns: number; continuedBefore: boolean; continuedAfter: boolean; flexibleVisual?: boolean; withinParent?: string; withinContainer?: boolean };
+export type MoreBlock = { top: number; height: number; column: number; columns: number; items: UniversalItem[]; withinParent?: string };
 const MINUTE = 60_000;
 // Geometry only: one elapsed minute per CSS pixel, including 23/25-hour days.
 export const MIN_CARD_HEIGHT = 36;
@@ -121,7 +121,7 @@ export function placeActiveRangeCues<T>(items: T[], segments: Segment[], blocked
   return result;
 }
 
-export function layoutEvents(events: TimelineEvent[], day: Interval, segments: Segment[], limit: number, flexibleIds: ReadonlySet<string> = new Set()): { events: PlacedEvent[]; more: MoreBlock[] } {
+export function layoutEvents(events: TimelineEvent[], day: Interval, segments: Segment[], limit: number, flexibleIds: ReadonlySet<string> = new Set(), stackSequentialIds: ReadonlySet<string> = new Set()): { events: PlacedEvent[]; more: MoreBlock[] } {
   const sorted: PlacedEvent[] = events.filter(v => intersects(v, day)).sort((a, b) => a.start - b.start || a.end - b.end || a.item.id.localeCompare(b.item.id)).map(event => {
     const top = positionAt(Math.max(day.start, event.start), segments);
     return { ...event, top, height: Math.max(MIN_CARD_HEIGHT, positionAt(Math.min(day.end, event.end), segments) - top), column: 0, columns: 1, continuedBefore: event.start < day.start, continuedAfter: event.end > day.end };
@@ -141,6 +141,15 @@ export function layoutEvents(events: TimelineEvent[], day: Interval, segments: S
     const cue = placeActiveRangeCues([event.item], allowed, blocked, event.top)[0];
     if (cue) { event.top = cue.top; event.height = cue.height; event.flexibleVisual = true; }
     blocked.push({ top: event.top, height: event.height });
+  }
+  // Minimum-height cards for consecutive ten-minute tasks must not turn into
+  // fake simultaneous events. Fixed appointments retain their time geometry.
+  for (let index = 0; index < sorted.length; index++) {
+    const event = sorted[index]!;
+    if (!stackSequentialIds.has(event.item.id)) continue;
+    const top = event.top;
+    for (const previous of sorted.slice(0, index)) if (previous.end <= event.start) event.top = Math.max(event.top, previous.top + previous.height);
+    if (event.top !== top) event.flexibleVisual = true;
   }
   sorted.sort((a, b) => a.top - b.top || a.end - b.end || a.item.id.localeCompare(b.item.id));
   const output: PlacedEvent[] = []; const more: MoreBlock[] = [];
@@ -168,4 +177,67 @@ export function layoutEvents(events: TimelineEvent[], day: Interval, segments: S
   };
   for (const event of sorted) { if (event.top >= groupEnd) flush(); group.push(event); groupEnd = Math.max(groupEnd, event.top + event.height); }
   flush(); return { events: output, more };
+}
+
+/** Related tasks occupy their block's column, not a competing collision column.
+ * Ownership follows proven series lineage, never an item's display name.
+ * Only geometry changes here; the actual task/deadline intervals stay intact. */
+export function layoutWithinEvents(workspace: WorkspaceDocument, events: TimelineEvent[], day: Interval, segments: Segment[], limit: number, flexibleIds: ReadonlySet<string> = new Set()): ReturnType<typeof layoutEvents> {
+  const visible = events.filter(event => intersects(event, day));
+  const children = new Map<TimelineEvent, TimelineEvent[]>();
+  const parents = new Map<TimelineEvent, TimelineEvent>();
+  const containers = new Map<string, TimelineEvent[]>();
+  for (const event of visible) {
+    if (event.travel) continue;
+    const height = positionAt(Math.min(day.end, event.end), segments) - positionAt(Math.max(day.start, event.start), segments);
+    if (height < MIN_CARD_HEIGHT * 2) continue;
+    const owner = seriesReferenceAncestors(workspace, seriesReferenceOwner(workspace, event.item.occurrence?.seriesId ?? event.item.id)).at(-1)!;
+    containers.set(owner, [...(containers.get(owner) ?? []), event]);
+  }
+  for (const child of visible) {
+    if (child.travel) continue;
+    const targets = withinTargetsFor(workspace, child.item);
+    if (!targets.length) continue;
+    const parent = targets.flatMap(target => containers.get(target) ?? []).filter(candidate => {
+      if (candidate === child || candidate.travel || candidate.start > child.start || candidate.end < child.end || candidate.end - candidate.start <= child.end - child.start) return false;
+      return true;
+    }).sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.item.id.localeCompare(b.item.id))[0];
+    if (parent) { parents.set(child, parent); children.set(parent, [...(children.get(parent) ?? []), child]); }
+  }
+  const result = layoutEvents(visible.filter(event => !parents.has(event)), day, segments, limit, flexibleIds);
+  const nest = (parent: PlacedEvent, source: TimelineEvent) => {
+    const nested = children.get(source);
+    if (!nested?.length) return;
+    parent.withinContainer = true;
+    const compact = new Set(nested.filter(event => {
+      const source = workspace.items[event.item.id];
+      return source && !source.schedule?.endAt && !source.external?.startAt && !source.external?.endAt;
+    }).map(event => event.item.id));
+    const rows = layoutEvents(nested, day, segments, limit, new Set(), compact);
+    const firstTop = Math.min(...rows.events.map(row => row.top), ...rows.more.map(row => row.top));
+    const shift = Math.max(0, parent.top + MIN_CARD_HEIGHT - firstTop);
+    const bottom = parent.top + parent.height;
+    const needsOverflow = rows.more.length > 0 || rows.events.some(row => row.top + shift + row.height > bottom);
+    const contentBottom = bottom - (needsOverflow ? MIN_CARD_HEIGHT : 0);
+    const overflow: UniversalItem[] = [];
+    const compose = <T extends { top: number; column: number; columns: number }>(row: T) => ({ ...row, top: row.top + shift, column: parent.column * row.columns + row.column, columns: parent.columns * row.columns, withinParent: parent.item.id });
+    for (const row of rows.events) {
+      const placed = compose(row);
+      if (shift && compact.has(row.item.id)) placed.flexibleVisual = true;
+      if (placed.top + placed.height > contentBottom) { overflow.push(row.item); continue; }
+      result.events.push(placed);
+      nest(placed, nested.find(event => event.item === row.item)!);
+    }
+    for (const row of rows.more) overflow.push(...row.items);
+    if (overflow.length) {
+      // Keep the overflow control inside the parent without covering a task.
+      const top = bottom - MIN_CARD_HEIGHT;
+      result.more.push({ top, height: MIN_CARD_HEIGHT, column: parent.column, columns: parent.columns, withinParent: parent.item.id, items: [...new Map(overflow.map(item => [item.id, item])).values()] });
+    }
+  };
+  for (const parent of [...result.events]) {
+    const source = visible.find(event => event.item === parent.item && Boolean(event.travel) === Boolean(parent.travel));
+    if (source) nest(parent, source);
+  }
+  return result;
 }

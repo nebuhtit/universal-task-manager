@@ -570,14 +570,24 @@ describe('workspace save coordinator crash recovery', () => {
     expect(Object.keys(runtime.workspace.items)).toEqual([item.id]);
   });
 
-  it('rejects a second Save while the first waits for persistence', async () => {
+  it.each([false, true])('waits for durable acknowledgement and rejects a concurrent Save (background=%s)', async background => {
     const { workspace, item } = fixture();
     let release!: () => void; const wait = new Promise<void>(resolve => { release = resolve; });
     const session = {}; let doc = copy(workspace);
     const service = createWorkspaceSaveService({ getWorkspace: () => doc, getSessionKey: () => session, notify: () => {}, commit: (_message, mutate) => { mutate(doc); return true; }, flushPersistence: () => wait });
-    const first = service.saveItem(item, undefined, new Date());
+    let completed = false;
+    const first = service.saveItem(item, undefined, new Date(), background).then(() => { completed = true; });
+    await Promise.resolve();
+    expect(completed).toBe(false);
     await expect(service.saveItem(item, undefined, new Date())).rejects.toThrow('already being saved');
     release(); await first; expect(Object.keys(doc.items)).toEqual([item.id]);
+  });
+
+  it('rejects a failed local save even when background Google work is requested', async () => {
+    const { workspace, item } = fixture();
+    const doc = copy(workspace), session = {};
+    const service = createWorkspaceSaveService({ getWorkspace: () => doc, getSessionKey: () => session, notify: () => {}, commit: (_message, mutate) => { mutate(doc); return true; }, flushPersistence: async () => { throw new Error('IndexedDB unavailable'); } });
+    await expect(service.saveItem(item, undefined, new Date(), true)).rejects.toThrow('IndexedDB unavailable');
   });
 
   it('does not send a remote write when persisting the initial intent fails', async () => {

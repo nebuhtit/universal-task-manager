@@ -4,6 +4,7 @@ import { organizationSuggestions } from '../../../quick-entry-lab/organization';
 import { dateValueExpression, suggest, type Draft } from '../../../quick-entry-lab/parser';
 import { Button, Input, Textarea } from '../../components/ui/primitives';
 import { ResponsiveDialog } from '../../components/ui/ResponsiveDialog';
+import { liveTextPanelPlacement } from './liveTextPanelPlacement';
 import { saveLiveTextReport } from './liveTextReports';
 import { createLiveDayPreview } from './liveDayPreview';
 import { buildSegments, positionAt } from '../calendar/timelineLayout';
@@ -167,10 +168,22 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
       // Safari's keyboard accessory bar can cover the final row even after the
       // visual viewport shrinks. Keep a control-sized safety margin above it.
       const accessory = keyboardOpen ? parseFloat(styles.getPropertyValue('--control-height-compact')) || 0 : 0;
-      const below = multiline || overlaySuggestions;
-      const available = below ? bottom - accessory - gap - container.getBoundingClientRect().top
-        : (control()?.getBoundingClientRect().top ?? top) - top - gap;
-      container.style.setProperty('--live-text-available-height', `${Math.max(0, available)}px`);
+      const anchor = root.current?.getBoundingClientRect();
+      if (!anchor) return;
+      // Measure the stable input wrapper (the CSS positioning anchor), not the
+      // panel whose own height/side changes. Textareas can leave a baseline gap.
+      const dock = !multiline && !overlaySuggestions ? root.current?.closest<HTMLElement>('.capture-dock') : null;
+      // The bottom-fixed dock is positioned against iOS's visual viewport.
+      // Its client rect can already be viewport-relative while offsetTop still
+      // contains the pan. Subtracting that offset again collapses the panel.
+      // Derive its upper space from the fixed bottom inset instead, and keep
+      // capture suggestions above the field, away from the keyboard.
+      const placement = dock ? { side: 'above', height: Math.max(0, (viewport?.height ?? window.innerHeight)
+        - (parseFloat(getComputedStyle(dock).bottom) || 0) - (dock.getBoundingClientRect().bottom - anchor.top) - gap) }
+        : liveTextPanelPlacement({ top: anchor.top, bottom: anchor.bottom, viewportTop: top, viewportBottom: bottom, gap, accessory,
+          minimum: (parseFloat(styles.getPropertyValue('--control-height-touch')) || 44) + gap * 2, preferBelow: multiline || overlaySuggestions });
+      container.dataset.placement = placement.side;
+      container.style.setProperty('--live-text-available-height', `${placement.height}px`);
     };
     update();
     const observer = new ResizeObserver(update);
@@ -263,8 +276,15 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
       else if (expanded && selected >= 0 && event.key === ' ') { event.preventDefault(); choose(selected); }
     },
   };
-  const suggestionPanel = focused && value.trim() && (!overlaySuggestions || open) && <div ref={suggestionBounds} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-inline' : ''}`}>
+  const relationChips = (references.tokens.length > 0 || calendarReference.selection) && <div className="live-text-relations" aria-label="Выбранные связи и календарь">{calendarReference.selection && <Button size="compact" variant="secondary" aria-label={`${language === 'ru' ? 'Убрать календарь' : 'Remove calendar'}: ${calendarReference.selection.name}`} onPointerDown={event => event.preventDefault()} onTouchStart={event => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={event => { const y = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && y !== undefined && Math.abs(y - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); onSourceChange(joinWithinText(value, references.tokens)); control()?.focus(); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) { onSourceChange(joinWithinText(value, references.tokens)); control()?.focus(); } }}>{calendarReference.selection.name} ×</Button>}{references.tokens.map(token => {
+      const target = extractWithinRelations(token).ids[0]!;
+      const label = workspace?.items[target]?.title ?? /\[([^\]]*)\]/.exec(token)?.[1] ?? 'Item';
+      const remove = () => { onSourceChange(joinCalendarText(joinWithinText(value, references.tokens.filter(entry => extractWithinRelations(entry).ids[0] !== target)), calendarReference.selection)); control()?.focus(); };
+      return <Button key={target} size="compact" variant="secondary" aria-label={`Убрать связь: ${label}`} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onTouchStart={event => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={event => { const y = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && y !== undefined && Math.abs(y - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); remove(); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) remove(); }}>{label} ×</Button>;
+    })}</div>;
+  const suggestionPanel = focused && (value.trim() || references.tokens.length > 0 || calendarReference.selection) && (!overlaySuggestions || open) && <div ref={suggestionBounds} className={`live-text-panel${overlaySuggestions ? ' live-text-panel-inline' : ''}`}>
       <div ref={panel} className="live-text-panel-body">
+      {!multiline && !overlaySuggestions && relationChips}
       {dayPreview && calendarDate && visiblePreview && <button ref={previewButton} type="button" className="live-day-preview" aria-label={language === 'ru' ? `Открыть ${calendarDate} в Timeline` : `Open ${calendarDate} in Timeline`} onPointerDown={(event) => { if (event.pointerType === 'mouse') event.preventDefault(); }} onClick={() => { if (Date.now() - lastCalendarTouch.current > 500) viewCalendarDate(); }}>
         <div className="live-day-preview-heading"><strong>{new Intl.DateTimeFormat(language === 'ru' ? 'ru-RU' : 'en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${calendarDate}T12:00:00Z`))}</strong><span>{language === 'ru' ? `Событий: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · весь день: ${dayPreview.allDay.length}` : ''}` : `Events: ${dayPreviewEvents.length}${dayPreview.allDay.length ? ` · all day: ${dayPreview.allDay.length}` : ''}`}</span></div>
         <div className="live-day-preview-track" aria-hidden="true">{previewSegments.filter(segment => segment.hidden).map(segment => <span key={segment.start} className="live-day-preview-hidden" style={{ left: `${previewPercent(segment.start)}%`, width: `${segment.height / previewHeight * 100}%` }} />)}{dayPreview.reserves.map((reserve, index) => <span key={`reserve-${index}`} className="live-day-preview-reserve" style={{ left: `${previewPercent(reserve.start)}%`, width: `${Math.max(0.8, previewPercent(reserve.end) - previewPercent(reserve.start))}%` }} />)}{dayPreviewEvents.filter(event => !previewSegments.some(segment => segment.hidden && event.start >= segment.start && event.end <= segment.end)).map((event, index) => <span key={`${event.item.id}-${index}`} className="live-day-preview-event" style={{ left: `${previewPercent(event.start)}%`, width: `${Math.max(0.8, previewPercent(Math.min(event.end, dayPreview.day.end)) - previewPercent(Math.max(event.start, dayPreview.day.start)))}%` }} />)}</div>
@@ -285,12 +305,7 @@ export function LiveTextInput({ value: sourceValue, onChange: onSourceChange, wo
       </div>
     </div>;
   return <div className="live-text-input" ref={root}>
-    {(references.tokens.length > 0 || calendarReference.selection) && <div className="live-text-relations" aria-label="Выбранные связи и календарь">{calendarReference.selection && <Button size="compact" variant="secondary" aria-label={`${language === 'ru' ? 'Убрать календарь' : 'Remove calendar'}: ${calendarReference.selection.name}`} onPointerDown={event => event.preventDefault()} onTouchStart={event => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={event => { const y = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && y !== undefined && Math.abs(y - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); onSourceChange(joinWithinText(value, references.tokens)); control()?.focus(); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) { onSourceChange(joinWithinText(value, references.tokens)); control()?.focus(); } }}>{calendarReference.selection.name} ×</Button>}{references.tokens.map(token => {
-      const target = extractWithinRelations(token).ids[0]!;
-      const label = workspace?.items[target]?.title ?? /\[([^\]]*)\]/.exec(token)?.[1] ?? 'Item';
-      const remove = () => { onSourceChange(joinCalendarText(joinWithinText(value, references.tokens.filter(entry => extractWithinRelations(entry).ids[0] !== target)), calendarReference.selection)); control()?.focus(); };
-      return <Button key={target} size="compact" variant="secondary" aria-label={`Убрать связь: ${label}`} onPointerDown={event => { if (event.pointerType === 'mouse') event.preventDefault(); }} onTouchStart={event => { touchStartY.current = event.touches[0]?.clientY ?? null; }} onTouchEnd={event => { const y = event.changedTouches[0]?.clientY; if (touchStartY.current !== null && y !== undefined && Math.abs(y - touchStartY.current) < 10) { event.preventDefault(); lastTouchSelection.current = Date.now(); remove(); } touchStartY.current = null; }} onTouchCancel={() => { touchStartY.current = null; }} onClick={() => { if (Date.now() - lastTouchSelection.current > 500) remove(); }}>{label} ×</Button>;
-    })}</div>}
+    {(multiline || overlaySuggestions) && relationChips}
     {!overlaySuggestions && !multiline && suggestionPanel}
     {multiline ? <Textarea {...common} ref={textarea} rows={3} /> : <Input {...common} ref={inputRef ?? ownInput} enterKeyHint={overlaySuggestions ? 'done' : 'go'} />}
     {(overlaySuggestions || multiline) && suggestionPanel}

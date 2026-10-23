@@ -13,6 +13,20 @@ function fixture(duration = 'PT3H') {
   return { workspace, work, task };
 }
 describe('within placement', () => {
+  it.each(['planned', 'due', 'undated'])('moves an unfinished %s task after Work ends, preserving its original dates', kind => {
+    const { workspace, task, work } = fixture('PT10M');
+    work.role = 'series_template';
+    work.recurrence = { rrule: 'FREQ=DAILY', timezone: 'UTC', anchor: 'schedule', autoRenew: true, exdates: [], rdates: [] };
+    task.schedule = { timezone: 'UTC', estimatedDuration: 'PT10M', ...(kind === 'planned' ? { plannedDate: '2026-10-06' } : kind === 'due' ? { dueAt: '2026-10-06T09:00:00Z' } : {}) };
+    const stored = structuredClone(task);
+    const before = withinPlacementWorkspace(workspace, new Date('2026-10-06T16:59:00Z'));
+    expect(before.items.task?.schedule?.startAt).toBe('2026-10-06T09:00:00.000Z');
+    const after = withinPlacementWorkspace(before, new Date('2026-10-06T17:00:00Z'));
+    expect(after.items.task?.schedule?.startAt).toBe('2026-10-07T09:00:00.000Z');
+    expect(after.items.task?.schedule?.dueAt).toBe(stored.schedule?.dueAt);
+    expect(task).toEqual(stored);
+  });
+
   it('treats a related task opening without an end as availability and uses the next series occurrence', () => {
     const { workspace, task, work } = fixture('PT30M');
     work.role = 'series_template';

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import './reorder-preview.css';
+import { consumeReleaseClick } from './consumeReleaseClick';
 
 type DragState = { from: number; target: number; after: boolean };
 
@@ -115,7 +116,10 @@ export function useReorderList<T>(items: T[], onChange: (items: T[]) => void, { 
         if (pointerEvent.pointerId !== pointerId) return;
         window.clearTimeout(timer); updateDragTarget(pointerEvent.clientY);
         const current = drag.current;
-        if (current) suppressClickUntil.current = performance.now() + 500;
+        if (current) {
+          suppressClickUntil.current = performance.now() + 500;
+          consumeReleaseClick(target.ownerDocument);
+        }
         if (current && current.target !== current.from) onChange(moveEntry(items, current.from, current.target, current.after));
         drag.current = null; cleanup();
       };

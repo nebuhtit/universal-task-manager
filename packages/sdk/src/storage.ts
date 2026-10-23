@@ -118,18 +118,27 @@ export type PasswordProtectionStatus = 'required' | 'disabled' | 'plaintext';
 const isPlaintextBlock = (block: LocalBlock): block is PlaintextLocalBlock => block.mode === 'plaintext';
 
 let databasePromise: Promise<IDBDatabase> | undefined;
+const LOCAL_STORAGE_TIMEOUT_MS = 30_000;
 
 function openDatabase(): Promise<IDBDatabase> {
   if (databasePromise) return databasePromise;
   databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
+    let expired = false;
+    const timer = setTimeout(() => {
+      expired = true; databasePromise = undefined;
+      reject(new Error('Local storage did not open in time. Retry saving or copy the unsaved JSON.'));
+    }, LOCAL_STORAGE_TIMEOUT_MS);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
     request.onerror = () => {
+      clearTimeout(timer);
       databasePromise = undefined;
       reject(request.error ?? new Error('Cannot open IndexedDB'));
     };
     request.onsuccess = () => {
       const database = request.result;
+      clearTimeout(timer);
+      if (expired) { database.close(); return; }
       database.onversionchange = () => {
         database.close();
         databasePromise = undefined;
@@ -144,9 +153,16 @@ function openDatabase(): Promise<IDBDatabase> {
 async function getRecord<T>(key: string): Promise<T | undefined> {
   const db = await openDatabase();
   return await new Promise<T | undefined>((resolve, reject) => {
-    const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
-    request.onsuccess = () => resolve(request.result as T | undefined);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB read failed'));
+    const tx = db.transaction(STORE, 'readonly');
+    const timer = setTimeout(() => {
+      try { tx.abort(); } catch { /* It may have just completed. */ }
+      db.close(); databasePromise = undefined;
+      reject(new Error('Local storage read timed out. Retry saving or copy the unsaved JSON.'));
+    }, LOCAL_STORAGE_TIMEOUT_MS);
+    const request = tx.objectStore(STORE).get(key);
+    request.onsuccess = () => { clearTimeout(timer); resolve(request.result as T | undefined); };
+    request.onerror = () => { clearTimeout(timer); reject(request.error ?? new Error('IndexedDB read failed')); };
+    tx.onabort = () => { clearTimeout(timer); reject(tx.error ?? new Error('IndexedDB read aborted')); };
   });
 }
 
@@ -170,9 +186,16 @@ async function transactRecords(records: Array<[string, unknown]>, deleteKeys: st
   await new Promise<void>((resolve, reject) => {
     const transaction = db.transaction(STORE, 'readwrite', { durability: 'strict' });
     const store = transaction.objectStore(STORE);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
-    transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+    const timer = setTimeout(() => {
+      // Abort the actual transaction, not just its Promise. Otherwise a late
+      // old write could overwrite a newer retry after we reported failure.
+      try { transaction.abort(); } catch { /* It may have just completed. */ }
+      db.close(); databasePromise = undefined;
+      reject(new Error('Local storage write timed out. Latest changes are not confirmed saved. Copy their JSON before closing.'));
+    }, LOCAL_STORAGE_TIMEOUT_MS);
+    transaction.oncomplete = () => { clearTimeout(timer); resolve(); };
+    transaction.onerror = () => { clearTimeout(timer); reject(transaction.error ?? new Error('IndexedDB transaction failed')); };
+    transaction.onabort = () => { clearTimeout(timer); reject(transaction.error ?? new Error('IndexedDB transaction aborted')); };
     try {
       records.forEach(([key, value]) => store.put(value, key));
       deleteKeys.forEach((key) => store.delete(key));
@@ -180,6 +203,7 @@ async function transactRecords(records: Array<[string, unknown]>, deleteKeys: st
       // A synchronous put/delete error does not automatically roll back earlier
       // requests. Explicitly abort before returning failure to the caller.
       transaction.abort();
+      clearTimeout(timer);
       reject(reason);
     }
   });
@@ -604,6 +628,19 @@ export async function commitPreparedLocalWorkspaceSave(prepared: PreparedLocalWo
 
 export async function saveLocalWorkspace(document: Automerge.Doc<WorkspaceDocument>, dataKey: Uint8Array, storageMode: UnlockedWorkspace['storageMode'] = 'encrypted'): Promise<void> {
   await commitPreparedLocalWorkspaceSave(await prepareLocalWorkspaceSave(document, dataKey, storageMode));
+}
+
+/** Device-only secrets/checkpoints. Never included in workspace exports or sync. */
+export async function readLocalDeviceSecret<T>(name: string, dataKey: Uint8Array): Promise<T | undefined> {
+  if (!/^[a-zA-Z0-9:_-]{1,180}$/.test(name)) throw new Error('Invalid device record');
+  const block = await getRecord<{ nonce: string; ciphertext: string }>(`device-secret:${name}`);
+  if (!block) return undefined;
+  return JSON.parse(new TextDecoder().decode(await decryptWithKey(block, dataKey, `utm:device-secret:${name}`))) as T;
+}
+export async function writeLocalDeviceSecret(name: string, value: unknown, dataKey: Uint8Array): Promise<void> {
+  if (!/^[a-zA-Z0-9:_-]{1,180}$/.test(name)) throw new Error('Invalid device record');
+  const block = await encryptWithKey(new TextEncoder().encode(JSON.stringify(value)), dataKey, `utm:device-secret:${name}`);
+  await putRecords([[`device-secret:${name}`, block]]);
 }
 
 /** Atomically stores the current encrypted block as a rollback point and writes the migrated document. */

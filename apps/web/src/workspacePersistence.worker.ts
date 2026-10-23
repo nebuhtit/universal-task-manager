@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { encodeRecoverySnapshot, workspaceForExport, type WorkspaceDocument } from '@utm/core';
+import { encodeRecoverySnapshot, workspaceForExportInPlace, type WorkspaceDocument } from '@utm/core';
 
 type PersistenceRequest = {
   id: number;
@@ -23,7 +23,10 @@ workerScope.onmessage = (event: MessageEvent<PersistenceRequest>) => {
     stage('export-filter-start');
     const filterStart = performance.now();
     // Parse here, avoiding a full object allocation and structured clone on UI.
-    const safe = workspaceForExport(JSON.parse(snapshotJson) as WorkspaceDocument);
+    // JSON.parse already produced a detached snapshot, so sanitize it directly
+    // instead of allocating another full-workspace clone on memory-constrained
+    // iPhones and iPads.
+    const safe = workspaceForExportInPlace(JSON.parse(snapshotJson) as WorkspaceDocument);
     stage('export-filter-end', undefined, performance.now() - filterStart);
     stage('export-encode-start');
     const encodeStart = performance.now();

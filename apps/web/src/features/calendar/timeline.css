@@ -27,6 +27,8 @@
 .timeline-past-event.timeline-calendar-tinted { background: color-mix(in srgb, var(--timeline-calendar-color) 6%, color-mix(in srgb, var(--color-surface-muted) var(--opacity-timeline-past-event), transparent)); }
 .timeline-event strong, .timeline-event small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
 .timeline-event strong { font-weight: var(--font-weight-semibold); }
+.timeline-event[data-within-parent] { border-inline-start-color: var(--color-accent); }
+.timeline-event[data-within-container] > small { display: none; }
 .timeline-event small { font-size: var(--font-size-caption); color: var(--color-text-secondary); }
 .timeline-event .timeline-property { display: flex; align-items: center; gap: var(--space-1); }
 .timeline-event .timeline-property .property-icon { flex: none; }

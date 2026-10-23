@@ -21,6 +21,9 @@
 .live-text-panel.live-text-panel-inline { top: calc(100% + var(--space-2)); bottom: auto; max-height: min(30dvh, 20rem, var(--live-text-available-height, 100dvh)); }
 .live-text-panel { display: flex; flex-direction: column; overflow: hidden; }
 .live-text-panel { max-height: min(40dvh, 20rem, var(--live-text-available-height, 100dvh)); }
+.live-text-input .live-text-panel[data-placement="above"] { top: auto; bottom: calc(100% + var(--space-2)); }
+.live-text-input .live-text-panel[data-placement="below"] { top: calc(100% + var(--space-2)); bottom: auto; }
+.live-text-panel { box-sizing: border-box; }
 .live-text-panel-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding-block-end: var(--space-2); scroll-padding-block: var(--space-2); }
 .live-text-options { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .live-text-options [role="option"] { max-width: 100%; overflow-wrap: anywhere; padding: var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-secondary); }

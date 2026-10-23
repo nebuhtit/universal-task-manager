@@ -16,7 +16,7 @@ import { prepareTimelineData, applyTimelinePlanning, timelineActiveRangeBounds }
 import type { CalendarProjectionCache } from './calendarProjectionCache';
 import { calendarUndatedItems } from './calendarVisibility';
 import { useCalendarPeriodSwipe, type CalendarSwipeFeedback } from './useCalendarPeriodSwipe';
-import { buildSegments, hiddenIntervals, layoutEvents, placeActiveRangeCues, positionAt, type Segment } from './timelineLayout';
+import { buildSegments, hiddenIntervals, layoutWithinEvents, placeActiveRangeCues, positionAt, type Segment } from './timelineLayout';
 import './timeline.css';
 
 const timeFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -101,8 +101,8 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preview = false
     const flexible = new Set(data.events.filter(event => !event.travel && !plan?.parallel.has(event.item.id) && (
       plan?.activeRanges.has(event.item.id) || (!event.item.schedule?.startAt && !event.item.schedule?.endAt && (!event.item.schedule?.dueAt || event.item.schedule.dueDateOnly))
     )).map(event => event.item.id));
-    return layoutEvents(data.events, data.day, segments, columns, flexible);
-  }, [data, segments, columns, plan]);
+    return layoutWithinEvents(workspace, data.events, data.day, segments, columns, flexible);
+  }, [data, segments, columns, plan, workspace]);
   const hiddenReserve = useMemo(() => {
     const period = viewPeriodBoundsForDates(dateKey, dateKey, zone);
     return reservedItems.flatMap(item => activeRangeDailyDuration(item, period) !== null ? [] : occupiedIntervals(item, period).flatMap(interval => segments.filter(segment => !segment.hidden && segment.start < interval.end && segment.end > interval.start).map(segment => {
@@ -127,7 +127,7 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preview = false
   const height = Math.max((segments.at(-1)?.top ?? 0) + (segments.at(-1)?.height ?? 0), ...layout.events.map(v => v.top + v.height), ...layout.more.map(v => v.top + v.height));
   const ticks: number[] = [];
   for (let at = data.day.start; at < data.day.end; at += 60_000) if (timeLabel(at, zone).endsWith(':00') && !hidden.some(v => at >= v.start && at < v.end)) ticks.push(at);
-  const columnStyle = (v: { top: number; height: number; column: number; columns: number }) => ({ top: v.top, height: v.height, left: `${v.column / v.columns * 100}%`, width: `${100 / v.columns}%` });
+  const columnStyle = (v: { top: number; height: number; column: number; columns: number; withinParent?: string }) => ({ top: v.top, height: v.height, left: v.withinParent ? `calc(${v.column / v.columns * 100}% + var(--space-1))` : `${v.column / v.columns * 100}%`, width: v.withinParent ? `calc(${100 / v.columns}% - var(--space-2))` : `${100 / v.columns}%` });
   const open = (item: UniversalItem) => { setMore([]); onEdit(item); };
   const durationLabel = (ms: number) => displayViewValue(`PT${Math.round(Math.abs(ms) / 1000)}S`, 'schedule.estimatedDuration', workspace.calendarPreferences.language);
   const cards = (items: UniversalItem[]) => <div className="item-list">{items.map(item => <div key={item.id}>{plan?.pins.has(item.id) && <span className="calendar-reference-badge">↗ {ru ? 'Временная ссылка' : 'Temporary reference'}</span>}<ItemCard item={item} workspace={workspace} now={now} fields={cardFields} calendarTimeOnly onEdit={() => open(item)} onState={state => onState?.(item, state)} /></div>)}</div>;
@@ -189,26 +189,26 @@ export const CalendarTimeline = memo(function CalendarTimeline({ preview = false
           const calendar = workspace.calendarPreferences.googleCalendar?.calendars.find(value => value.id === event.item.external?.calendarId);
           const color = calendar?.color ?? organization?.color;
           const safeColor = color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined;
-          const extra = !event.travel && event.height >= 72 ? cardFields.filter(field => field !== 'title' && field !== 'external.provider').map(field => {
+          const extra = !event.travel && !event.withinContainer && event.height >= 72 ? cardFields.filter(field => field !== 'title' && field !== 'external.provider').map(field => {
             const value = field === 'schedule.estimatedDuration' && !event.point ? `PT${Math.round((event.end - event.start) / 1000)}S` : readItemField(event.item, field, workspace, now);
             return { field, text: displayViewValue(value, field, workspace.calendarPreferences.language) };
           }).filter(entry => entry.text) : [];
           const interval = `${timeLabel(event.start, zone)}${event.point ? '' : `–${timeLabel(event.end, zone)}`}`;
           const travelLabel = event.travel ? displayViewValue(`PT${Math.round((event.end - event.start) / 1000)}S`, 'schedule.travelDuration', workspace.calendarPreferences.language) : '';
           const tentativeLabel = plan?.parallel.has(event.item.id) ? (ru ? 'Параллельная ссылка · ' : 'Parallel reference · ') : event.tentative ? (ru ? 'Предварительно · ' : 'Tentative · ') : '';
-          const overdue = event.item.state === 'open' && event.item.schedule?.plannedDate && event.item.schedule.plannedDate < calendarDateKey(now, zone);
+          const overdue = event.item.state === 'open' && ((event.item.schedule?.plannedDate && event.item.schedule.plannedDate < calendarDateKey(now, zone)) || (event.withinParent && Date.parse(event.item.schedule?.dueAt ?? '') < +now));
           const pastEvent = !event.item.schedule?.dueAt && event.end <= now.getTime();
           const label = event.travel ? travelLabel : event.flexibleVisual ? `${event.item.title} · ${ru ? 'Без назначенного времени' : 'No fixed time'}` : `${tentativeLabel}${event.item.title} · ${interval}`;
-          return <button type="button" data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travelBack ? 'travel-back' : event.travel ? 'travel' : 'event'}`} className={`timeline-event${safeColor && !event.tentative ? ' timeline-calendar-tinted' : ''}${pastEvent ? ' timeline-past-event' : ''}${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}${event.tentativeOverdue ? ' timeline-tentative-overdue' : ''}`} style={{ ...columnStyle(event), ...(safeColor && !event.tentativeOverdue ? { ...(!pastEvent ? { borderColor: safeColor } : {}), '--timeline-calendar-color': safeColor } : {}) } as CSSProperties} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travelBack ? 'timeline-travel-back' : event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
+          return <button type="button" data-within-parent={event.withinParent} data-within-container={event.withinContainer || undefined} data-utm-item-id={event.item.id} data-utm-series-id={event.item.occurrence?.seriesId} data-utm-recurrence-id={event.item.occurrence?.recurrenceId} data-utm-due-item-id={event.item.external?.readOnly ? undefined : event.item.id} data-utm-due-series-id={event.item.occurrence?.seriesId} data-utm-due-recurrence-id={event.item.occurrence?.recurrenceId} key={`${event.item.id}:${event.travelBack ? 'travel-back' : event.travel ? 'travel' : 'event'}`} className={`timeline-event${safeColor && !event.tentative ? ' timeline-calendar-tinted' : ''}${pastEvent ? ' timeline-past-event' : ''}${event.travel ? ' timeline-travel' : ''}${event.tentative ? ' timeline-tentative' : ''}${event.tentativeOverdue ? ' timeline-tentative-overdue' : ''}`} style={{ ...columnStyle(event), ...(safeColor && !event.tentativeOverdue ? { ...(!pastEvent ? { borderColor: safeColor } : {}), '--timeline-calendar-color': safeColor } : {}) } as CSSProperties} onClick={() => open(event.item)} title={label} aria-label={label} data-testid={event.travelBack ? 'timeline-travel-back' : event.travel ? 'timeline-travel' : event.tentative ? 'timeline-tentative' : 'timeline-event'}>
             {event.travel ? <strong>{travelLabel}</strong> : <>
               <strong>{(plan?.pins.has(event.item.id) || plan?.parallel.has(event.item.id)) && '↗ '}{(event.invalid || overdue) && '⚠ '}{event.continuedBefore && '← '}{event.item.title || (ru ? 'Без названия' : 'Untitled')}{event.continuedAfter && ' →'}</strong>
               {overdue && event.height >= 72 && <small>{ru ? 'Не выполнено в плановый день' : 'Planned day missed'}: {event.item.schedule?.plannedDate}</small>}
               {event.tentative && event.height >= 54 && <small>{tentativeLabel.trim()}</small>}{extra.map(({ field, text }, i) => <small className="timeline-property" key={i}><FieldIcon path={field} label={viewFieldLabel(workspace, field)} />{text}</small>)}
             </>}
-            {!event.travel && event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
+            {!event.travel && !event.withinContainer && event.height >= 72 && event.item.external && <small className="timeline-calendar-source" style={safeColor ? { color: safeColor } : undefined}><span aria-label="Google Calendar" title="Google Calendar"><LineIcon name="calendarSync" /></span>{calendar?.name ?? organization?.tag}</small>}
           </button>;
         })}
-        {layout.more.map((block, i) => <button type="button" key={i} className="timeline-event timeline-more" style={columnStyle(block)} onClick={() => setMore(block.items)}>More · {block.items.length}</button>)}
+        {layout.more.map((block, i) => <button type="button" key={i} data-within-parent={block.withinParent} className="timeline-event timeline-more" style={columnStyle(block)} onClick={() => setMore(block.items)}>More · {block.items.length}</button>)}
       </div>
       <TimelineNow workspace={workspace} segments={segments} suppliedNow={suppliedNow} />
     </div>
