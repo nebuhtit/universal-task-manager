@@ -132,7 +132,8 @@ export async function davCreate(connection: DavConnection, path: string, body: s
 }
 
 export function davStatus(result: DavResult): void {
-  if (result.status === 401 || result.status === 403) throw new Error('webdav-access-denied');
+  if (result.status === 401) throw new Error('webdav-access-denied');
+  if (result.status === 403) throw new Error('webdav-forbidden');
   if (result.status < 200 || result.status >= 300) throw new Error(`webdav-http-${result.status}`);
 }
 export async function ensureDavFolder(connection: DavConnection): Promise<void> {

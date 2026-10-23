@@ -1,6 +1,7 @@
 import { APP_VERSION, SCHEMA_VERSION } from '@utm/core';
 
 const key = 'utm:webdav-audit:v1';
+export const DAV_DIAGNOSTICS_CHANGED_EVENT = 'utm:dav-diagnostics-changed';
 let enabled = false;
 let entries: object[] | undefined;
 const runtimeError = (event: ErrorEvent) => auditDav('runtime-error', { line: event.lineno, column: event.colno, frames: event.error instanceof Error ? event.error.stack?.match(/[\w.-]+\.js:\d+:\d+/g)?.slice(0, 20) : undefined });
@@ -22,6 +23,7 @@ export function setDavDiagnosticsEnabled(value: boolean): void {
 export function clearDavDiagnostics(): void {
   entries = [];
   try { localStorage.removeItem(key); } catch { /* Optional diagnostic storage. */ }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(DAV_DIAGNOSTICS_CHANGED_EVENT));
 }
 export function readDavDiagnostics(): object[] {
   if (!entries) {
@@ -40,6 +42,7 @@ export function auditDav(event: string, data: object = {}): void {
     while (text.length > 3_000_000 && entries.length > 1) { entries = entries.slice(Math.floor(entries.length / 4)); text = JSON.stringify(entries); }
     localStorage.setItem(key, text);
   } catch { /* Diagnostic storage must not prevent saving tasks. */ }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(DAV_DIAGNOSTICS_CHANGED_EVENT));
 }
 export async function snapshotEvidence(snapshot: Record<string, unknown>): Promise<object> {
   const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)

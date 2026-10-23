@@ -90,10 +90,12 @@ Synchronization runs only while open and unlocked, after edits, on return and ev
 
 After the first device successfully synchronizes, copy its workspace code from
 WebDAV settings. On a fresh installation choose **Open from WebDAV** and enter
-the same server URL, folder, workspace code and shared sync password. Choose a
-new local password for this device. This downloads and validates the encrypted
-snapshot without writing to the server, persists it locally, and stores its
-baseline and device connection settings before entering the workspace.
+the WebDAV endpoint, credentials, workspace code and shared sync password. The
+app uses its standard `UniversalSync` folder automatically. To choose a custom
+folder, append that path to the URL without a trailing slash. Choose a new local
+password for this device. This downloads and validates the encrypted snapshot
+without writing to the server, persists it locally, and stores its baseline and
+device connection settings before entering the workspace.
 An existing local workspace is never replaced by this entry flow: unlock it and
 use its synchronization settings, or use the existing explicit backup workflow.
 Google credentials and device preferences are not transferred.

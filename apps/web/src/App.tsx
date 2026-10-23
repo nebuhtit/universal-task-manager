@@ -47,6 +47,7 @@ import { useWebDavSync } from './hooks/useWebDavSync';
 import { WebDavSettings } from './features/settings/WebDavSettings';
 import { WebDavEntry } from './features/settings/WebDavEntry';
 import { downloadDavWorkspace } from './services/webdavSync';
+import { DAV_DIAGNOSTICS_CHANGED_EVENT, readDavDiagnostics } from './services/webdavDiagnostics';
 import { fromJSON as workspaceContainerFromJSON, writeLocalDeviceSecret } from '@utm/sdk';
 import { SaveStatusSubscription } from './components/SaveStatusSubscription';
 import { PersistenceStatusBanner } from './components/PersistenceStatusBanner';
@@ -101,6 +102,7 @@ const clean = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 type PendingUndoAction = { id: string; label: string; expiresAt: number; undo: () => void; itemId?: string };
 type QuickCompletionRequest = { itemId: string; celebrationColor: string; completedAt: string };
 const UNDO_WINDOW_MS = 3_000;
+const troubleshootingCount = () => readDiagnostics().length + readStartupLog().length + readDavDiagnostics().length;
 
 // Some iOS Files providers do not implement File.text() reliably for custom
 // extensions. Reading bytes ourselves keeps .utmb recovery working reliably.
@@ -227,7 +229,7 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
   useEffect(() => { if (exists) void localWorkspaceMode().then((mode) => setPlaintext(mode === 'plaintext')); }, [exists]);
   const [selectedBackup, setSelectedBackup] = useState<File | null>(null);
   const [unencryptedTestWorkspace, setUnencryptedTestWorkspace] = useState(false);
-  const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length + readStartupLog().length);
+  const [diagnosticCount, setDiagnosticCount] = useState(troubleshootingCount);
   const [decryptFile, setDecryptFile] = useState<File | null>(null);
   const [decryptPassword, setDecryptPassword] = useState('');
   const [decryptError, setDecryptError] = useState('');
@@ -254,9 +256,10 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
     return installDomLocalization(language);
   }, [language]);
   useEffect(() => {
-    const refresh = () => setDiagnosticCount(readDiagnostics().length + readStartupLog().length);
+    const refresh = () => setDiagnosticCount(troubleshootingCount());
     window.addEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
+    window.addEventListener(DAV_DIAGNOSTICS_CHANGED_EVENT, refresh);
+    return () => { window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh); window.removeEventListener(DAV_DIAGNOSTICS_CHANGED_EVENT, refresh); };
   }, []);
   useEffect(() => {
     if (!exists) return;
@@ -458,10 +461,11 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
         {selectedBackup && <button className="primary wide" type="button" disabled={busy || password.length < 10} onClick={() => void importWorkspace(selectedBackup)}>{busy ? 'Working…' : safeEntry ? 'Preview backup without importing' : exists ? 'Restore and open backup' : 'Import selected backup'}</button>}
       </form>
       {exists && faceId === 'configured' && <button className="secondary wide" type="button" disabled={busy || safeEntry} onClick={() => void unlockWithFaceId('manual')}>Unlock with Face ID</button>}
-      {!storedExists && <WebDavEntry language={language} disabled={busy} onOpen={async (settings, code, localPassword) => {
+      {!storedExists && <WebDavEntry language={language} disabled={busy} onOpen={async (settings, code, localPassword, onStage) => {
         setBusy(true);
         try {
-          const incoming = await downloadDavWorkspace(settings, code);
+          const incoming = await downloadDavWorkspace(settings, code, stage => onStage(stage));
+          onStage('saving-local');
           const backup = await workspaceContainerFromJSON(JSON.stringify(incoming.workspace), localPassword);
           await acquireWorkspaceWriter();
           const unlocked = await importAsLocalWorkspace(backup, localPassword);
@@ -770,7 +774,7 @@ export default function App() {
   const captureInputRef = useRef<HTMLInputElement>(null);
   const [paraActionsContainer, setParaActionsContainer] = useState<HTMLDivElement | null>(null);
   const [quickError, setQuickError] = useState('');
-  const [diagnosticCount, setDiagnosticCount] = useState(() => readDiagnostics().length + readStartupLog().length);
+  const [diagnosticCount, setDiagnosticCount] = useState(troubleshootingCount);
   const [pendingUpgrade, setPendingUpgrade] = useState<{ session: UnlockedWorkspace; language: WorkspaceLanguage } | null>(null);
   const [recovery, setRecovery] = useState<{ session?: UnlockedWorkspace; reason: string; backupPreview?: boolean | undefined; isolatedPreview?: boolean } | null>(null);
   const { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, getUnsavedItems, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey } = useWorkspaceController({ onToast: setToast, setNotices });
@@ -1055,16 +1059,17 @@ export default function App() {
     });
   };
   useEffect(() => {
-    const capture = (kind: DiagnosticEntry['kind'], message: string, details?: string) => { recordDiagnostic({ kind, message, page, ...(details ? { details } : {}) }); setDiagnosticCount(readDiagnostics().length + readStartupLog().length); };
+    const capture = (kind: DiagnosticEntry['kind'], message: string, details?: string) => { recordDiagnostic({ kind, message, page, ...(details ? { details } : {}) }); setDiagnosticCount(troubleshootingCount()); };
     const onError = (event: ErrorEvent) => capture('error', event.message || 'Unknown error', event.error?.stack);
     const onRejection = (event: PromiseRejectionEvent) => capture('unhandledrejection', event.reason instanceof Error ? event.reason.message : String(event.reason));
     window.addEventListener('error', onError); window.addEventListener('unhandledrejection', onRejection);
     return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onRejection); };
   }, [page]);
   useEffect(() => {
-    const refresh = () => setDiagnosticCount(readDiagnostics().length + readStartupLog().length);
+    const refresh = () => setDiagnosticCount(troubleshootingCount());
     window.addEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh);
+    window.addEventListener(DAV_DIAGNOSTICS_CHANGED_EVENT, refresh);
+    return () => { window.removeEventListener(DIAGNOSTICS_CHANGED_EVENT, refresh); window.removeEventListener(DAV_DIAGNOSTICS_CHANGED_EVENT, refresh); };
   }, []);
   useViewport(captureInputRef, boot === 'ready');
   useEffect(() => {

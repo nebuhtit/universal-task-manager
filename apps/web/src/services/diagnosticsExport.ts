@@ -11,9 +11,10 @@ export const exportSafeDiagnostics = (): DiagnosticEntry[] => [...readPerformanc
   if (/^WebDAV (connection|sync|log upload)$/.test(entry.operation ?? '')) {
     if (details && /^webdav-[a-z0-9-]{1,80}$/.test(details)) return { ...entry, details };
     try {
-      const value = JSON.parse(details ?? '') as { code?: unknown; network?: unknown };
+      const value = JSON.parse(details ?? '') as { code?: unknown; network?: unknown; stage?: unknown };
       if (typeof value.code === 'string' && /^webdav-[a-z0-9-]{1,80}$/.test(value.code) && ['wifi', 'cellular', 'ethernet', 'none', 'unknown'].includes(String(value.network))) {
-        return { ...entry, details: JSON.stringify({ code: value.code, network: value.network }) };
+        const stages = ['form-or-setup', 'requesting-file', 'checking-sync-password', 'saving-local'];
+        return { ...entry, details: JSON.stringify({ code: value.code, network: value.network, ...(stages.includes(String(value.stage)) ? { stage: value.stage } : {}) }) };
       }
     } catch { /* Discard non-whitelisted details. */ }
     return entry;

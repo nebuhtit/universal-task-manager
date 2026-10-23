@@ -28,6 +28,7 @@ export function WebDavSettings({ controller, language }: { controller: WebDavCon
     'webdav-lock-required': ru ? 'Нужна эксклюзивная серверная блокировка WebDAV с ограниченным сроком. Проверьте LOCK/UNLOCK и доступ к заголовкам Lock-Token и Timeout.' : 'A finite exclusive WebDAV lock is required. Check LOCK/UNLOCK and access to Lock-Token and Timeout response headers.',
     'webdav-write-verification': ru ? 'Сервер не подтвердил записанную версию. Обмен остановлен; локальные изменения и копии восстановления сохранены.' : 'The server did not confirm the written version. Sync stopped; local edits and recovery copies are retained.',
     'webdav-access-denied': ru ? 'Сервер отклонил доступ. Проверьте логин, пароль и разрешение записи.' : 'Access denied. Check credentials and write permissions.',
+    'webdav-forbidden': ru ? 'Сервер вернул 403: пользователь не имеет прав на эту операцию или папку.' : 'The server returned 403: this user is not permitted to perform this operation or access the folder.',
     'webdav-network-or-cors': ru ? 'Нет подключения или сервер блокирует CORS. Проверьте HTTPS, доступность, OPTIONS и разрешённый Origin.' : 'Network or CORS failure. Check HTTPS, availability, OPTIONS and allowed Origin.',
     'webdav-network': ru ? 'Ошибка сети или сертификата HTTPS.' : 'Network or HTTPS certificate error.',
     'webdav-timeout': ru ? 'Сервер не ответил вовремя.' : 'Server timed out.',

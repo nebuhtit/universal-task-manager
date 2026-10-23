@@ -24,11 +24,14 @@ export async function davWorkspacePath(workspaceId: string): Promise<string> {
   return `workspace-${key}.json`;
 }
 /** Read only: importing must never publish an empty workspace over the remote one. */
-export async function downloadDavWorkspace(settings: DavSettings, workspaceId: string): Promise<{ workspace: WorkspaceDocument; settings: DavSettings }> {
+export type DavWorkspaceOpenStage = 'requesting-file' | 'checking-sync-password';
+export async function downloadDavWorkspace(settings: DavSettings, workspaceId: string, progress?: (stage: DavWorkspaceOpenStage) => void): Promise<{ workspace: WorkspaceDocument; settings: DavSettings }> {
+  progress?.('requesting-file');
   const response = await davRequest(settings, 'GET', await davWorkspacePath(workspaceId));
   davStatus(response);
   const workspace = createWorkspace('WebDAV workspace');
   workspace.workspaceId = workspaceId;
+  progress?.('checking-sync-password');
   const payload = await decodeDavState(response.text, settings.syncPassword, workspace);
   applySyncSnapshot(workspace, payload.snapshot);
   return { workspace, settings: { ...settings, baseline: payload.snapshot } };
