@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-for (const language of ['ru', 'en']) test(`WebDAV entry retains fields on denied access: ${language}`, async ({ page }) => {
+for (const language of ['ru', 'en']) test(`WebDAV entry retains fields on denied access: ${language}`, async ({ page }, testInfo) => {
   await page.emulateMedia({ colorScheme: language === 'ru' ? 'dark' : 'light' });
   await page.goto('/');
   await page.locator('.language-picker select').selectOption(language);
@@ -24,6 +24,14 @@ for (const language of ['ru', 'en']) test(`WebDAV entry retains fields on denied
   await expect(controls.nth(1)).toBeFocused();
   await expect(entry.locator('input[autocomplete="new-password"]')).toHaveCount(0);
   for (let index = 0; index < labels.length; index++) await controls.nth(index).fill(values[index]!);
+  for (let index = 0; index < labels.length; index++) await expect(entry.getByLabel(labels[index]!, { exact: true })).toHaveValue(values[index]!);
+  const layout = await entry.evaluate(node => {
+    const root = node.getBoundingClientRect(); const fields = [...node.querySelectorAll('input')].map(field => field.getBoundingClientRect());
+    return { inset: Math.min(...fields.map(field => field.left - root.left)), fits: fields.every(field => field.right <= root.right), border: getComputedStyle(node.querySelector('fieldset')!).borderTopWidth };
+  });
+  expect(layout.inset).toBeGreaterThan(0); expect(layout.fits).toBe(true); expect(layout.border).toBe('0px');
+  await entry.locator(':scope > summary').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('webdav-entry.png') });
   await page.route('https://entry-test.invalid/**', route => route.fulfill({ status: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }));
   const submit = entry.getByRole('button', { name: language === 'ru' ? 'Загрузить и открыть' : 'Download and open' });
   await submit.scrollIntoViewIfNeeded(); await submit.click();

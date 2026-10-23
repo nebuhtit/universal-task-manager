@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import './webdav-entry.css';
 import { WebDavGuide } from '../../components/WebDavGuide';
-import { Button, Field, Input } from '../../components/ui/primitives';
+import { Button, Disclosure, Field, Input } from '../../components/ui/primitives';
 import type { DavSettings } from '../../services/webdavSync';
 import { auditDav, setDavDiagnosticsEnabled } from '../../services/webdavDiagnostics';
 import { recordDiagnostic } from '../../services/diagnostics';
@@ -82,8 +83,8 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
   const [error, setError] = useState('');
   const [stage, setStage] = useState<WebDavEntryStage | null>(null);
   const [busy, setBusy] = useState(false);
-  return <details className="webdav-entry settings-disclosure" translate="no"><summary>{ru ? 'Открыть через WebDAV' : 'Open from WebDAV'}</summary>
-    <p>{ru ? 'Загрузите существующее рабочее пространство с сервера. Код скопируйте из настроек WebDAV на первом устройстве. Обычно достаточно адреса WebDAV: приложение добавит стандартную папку UniversalSync. Чтобы выбрать другую папку, допишите её в конец URL без завершающего слеша.' : 'Download an existing workspace from your server. Copy its code from WebDAV settings on the first device. Usually the WebDAV address is enough: the app adds its standard UniversalSync folder. To use another folder, append it to the URL without a trailing slash.'}</p>
+  return <div translate="no"><Disclosure uiKey="webdav-entry" persist={false} className="webdav-entry" summary={ru ? 'Открыть через WebDAV' : 'Open from WebDAV'}>
+    <p>{ru ? 'Откройте пространство, уже синхронизированное с вашим сервером. Используйте данные WebDAV и код с первого устройства.' : 'Open a workspace already synchronized with your server. Use your WebDAV credentials and the code from your first device.'}</p>
     <form onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError(''); setStage(null);
       let failedStage: WebDavEntryStage | null = null;
@@ -102,18 +103,17 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
       } finally { setBusy(false); }
     }}>
       <fieldset disabled={disabled || busy}>
-        {!hasNativeWebDAV() && <Field label={ru ? 'Посредник при ошибке прямого доступа (необязательно)' : 'Fallback proxy (optional)'} hint={ru ? 'Посредник получает пароль WebDAV для передачи серверу. Используйте только доверенный адрес. Пароль шифрования пространства ему не передаётся.' : 'The proxy receives your WebDAV password to contact the server. Use a trusted endpoint only. Your workspace encryption password is not sent to it.'}><Input type="url" placeholder="https://your-worker.workers.dev/dav" value={draft.proxyUrl ?? defaultDavProxy(draft.url)} onChange={e => setDraft({ ...draft, proxyUrl: e.target.value })} /></Field>}
-        <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'}><Input type="url" required placeholder="https://server.example/webdav/" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value, folder: '' })} /><small>{ru ? 'Для UniversalSync укажите адрес сервера, например …/webdav/. Другую папку можно дописать в URL без завершающего слеша.' : 'For UniversalSync, enter the server address, e.g. …/webdav/. Append a different folder to the URL without a trailing slash.'}</small></Field>
+        <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'} hint={ru ? 'Папка UniversalSync добавляется автоматически. Свой путь укажите в URL без завершающего слеша.' : 'UniversalSync is added automatically. Append a custom folder to the URL without a trailing slash.'}><Input type="url" required placeholder="https://server.example/webdav/" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value, folder: '' })} /></Field>
         <Field label={ru ? 'Логин WebDAV' : 'WebDAV username'}><Input autoComplete="username" required value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></Field>
         <Field label={ru ? 'Пароль WebDAV' : 'WebDAV password'}><Input type="password" autoComplete="current-password" required value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></Field>
-        <Field label={ru ? 'Код рабочего пространства' : 'Workspace code'}><Input required autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={code} onChange={e => setCode(e.target.value)} /><small>{ru ? 'Это не пароль: код указывает, какой зашифрованный файл скачать. Без него нельзя безопасно выбрать нужное пространство среди файлов на сервере.' : 'This is not a password: the code identifies which encrypted file to download. Without it, the app cannot safely select the right workspace on the server.'}</small></Field>
-        <Field label={ru ? 'Пароль рабочего пространства' : 'Workspace password'}><Input type="password" autoComplete="current-password" minLength={10} required value={draft.syncPassword} onChange={e => setDraft({ ...draft, syncPassword: e.target.value })} /><small>{ru ? 'Введите существующий общий пароль синхронизации с первого устройства. Этот же пароль будет открывать пространство на новом устройстве — придумывать новый не нужно.' : 'Enter the existing shared sync password from your first device. The same password will unlock the workspace on this device; no new password is needed.'}</small></Field>
-        <p>{ru ? 'Данные WebDAV дают доступ к серверу, пароль пространства — к зашифрованным задачам. На уже подключённых устройствах прежний пароль входа сохраняется. Google подключается отдельно. В браузере сначала проверяется прямой доступ; при сетевой/CORS-ошибке используется указанный посредник.' : 'WebDAV credentials give access to the server; the workspace password opens your encrypted tasks. Devices already connected keep their existing unlock password. Connect Google separately. Browser access tries the server directly first, then the configured proxy after a network/CORS error.'}</p>
-        <Button type="submit">{busy ? (ru ? 'Открываем…' : 'Opening…') : (ru ? 'Загрузить и открыть' : 'Download and open')}</Button>
+        <Field label={ru ? 'Код рабочего пространства' : 'Workspace code'} hint={ru ? 'Скопируйте код из настроек WebDAV на первом устройстве. Он выбирает файл пространства; это не пароль.' : 'Copy the code from WebDAV settings on your first device. It selects the workspace file; it is not a password.'}><Input required autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={code} onChange={e => setCode(e.target.value)} /></Field>
+        <Field label={ru ? 'Пароль рабочего пространства' : 'Workspace password'} hint={ru ? 'Введите общий пароль синхронизации с первого устройства. Он же будет паролем входа здесь.' : 'Use the shared sync password from your first device. The same password will unlock this device.'}><Input type="password" autoComplete="current-password" minLength={10} required value={draft.syncPassword} onChange={e => setDraft({ ...draft, syncPassword: e.target.value })} /></Field>
+        {!hasNativeWebDAV() && <Field label={ru ? 'Посредник при ошибке прямого доступа (необязательно)' : 'Fallback proxy (optional)'} hint={ru ? 'Используйте доверенный адрес: посредник получает пароль WebDAV, но не пароль шифрования задач.' : 'Use a trusted endpoint: the proxy receives your WebDAV password, but not your workspace encryption password.'}><Input type="url" placeholder="https://your-worker.workers.dev/dav" value={draft.proxyUrl ?? defaultDavProxy(draft.url)} onChange={e => setDraft({ ...draft, proxyUrl: e.target.value })} /></Field>}
+        <Button type="submit" variant="primary" size="touch">{busy ? (ru ? 'Открываем…' : 'Opening…') : (ru ? 'Загрузить и открыть' : 'Download and open')}</Button>
       </fieldset>
     </form>
     {busy && <><p role="status">{stageLabel(stage, ru) || (ru ? 'Подготавливаем подключение…' : 'Preparing connection…')}</p><progress aria-label={ru ? 'Открытие WebDAV' : 'Opening WebDAV'} /></>}
-    {error && <p role="alert">{error}</p>}
+    {error && <p className="webdav-entry-error" role="alert">{error}</p>}
     <WebDavGuide language={language} />
-  </details>;
+  </Disclosure></div>;
 }
