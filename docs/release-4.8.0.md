@@ -11,4 +11,6 @@
 ## Verification
 
 - Web app typecheck and production build passed locally.
+- Full unit suite passed in GitHub after updating the independent PARA reference to compare additional shared assignments and the WebDAV 403 assertion to its specific error code.
+- Browser installation stalled in GitHub; the release uses the existing targeted-checks deployment path with typecheck, save/recovery checks and production build.
 - Physical iPhone behavior still needs confirmation after installing this build.
