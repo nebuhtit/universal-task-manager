@@ -15,7 +15,7 @@ final class NativeWebDAVBridge: NSObject, WKScriptMessageHandler {
         guard payload["kind"] as? String == "request", requests[id] == nil,
               let address = payload["url"] as? String, let url = URL(string: address),
               url.scheme == "https", url.user == nil, url.password == nil, url.host != nil,
-              let method = payload["method"] as? String, ["GET", "PUT", "MKCOL", "OPTIONS", "DELETE", "MOVE"].contains(method),
+              let method = payload["method"] as? String, ["GET", "PUT", "MKCOL", "OPTIONS", "DELETE", "MOVE", "LOCK", "UNLOCK"].contains(method),
               let headers = payload["headers"] as? [String: String] else { respond(id, ["error": "invalid-request"]); return }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 25)
         request.httpMethod = method
@@ -26,7 +26,7 @@ final class NativeWebDAVBridge: NSObject, WKScriptMessageHandler {
                 respond(id, ["error": "invalid-destination"]); return
             }
         }
-        for (key, value) in headers where ["authorization", "content-type", "if-match", "if-none-match", "destination", "overwrite"].contains(key.lowercased()) {
+        for (key, value) in headers where ["authorization", "content-type", "if-match", "if-none-match", "destination", "overwrite", "if", "lock-token", "depth", "timeout"].contains(key.lowercased()) {
             guard !value.contains("\r"), !value.contains("\n") else { respond(id, ["error": "invalid-header"]); return }
             request.setValue(value, forHTTPHeaderField: key)
         }
@@ -78,6 +78,8 @@ private final class WebDAVTransfer: NSObject, URLSessionDataDelegate, URLSession
         guard error == nil, let response, let text = String(data: data, encoding: .utf8) else { completion(["error": "network"]); return }
         var result: [String: Any] = ["status": response.statusCode, "text": text]
         if let etag = response.value(forHTTPHeaderField: "ETag") { result["etag"] = etag }
+        if let token = response.value(forHTTPHeaderField: "Lock-Token") { result["lockToken"] = token }
+        if let timeout = response.value(forHTTPHeaderField: "Timeout") { result["lockTimeout"] = timeout }
         completion(result)
     }
 }

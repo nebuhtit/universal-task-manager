@@ -13,6 +13,9 @@
 
 ## Verification
 
+- On each subsequent UTM request, inspect the latest available WebDAV diagnostics in the user's configured `UniversalSync/logs/` folder and review feedback for recently changed features. Report log freshness, observed build/device and concrete failures; lack of a new log is not evidence of success. Keep credentials out of repository files. If the server is unreachable, continue local work and state that live logs could not be checked.
+- For new features and behavior changes, add useful diagnostic milestones and review them in subsequent requests. Keep manual and uploaded diagnostic exports consistent. Do not claim new iPhone behavior is verified until a log from the rebuilt device is available.
+
 - Small primitive changes: typecheck, related unit tests, build, and `git diff --check`.
 - Migrated workflows: add targeted desktop/mobile tests for keyboard, focus, scrolling, light, and dark behavior.
 - Treat mobile Chromium emulation as a smoke test, not proof of iPhone Safari/PWA behavior.

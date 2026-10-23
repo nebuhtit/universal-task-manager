@@ -1,6 +1,7 @@
 import { clearStartupLog } from './startupDiagnostics';
 import { clearPerformanceProfiles, setPerformanceProfilingEnabled } from './performanceProfile';
 import { clearSyncTrace } from './syncTrace';
+import { clearDavDiagnostics } from './webdavDiagnostics';
 export const DIAGNOSTICS_KEY = 'utm:diagnostics:v1';
 export const DIAGNOSTICS_ENABLED_KEY = 'utm:diagnostics-enabled:v1';
 export const DIAGNOSTICS_CHANGED_EVENT = 'utm:diagnostics-changed';
@@ -127,6 +128,7 @@ export const recordDiagnostic = (entry: Omit<DiagnosticEntry, 'at'>): void => {
 };
 
 export const clearDiagnostics = (): void => {
+  clearDavDiagnostics();
   clearStartupLog();
   clearPerformanceProfiles();
   clearSyncTrace();

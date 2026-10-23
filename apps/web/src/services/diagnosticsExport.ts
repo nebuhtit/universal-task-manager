@@ -5,6 +5,7 @@ import { readStartupLog } from './startupDiagnostics';
 import { safeItemTitleFailureDetails } from '../features/items/editor/itemEditorDiagnostics';
 import { safeRenderFailureDetails } from './renderFailure';
 import { safeWeatherDetails } from '../features/weather/weatherDiagnostics';
+import { readDavDiagnostics } from './webdavDiagnostics';
 
 export const exportSafeDiagnostics = (): DiagnosticEntry[] => [...readPerformanceProfiles().map(profile => ({ at: profile.at, kind: 'usage' as const, message: 'Performance profile', operation: 'Performance profile v1', details: JSON.stringify(profile) })), ...readSyncTrace().map(entry => ({ at: entry.at, kind: 'result' as const, message: `Sync trace ${entry.event}`, operation: 'Sync trace v1', details: JSON.stringify(entry) })), ...readStartupLog().map((entry) => ({ at: entry.at, kind: 'result' as const, message: `Startup ${entry.stage} ${entry.phase}`, operation: `Startup ${entry.source}`, durationMs: entry.elapsedMs, details: JSON.stringify(entry) })), ...readDiagnostics().map(({ details, ...entry }) => {
   if (/^WebDAV (connection|sync|log upload)$/.test(entry.operation ?? '')) {
@@ -49,4 +50,4 @@ export const exportSafeDiagnostics = (): DiagnosticEntry[] => [...readPerformanc
   return details && ['password-or-encrypted-data', 'browser-storage', 'workspace-document', 'recurrence-processing', 'unexpected'].includes(details)
     ? { ...entry, details }
     : entry;
-})];
+}), ...readDavDiagnostics().map(entry => ({ at: (entry as { at?: string }).at ?? '', kind: 'result' as const, message: 'WebDAV development audit', operation: 'WebDAV development audit', details: JSON.stringify(entry) }))];

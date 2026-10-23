@@ -1,6 +1,9 @@
+import { auditDav } from './webdavDiagnostics';
 export interface DavConnection { url: string; folder: string; username: string; password: string }
-export interface DavResult { status: number; text: string; etag: string | null }
-type NativeReply = { id: string; status?: number; text?: string; etag?: string; error?: string };
+export interface DavResult { status: number; text: string; etag: string | null; lockToken?: string | undefined; lockTimeout?: string | undefined }
+type NativeReply = { id: string; status?: number; text?: string; etag?: string; lockToken?: string; lockTimeout?: string; error?: string };
+type DavMethod = 'GET' | 'PUT' | 'MKCOL' | 'OPTIONS' | 'DELETE' | 'MOVE' | 'LOCK' | 'UNLOCK';
+interface DavCondition { etag?: string; create?: boolean; destination?: string; ifNoneMatch?: string; lockToken?: string }
 const waiting = new Map<string, (reply: NativeReply) => void>();
 let listening = false;
 const native = () => typeof window !== 'undefined' ? window.webkit?.messageHandlers?.utmNativeWebDAV : undefined;
@@ -16,7 +19,20 @@ export function davBase(connection: DavConnection): URL {
   return url;
 }
 
-export async function davRequest(connection: DavConnection, method: 'GET' | 'PUT' | 'MKCOL' | 'OPTIONS' | 'DELETE' | 'MOVE', path = '', body?: string, condition?: { etag?: string; create?: boolean; destination?: string; ifNoneMatch?: string }): Promise<DavResult> {
+export async function davRequest(connection: DavConnection, method: DavMethod, path = '', body?: string, condition?: DavCondition): Promise<DavResult> {
+  const requestId = crypto.randomUUID(), started = performance.now();
+  const resource = path.startsWith('workspace-') ? 'workspace' : path.startsWith('recovery/') ? 'recovery' : path.startsWith('logs') ? 'log' : path.startsWith('conflict-') ? 'conflict' : 'probe-or-folder';
+  auditDav('request-start', { requestId, method, resource, native: hasNativeWebDAV(), uploadBytes: body === undefined ? 0 : new TextEncoder().encode(body).length, conditional: Boolean(condition?.etag || condition?.create || condition?.ifNoneMatch) });
+  try {
+    const result = await performDavRequest(connection, method, path, body, condition);
+    auditDav('request-complete', { requestId, method, resource, durationMs: performance.now() - started, status: result.status, etag: result.etag, downloadBytes: new TextEncoder().encode(result.text).length });
+    return result;
+  } catch (error) {
+    auditDav('request-failed', { requestId, method, resource, durationMs: performance.now() - started, code: error instanceof Error && /^webdav-[a-z0-9-]+$/.test(error.message) ? error.message : 'unexpected' });
+    throw error;
+  }
+}
+async function performDavRequest(connection: DavConnection, method: DavMethod, path = '', body?: string, condition?: DavCondition): Promise<DavResult> {
   const base = davBase(connection);
   if (body !== undefined && new TextEncoder().encode(body).byteLength > 20 * 1024 * 1024) throw new Error('webdav-too-large');
   if (method === 'DELETE' && !/^probe-[a-f0-9-]{36}\.json$/.test(path)) throw new Error('webdav-invalid-path');
@@ -31,6 +47,15 @@ export async function davRequest(connection: DavConnection, method: 'GET' | 'PUT
   if (condition?.etag) headers['If-Match'] = condition.etag;
   if (condition?.create) headers['If-None-Match'] = '*';
   if (method === 'GET' && condition?.ifNoneMatch) headers['If-None-Match'] = condition.ifNoneMatch;
+  if (condition?.lockToken) {
+    if (!/^<[^<>\s]+>$/.test(condition.lockToken)) throw new Error('webdav-lock-required');
+    if (method === 'UNLOCK') headers['Lock-Token'] = condition.lockToken;
+    else headers.If = `(${condition.lockToken})`;
+  }
+  if (method === 'LOCK') {
+    headers.Depth = '0'; headers.Timeout = 'Second-300';
+    if (body) headers['Content-Type'] = 'application/xml; charset=utf-8';
+  }
   if (method === 'MOVE') {
     const destination = condition?.destination;
     if (!destination || !/^[a-zA-Z0-9_./-]+$/.test(destination) || destination.split('/').some(part => part === '.' || part === '..')) throw new Error('webdav-invalid-path');
@@ -47,7 +72,7 @@ export async function davRequest(connection: DavConnection, method: 'GET' | 'PUT
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { waiting.delete(id); handler.postMessage({ id, kind: 'cancel' }); reject(new Error('webdav-timeout')); }, 35_000);
-      waiting.set(id, reply => { clearTimeout(timer); waiting.delete(id); reply.error ? reject(new Error('webdav-network')) : resolve({ status: reply.status ?? 0, text: reply.text ?? '', etag: reply.etag ?? null }); });
+      waiting.set(id, reply => { clearTimeout(timer); waiting.delete(id); reply.error ? reject(new Error('webdav-network')) : resolve({ status: reply.status ?? 0, text: reply.text ?? '', etag: reply.etag ?? null, lockToken: reply.lockToken, lockTimeout: reply.lockTimeout }); });
       try { handler.postMessage({ id, kind: 'request', url: url.href, method, headers, ...(body === undefined ? {} : { body }) }); }
       catch { clearTimeout(timer); waiting.delete(id); reject(new Error('webdav-network')); }
     });
@@ -65,11 +90,32 @@ export async function davRequest(connection: DavConnection, method: 'GET' | 'PUT
       }
       text += decoder.decode();
     } finally { reader.releaseLock(); }
-    return { status: response.status, text, etag: response.headers.get('etag') };
+    return { status: response.status, text, etag: response.headers.get('etag'), lockToken: response.headers.get('lock-token') ?? undefined, lockTimeout: response.headers.get('timeout') ?? undefined };
   } catch (error) {
     if (error instanceof Error && error.message === 'webdav-too-large') throw error;
     throw new Error('webdav-network-or-cors');
   }
+}
+
+export async function acquireDavLock(connection: DavConnection, path: string) {
+  const body = '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>';
+  const reply = await davRequest(connection, 'LOCK', path, body);
+  if ([423, 409, 500].includes(reply.status)) throw new Error('webdav-server-busy');
+  if ([405, 501].includes(reply.status)) throw new Error('webdav-lock-required');
+  davStatus(reply);
+  if (!reply.lockToken || !/^<[^<>\s]+>$/.test(reply.lockToken)) throw new Error('webdav-lock-required');
+  const token = reply.lockToken;
+  const seconds = Number(/^Second-(\d+)$/i.exec(reply.lockTimeout ?? '')?.[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 600) {
+    await davRequest(connection, 'UNLOCK', path, undefined, { lockToken: token }).catch(() => undefined);
+    throw new Error('webdav-lock-required');
+  }
+  auditDav('lock-acquired', { created: reply.status === 201, timeoutSeconds: seconds });
+  return {
+    token, created: reply.status === 201,
+    refresh: async () => { davStatus(await davRequest(connection, 'LOCK', path, undefined, { lockToken: token })); auditDav('lock-refreshed'); },
+    release: async () => { davStatus(await davRequest(connection, 'UNLOCK', path, undefined, { lockToken: token })); auditDav('lock-released'); },
+  };
 }
 
 /** Some embedded DAV servers reject If-None-Match even for absent files.

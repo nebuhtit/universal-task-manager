@@ -18,6 +18,7 @@ const payload = (workspace: WorkspaceDocument): DavPayload => ({ format: 'utm-we
 
 function server() {
   const files = new Map<string, { text: string; etag: string }>();
+  const locks = new Map<string, string>();
   let counter = 0;
   const requests: { method: string; path: string; ifNoneMatch: string | null }[] = [];
   let race: (() => void | Promise<void>) | undefined;
@@ -31,12 +32,28 @@ function server() {
     requests.push({ method, path, ifNoneMatch: headers.get('If-None-Match') });
     if (failStatus) return new Response('', { status: failStatus });
     if (method === 'MKCOL') return new Response('', { status: 201 });
+    if (method === 'LOCK') {
+      const oldToken = locks.get(path);
+      if (!init.body) return new Response('', { status: oldToken && headers.get('If') === `(${oldToken})` ? 200 : 412 });
+      if (oldToken) return new Response('', { status: 423 });
+      const token = `<opaquelocktoken:${crypto.randomUUID()}>`;
+      locks.set(path, token);
+      const created = !files.has(path);
+      if (created) files.set(path, { text: '', etag: `"${++counter}"` });
+      return new Response('', { status: created ? 201 : 200, headers: { 'Lock-Token': token, Timeout: 'Second-300' } });
+    }
+    if (method === 'UNLOCK') {
+      if (locks.get(path) !== headers.get('Lock-Token')) return new Response('', { status: 409 });
+      locks.delete(path); return new Response(null, { status: 204 });
+    }
+    if (method !== 'GET' && locks.has(path) && headers.get('If') !== `(${locks.get(path)})`) return new Response('', { status: 423 });
     let old = files.get(path);
     if (method === 'GET') {
       if (old && !noEtag && headers.get('If-None-Match') === old.etag) return new Response(null, { status: 304, headers: { ETag: old.etag } });
       return new Response(old?.text ?? '', { status: old ? 200 : 404, headers: old && !noEtag ? { ETag: old.etag } : {} });
     }
     if (race && path.includes('workspace-')) { const callback = race; race = undefined; await callback(); old = files.get(path); }
+    if (headers.has('If') && headers.get('If') !== `(${locks.get(path)})`) return new Response('', { status: 412 });
     if (method === 'MOVE') {
       const target = new URL(headers.get('Destination')!).pathname;
       if (!old) return new Response('', { status: 404 });
@@ -51,7 +68,7 @@ function server() {
     return new Response('', { status: 201, headers: noEtag || noWriteEtag ? {} : { ETag: `"${counter}"` } });
   });
   vi.stubGlobal('fetch', fetcher);
-  return { files, requests, fetcher, omitWriteEtag: () => { noWriteEtag = true; }, useMoveCreate: (unsafe = false) => { rejectCreate = true; unsafeMove = unsafe; }, race: (callback: () => void | Promise<void>) => { race = callback; }, fail: (status: number) => { failStatus = status; }, omitEtag: () => { noEtag = true; } };
+  return { files, requests, fetcher, expireLocks: () => locks.clear(), omitWriteEtag: () => { noWriteEtag = true; }, useMoveCreate: (unsafe = false) => { rejectCreate = true; unsafeMove = unsafe; }, race: (callback: () => void | Promise<void>) => { race = callback; }, fail: (status: number) => { failStatus = status; }, omitEtag: () => { noEtag = true; } };
 }
 function device(initial: WorkspaceDocument) {
   let document = clone(initial), config = settings();
@@ -103,6 +120,104 @@ describe('WebDAV three-way merge', () => {
 });
 
 describe('encrypted WebDAV protocol', () => {
+  it('converges simultaneous first synchronization without dropping newly created tasks', async () => {
+    server(); const { workspace } = fixture(); const a = device(workspace), b = device(workspace);
+    const left = createItem('Left task'), right = createItem('Right task');
+    a.edit(draft => { draft.items[left.id] = left; }); b.edit(draft => { draft.items[right.id] = right; });
+    const outcomes = await Promise.allSettled([a.run(), b.run()]);
+    expect(outcomes.some(result => result.status === 'fulfilled')).toBe(true);
+    for (const result of outcomes) if (result.status === 'rejected') expect(String(result.reason)).toContain('webdav-server-busy');
+    await a.run(); await b.run(); await a.run();
+    expect(a.document.items[left.id]?.title).toBe('Left task');
+    expect(a.document.items[right.id]?.title).toBe('Right task');
+    expect(syncSnapshot(a.document)).toEqual(syncSnapshot(b.document));
+  });
+  it('blocks workspace writes if the server does not support exclusive locks', async () => {
+    const remote = server(); const a = device(fixture().workspace);
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => init.method === 'LOCK' ? new Response('', { status: 405 }) : remote.fetcher(url, init)));
+    await expect(a.run()).rejects.toThrow('webdav-lock-required');
+    expect(remote.requests.some(request => request.method === 'PUT' && request.path.includes('workspace-'))).toBe(false);
+  });
+  it('recovers a committed write whose HTTP response was lost without discarding either device edit', async () => {
+    const remote = server(); const { workspace, id } = fixture(); const a = device(workspace), b = device(workspace);
+    await a.run(); await b.run();
+    a.edit(draft => { draft.items[id]!.title = 'A'; });
+    const baseline = a.config.baseline;
+    let lost = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      const response = await remote.fetcher(url, init);
+      if (!lost && init.method === 'PUT' && new URL(url).pathname.includes('workspace-') && response.ok) { lost = true; throw new Error('Connection lost after commit'); }
+      return response;
+    }));
+    await expect(a.run()).rejects.toThrow('webdav-network-or-cors');
+    expect(a.config.baseline).toBe(baseline);
+    expect(a.document.items[id]!.title).toBe('A');
+    vi.stubGlobal('fetch', remote.fetcher);
+    b.edit(draft => { draft.items[id]!.bodyMarkdown = 'B'; });
+    await b.run(); await a.run();
+    expect(a.document.items[id]).toMatchObject({ title: 'A', bodyMarkdown: 'B' });
+    expect(syncSnapshot(a.document)).toEqual(syncSnapshot(b.document));
+  });
+  it('reacquires an expired lock and merges the intervening writer instead of using a stale token', async () => {
+    const remote = server(); const { workspace, id } = fixture(); const a = device(workspace), b = device(workspace);
+    await a.run(); await b.run();
+    a.edit(draft => { draft.items[id]!.title = 'A'; });
+    b.edit(draft => { draft.items[id]!.bodyMarkdown = 'B'; });
+    remote.race(async () => { remote.expireLocks(); await b.run(); });
+    await a.run(); await b.run();
+    expect(a.document.items[id]).toMatchObject({ title: 'A', bodyMarkdown: 'B' });
+    expect(syncSnapshot(a.document)).toEqual(syncSnapshot(b.document));
+  });
+  it('does not advance the checkpoint when write readback is damaged', async () => {
+    const remote = server(); const { workspace, id } = fixture(); const a = device(workspace);
+    await a.run(); const baseline = a.config.baseline;
+    a.edit(draft => { draft.items[id]!.title = 'Keep locally'; });
+    let written = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      const response = await remote.fetcher(url, init);
+      if (new URL(url).pathname.includes('workspace-')) {
+        if (written && init.method === 'GET') return new Response('partial file', { status: 200, headers: { ETag: '"damaged"' } });
+        if (init.method === 'PUT' && response.ok) written = true;
+      }
+      return response;
+    }));
+    await expect(a.run()).rejects.toThrow('webdav-password-or-damaged-file');
+    expect(a.config.baseline).toBe(baseline);
+    expect(a.document.items[id]!.title).toBe('Keep locally');
+    vi.stubGlobal('fetch', remote.fetcher);
+    await a.run();
+    expect(a.document.items[id]!.title).toBe('Keep locally');
+  });
+  it('preserves both branches before applying incoming changes and blocks changes if recovery storage fails', async () => {
+    const remote = server(); const { workspace, id } = fixture(); const a = device(workspace), b = device(workspace);
+    await a.run(); await b.run();
+    b.edit(draft => { draft.items[id]!.title = 'Incoming edit'; }); await b.run();
+    const existing = new Set(remote.files.keys());
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => new URL(url).pathname.includes('/recovery/')
+      ? new Response('', { status: 507 }) : remote.fetcher(url, init)));
+    await expect(runDavSync({ ...a.config, logs: false }, a.ports)).rejects.toThrow('webdav-http-507');
+    expect(a.document.items[id]!.title).toBe('Original');
+    vi.stubGlobal('fetch', remote.fetcher);
+    await runDavSync({ ...a.config, logs: false }, a.ports);
+    expect(a.document.items[id]!.title).toBe('Incoming edit');
+    const copies = [...remote.files.entries()].filter(([path]) => path.includes('/recovery/') && !existing.has(path));
+    expect(copies).toHaveLength(2);
+    const snapshots = await Promise.all(copies.map(([, file]) => decodeDavState(file.text, a.config.syncPassword, workspace)));
+    expect(snapshots.map(s => (s.snapshot.items as WorkspaceDocument['items'])[id]!.title).sort()).toEqual(['Incoming edit', 'Original']);
+    expect(copies.every(([, file]) => !file.text.includes('Incoming edit'))).toBe(true);
+  });
+  it('accepts a newer app version with the same protocol/schema and rejects an unknown schema before overwriting', async () => {
+    const remote = server(); const { workspace } = fixture(); const a = device(workspace);
+    const state = { ...payload(workspace), appVersion: '99.0.0' };
+    expect((await decodeDavState(await encodeDavState(state, a.config.syncPassword), a.config.syncPassword, workspace)).appVersion).toBe('99.0.0');
+    const path = `/dav/Sync/${await davWorkspacePath(workspace.workspaceId)}`;
+    const text = await encodeDavState({ ...state, schemaVersion: '99.0.0' }, a.config.syncPassword);
+    remote.files.set(path, { text, etag: '"future"' });
+    await expect(a.run()).rejects.toThrow('webdav-schema-version');
+    expect(remote.files.get(path)?.text).toBe(text);
+    expect(remote.requests.some(r => r.method === 'PUT' && r.path === path)).toBe(false);
+    expect(a.ports.checkpoint).not.toHaveBeenCalled();
+  });
   it('uses 304 without downloading/decrypting the body, including after restart', async () => {
     const remote = server(); const { workspace } = fixture(); const first = device(workspace);
     await first.run();
@@ -114,7 +229,7 @@ describe('encrypted WebDAV protocol', () => {
     const restarted = device(first.document);
     const before = remote.requests.length;
     await runDavSync(config, restarted.ports);
-    const requests = remote.requests.slice(before).filter(request => request.path.includes('workspace-'));
+    const requests = remote.requests.slice(before).filter(request => request.method === 'GET' && request.path.includes('workspace-'));
     expect(requests).toHaveLength(1);
     expect(requests[0]?.ifNoneMatch).toBe(config.remoteCache!.etag);
     expect(restarted.document).toEqual(first.document);
@@ -141,11 +256,11 @@ describe('encrypted WebDAV protocol', () => {
     await runDavSync({ ...first.config, username: 'another-user' }, first.ports);
     expect(remote.requests.slice(before).find(request => request.method === 'GET' && request.path.includes('workspace-'))?.ifNoneMatch).toBeNull();
   });
-  it('does not retain stale cache tags if PUT omits an ETag', async () => {
+  it('uses the verified readback ETag if PUT omits an ETag', async () => {
     const remote = server(); const { workspace } = fixture(); const first = device(workspace);
     remote.omitWriteEtag();
     await first.run();
-    expect(first.config.remoteCache).toBeUndefined();
+    expect(first.config.remoteCache?.etag).toBeTruthy();
   });
   it('opens an existing workspace read-only with a checkpoint for a second device', async () => {
     const remote = server(); const { workspace, id } = fixture(); const config = settings();
@@ -206,8 +321,8 @@ describe('encrypted WebDAV protocol', () => {
     await a.run(); await b.run();
     a.edit(draft => { draft.items[id]!.title = 'A'; });
     b.edit(draft => { draft.items[id]!.bodyMarkdown = 'B'; });
-    remote.race(async () => { await b.run(); });
-    await a.run(); await b.run();
+    remote.race(async () => { await expect(b.run()).rejects.toThrow('webdav-server-busy'); });
+    await a.run(); await b.run(); await a.run();
     expect(a.document.items[id]).toMatchObject({ title: 'A', bodyMarkdown: 'B' });
     expect(syncSnapshot(a.document)).toEqual(syncSnapshot(b.document));
   });

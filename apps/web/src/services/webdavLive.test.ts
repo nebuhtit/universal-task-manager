@@ -1,4 +1,6 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import https from 'node:https';
+import { networkInterfaces } from 'node:os';
 import { createItem, createWorkspace, type WorkspaceDocument } from '@utm/core';
 import { runDavSync, uploadDavLog, safeDavLog, type DavSettings } from './webdavSync';
 import { davBase } from './webdavTransport';
@@ -11,6 +13,30 @@ it.skipIf(!enabled)('round-trips two synthetic devices and safe logs on an isola
   const workspace = createWorkspace('Synthetic WebDAV integration test');
   const item = createItem('Synthetic task'); workspace.items[item.id] = item;
   const base = davBase(config);
+  const originalFetch = globalThis.fetch;
+  const createdPaths = new Set<string>();
+  const testFetch: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) throw new Error('Synthetic test escaped its folder');
+    const response = process.env.UTM_WEBDAV_TEST_IP ? await new Promise<Response>((resolve, reject) => {
+      const iface = process.env.UTM_WEBDAV_INTERFACE;
+      const localAddress = iface ? networkInterfaces()[iface]?.find(a => a.family === 'IPv4')?.address : undefined;
+      const req = https.request(url, { method: init?.method, headers: Object.fromEntries(new Headers(init?.headers).entries()), ...(localAddress ? { localAddress } : {}), lookup: (_host, _options, callback) => callback(null, process.env.UTM_WEBDAV_TEST_IP!, 4) }, reply => {
+        const chunks: Buffer[] = []; reply.on('data', chunk => chunks.push(Buffer.from(chunk)));
+        reply.on('end', () => resolve(new Response([204, 304].includes(reply.statusCode!) ? null : Buffer.concat(chunks), { status: reply.statusCode!, headers: Object.fromEntries(Object.entries(reply.headers).filter(([, v]) => typeof v === 'string') as [string, string][]) })));
+        reply.on('error', reject);
+      });
+      req.on('error', reject); req.setTimeout(20_000, () => req.destroy(new Error('Synthetic test timeout'))); req.end(init?.body);
+    }) : await originalFetch(input, init);
+    if (response.ok && ['PUT', 'MKCOL', 'LOCK'].includes(init?.method ?? '')) createdPaths.add(url.pathname.slice(base.pathname.length));
+    if (response.ok && init?.method === 'MOVE') {
+      const destination = new URL(new Headers(init.headers).get('Destination')!);
+      if (!destination.pathname.startsWith(base.pathname)) throw new Error('Invalid synthetic destination');
+      createdPaths.add(destination.pathname.slice(base.pathname.length));
+    }
+    return response;
+  };
+  vi.stubGlobal('fetch', testFetch);
   const auth = `Basic ${Buffer.from(`${config.username}:${config.password}`).toString('base64')}`;
   const raw = (method: string, path: string) => fetch(new URL(path, base), { method, headers: { Authorization: auth }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
   // A successful fresh MKCOL proves ownership of the exact cleanup scope.
@@ -30,6 +56,9 @@ it.skipIf(!enabled)('round-trips two synthetic devices and safe logs on an isola
     const a = device(), b = device(); await a.run(); await b.run();
     a.edit(draft => { draft.items[item.id]!.title = 'Synthetic device A edit'; });
     b.edit(draft => { draft.items[item.id]!.bodyMarkdown = 'Synthetic device B edit'; });
+    const outcomes = await Promise.allSettled([a.run(), b.run()]);
+    expect(outcomes.some(r => r.status === 'fulfilled')).toBe(true);
+    for (const outcome of outcomes) if (outcome.status === 'rejected') expect(String(outcome.reason)).toContain('webdav-server-busy');
     await a.run(); await b.run(); await a.run();
     expect(syncSnapshot(a.document)).toEqual(syncSnapshot(b.document));
     const read = await raw('GET', statePath); expect(read.status).toBe(200);
@@ -39,9 +68,9 @@ it.skipIf(!enabled)('round-trips two synthetic devices and safe logs on an isola
     const text = await log.text(); expect(text).not.toContain(config.password); expect(text).not.toContain(config.url); expect(text).not.toContain('Synthetic task');
   } finally {
     // Only these generated paths are ours. Never enumerate/delete user files.
-    await raw('DELETE', `logs/device-${config.deviceId}.json`);
-    await raw('DELETE', 'logs/');
-    await raw('DELETE', statePath);
-    const removed = await raw('DELETE', ''); expect(removed.status).toBe(204);
+    try {
+      for (const path of [...createdPaths].filter(Boolean).sort((a, b) => b.split('/').length - a.split('/').length || Number(a.endsWith('/')) - Number(b.endsWith('/')))) await raw('DELETE', path);
+      const removed = await raw('DELETE', ''); expect(removed.status).toBe(204);
+    } finally { vi.unstubAllGlobals(); }
   }
 }, 90_000);
