@@ -1,5 +1,6 @@
 import { WeatherSettings } from '../weather/WeatherSettings';
 import { InstallationGuide } from '../../components/InstallationGuide';
+import { WebDavGuide } from '../../components/WebDavGuide';
 import { SupportDevelopment } from '../../components/SupportDevelopment';
 import { commandGuide } from '../../../quick-entry-lab/commandGuide';
 import './command-guide.css';
@@ -224,7 +225,7 @@ export function SettingsPage({ workspace, passwordProtection, onPasswordProtecti
   };
   const discardQuarantinedRecurrence = (issueId: string, itemId: string) => commit('Remove incompatible recurrence', (draft) => { const item = draft.items[itemId]; const issue = draft.migrationIssues.find((entry) => entry.id === issueId); const quarantine = item?.extensions?.quarantine as Record<string, unknown> | undefined; if (quarantine) delete quarantine.recurrence; if (issue) issue.status = 'resolved'; });
   return <div className="settings-page"><div className="page-title"><div><h1>Settings</h1></div></div><NativeAgendaSettings ru={workspace.calendarPreferences.language === 'ru'} />{criticalError && <p className="error" role="alert">{criticalError}</p>}
-<details className="settings-disclosure"><summary>Guide</summary><section className="settings-card settings-guide"><p className="eyebrow">GUIDE</p><h2>{workspace.calendarPreferences.language === 'ru' ? 'Как пользоваться Universal' : 'Using Universal'}</h2><InstallationGuide language={workspace.calendarPreferences.language} /><ProductGuide language={workspace.calendarPreferences.language} /></section></details>
+<details className="settings-disclosure"><summary>Guide</summary><section className="settings-card settings-guide"><p className="eyebrow">GUIDE</p><h2>{workspace.calendarPreferences.language === 'ru' ? 'Как пользоваться Universal' : 'Using Universal'}</h2><InstallationGuide language={workspace.calendarPreferences.language} /><WebDavGuide language={workspace.calendarPreferences.language} /><ProductGuide language={workspace.calendarPreferences.language} /></section></details>
 <WeatherSettings ru={workspace.calendarPreferences.language === 'ru'} zone={workspace.calendarPreferences.timezone} />
 <details className="settings-disclosure"><summary>Calendar and Google Calendar</summary><CalendarIntegrationSettings workspace={workspace} commit={commit} onFlush={onBeforeCriticalAction} onSyncLogChange={setGoogleSyncLog} /></details>
 <details className="settings-disclosure"><summary>Appearance and sounds</summary><section className="settings-card settings-home-screen"><p className="eyebrow">HOME</p><h2>Home screen</h2><Checkbox checked={workspace.calendarPreferences.hideDuplicateItemsAcrossHomeViews} onChange={(event) => commit('Toggle duplicate items across Home Views', (draft) => { draft.calendarPreferences.hideDuplicateItemsAcrossHomeViews = event.target.checked; })} label="Show each item only in its first expanded View" /><p className="hint">Collapsed Views do not claim items. An item moves to the next matching expanded View when the View above it is collapsed.</p></section>

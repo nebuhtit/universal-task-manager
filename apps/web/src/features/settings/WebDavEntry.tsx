@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { WebDavGuide } from '../../components/WebDavGuide';
 import { Button, Field, Input } from '../../components/ui/primitives';
 import type { DavSettings } from '../../services/webdavSync';
 import { auditDav, setDavDiagnosticsEnabled } from '../../services/webdavDiagnostics';
@@ -28,6 +29,7 @@ const stageLabel = (stage: WebDavEntryStage | null, ru: boolean) => {
 const openError = (reason: unknown, stage: WebDavEntryStage | null, ru: boolean) => {
   const code = reason instanceof Error ? reason.message : '';
   const messages: Record<string, string> = ru ? {
+    'webdav-invalid-proxy': 'Укажите HTTPS-адрес посредника или http://127.0.0.1:8788/dav для локального запуска.',
     'webdav-invalid-workspace-code': 'Код рабочего пространства должен быть UUID из настроек WebDAV на уже подключённом устройстве.',
     'webdav-https-required': 'Адрес должен начинаться с https:// и не содержать логин, пароль или параметры после знака ?.',
     'webdav-invalid-folder': 'Путь к папке некорректен. Уберите сегменты «.» и «..» и проверьте слеши.',
@@ -46,6 +48,7 @@ const openError = (reason: unknown, stage: WebDavEntryStage | null, ru: boolean)
     'webdav-sync-password': 'Общий пароль синхронизации должен быть не короче 10 символов.',
     'webdav-local-save': 'Серверные данные проверены, но приложение не подтвердило завершение локального сохранения. Сервер не изменён. Не очищайте данные приложения; скачайте журнал и повторите попытку.',
   } : {
+    'webdav-invalid-proxy': 'Enter an HTTPS proxy address, or http://127.0.0.1:8788/dav for a local relay.',
     'webdav-invalid-workspace-code': 'Workspace code must be the UUID shown in WebDAV settings on an already connected device.',
     'webdav-https-required': 'Use an https:// address without embedded credentials or query parameters.',
     'webdav-invalid-folder': 'The folder path is invalid. Remove “.” or “..” path segments and check the slashes.',
@@ -99,17 +102,18 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
       } finally { setBusy(false); }
     }}>
       <fieldset disabled={disabled || busy}>
-        {!hasNativeWebDAV() && <Field label={ru ? 'HTTPS-посредник (если сервер не поддерживает CORS)' : 'HTTPS proxy (if your server does not support CORS)'} hint={ru ? 'Посредник получает пароль WebDAV для передачи серверу. Используйте только доверенный адрес. Пароль шифрования пространства ему не передаётся.' : 'The proxy receives your WebDAV password to contact the server. Use a trusted endpoint only. Your workspace encryption password is not sent to it.'}><Input type="url" placeholder="https://your-worker.workers.dev/dav" value={draft.proxyUrl ?? defaultDavProxy(draft.url)} onChange={e => setDraft({ ...draft, proxyUrl: e.target.value })} /></Field>}
+        {!hasNativeWebDAV() && <Field label={ru ? 'Посредник при ошибке прямого доступа (необязательно)' : 'Fallback proxy (optional)'} hint={ru ? 'Посредник получает пароль WebDAV для передачи серверу. Используйте только доверенный адрес. Пароль шифрования пространства ему не передаётся.' : 'The proxy receives your WebDAV password to contact the server. Use a trusted endpoint only. Your workspace encryption password is not sent to it.'}><Input type="url" placeholder="https://your-worker.workers.dev/dav" value={draft.proxyUrl ?? defaultDavProxy(draft.url)} onChange={e => setDraft({ ...draft, proxyUrl: e.target.value })} /></Field>}
         <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'}><Input type="url" required placeholder="https://server.example/webdav/" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value, folder: '' })} /><small>{ru ? 'Для UniversalSync укажите адрес сервера, например …/webdav/. Другую папку можно дописать в URL без завершающего слеша.' : 'For UniversalSync, enter the server address, e.g. …/webdav/. Append a different folder to the URL without a trailing slash.'}</small></Field>
         <Field label={ru ? 'Логин WebDAV' : 'WebDAV username'}><Input autoComplete="username" required value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></Field>
         <Field label={ru ? 'Пароль WebDAV' : 'WebDAV password'}><Input type="password" autoComplete="current-password" required value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></Field>
         <Field label={ru ? 'Код рабочего пространства' : 'Workspace code'}><Input required autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={code} onChange={e => setCode(e.target.value)} /><small>{ru ? 'Это не пароль: код указывает, какой зашифрованный файл скачать. Без него нельзя безопасно выбрать нужное пространство среди файлов на сервере.' : 'This is not a password: the code identifies which encrypted file to download. Without it, the app cannot safely select the right workspace on the server.'}</small></Field>
         <Field label={ru ? 'Пароль рабочего пространства' : 'Workspace password'}><Input type="password" autoComplete="current-password" minLength={10} required value={draft.syncPassword} onChange={e => setDraft({ ...draft, syncPassword: e.target.value })} /><small>{ru ? 'Введите существующий общий пароль синхронизации с первого устройства. Этот же пароль будет открывать пространство на новом устройстве — придумывать новый не нужно.' : 'Enter the existing shared sync password from your first device. The same password will unlock the workspace on this device; no new password is needed.'}</small></Field>
-        <p>{ru ? 'Данные WebDAV дают доступ к серверу, пароль пространства — к зашифрованным задачам. На уже подключённых устройствах прежний пароль входа сохраняется. Google подключается отдельно. В браузере сервер должен поддерживать CORS.' : 'WebDAV credentials give access to the server; the workspace password opens your encrypted tasks. Devices already connected keep their existing unlock password. Connect Google separately. Browser access requires server CORS support.'}</p>
+        <p>{ru ? 'Данные WebDAV дают доступ к серверу, пароль пространства — к зашифрованным задачам. На уже подключённых устройствах прежний пароль входа сохраняется. Google подключается отдельно. В браузере сначала проверяется прямой доступ; при сетевой/CORS-ошибке используется указанный посредник.' : 'WebDAV credentials give access to the server; the workspace password opens your encrypted tasks. Devices already connected keep their existing unlock password. Connect Google separately. Browser access tries the server directly first, then the configured proxy after a network/CORS error.'}</p>
         <Button type="submit">{busy ? (ru ? 'Открываем…' : 'Opening…') : (ru ? 'Загрузить и открыть' : 'Download and open')}</Button>
       </fieldset>
     </form>
     {busy && <><p role="status">{stageLabel(stage, ru) || (ru ? 'Подготавливаем подключение…' : 'Preparing connection…')}</p><progress aria-label={ru ? 'Открытие WebDAV' : 'Opening WebDAV'} /></>}
     {error && <p role="alert">{error}</p>}
+    <WebDavGuide language={language} />
   </details>;
 }

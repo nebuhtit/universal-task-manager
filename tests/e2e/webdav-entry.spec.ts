@@ -5,7 +5,14 @@ for (const language of ['ru', 'en']) test(`WebDAV entry retains fields on denied
   await page.goto('/');
   await page.locator('.language-picker select').selectOption(language);
   const entry = page.locator('.webdav-entry');
-  await entry.locator('summary').click();
+  await entry.locator(':scope > summary').click();
+  const guide = entry.locator('.settings-guide-section');
+  await guide.locator('summary').click();
+  await expect(guide).toContainText('Cloudflare');
+  const relayLink = guide.getByRole('link', { name: language === 'ru' ? 'Скачать локальный посредник' : 'Download local relay' });
+  const script = await page.request.get((await relayLink.getAttribute('href'))!);
+  expect(script.ok()).toBe(true); expect(await script.text()).toContain('createLocalProxy');
+  await guide.locator('summary').click();
   const labels = language === 'ru'
     ? ['Адрес WebDAV (HTTPS)', 'Логин WebDAV', 'Пароль WebDAV', 'Код рабочего пространства', 'Пароль рабочего пространства']
     : ['WebDAV URL (HTTPS)', 'WebDAV username', 'WebDAV password', 'Workspace code', 'Workspace password'];

@@ -1,5 +1,6 @@
 import { CalendarPinDialog } from './features/calendar/CalendarPinDialog';
 import { InstallationGuide } from './components/InstallationGuide';
+import { WebDavGuide } from './components/WebDavGuide';
 import { SupportDevelopment } from './components/SupportDevelopment';
 import type { CalendarPageCache } from './features/calendar/calendarPageCache';
 import { exportSafeDiagnostics } from './services/diagnosticsExport';
@@ -481,6 +482,7 @@ function LockScreen({ exists: storedExists, onReady, onSafeReady }: { exists: bo
       <details className="install-guide">
         <summary>Help</summary>
         <div>
+          <WebDavGuide language={language} />
           <p className="muted">Your data stays on this device, encrypted. There is no account and no password recovery. Please remember your password.</p>
           {exists && interrupted && <p translate="no">{language === 'ru' ? 'Предыдущий запуск не подтвердил завершение. Это не обязательно означает повреждение данных и не запрещает обычный вход.' : 'The previous launch did not confirm completion. This does not necessarily mean data is damaged and does not prevent normal sign-in.'}</p>}
           {!online && <p className="offline-notice"><strong>No internet connection.</strong> Offline mode is active. You can still download the encrypted local database and troubleshooting log below; online hosting features are unavailable.</p>}

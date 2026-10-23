@@ -1,0 +1,46 @@
+UTM — локальный посредник WebDAV / local WebDAV relay
+
+РУССКИЙ
+1. Пока интернет доступен, установите Node.js 22 или новее с https://nodejs.org/ и скачайте utm-webdav-local.mjs рядом с этой инструкцией. npm install не нужен. Установите UTM как PWA и один раз откройте её онлайн, чтобы подготовить офлайн-копию. Сохраните резервную копию .utmb.
+2. На Mac/Linux откройте Терминал в папке загрузки. Для обычного HTTPS WebDAV:
+   UPSTREAM_URL='https://your-server/webdav/' node utm-webdav-local.mjs
+   Windows PowerShell:
+   $env:UPSTREAM_URL='https://your-server/webdav/'; node .\utm-webdav-local.mjs
+3. В UTM на ЭТОМ ЖЕ компьютере в поле посредника введите http://127.0.0.1:8788/dav. Разрешите браузеру доступ к локальной сети, если он спросит. Браузеры могут ограничивать такие соединения: тогда используйте HTTPS и доверенный сертификат. Прямое подключение проверяется первым; посредник используется после сетевой/CORS-ошибки. Очистите поле, чтобы отключить посредника.
+4. Без WAN компьютер и WebDAV должны находиться в одной локальной сети. Если публичный домен роутера без интернета не разрешается, задайте сопоставление публичного адреса в UTM с реальным LAN-адресом:
+   DAV_URL='https://your-server/webdav/' UPSTREAM_URL='http://192.168.1.1/webdav/' node utm-webdav-local.mjs
+   В UTM оставьте https://your-server/webdav/. Имя здесь только идентификатор: локальный посредник направит запрос к LAN-адресу. Замените адрес и порт на настройки вашего роутера. При HTTP пароль WebDAV идёт по домашней сети без шифрования; используйте доверенную сеть, предпочтительно HTTPS. HTTPS-сертификаты сервера проверяются; проверку не отключайте. Свой центр сертификации можно добавить через NODE_EXTRA_CA_CERTS=/path/ca.pem.
+5. iPhone НЕ может обращаться к Mac через 127.0.0.1: это адрес самого iPhone. Для iPhone укажите реальный LAN-IP Mac и доверенный сертификат, соответствующий этому адресу/имени:
+   PROXY_HOST='192.168.1.20' TLS_CERT='/path/cert.pem' TLS_KEY='/path/key.pem' DAV_URL='https://your-server/webdav/' UPSTREAM_URL='http://192.168.1.1/webdav/' node utm-webdav-local.mjs
+   В UTM на iPhone: https://192.168.1.20:8788/dav. Сертификату должны доверять оба устройства (например, локальный CA, установленный вручную). Нативное приложение из Xcode и так подключается напрямую; посредник нужен браузеру/PWA.
+6. Не открывайте порт посредника в интернет. Он по умолчанию слушает только этот компьютер. ALLOWED_ORIGINS задаёт допустимые сайты через запятую; по умолчанию разрешён https://nebuhtit.github.io. Порт меняется через PROXY_PORT. Данные WebDAV вводятся только в UTM, не в команду запуска. DIAGNOSTICS=1 включает вывод только метода, HTTP-статуса и длительности, без адресов/паролей/содержимого. Ctrl+C останавливает процесс. Компьютер должен быть включён.
+Офлайн-PWA использует сохранённый сайт; первый запуск сайта без интернета невозможен. Локальный посредник не исправляет отсутствие доступа к самому WebDAV. Ни облако Cloudflare, ни интернет не нужны для LAN-посредника при правильно настроенных LAN-адресах. Локальная копия сайта и облачный сайт имеют разное хранилище; не меняйте адрес приложения без резервной копии.
+
+ENGLISH
+1. While online, install Node.js 22+ from https://nodejs.org/ and download utm-webdav-local.mjs beside this guide. No npm packages are needed. Install UTM as a PWA and open it online once to prepare its offline cache. Export a .utmb backup.
+2. In a terminal in the download folder (Mac/Linux):
+   UPSTREAM_URL='https://your-server/webdav/' node utm-webdav-local.mjs
+   Windows PowerShell:
+   $env:UPSTREAM_URL='https://your-server/webdav/'; node .\utm-webdav-local.mjs
+3. On the SAME computer set the UTM proxy field to http://127.0.0.1:8788/dav. Grant local-network permission if prompted. Browser restrictions vary; if blocked, use HTTPS with a trusted certificate. UTM tries direct access first, then the proxy after a network/CORS error. Empty proxy disables it.
+4. With no WAN, keep the computer and WebDAV server on the same LAN. If the public router domain does not resolve offline, map the URL entered in UTM to its LAN address:
+   DAV_URL='https://your-server/webdav/' UPSTREAM_URL='http://192.168.1.1/webdav/' node utm-webdav-local.mjs
+   Keep https://your-server/webdav/ in UTM. The relay maps that identifier to the LAN address without resolving the public hostname. Replace addresses/ports with your router settings. HTTP carries the WebDAV password unencrypted on the LAN: use a trusted network, preferably HTTPS. TLS validation remains enabled; add a local CA with NODE_EXTRA_CA_CERTS=/path/ca.pem if needed.
+5. An iPhone cannot reach your Mac via 127.0.0.1 (that refers to the iPhone itself). Bind to the Mac's actual LAN IP with a trusted certificate matching its address/name:
+   PROXY_HOST='192.168.1.20' TLS_CERT='/path/cert.pem' TLS_KEY='/path/key.pem' DAV_URL='https://your-server/webdav/' UPSTREAM_URL='http://192.168.1.1/webdav/' node utm-webdav-local.mjs
+   On iPhone use https://192.168.1.20:8788/dav. Both devices must trust the certificate/local CA. The Xcode native app already connects directly; the relay is for browsers/PWA.
+6. Never forward the relay port to the internet. Default binding is loopback only. ALLOWED_ORIGINS is a comma-separated list of trusted app origins, defaulting to https://nebuhtit.github.io. PROXY_PORT changes the port. Enter WebDAV credentials in UTM, not in launch commands. DIAGNOSTICS=1 logs method, status and duration only. Ctrl+C stops the server; the computer must stay on.
+The offline PWA needs its previously cached site; a first-ever offline website launch cannot work. The local relay cannot repair an unreachable WebDAV server. Cloudflare and internet are not required for correctly configured LAN addresses. Different app origins have separate browser storage; export a backup before changing the app address.
+
+Сертификат для iPhone / certificate for iPhone
+Заранее установите mkcert по инструкции https://github.com/FiloSottile/mkcert (интернет нужен при установке), затем на Mac:
+  mkcert -install
+  mkcert -cert-file cert.pem -key-file key.pem 192.168.1.20 localhost 127.0.0.1
+  mkcert -CAROOT
+Замените IP на LAN-IP Mac. Последняя команда показывает папку локального CA. На iPhone передайте ТОЛЬКО rootCA.pem, установите профиль в Настройки → Основные → VPN и управление устройством, затем включите полное доверие в Настройки → Основные → Об этом устройстве → Доверие сертификатам. НИКОГДА не передавайте rootCA-key.pem или key.pem. Если IP Mac изменился, пересоздайте сертификат. Используйте cert.pem и key.pem в TLS_CERT/TLS_KEY.
+Before going offline, install mkcert using the official link above. Run these commands, replacing the IP with the Mac's LAN IP. Transfer ONLY rootCA.pem from the directory shown by mkcert -CAROOT to iPhone. Install its profile in Settings → General → VPN & Device Management, then enable full trust in Settings → General → About → Certificate Trust Settings. NEVER share rootCA-key.pem or key.pem. Regenerate the certificate if the Mac's IP changes. Pass cert.pem/key.pem as TLS_CERT/TLS_KEY.
+
+References / источники:
+https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Mixed_content
+https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Local_network_access
+https://nodejs.org/api/cli.html#node_extra_ca_certsfile
