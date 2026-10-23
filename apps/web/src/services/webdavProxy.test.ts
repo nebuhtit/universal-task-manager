@@ -1,7 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { davRequest, defaultDavProxy } from './webdavTransport';
+import { davRequest, defaultDavProxy, hasLocalDavEndpoint } from './webdavTransport';
 afterEach(() => vi.unstubAllGlobals());
 const connection = (id: string, proxyUrl = 'https://relay.example/dav') => ({ url: 'https://dav.example/webdav/', folder: id, username: 'u', password: 'p', proxyUrl });
+it('allows LAN retries even when browser online detection reports no internet', () => {
+  expect(hasLocalDavEndpoint(connection('lan', 'http://127.0.0.1:8788/dav'))).toBe(true);
+  expect(hasLocalDavEndpoint(connection('lan', 'https://192.168.1.20:8788/dav'))).toBe(true);
+  expect(hasLocalDavEndpoint(connection('remote'))).toBe(false);
+  expect(hasLocalDavEndpoint(connection('fake', 'https://192.168.1.20.evil.example/dav'))).toBe(false);
+});
 it('only suggests the automatic relay for the configured host', () => {
   expect(defaultDavProxy('https://kaksam.keenetic.pro/webdav/')).toContain('.workers.dev/dav');
   expect(defaultDavProxy('https://kaksam.keenetic.pro.evil.example/webdav/')).toBe('');

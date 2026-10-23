@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { readLocalDeviceSecret, writeLocalDeviceSecret } from '@utm/sdk';
 import type { WorkspaceDocument } from '@utm/core';
 import { DavConflict, runDavSync, safeDavLog, testDavConnection, uploadDavLog, type DavSettings } from '../services/webdavSync';
-import { davBase } from '../services/webdavTransport';
+import { davBase, hasLocalDavEndpoint } from '../services/webdavTransport';
 import { recordDiagnostic } from '../services/diagnostics';
 import { auditDav, setDavDiagnosticsEnabled } from '../services/webdavDiagnostics';
 
@@ -85,6 +85,7 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
     const value = config.current;
     if (!value) return;
     if (busy.current || (!choice && Date.now() < retryAt.current)) { auditDav('sync-queued', { busy: busy.current, retryAt: retryAt.current }); pending.current = true; return; }
+    if (!navigator.onLine && hasLocalDavEndpoint(value)) auditDav('lan-sync-without-wan');
     pending.current = false;
     const epoch = generation.current;
     busy.current = true; setRunning(true); setStatus('webdav-syncing');
@@ -126,11 +127,12 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
   useEffect(() => {
     if (!settings?.enabled || conflict) return;
     let nextPeriodic = 0;
-    const run = () => { if (navigator.onLine && document.visibilityState === 'visible') { pending.current = true; void synchronize(); } };
+    const networkReady = () => navigator.onLine || Boolean(config.current && hasLocalDavEndpoint(config.current));
+    const run = () => { if (networkReady() && document.visibilityState === 'visible') { pending.current = true; void synchronize(); } };
     const timer = setInterval(() => {
       if (pending.current || Date.now() >= nextPeriodic) {
         nextPeriodic = Date.now() + 60_000;
-        if (navigator.onLine && document.visibilityState === 'visible') void synchronize();
+        if (networkReady() && document.visibilityState === 'visible') void synchronize();
       }
     }, 1_000);
     window.addEventListener('online', run); window.addEventListener('focus', run);
@@ -140,7 +142,7 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
   }, [settings?.enabled, synchronize]);
   useEffect(() => {
     if (!settings?.enabled || conflict || !ports.workspace) return;
-    const timer = setTimeout(() => { if (navigator.onLine && document.visibilityState === 'visible') void synchronize(); }, 5_000);
+    const timer = setTimeout(() => { if ((navigator.onLine || Boolean(config.current && hasLocalDavEndpoint(config.current))) && document.visibilityState === 'visible') void synchronize(); }, 5_000);
     return () => clearTimeout(timer);
   }, [ports.workspace, settings?.enabled, conflict, synchronize]);
   return { settings, save, check, synchronize, running, status, lastSuccess, conflict, logError, workspaceId };

@@ -13,6 +13,18 @@ const rememberRoute = (key: string, proxy: boolean) => {
 };
 const native = () => typeof window !== 'undefined' ? window.webkit?.messageHandlers?.utmNativeWebDAV : undefined;
 export const hasNativeWebDAV = () => Boolean(native());
+export function hasLocalDavEndpoint(connection: DavConnection): boolean {
+  return [connection.url, connection.proxyUrl].some(value => {
+    if (!value) return false;
+    try {
+      const host = new URL(value).hostname.toLowerCase();
+      if (['localhost', '[::1]'].includes(host) || host.endsWith('.local') || /^\[(?:f[cd][0-9a-f]{2}:|fe80:)/.test(host)) return true;
+      const parts = host.split('.').map(Number);
+      return parts.length === 4 && parts.every(n => Number.isInteger(n) && n >= 0 && n <= 255)
+        && (parts[0] === 127 || parts[0] === 10 || (parts[0] === 192 && parts[1] === 168) || (parts[0] === 172 && parts[1]! >= 16 && parts[1]! <= 31));
+    } catch { return false; }
+  });
+}
 export function defaultDavProxy(server: string): string {
   try { return new URL(server).origin === 'https://kaksam.keenetic.pro' ? 'https://universal-task-manager-webdav.const-perfect.workers.dev/dav' : ''; }
   catch { return ''; }
