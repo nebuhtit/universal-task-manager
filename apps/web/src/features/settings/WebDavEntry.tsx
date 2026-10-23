@@ -76,7 +76,6 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
   const ru = language === 'ru';
   const [draft, setDraft] = useState<DavSettings>(() => ({ url: '', folder: '', username: '', password: '', syncPassword: '', deviceId: crypto.randomUUID(), enabled: true, logs: true }));
   const [code, setCode] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [stage, setStage] = useState<WebDavEntryStage | null>(null);
   const [busy, setBusy] = useState(false);
@@ -89,8 +88,8 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
       auditDav('workspace-open-start', { transport: hasNativeWebDAV() ? 'native' : 'browser' });
       const onStage = (next: WebDavEntryStage) => { failedStage = next; setStage(next); auditDav('workspace-open-stage', { stage: next }); };
       try {
-        await onOpen(connectionFromAddress(draft), code.trim(), password, onStage);
-        auditDav('workspace-open-succeeded');
+        await onOpen(connectionFromAddress(draft), code.trim(), draft.syncPassword, onStage);
+        auditDav('workspace-open-succeeded', { passwordMode: 'shared-workspace-password' });
       } catch (reason) {
         const rawCode = reason instanceof Error ? reason.message : '';
         const safeCode = /^webdav-[a-z0-9-]+$/.test(rawCode) ? rawCode : failedStage === 'saving-local' ? 'webdav-local-save' : 'webdav-import-failed';
@@ -104,9 +103,8 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
         <Field label={ru ? 'Логин WebDAV' : 'WebDAV username'}><Input autoComplete="username" required value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></Field>
         <Field label={ru ? 'Пароль WebDAV' : 'WebDAV password'}><Input type="password" autoComplete="current-password" required value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></Field>
         <Field label={ru ? 'Код рабочего пространства' : 'Workspace code'}><Input required autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={code} onChange={e => setCode(e.target.value)} /><small>{ru ? 'Это не пароль: код указывает, какой зашифрованный файл скачать. Без него нельзя безопасно выбрать нужное пространство среди файлов на сервере.' : 'This is not a password: the code identifies which encrypted file to download. Without it, the app cannot safely select the right workspace on the server.'}</small></Field>
-        <Field label={ru ? 'Общий пароль синхронизации' : 'Shared sync password'}><Input type="password" minLength={10} required value={draft.syncPassword} onChange={e => setDraft({ ...draft, syncPassword: e.target.value })} /></Field>
-        <Field label={ru ? 'Новый локальный пароль для этого устройства' : 'New local password for this device'}><Input type="password" autoComplete="new-password" minLength={10} required value={password} onChange={e => setPassword(e.target.value)} /></Field>
-        <p>{ru ? 'Локальный пароль защищает копию на этом устройстве. Он может отличаться от общего пароля синхронизации. Google потребуется подключить отдельно; настройки устройства останутся локальными. В браузере сервер должен поддерживать CORS.' : 'The local password protects this device’s copy and can differ from the shared sync password. Connect Google separately; device settings remain local. Browser access requires server CORS support.'}</p>
+        <Field label={ru ? 'Пароль рабочего пространства' : 'Workspace password'}><Input type="password" autoComplete="current-password" minLength={10} required value={draft.syncPassword} onChange={e => setDraft({ ...draft, syncPassword: e.target.value })} /><small>{ru ? 'Введите существующий общий пароль синхронизации с первого устройства. Этот же пароль будет открывать пространство на новом устройстве — придумывать новый не нужно.' : 'Enter the existing shared sync password from your first device. The same password will unlock the workspace on this device; no new password is needed.'}</small></Field>
+        <p>{ru ? 'Данные WebDAV дают доступ к серверу, пароль пространства — к зашифрованным задачам. На уже подключённых устройствах прежний пароль входа сохраняется. Google подключается отдельно. В браузере сервер должен поддерживать CORS.' : 'WebDAV credentials give access to the server; the workspace password opens your encrypted tasks. Devices already connected keep their existing unlock password. Connect Google separately. Browser access requires server CORS support.'}</p>
         <Button type="submit">{busy ? (ru ? 'Открываем…' : 'Opening…') : (ru ? 'Загрузить и открыть' : 'Download and open')}</Button>
       </fieldset>
     </form>
