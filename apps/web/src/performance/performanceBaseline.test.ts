@@ -159,10 +159,33 @@ function referenceOrganizationRanks(workspace: WorkspaceDocument): Map<string, n
 }
 
 function referenceViewIds(workspace: WorkspaceDocument, view: SavedView, ranks: ReadonlyMap<string, number>): string[] {
+  // Shared PARA assignments must continue through the remaining assignments.
+  // The reference used to stop at the first matching Area/Project/Tag.
+  const order = orderedOrganizationPriorityEntries(workspace);
+  const remainingRanks = (item: UniversalItem) => {
+    const primary = ranks.get(item.id) ?? 0;
+    const seen = new Set<string>();
+    const result: number[] = [];
+    order.forEach((entry, index) => {
+      if (entry.name === null) return;
+      const values = entry.kind === 'area' ? item.areas ?? [] : entry.kind === 'project' ? item.projects ?? [] : item.tags;
+      const identity = JSON.stringify([entry.kind, entry.name]);
+      if (!values.includes(entry.name) || seen.has(identity)) return;
+      seen.add(identity);
+      const rank = order.length - index;
+      if (rank !== primary) result.push(rank);
+    });
+    return [...result, order.length + 1];
+  };
   const predicate = (awaitCompileQuery(view.query.source, workspace));
   return Object.values(workspace.items).filter((item) => !item.deletedAt && predicate(item, PERFORMANCE_NOW)).sort((left, right) => {
     const organization = (ranks.get(right.id) ?? 0) - (ranks.get(left.id) ?? 0);
     if (organization) return organization;
+    const leftRanks = remainingRanks(left); const rightRanks = remainingRanks(right);
+    for (let index = 0; index < Math.min(leftRanks.length, rightRanks.length); index += 1) {
+      const comparison = rightRanks[index]! - leftRanks[index]!;
+      if (comparison) return comparison;
+    }
     const leftAttention = attentionSortValues(left, PERFORMANCE_NOW); const rightAttention = attentionSortValues(right, PERFORMANCE_NOW);
     if (leftAttention.bucket !== rightAttention.bucket) return leftAttention.bucket - rightAttention.bucket;
     const leftAt = leftAttention.at ?? Number.POSITIVE_INFINITY; const rightAt = rightAttention.at ?? Number.POSITIVE_INFINITY;
@@ -220,7 +243,7 @@ const expectedBehaviorHashes: Record<number, string> = {
   // Free capacity now uses interval union rather than double-counting overlaps.
   // Calendar Today includes unfinished past-Due items without moving schedules.
   // LiveText automatic reminder defaults are now part of workspace preferences.
-  100: '9c5800e7',
+  100: 'ab394bf3',
   1_000: '521047c6',
   10_000: '432ad274',
 };

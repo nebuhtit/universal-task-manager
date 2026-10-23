@@ -340,7 +340,7 @@ describe('encrypted WebDAV protocol', () => {
   it('never replaces an inaccessible or unversioned remote state', async () => {
     const remote = server(); const a = device(fixture().workspace); await a.run();
     remote.omitEtag(); await expect(a.run()).rejects.toThrow('etag-required');
-    remote.fail(403); await expect(a.run()).rejects.toThrow('access-denied');
+    remote.fail(403); await expect(a.run()).rejects.toThrow('webdav-forbidden');
     expect(remote.requests.filter(request => request.method === 'PUT' && request.path.includes('workspace-'))).toHaveLength(1);
   });
   it('requires conditional-write support during connection check', async () => {
