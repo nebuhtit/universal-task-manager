@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Checkbox, Field, Input } from '../../components/ui/primitives';
-import { hasNativeWebDAV } from '../../services/webdavTransport';
+import { defaultDavProxy, hasNativeWebDAV } from '../../services/webdavTransport';
 import type { DavSettings } from '../../services/webdavSync';
 import type { WebDavController } from '../../hooks/useWebDavSync';
 
@@ -10,8 +10,9 @@ export function WebDavSettings({ controller, language }: { controller: WebDavCon
   const [draft, setDraft] = useState(empty);
   const [error, setError] = useState('');
   // Do not reset the typed connection/password fields after a background sync.
-  useEffect(() => { if (controller.settings) setDraft(controller.settings); }, [controller.settings?.url, controller.settings?.username, controller.settings?.password, controller.settings?.syncPassword, controller.settings?.enabled, controller.settings?.logs, controller.settings?.folder]);
+  useEffect(() => { if (controller.settings) setDraft(controller.settings); }, [controller.settings?.url, controller.settings?.username, controller.settings?.password, controller.settings?.syncPassword, controller.settings?.enabled, controller.settings?.logs, controller.settings?.folder, controller.settings?.proxyUrl]);
   const labels: Record<string, string> = {
+    'webdav-invalid-proxy': ru ? 'Укажите HTTPS-адрес посредника без логина, пароля или параметров в URL.' : 'Enter an HTTPS proxy URL without embedded credentials or query parameters.',
     'webdav-not-configured': ru ? 'Не настроено' : 'Not configured',
     'webdav-ready': ru ? 'Готово к обмену' : 'Ready',
     'webdav-paused': ru ? 'Автоматический обмен выключен' : 'Automatic sync is off',
@@ -49,6 +50,7 @@ export function WebDavSettings({ controller, language }: { controller: WebDavCon
     <p>{ru ? 'Ваш сервер, сквозное шифрование. Настройки подключения сохраняются только на этом устройстве, зашифрованными ключом рабочего пространства.' : 'Your server, end-to-end encryption. Connection settings stay on this device, encrypted with the workspace key.'}</p>
     <p>{ru ? 'На новом устройстве выберите «Открыть через WebDAV» на стартовом экране и введите код выше, сервер, папку и общий пароль синхронизации. Также можно импортировать тот же .utmb. Пароль синхронизации может отличаться от пароля WebDAV и локального пароля приложения.' : 'On a new device, choose “Open from WebDAV” on the start screen and enter the code above, server, folder and shared sync password. Importing the same .utmb is also supported. The sync password can differ from the WebDAV and local app passwords.'}</p>
     <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'}><Input type="url" autoComplete="off" placeholder="https://example.com/webdav/" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} /></Field>
+    {!hasNativeWebDAV() && <Field label={ru ? 'HTTPS-посредник (необязательно)' : 'HTTPS proxy (optional)'} hint={ru ? 'Используйте доверенный посредник: через него передаётся пароль WebDAV. Пароль шифрования пространства остаётся на устройстве. Оставьте поле пустым для прямого подключения.' : 'Use a trusted proxy: it receives the WebDAV password. Your workspace encryption password stays on the device. Leave empty for a direct connection.'}><Input type="url" placeholder="https://your-worker.workers.dev/dav" value={draft.proxyUrl ?? defaultDavProxy(draft.url)} onChange={e => setDraft({ ...draft, proxyUrl: e.target.value })} /></Field>}
     <Field label={ru ? 'Папка внутри WebDAV' : 'Folder inside WebDAV'}><Input value={draft.folder} onChange={e => setDraft({ ...draft, folder: e.target.value })} /></Field>
     <Field label={ru ? 'Логин WebDAV' : 'WebDAV username'}><Input autoComplete="username" value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></Field>
     <Field label={ru ? 'Пароль WebDAV' : 'WebDAV password'}><Input type="password" autoComplete="current-password" value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></Field>

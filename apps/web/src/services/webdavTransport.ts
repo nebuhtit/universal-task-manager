@@ -1,5 +1,5 @@
 import { auditDav } from './webdavDiagnostics';
-export interface DavConnection { url: string; folder: string; username: string; password: string }
+export interface DavConnection { url: string; folder: string; username: string; password: string; proxyUrl?: string }
 export interface DavResult { status: number; text: string; etag: string | null; lockToken?: string | undefined; lockTimeout?: string | undefined }
 type NativeReply = { id: string; status?: number; text?: string; etag?: string; lockToken?: string; lockTimeout?: string; error?: string };
 type DavMethod = 'GET' | 'PUT' | 'MKCOL' | 'OPTIONS' | 'DELETE' | 'MOVE' | 'LOCK' | 'UNLOCK';
@@ -8,6 +8,10 @@ const waiting = new Map<string, (reply: NativeReply) => void>();
 let listening = false;
 const native = () => typeof window !== 'undefined' ? window.webkit?.messageHandlers?.utmNativeWebDAV : undefined;
 export const hasNativeWebDAV = () => Boolean(native());
+export function defaultDavProxy(server: string): string {
+  try { return new URL(server).origin === 'https://kaksam.keenetic.pro' ? 'https://universal-task-manager-webdav.const-perfect.workers.dev/dav' : ''; }
+  catch { return ''; }
+}
 
 export function davBase(connection: DavConnection): URL {
   const url = new URL(connection.url);
@@ -21,6 +25,7 @@ export function davBase(connection: DavConnection): URL {
 
 export async function davRequest(connection: DavConnection, method: DavMethod, path = '', body?: string, condition?: DavCondition): Promise<DavResult> {
   const requestId = crypto.randomUUID(), started = performance.now();
+  if ((connection.proxyUrl ?? defaultDavProxy(connection.url)) && !hasNativeWebDAV()) auditDav('proxy-request', { method });
   const resource = path.startsWith('workspace-') ? 'workspace' : path.startsWith('recovery/') ? 'recovery' : path.startsWith('logs') ? 'log' : path.startsWith('conflict-') ? 'conflict' : 'probe-or-folder';
   auditDav('request-start', { requestId, method, resource, native: hasNativeWebDAV(), uploadBytes: body === undefined ? 0 : new TextEncoder().encode(body).length, conditional: Boolean(condition?.etag || condition?.create || condition?.ifNoneMatch) });
   try {
@@ -78,7 +83,16 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
     });
   }
   try {
-    const response = await fetch(url.href, { method, headers, ...(body === undefined ? {} : { body }), redirect: 'error', credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(30_000) });
+    let endpoint = url.href;
+    const proxyUrl = connection.proxyUrl ?? defaultDavProxy(connection.url);
+    if (proxyUrl.trim()) {
+      let proxy: URL;
+      try { proxy = new URL(proxyUrl); } catch { throw new Error('webdav-invalid-proxy'); }
+      if (proxy.protocol !== 'https:' || proxy.username || proxy.password || proxy.search || proxy.hash) throw new Error('webdav-invalid-proxy');
+      endpoint = proxy.href;
+      headers['X-UTM-WebDAV-Target'] = url.href;
+    }
+    const response = await fetch(endpoint, { method, headers, ...(body === undefined ? {} : { body }), redirect: 'error', credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(30_000) });
     const reader = response.body?.getReader(), decoder = new TextDecoder();
     let text = '', size = 0;
     if (reader) try {
@@ -92,7 +106,7 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
     } finally { reader.releaseLock(); }
     return { status: response.status, text, etag: response.headers.get('etag'), lockToken: response.headers.get('lock-token') ?? undefined, lockTimeout: response.headers.get('timeout') ?? undefined };
   } catch (error) {
-    if (error instanceof Error && error.message === 'webdav-too-large') throw error;
+    if (error instanceof Error && ['webdav-too-large', 'webdav-invalid-proxy'].includes(error.message)) throw error;
     throw new Error('webdav-network-or-cors');
   }
 }

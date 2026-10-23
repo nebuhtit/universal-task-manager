@@ -10,7 +10,7 @@ for (const language of ['ru', 'en']) test(`WebDAV entry retains fields on denied
     ? ['Адрес WebDAV (HTTPS)', 'Логин WebDAV', 'Пароль WebDAV', 'Код рабочего пространства', 'Пароль рабочего пространства']
     : ['WebDAV URL (HTTPS)', 'WebDAV username', 'WebDAV password', 'Workspace code', 'Workspace password'];
   const values = ['https://entry-test.invalid/dav/', 'synthetic', 'synthetic-secret', '11111111-1111-4111-8111-111111111111', 'synthetic-sync-secret'];
-  const controls = entry.locator('input');
+  const controls = entry.locator('input:not([placeholder="https://your-worker.workers.dev/dav"])');
   await expect(controls).toHaveCount(labels.length);
   await controls.nth(0).focus();
   await page.keyboard.press('Tab');

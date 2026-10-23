@@ -3,7 +3,7 @@ import { Button, Field, Input } from '../../components/ui/primitives';
 import type { DavSettings } from '../../services/webdavSync';
 import { auditDav, setDavDiagnosticsEnabled } from '../../services/webdavDiagnostics';
 import { recordDiagnostic } from '../../services/diagnostics';
-import { hasNativeWebDAV } from '../../services/webdavTransport';
+import { defaultDavProxy, hasNativeWebDAV } from '../../services/webdavTransport';
 
 export type WebDavEntryStage = 'requesting-file' | 'checking-sync-password' | 'saving-local';
 const DEFAULT_DAV_FOLDER = 'UniversalSync';
@@ -99,6 +99,7 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
       } finally { setBusy(false); }
     }}>
       <fieldset disabled={disabled || busy}>
+        {!hasNativeWebDAV() && <Field label={ru ? 'HTTPS-посредник (если сервер не поддерживает CORS)' : 'HTTPS proxy (if your server does not support CORS)'} hint={ru ? 'Посредник получает пароль WebDAV для передачи серверу. Используйте только доверенный адрес. Пароль шифрования пространства ему не передаётся.' : 'The proxy receives your WebDAV password to contact the server. Use a trusted endpoint only. Your workspace encryption password is not sent to it.'}><Input type="url" placeholder="https://your-worker.workers.dev/dav" value={draft.proxyUrl ?? defaultDavProxy(draft.url)} onChange={e => setDraft({ ...draft, proxyUrl: e.target.value })} /></Field>}
         <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'}><Input type="url" required placeholder="https://server.example/webdav/" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value, folder: '' })} /><small>{ru ? 'Для UniversalSync укажите адрес сервера, например …/webdav/. Другую папку можно дописать в URL без завершающего слеша.' : 'For UniversalSync, enter the server address, e.g. …/webdav/. Append a different folder to the URL without a trailing slash.'}</small></Field>
         <Field label={ru ? 'Логин WebDAV' : 'WebDAV username'}><Input autoComplete="username" required value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></Field>
         <Field label={ru ? 'Пароль WebDAV' : 'WebDAV password'}><Input type="password" autoComplete="current-password" required value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></Field>
