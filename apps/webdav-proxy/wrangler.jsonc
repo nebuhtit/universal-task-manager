@@ -5,6 +5,6 @@
   "observability": { "enabled": false },
   "vars": {
     "ALLOWED_ORIGINS": "https://nebuhtit.github.io,http://127.0.0.1:4173",
-    "UPSTREAM_BASES": "https://kaksam.keenetic.pro/webdav/"
+    "UPSTREAM_BASES": "https://kaksam.keenetic.pro/webdav/,https://kaksam.netcraze.pro/webdav/"
   }
 }

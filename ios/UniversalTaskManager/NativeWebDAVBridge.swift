@@ -15,18 +15,21 @@ final class NativeWebDAVBridge: NSObject, WKScriptMessageHandler {
         guard payload["kind"] as? String == "request", requests[id] == nil,
               let address = payload["url"] as? String, let url = URL(string: address),
               url.scheme == "https", url.user == nil, url.password == nil, url.host != nil,
-              let method = payload["method"] as? String, ["GET", "PUT", "MKCOL", "OPTIONS", "DELETE", "MOVE", "LOCK", "UNLOCK"].contains(method),
+              let method = payload["method"] as? String, ["GET", "PUT", "MKCOL", "OPTIONS", "DELETE", "MOVE", "LOCK", "UNLOCK", "PROPFIND"].contains(method),
               let headers = payload["headers"] as? [String: String] else { respond(id, ["error": "invalid-request"]); return }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 25)
+        let timeout = min(30.0, max(3.0, (payload["timeoutMs"] as? Double ?? 30_000) / 1_000))
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.httpMethod = method
         if method == "MOVE" {
+            let source = headers["X-UTM-WebDAV-Target"].flatMap(URL.init(string:)) ?? url
             guard let destination = headers["Destination"], let target = URL(string: destination),
                   target.scheme == "https", target.user == nil, target.password == nil,
-                  target.host == url.host, target.port == url.port, headers["Overwrite"] == "F" else {
+                  source.scheme == "https", source.user == nil, source.password == nil,
+                  target.host == source.host, target.port == source.port, headers["Overwrite"] == "F" else {
                 respond(id, ["error": "invalid-destination"]); return
             }
         }
-        for (key, value) in headers where ["authorization", "content-type", "accept-encoding", "if-match", "if-none-match", "destination", "overwrite", "if", "lock-token", "depth", "timeout"].contains(key.lowercased()) {
+        for (key, value) in headers where ["authorization", "content-type", "accept-encoding", "origin", "x-utm-webdav-target", "if-match", "if-none-match", "destination", "overwrite", "if", "lock-token", "depth", "timeout"].contains(key.lowercased()) {
             guard !value.contains("\r"), !value.contains("\n") else { respond(id, ["error": "invalid-header"]); return }
             request.setValue(value, forHTTPHeaderField: key)
         }
@@ -59,7 +62,7 @@ private final class WebDAVTransfer: NSObject, URLSessionDataDelegate, URLSession
     func start(_ request: URLRequest) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil; configuration.urlCache = nil
-        configuration.timeoutIntervalForRequest = 25; configuration.timeoutIntervalForResource = 30
+        configuration.timeoutIntervalForRequest = request.timeoutInterval; configuration.timeoutIntervalForResource = request.timeoutInterval
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         self.session = session; session.dataTask(with: request).resume()
     }
@@ -75,9 +78,23 @@ private final class WebDAVTransfer: NSObject, URLSessionDataDelegate, URLSession
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         defer { session.finishTasksAndInvalidate(); self.session = nil }
-        guard error == nil, let response, let text = String(data: data, encoding: .utf8) else { completion(["error": "network"]); return }
+        if let error = error as NSError? {
+            let category: String
+            switch error.code {
+            case NSURLErrorTimedOut: category = "timeout"
+            case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed: category = "dns"
+            case NSURLErrorNotConnectedToInternet: category = "offline"
+            case NSURLErrorCancelled: category = "cancelled"
+            case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted, NSURLErrorServerCertificateHasBadDate, NSURLErrorServerCertificateHasUnknownRoot: category = "tls"
+            default: category = "network"
+            }
+            // Never export localizedDescription/userInfo: they may contain URLs.
+            completion(["error": "network", "errorCode": error.code, "errorCategory": category]); return
+        }
+        guard let response, let text = String(data: data, encoding: .utf8) else { completion(["error": "network", "errorCategory": "network"]); return }
         var result: [String: Any] = ["status": response.statusCode, "text": text]
         if let etag = response.value(forHTTPHeaderField: "ETag") { result["etag"] = etag }
+        if let etag = response.value(forHTTPHeaderField: "X-UTM-WebDAV-ETag") { result["originEtag"] = etag }
         if let token = response.value(forHTTPHeaderField: "Lock-Token") { result["lockToken"] = token }
         if let timeout = response.value(forHTTPHeaderField: "Timeout") { result["lockTimeout"] = timeout }
         completion(result)

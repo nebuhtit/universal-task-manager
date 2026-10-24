@@ -38,6 +38,9 @@ jobs:
       - name: Targeted Google recurrence recovery checks
         if: ${{ contains(github.event.head_commit.message, '[targeted-checks]') }}
         run: pnpm exec vitest run apps/web/src/services/googleUniversalItem.test.ts apps/web/src/services/itemSaveCommand.test.ts apps/web/src/services/googleItemSave.test.ts apps/web/src/services/recurrenceItemEdit.test.ts apps/web/src/services/workspaceSaveService.test.ts packages/core/src/google-linked.test.ts packages/core/src/google-calendar.test.ts
+      - name: Targeted WebDAV and reminder safety checks
+        if: ${{ contains(github.event.head_commit.message, '[targeted-checks]') }}
+        run: pnpm exec vitest run apps/web/src/services/webdavNativeTransport.test.ts apps/web/src/services/webdavSync.test.ts apps/web/src/services/webdavProxy.test.ts apps/web/src/features/settings/WebDavSettings.test.tsx apps/webdav-proxy/src/index.test.ts apps/web/src/services/nativeReminders.test.ts
       - run: pnpm exec playwright install --with-deps chromium webkit
         if: ${{ !contains(github.event.head_commit.message, '[targeted-checks]') }}
       - name: Google save and recovery smoke (mock API, desktop and mobile)

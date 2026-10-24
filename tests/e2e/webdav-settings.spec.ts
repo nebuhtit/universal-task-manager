@@ -1,4 +1,63 @@
 import { expect, test } from '@playwright/test';
+test.use({ serviceWorkers: 'block' });
+
+test('WebDAV drafts do not redirect an active exchange; stop drains and persists until resume', async ({ page }, info) => {
+  await page.goto('/');
+  await page.locator('.language-picker select').selectOption('en');
+  await page.locator('input[name="password"]').fill('webdav-stop-fixture-password');
+  await page.locator('input[name="confirm-password"]').fill('webdav-stop-fixture-password');
+  await page.locator('form button.primary').click();
+  await expect(page.locator('.capture-dock input')).toBeVisible();
+  const openSettings = async () => {
+    if (info.project.use.hasTouch) {
+      await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+      await page.locator('.mobile-nav-menu').getByRole('button', { name: 'Settings', exact: true }).click();
+    } else await page.locator('.sidebar').getByRole('button', { name: 'Settings', exact: true }).click();
+    const disclosure = page.locator('details').filter({ has: page.locator(':scope > summary', { hasText: 'WebDAV synchronization' }) });
+    if (!(await disclosure.evaluate(node => (node as HTMLDetailsElement).open))) await disclosure.locator(':scope > summary').click();
+  };
+  await openSettings();
+  const form = page.getByRole('region', { name: 'WebDAV settings' });
+  const url = form.getByLabel('WebDAV URL (HTTPS)', { exact: true });
+  await url.fill('https://old-sync.invalid/dav/');
+  await form.getByLabel('WebDAV username', { exact: true }).fill('fixture');
+  await form.getByLabel('WebDAV password', { exact: true }).fill('fixture-password');
+  await form.getByLabel('Shared sync encryption password').fill('fixture-sync-password');
+  await form.locator('input[type="checkbox"]').nth(1).uncheck();
+  await form.getByRole('button', { name: 'Check and save', exact: true }).click();
+  await expect(form.getByRole('status')).toHaveText('Automatic sync is off');
+  let allowReply!: () => void;
+  const held = new Promise<void>(resolve => { allowReply = resolve; });
+  const requests: string[] = [];
+  await page.route('https://old-sync.invalid/**', async route => { requests.push(route.request().url()); await held; await route.fulfill({ status: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }); });
+  await page.route('https://new-sync.invalid/**', async route => { requests.push(route.request().url()); await route.fulfill({ status: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }); });
+  await form.getByRole('button', { name: 'Sync now', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  await url.fill('https://new-sync.invalid/dav/');
+  await form.getByRole('button', { name: 'Stop synchronization', exact: true }).click();
+  await expect(form.getByRole('status')).toContainText('waiting for the current operation');
+  await expect(form.getByRole('button', { name: 'Check and save', exact: true })).toBeDisabled();
+  expect(requests.every(value => value.startsWith('https://old-sync.invalid/'))).toBe(true);
+  allowReply();
+  await expect(form.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
+  await expect(form.getByRole('status')).toContainText('Synchronization stopped');
+  await expect(url).toHaveValue('https://new-sync.invalid/dav/');
+  await form.getByRole('button', { name: 'Check and save', exact: true }).click();
+  await expect(form.getByRole('button', { name: 'Sync now', exact: true })).toBeDisabled();
+  await expect(form.getByRole('button', { name: 'Check and save', exact: true })).toBeEnabled();
+  await page.reload();
+  await page.locator('input[name="password"]').fill('webdav-stop-fixture-password');
+  await page.locator('form button.primary').click();
+  await expect(page.locator('.capture-dock input')).toBeVisible();
+  await openSettings();
+  await expect(url).toHaveValue('https://new-sync.invalid/dav/');
+  await expect(form.getByRole('status')).toContainText('Synchronization stopped');
+  await expect(form.getByRole('button', { name: 'Sync now', exact: true })).toBeDisabled();
+  await form.getByRole('button', { name: 'Resume', exact: true }).click();
+  await expect(form.getByRole('button', { name: 'Sync now', exact: true })).toBeEnabled();
+  await form.getByRole('button', { name: 'Sync now', exact: true }).click();
+  await expect.poll(() => requests.some(value => value.startsWith('https://new-sync.invalid/'))).toBe(true);
+});
 
 for (const language of ['en', 'ru'] as const) test(`WebDAV private settings and safe failure: ${language}`, async ({ page }, info) => {
   await page.emulateMedia({ colorScheme: language === 'ru' ? 'dark' : 'light' });
@@ -15,6 +74,18 @@ for (const language of ['en', 'ru'] as const) test(`WebDAV private settings and 
   } else await page.locator('.sidebar').getByRole('button', { name: settingsName, exact: true }).click();
   await page.locator('summary').filter({ hasText: language === 'ru' ? 'Синхронизация WebDAV' : 'WebDAV synchronization' }).click();
   const form = page.getByRole('region', { name: 'WebDAV settings' });
+  // Touch must focus the real editable input synchronously, including secrets.
+  // Read-only share/code fields deliberately do not request a keyboard.
+  const editable = form.locator('input:not([readonly]):not([disabled]):not([type="checkbox"])');
+  for (let index = 0; index < await editable.count(); index++) {
+    const input = editable.nth(index), before = await input.inputValue();
+    await input.scrollIntoViewIfNeeded();
+    if (info.project.use.hasTouch) await input.tap(); else await input.click();
+    await expect(input).toBeFocused();
+    await page.keyboard.type('x');
+    await expect(input).toBeFocused();
+    await input.fill(before);
+  }
   const url = form.getByLabel(language === 'ru' ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)');
   await expect(url).toHaveValue('');
   await expect(form.locator('input[type="checkbox"]').first()).not.toBeChecked();

@@ -120,6 +120,30 @@ describe('WebDAV three-way merge', () => {
 });
 
 describe('encrypted WebDAV protocol', () => {
+  it('retains an interrupted owned lease and releases it before the next exchange', async () => {
+    const remote = server(), a = device(fixture().workspace);
+    const originalFetch = remote.fetcher.getMockImplementation()!;
+    let loseUnlock = true;
+    remote.fetcher.mockImplementation(async (url, init) => {
+      if (loseUnlock && init.method === 'UNLOCK' && url.includes('workspace-')) throw new TypeError('network');
+      return originalFetch(url, init);
+    });
+    const records = new Map<string, { path: string; token: string }>();
+    const leaseJournal = { read: async (scope: string) => records.get(scope) ?? null, write: async (scope: string, lease: { path: string; token: string } | null) => { if (lease) records.set(scope, lease); else records.delete(scope); } };
+    await runDavSync(a.config, { ...a.ports, leaseJournal });
+    expect(records.size).toBe(1);
+    loseUnlock = false;
+    const start = remote.requests.length;
+    await runDavSync(a.config, { ...a.ports, leaseJournal });
+    expect(remote.requests[start]?.method).toBe('UNLOCK');
+    expect(records.size).toBe(0);
+  });
+  it('does not write a workspace if its lease cannot be journaled safely', async () => {
+    const remote = server(), a = device(fixture().workspace);
+    await expect(runDavSync(a.config, { ...a.ports, leaseJournal: { read: async () => null, write: async (_scope, lease) => { if (lease) throw new Error('local-storage'); } } })).rejects.toThrow('local-storage');
+    expect(remote.requests.filter(r => r.method === 'PUT' && r.path.includes('workspace-'))).toHaveLength(0);
+    expect(remote.requests.some(r => r.method === 'UNLOCK' && r.path.includes('workspace-'))).toBe(true);
+  });
   it('converges simultaneous first synchronization without dropping newly created tasks', async () => {
     server(); const { workspace } = fixture(); const a = device(workspace), b = device(workspace);
     const left = createItem('Left task'), right = createItem('Right task');

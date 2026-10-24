@@ -1,8 +1,8 @@
 import { auditDav } from './webdavDiagnostics';
 export interface DavConnection { url: string; folder: string; username: string; password: string; proxyUrl?: string }
 export interface DavResult { status: number; text: string; etag: string | null; lockToken?: string | undefined; lockTimeout?: string | undefined }
-type NativeReply = { id: string; status?: number; text?: string; etag?: string; lockToken?: string; lockTimeout?: string; error?: string };
-type DavMethod = 'GET' | 'PUT' | 'MKCOL' | 'OPTIONS' | 'DELETE' | 'MOVE' | 'LOCK' | 'UNLOCK';
+type NativeReply = { id: string; status?: number; text?: string; etag?: string; originEtag?: string; lockToken?: string; lockTimeout?: string; error?: string; errorCode?: number; errorCategory?: string };
+type DavMethod = 'GET' | 'PUT' | 'MKCOL' | 'OPTIONS' | 'DELETE' | 'MOVE' | 'LOCK' | 'UNLOCK' | 'PROPFIND';
 interface DavCondition { etag?: string; create?: boolean; destination?: string; ifNoneMatch?: string; lockToken?: string }
 const waiting = new Map<string, (reply: NativeReply) => void>();
 let listening = false;
@@ -26,7 +26,7 @@ export function hasLocalDavEndpoint(connection: DavConnection): boolean {
   });
 }
 export function defaultDavProxy(server: string): string {
-  try { return new URL(server).origin === 'https://kaksam.keenetic.pro' ? 'https://universal-task-manager-webdav.const-perfect.workers.dev/dav' : ''; }
+  try { return ['https://kaksam.keenetic.pro', 'https://kaksam.netcraze.pro'].includes(new URL(server).origin) ? 'https://universal-task-manager-webdav.const-perfect.workers.dev/dav' : ''; }
   catch { return ''; }
 }
 
@@ -85,33 +85,40 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
     headers.Destination = target.href; headers.Overwrite = 'F';
   }
   const handler = native();
-  if (handler) {
+  const nativeRequest = (endpoint: string, requestMethod: DavMethod, requestHeaders: Record<string, string>, requestBody?: string, timeoutMs = 30_000): Promise<NativeReply> => {
+    if (!handler) return Promise.reject(new Error('webdav-network'));
     // URLSession can request identity; browser fetch cannot set this header.
-    headers['Accept-Encoding'] = 'identity';
+    requestHeaders['Accept-Encoding'] = 'identity';
     if (!listening) {
       window.addEventListener('utm-webdav-response', ((event: CustomEvent<NativeReply>) => waiting.get(event.detail.id)?.(event.detail)) as EventListener);
       listening = true;
     }
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { waiting.delete(id); handler.postMessage({ id, kind: 'cancel' }); reject(new Error('webdav-timeout')); }, 35_000);
-      waiting.set(id, reply => { clearTimeout(timer); waiting.delete(id); reply.error ? reject(new Error('webdav-network')) : resolve({ status: reply.status ?? 0, text: reply.text ?? '', etag: reply.etag ?? null, lockToken: reply.lockToken, lockTimeout: reply.lockTimeout }); });
-      try { handler.postMessage({ id, kind: 'request', url: url.href, method, headers, ...(body === undefined ? {} : { body }) }); }
+      const timer = setTimeout(() => { waiting.delete(id); handler.postMessage({ id, kind: 'cancel' }); reject(new Error('webdav-timeout')); }, timeoutMs + 5_000);
+      waiting.set(id, reply => {
+        clearTimeout(timer); waiting.delete(id);
+        if (reply.error) {
+          auditDav('native-network-failed', { method: requestMethod, errorCode: Number.isInteger(reply.errorCode) ? reply.errorCode : undefined, category: ['timeout', 'tls', 'dns', 'offline', 'cancelled', 'too-large', 'network'].includes(reply.errorCategory ?? '') ? reply.errorCategory : 'network' });
+          reject(new Error(reply.errorCategory === 'timeout' ? 'webdav-timeout' : 'webdav-network'));
+        } else resolve(reply);
+      });
+      try { handler.postMessage({ id, kind: 'request', url: endpoint, method: requestMethod, headers: requestHeaders, timeoutMs, ...(requestBody === undefined ? {} : { body: requestBody }) }); }
       catch { clearTimeout(timer); waiting.delete(id); reject(new Error('webdav-network')); }
     });
-  }
+  };
   const proxyUrl = (connection.proxyUrl ?? defaultDavProxy(connection.url)).trim();
-  const routeKey = JSON.stringify([base.href, connection.username, proxyUrl]);
+  const routeKey = JSON.stringify([Boolean(handler), base.href, connection.username, proxyUrl]);
   const remembered = browserRoutes.get(routeKey);
   let useProxy = Boolean(proxyUrl && remembered?.proxy && remembered.until > Date.now());
-  const readOnly = method === 'GET' || method === 'OPTIONS';
+  const readOnly = method === 'GET' || method === 'OPTIONS' || method === 'PROPFIND';
   // Decide with a read-only probe before sending a first write. A lost write
   // response must never cause the same mutation to be replayed via a relay.
   if (proxyUrl && !readOnly && (!remembered || remembered.until <= Date.now())) {
     try {
-      const probe = await fetch(base.href, { method: 'OPTIONS', headers: { Authorization: authorization }, credentials: 'omit', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10_000) });
-      await probe.body?.cancel(); rememberRoute(routeKey, false);
-      auditDav('direct-probe-complete', { status: probe.status });
+      const probe = handler ? await nativeRequest(base.href, 'OPTIONS', { Authorization: authorization }, undefined, 8_000) : await fetch(base.href, { method: 'OPTIONS', headers: { Authorization: authorization }, credentials: 'omit', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10_000) });
+      if (probe instanceof Response) await probe.body?.cancel(); rememberRoute(routeKey, false);
+      auditDav('direct-probe-complete', { status: probe.status, native: Boolean(handler) });
     } catch { useProxy = true; rememberRoute(routeKey, true); auditDav('proxy-fallback', { reason: 'direct-probe-network-or-cors' }); }
   }
   const send = async (relay: boolean): Promise<DavResult> => {
@@ -121,10 +128,15 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
       let proxy: URL;
       try { proxy = new URL(proxyUrl); } catch { throw new Error('webdav-invalid-proxy'); }
       const loopback = proxy.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(proxy.hostname);
-      if ((!loopback && proxy.protocol !== 'https:') || proxy.username || proxy.password || proxy.search || proxy.hash) throw new Error('webdav-invalid-proxy');
+      if (((handler || !loopback) && proxy.protocol !== 'https:') || proxy.username || proxy.password || proxy.search || proxy.hash) throw new Error('webdav-invalid-proxy');
       endpoint = proxy.href;
       requestHeaders['X-UTM-WebDAV-Target'] = url.href;
-      auditDav('proxy-request', { method, local: loopback });
+      if (handler) requestHeaders.Origin = 'https://nebuhtit.github.io';
+      auditDav('proxy-request', { method, local: loopback, native: Boolean(handler) });
+    }
+    if (handler) {
+      const reply = await nativeRequest(endpoint, method, requestHeaders, body);
+      return { status: reply.status ?? 0, text: reply.text ?? '', etag: (relay ? reply.originEtag : undefined) ?? reply.etag ?? null, lockToken: reply.lockToken, lockTimeout: reply.lockTimeout };
     }
     const response = await fetch(endpoint, { method, headers: requestHeaders, ...(body === undefined ? {} : { body }), redirect: 'error', credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(30_000) });
     const reader = response.body?.getReader(), decoder = new TextDecoder();
@@ -156,7 +168,7 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
         if (fallbackError instanceof Error && ['webdav-too-large', 'webdav-invalid-proxy'].includes(fallbackError.message)) throw fallbackError;
       }
     }
-    throw new Error('webdav-network-or-cors');
+    throw new Error(handler ? (error instanceof Error && error.message === 'webdav-timeout' ? 'webdav-timeout' : 'webdav-network') : 'webdav-network-or-cors');
   }
 }
 
@@ -177,8 +189,22 @@ export async function acquireDavLock(connection: DavConnection, path: string) {
   return {
     token, created: reply.status === 201,
     refresh: async () => { davStatus(await davRequest(connection, 'LOCK', path, undefined, { lockToken: token })); auditDav('lock-refreshed'); },
-    release: async () => { davStatus(await davRequest(connection, 'UNLOCK', path, undefined, { lockToken: token })); auditDav('lock-released'); },
+    release: async () => { await releaseDavLock(connection, path, token); auditDav('lock-released'); },
   };
+}
+
+/** Releasing our exact token is idempotent: retry cannot unlock another writer. */
+export async function releaseDavLock(connection: DavConnection, path: string, token: string): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const reply = await davRequest(connection, 'UNLOCK', path, undefined, { lockToken: token });
+      if ([409, 412].includes(reply.status)) return; // Already released/expired; never force unlock.
+      davStatus(reply); return;
+    } catch (error) {
+      if (attempt || !(error instanceof Error) || !/^webdav-(network(?:-or-cors)?|timeout)$/.test(error.message)) throw error;
+      auditDav('lock-release-retry');
+    }
+  }
 }
 
 /** Some embedded DAV servers reject If-None-Match even for absent files.

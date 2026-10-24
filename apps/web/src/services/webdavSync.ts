@@ -1,12 +1,12 @@
 import { APP_VERSION, createWorkspace, validateWorkspace, type WorkspaceDocument } from '@utm/core';
 import { decryptBytes, encryptBytes } from '@utm/sdk';
-import { acquireDavLock, davCreate, davRequest, davStatus, ensureDavFolder, type DavConnection } from './webdavTransport';
+import { acquireDavLock, davBase, davCreate, davRequest, davStatus, ensureDavFolder, releaseDavLock, type DavConnection } from './webdavTransport';
 import { applySyncSnapshot, mergeSync, syncEqual, syncSnapshot, type SyncSnapshot, type SyncConflict } from './webdavMerge';
 import { exportSafeDiagnostics } from './diagnosticsExport';
 import { auditDav, snapshotEvidence, setDavDiagnosticsEnabled } from './webdavDiagnostics';
 import { diagnosticFailureCode } from './diagnostics';
 
-export interface DavSettings extends DavConnection { enabled: boolean; logs: boolean; syncPassword: string; deviceId: string; baseline?: SyncSnapshot; remoteCache?: { scope: string; etag: string; snapshot: SyncSnapshot } }
+export interface DavSettings extends DavConnection { enabled: boolean; paused?: boolean; logs: boolean; syncPassword: string; deviceId: string; baseline?: SyncSnapshot; remoteCache?: { scope: string; etag: string; snapshot: SyncSnapshot } }
 export interface DavPayload { format: 'utm-webdav-sync'; version: 1; workspaceId: string; schemaVersion: string; appVersion?: string; snapshot: SyncSnapshot }
 export class DavConflict extends Error {
   constructor(public readonly conflicts: SyncConflict[], public readonly etag: string) { super('webdav-conflict'); }
@@ -73,6 +73,10 @@ export async function decodeDavState(source: string, password: string, workspace
   return payload;
 }
 export interface DavPorts {
+  leaseJournal?: {
+    read: (scope: string) => Promise<{ path: string; token: string } | null>;
+    write: (scope: string, lease: { path: string; token: string } | null) => Promise<void>;
+  };
   timing?: (stage: 'network' | 'decrypt' | 'encrypt' | 'merge' | 'local-save', durationMs: number) => void;
   progress?: (stage: 'checking' | 'downloading' | 'merging' | 'uploading' | 'saving') => void;
   getWorkspace: () => WorkspaceDocument | undefined;
@@ -124,6 +128,7 @@ export async function testDavConnection(settings: DavSettings): Promise<void> {
   }
 }
 export async function runDavSync(settings: DavSettings, ports: DavPorts, choice?: { resolution: 'local' | 'remote'; etag: string }): Promise<{ settings: DavSettings; changed: boolean }> {
+  if (settings.paused) throw new Error('webdav-paused');
   setDavDiagnosticsEnabled(settings.logs);
   const runId = crypto.randomUUID();
   auditDav('sync-start', { runId, deviceId: settings.deviceId, workspaceId: ports.getWorkspace()?.workspaceId, baseline: Boolean(settings.baseline), cache: Boolean(settings.remoteCache), resolution: choice?.resolution });
@@ -135,17 +140,29 @@ export async function runDavSync(settings: DavSettings, ports: DavPorts, choice?
   };
   await timed('local-save', () => ports.flush());
   ports.progress?.('checking');
-  if (!connectionVerified(settings)) await timed('network', () => testDavConnection(settings));
   const original = ports.getWorkspace();
   if (!original) throw new Error('webdav-session-changed');
   const workspaceId = original.workspaceId;
   const scope = await cacheScope(settings, original);
   let cache = settings.remoteCache?.scope === scope && strongEtag(settings.remoteCache.etag) ? settings.remoteCache : undefined;
   const path = await davWorkspacePath(workspaceId);
+  const leaseScope = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify([davBase(settings).href, settings.username, workspaceId])))), byte => byte.toString(16).padStart(2, '0')).join('');
+  const pendingLease = await ports.leaseJournal?.read(leaseScope);
+  if (pendingLease) {
+    if (pendingLease.path !== path) throw new Error('webdav-invalid-path');
+    auditDav('lock-recovery-start', { runId });
+    await timed('network', () => releaseDavLock(settings, path, pendingLease.token));
+    await ports.leaseJournal!.write(leaseScope, null);
+    auditDav('lock-recovery-complete', { runId });
+  }
+  if (!connectionVerified(settings)) await timed('network', () => testDavConnection(settings));
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 100 + Math.floor(Math.random() * 400 * attempt)));
     const lease = await timed('network', () => acquireDavLock(settings, path));
     try {
+    // Save the exact owned token in encrypted device storage before changing
+    // the shared file. A later app launch can safely finish an interrupted release.
+    await ports.leaseJournal?.write(leaseScope, { path, token: lease.token });
     const source = ports.getWorkspace();
     if (!source || source.workspaceId !== workspaceId) throw new Error('webdav-session-changed');
     const local = syncSnapshot(source);
@@ -253,7 +270,10 @@ export async function runDavSync(settings: DavSettings, ports: DavPorts, choice?
     auditDav('sync-complete', { runId, uploaded: changed, checkpointSaved: checkpointChanged, cacheEtag: cache?.etag });
     return { settings: next, changed };
     } finally {
-      await timed('network', () => lease.release()).catch(error => { auditDav('lock-release-failed', { runId, code: error instanceof Error ? error.message : 'unexpected' }); });
+      try {
+        await timed('network', () => lease.release());
+        await ports.leaseJournal?.write(leaseScope, null);
+      } catch (error) { auditDav('lock-release-failed', { runId, code: error instanceof Error && /^webdav-[a-z0-9-]+$/.test(error.message) ? error.message : 'unexpected' }); }
     }
   }
   throw new Error('webdav-concurrent-write-retry');

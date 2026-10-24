@@ -20,6 +20,8 @@ it('allows LAN retries even when browser online detection reports no internet', 
 });
 it('only suggests the automatic relay for the configured host', () => {
   expect(defaultDavProxy('https://kaksam.keenetic.pro/webdav/')).toContain('.workers.dev/dav');
+  expect(defaultDavProxy('https://kaksam.netcraze.pro/webdav/')).toContain('.workers.dev/dav');
+  expect(defaultDavProxy('https://kaksam.netcraze.pro.evil.example/webdav/')).toBe('');
   expect(defaultDavProxy('https://kaksam.keenetic.pro.evil.example/webdav/')).toBe('');
 });
 it('tries direct first and falls back only after a failed read, preserving conditions', async () => {

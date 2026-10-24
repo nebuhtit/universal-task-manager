@@ -1,5 +1,5 @@
 export interface Env { ALLOWED_ORIGINS: string; UPSTREAM_BASES: string }
-const methods = ['GET', 'PUT', 'MKCOL', 'OPTIONS', 'DELETE', 'MOVE', 'LOCK', 'UNLOCK'];
+const methods = ['GET', 'PUT', 'MKCOL', 'OPTIONS', 'DELETE', 'MOVE', 'LOCK', 'UNLOCK', 'PROPFIND'];
 const forwarded = ['Authorization', 'Content-Type', 'If-Match', 'If-None-Match', 'Destination', 'Overwrite', 'If', 'Lock-Token', 'Timeout', 'Depth'];
 async function bounded(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array<ArrayBuffer>> {
   if (!body) return new Uint8Array();
