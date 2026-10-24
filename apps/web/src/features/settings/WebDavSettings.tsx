@@ -3,12 +3,31 @@ import { Button, Checkbox, Field, Input } from '../../components/ui/primitives';
 import { defaultDavProxy, hasNativeWebDAV } from '../../services/webdavTransport';
 import type { DavSettings } from '../../services/webdavSync';
 import type { WebDavController } from '../../hooks/useWebDavSync';
+import { davShareAddress, parseDavAddress } from '../../services/webdavAddress';
+import { writeClipboardText } from '../../services/clipboard';
+import { auditDav } from '../../services/webdavDiagnostics';
 
 export function WebDavSettings({ controller, language }: { controller: WebDavController; language: string }) {
   const ru = language === 'ru';
   const empty = (): DavSettings => ({ url: '', folder: 'UniversalSync', username: '', password: '', syncPassword: '', deviceId: crypto.randomUUID(), enabled: false, logs: true });
   const [draft, setDraft] = useState(empty);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+  let addressCode: string | undefined;
+  let shareAddress = '';
+  try {
+    addressCode = draft.url ? parseDavAddress(draft.url).code : undefined;
+    if (controller.workspaceId && draft.url) shareAddress = davShareAddress(draft, controller.workspaceId);
+  } catch { /* Invalid or incomplete address is validated by the save command. */ }
+  const codeMismatch = Boolean(addressCode && controller.workspaceId && addressCode !== controller.workspaceId);
+  const changeAddress = (url: string) => {
+    setCopied(false);
+    try {
+      const parsed = parseDavAddress(url);
+      setDraft({ ...draft, url, ...(parsed.code ? { folder: '' } : {}) });
+      if (parsed.code) auditDav('shared-address-parsed', { context: 'settings', matchesWorkspace: parsed.code === controller.workspaceId });
+    } catch { setDraft({ ...draft, url }); }
+  };
   // Do not reset the typed connection/password fields after a background sync.
   useEffect(() => { if (controller.settings) setDraft(controller.settings); }, [controller.settings?.url, controller.settings?.username, controller.settings?.password, controller.settings?.syncPassword, controller.settings?.enabled, controller.settings?.logs, controller.settings?.folder, controller.settings?.proxyUrl]);
   const labels: Record<string, string> = {
@@ -46,12 +65,15 @@ export function WebDavSettings({ controller, language }: { controller: WebDavCon
   };
   const message = labels[controller.status] ?? (ru ? `Обмен не завершён (${controller.status}). Проверьте локальное сохранение перед закрытием приложения.` : `Sync did not finish (${controller.status}). Check local persistence before closing the app.`);
   return <details className="settings-disclosure" translate="no"><summary>{ru ? 'Синхронизация WebDAV' : 'WebDAV synchronization'}</summary><section className="settings-card" aria-label="WebDAV settings">
-    {controller.workspaceId && <Field label={ru ? 'Код для входа на другом устройстве' : 'Code for opening on another device'}><Input readOnly value={controller.workspaceId} onFocus={event => event.target.select()} /></Field>}
+    {controller.workspaceId && <Field label={ru ? 'Код для входа на другом устройстве' : 'Code for opening on another device'}><Input readOnly value={addressCode ?? controller.workspaceId} onFocus={event => event.target.select()} /></Field>}
+    <Field label={ru ? 'Адрес для входа на другом устройстве' : 'Address for opening on another device'} hint={ru ? 'Полный путь к папке и @код. Пароли в адрес не входят.' : 'Full folder path and @code. Passwords are not included.'}><Input readOnly value={shareAddress} onFocus={e => e.target.select()} /></Field>
+    <div className="settings-actions"><Button disabled={!shareAddress || codeMismatch} onClick={async () => { try { await writeClipboardText(shareAddress); setCopied(true); setError(''); auditDav('shared-address-copied'); } catch { setError(ru ? 'Не удалось скопировать адрес. Выделите его в поле выше и скопируйте вручную.' : 'Could not copy the address. Select the field above and copy it manually.'); } }}>{copied ? (ru ? 'Скопировано' : 'Copied') : (ru ? 'Копировать' : 'Copy')}</Button></div>
+    {codeMismatch && <div role="alert">{ru ? 'В адресе код другого пространства. Чтобы открыть его, используйте экран входа. Текущее пространство не будет отправлено под чужим кодом.' : 'This address contains a different workspace code. Use the sign-in screen to open it. This workspace will not be uploaded under another code.'}</div>}
     <p>{ru ? 'Ваш сервер, сквозное шифрование. Настройки подключения сохраняются только на этом устройстве, зашифрованными ключом рабочего пространства.' : 'Your server, end-to-end encryption. Connection settings stay on this device, encrypted with the workspace key.'}</p>
     <p>{ru ? 'На новом устройстве выберите «Открыть через WebDAV» на стартовом экране и введите код выше, сервер, папку и общий пароль синхронизации. Также можно импортировать тот же .utmb. Пароль синхронизации может отличаться от пароля WebDAV и локального пароля приложения.' : 'On a new device, choose “Open from WebDAV” on the start screen and enter the code above, server, folder and shared sync password. Importing the same .utmb is also supported. The sync password can differ from the WebDAV and local app passwords.'}</p>
-    <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'}><Input type="url" autoComplete="off" placeholder="https://example.com/webdav/" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })} /></Field>
+    <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'}><Input type="url" autoComplete="off" placeholder="https://example.com/webdav/" value={draft.url} onChange={e => changeAddress(e.target.value)} /></Field>
     {!hasNativeWebDAV() && <Field label={ru ? 'Посредник при ошибке прямого доступа (необязательно)' : 'Fallback proxy (optional)'} hint={ru ? 'Используйте доверенный посредник: через него передаётся пароль WebDAV. Пароль шифрования пространства остаётся на устройстве. Оставьте поле пустым для прямого подключения.' : 'Use a trusted proxy: it receives the WebDAV password. Your workspace encryption password stays on the device. Leave empty for a direct connection.'}><Input type="url" placeholder="https://your-worker.workers.dev/dav" value={draft.proxyUrl ?? defaultDavProxy(draft.url)} onChange={e => setDraft({ ...draft, proxyUrl: e.target.value })} /></Field>}
-    <Field label={ru ? 'Папка внутри WebDAV' : 'Folder inside WebDAV'}><Input value={draft.folder} onChange={e => setDraft({ ...draft, folder: e.target.value })} /></Field>
+    <Field label={ru ? 'Папка внутри WebDAV' : 'Folder inside WebDAV'}><Input disabled={Boolean(addressCode)} value={draft.folder} onChange={e => { setCopied(false); setDraft({ ...draft, folder: e.target.value }); }} /></Field>
     <Field label={ru ? 'Логин WebDAV' : 'WebDAV username'}><Input autoComplete="username" value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></Field>
     <Field label={ru ? 'Пароль WebDAV' : 'WebDAV password'}><Input type="password" autoComplete="current-password" value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></Field>
     <Field label={ru ? 'Общий пароль шифрования синхронизации' : 'Shared sync encryption password'}><Input type="password" minLength={10} autoComplete="new-password" value={draft.syncPassword} onChange={e => setDraft({ ...draft, syncPassword: e.target.value })} /></Field>
@@ -61,8 +83,8 @@ export function WebDavSettings({ controller, language }: { controller: WebDavCon
     <p>{ru ? 'Обмен — раз в минуту, после изменений и при возврате в приложение. В закрытом приложении iOS и браузер не гарантируют фоновую работу. Google-авторизация, кэш календаря и настройки уведомлений устройства не переносятся; задачи, views и PARA — переносятся.' : 'Sync runs every minute, after changes and on return. iOS and browsers do not guarantee execution while closed. Google sign-in, calendar cache and device notification settings stay local; tasks, views and PARA are shared.'}</p>
     <p>{hasNativeWebDAV() ? (ru ? 'Прямое подключение iOS; браузерный CORS не требуется.' : 'Direct native iOS connection; browser CORS is not required.') : (ru ? 'Для веб-версии сервер должен разрешить CORS: ваш Origin, OPTIONS без авторизации, методы GET/PUT/MKCOL/MOVE/DELETE/LOCK/UNLOCK и заголовки Authorization, Content-Type, If-Match, If-None-Match, Destination, Overwrite, If, Lock-Token, Depth, Timeout; открыть ETag, Lock-Token и Timeout для чтения. Без этого пароль не поможет.' : 'Browser access requires CORS: your Origin, unauthenticated OPTIONS, GET/PUT/MKCOL/MOVE/DELETE/LOCK/UNLOCK, Authorization, Content-Type, If-Match, If-None-Match, Destination, Overwrite, If, Lock-Token, Depth, Timeout and exposed ETag, Lock-Token and Timeout response headers. Credentials cannot bypass CORS.')}</p>
     <p>{ru ? 'Логи открытые, но без текста задач, адресов сервера и паролей. Каждый аппарат перезаписывает свой файл с тем же журналом, что и при ручном экспорте. Платформа и тип устройства записываются без полного User-Agent.' : 'Logs are readable but omit task text, server addresses and passwords. Each device replaces its own file with the same journal as the manual export. Platform and device type are recorded without the full User-Agent.'}</p>
-    <div className="settings-actions"><Button disabled={controller.running || !draft.url} onClick={async () => { setError(''); try { await controller.save(draft); } catch { setError(ru ? 'Не удалось проверить или сохранить настройки. См. статус ниже.' : 'Could not verify or save settings. See the status below.'); } }}>{ru ? 'Проверить и сохранить' : 'Check and save'}</Button><Button disabled={controller.running || !controller.settings} onClick={() => void controller.synchronize()}>{ru ? 'Синхронизировать сейчас' : 'Sync now'}</Button></div>
-    <Button disabled={controller.running || !draft.url} onClick={() => void controller.check(draft)}>{ru ? 'Проверить подключение' : 'Test connection'}</Button>
+    <div className="settings-actions"><Button disabled={controller.running || !draft.url || codeMismatch} onClick={async () => { setError(''); try { await controller.save(draft); } catch { setError(ru ? 'Не удалось проверить или сохранить настройки. См. статус ниже.' : 'Could not verify or save settings. See the status below.'); } }}>{ru ? 'Проверить и сохранить' : 'Check and save'}</Button><Button disabled={controller.running || !controller.settings} onClick={() => void controller.synchronize()}>{ru ? 'Синхронизировать сейчас' : 'Sync now'}</Button></div>
+    <Button disabled={controller.running || !draft.url || codeMismatch} onClick={() => void controller.check(draft)}>{ru ? 'Проверить подключение' : 'Test connection'}</Button>
     {controller.running && <progress aria-label={ru ? 'Обмен WebDAV' : 'WebDAV operation'} />}
     <p role="status">{message}</p>{error && <p role="alert">{error}</p>}
     {controller.lastSuccess && <p>{ru ? 'Последний успешный обмен: ' : 'Last successful sync: '}{new Date(controller.lastSuccess).toLocaleString(ru ? 'ru' : 'en')}</p>}

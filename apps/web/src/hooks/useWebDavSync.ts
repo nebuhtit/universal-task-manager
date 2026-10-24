@@ -3,6 +3,7 @@ import { readLocalDeviceSecret, writeLocalDeviceSecret } from '@utm/sdk';
 import type { WorkspaceDocument } from '@utm/core';
 import { DavConflict, runDavSync, safeDavLog, testDavConnection, uploadDavLog, type DavSettings } from '../services/webdavSync';
 import { davBase, hasLocalDavEndpoint } from '../services/webdavTransport';
+import { resolveDavAddress } from '../services/webdavAddress';
 import { recordDiagnostic } from '../services/diagnostics';
 import { auditDav, setDavDiagnosticsEnabled } from '../services/webdavDiagnostics';
 
@@ -58,9 +59,11 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
   };
   const save = async (value: DavSettings) => {
     if (busy.current) throw new Error('webdav-busy');
+    value = resolveDavAddress(value, current.current.workspace?.workspaceId);
     const epoch = generation.current;
     const old = config.current;
-    const keepCheckpoint = old && old.url === value.url && old.folder === value.folder && old.syncPassword === value.syncPassword;
+    // A combined address may express the same folder in url instead of folder.
+    const keepCheckpoint = old && davBase(old).href === davBase(value).href && old.syncPassword === value.syncPassword;
     const next = { ...value, deviceId: old?.deviceId ?? crypto.randomUUID(), ...(keepCheckpoint && old.baseline ? { baseline: old.baseline } : {}) };
     if (!keepCheckpoint) delete next.baseline;
     if (!keepCheckpoint || old?.username !== value.username || old?.password !== value.password) delete next.remoteCache;
@@ -77,7 +80,7 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
     const epoch = generation.current;
     busy.current = true; setRunning(true); setStatus('webdav-testing');
     logDav('connection', 'started', 'webdav-testing');
-    try { await testDavConnection(value); logDav('connection', 'succeeded', 'webdav-ready'); if (epoch === generation.current) setStatus('webdav-ready'); }
+    try { value = resolveDavAddress(value, current.current.workspace?.workspaceId); await testDavConnection(value); logDav('connection', 'succeeded', 'webdav-ready'); if (epoch === generation.current) setStatus('webdav-ready'); }
     catch (error) { logDav('connection', 'failed', davCode(error)); if (epoch === generation.current) setStatus(davCode(error)); }
     finally { busy.current = false; if (epoch === generation.current) setRunning(false); }
   };

@@ -6,12 +6,15 @@ import type { DavSettings } from '../../services/webdavSync';
 import { auditDav, setDavDiagnosticsEnabled } from '../../services/webdavDiagnostics';
 import { recordDiagnostic } from '../../services/diagnostics';
 import { defaultDavProxy, hasNativeWebDAV } from '../../services/webdavTransport';
+import { parseDavAddress, replaceDavAddressCode } from '../../services/webdavAddress';
 
 export type WebDavEntryStage = 'requesting-file' | 'checking-sync-password' | 'saving-local';
 const DEFAULT_DAV_FOLDER = 'UniversalSync';
 
 function connectionFromAddress(settings: DavSettings): DavSettings {
-  const address = new URL(settings.url.trim());
+  const parsed = parseDavAddress(settings.url);
+  const address = new URL(parsed.url);
+  if (parsed.code) return { ...settings, url: address.href, folder: '' };
   const path = address.pathname.replace(/\/+$/, '');
   // A server endpoint (root, /webdav, or a URL explicitly ending in /) uses
   // the app-managed folder. A path appended without a trailing slash is an
@@ -83,6 +86,13 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
   const [error, setError] = useState('');
   const [stage, setStage] = useState<WebDavEntryStage | null>(null);
   const [busy, setBusy] = useState(false);
+  const changeAddress = (url: string) => {
+    setDraft({ ...draft, url, folder: '' });
+    try {
+      const parsed = parseDavAddress(url);
+      if (parsed.code) { setCode(parsed.code); auditDav('shared-address-parsed', { context: 'sign-in' }); }
+    } catch { /* Keep partial input editable; validate on submit. */ }
+  };
   return <div translate="no"><Disclosure uiKey="webdav-entry" persist={false} className="webdav-entry" summary={ru ? 'Открыть через WebDAV' : 'Open from WebDAV'}>
     <p>{ru ? 'Откройте пространство, уже синхронизированное с вашим сервером. Используйте данные WebDAV и код с первого устройства.' : 'Open a workspace already synchronized with your server. Use your WebDAV credentials and the code from your first device.'}</p>
     <form onSubmit={async event => {
@@ -103,10 +113,10 @@ export function WebDavEntry({ language, disabled, onOpen }: { language: string; 
       } finally { setBusy(false); }
     }}>
       <fieldset disabled={disabled || busy}>
-        <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'} hint={ru ? 'Папка UniversalSync добавляется автоматически. Свой путь укажите в URL без завершающего слеша.' : 'UniversalSync is added automatically. Append a custom folder to the URL without a trailing slash.'}><Input type="url" required placeholder="https://server.example/webdav/" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value, folder: '' })} /></Field>
+        <Field label={ru ? 'Адрес WebDAV (HTTPS)' : 'WebDAV URL (HTTPS)'} hint={ru ? 'Можно вставить полный адрес папки с @кодом — поле кода заполнится автоматически. Без @кода работает отдельный ввод.' : 'Paste a full folder URL with @code to fill the code automatically, or enter the URL and code separately.'}><Input type="url" required placeholder="https://server.example/webdav/" value={draft.url} onChange={e => changeAddress(e.target.value)} /></Field>
         <Field label={ru ? 'Логин WebDAV' : 'WebDAV username'}><Input autoComplete="username" required value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></Field>
         <Field label={ru ? 'Пароль WebDAV' : 'WebDAV password'}><Input type="password" autoComplete="current-password" required value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></Field>
-        <Field label={ru ? 'Код рабочего пространства' : 'Workspace code'} hint={ru ? 'Скопируйте код из настроек WebDAV на первом устройстве. Он выбирает файл пространства; это не пароль.' : 'Copy the code from WebDAV settings on your first device. It selects the workspace file; it is not a password.'}><Input required autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={code} onChange={e => setCode(e.target.value)} /></Field>
+        <Field label={ru ? 'Код рабочего пространства' : 'Workspace code'} hint={ru ? 'Скопируйте код из настроек WebDAV на первом устройстве. Он выбирает файл пространства; это не пароль.' : 'Copy the code from WebDAV settings on your first device. It selects the workspace file; it is not a password.'}><Input required autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={code} onChange={e => { setCode(e.target.value); setDraft({ ...draft, url: replaceDavAddressCode(draft.url, e.target.value) }); }} /></Field>
         <Field label={ru ? 'Пароль рабочего пространства' : 'Workspace password'} hint={ru ? 'Введите общий пароль синхронизации с первого устройства. Он же будет паролем входа здесь.' : 'Use the shared sync password from your first device. The same password will unlock this device.'}><Input type="password" autoComplete="current-password" minLength={10} required value={draft.syncPassword} onChange={e => setDraft({ ...draft, syncPassword: e.target.value })} /></Field>
         {!hasNativeWebDAV() && <Field label={ru ? 'Посредник при ошибке прямого доступа (необязательно)' : 'Fallback proxy (optional)'} hint={ru ? 'Используйте доверенный адрес: посредник получает пароль WebDAV, но не пароль шифрования задач.' : 'Use a trusted endpoint: the proxy receives your WebDAV password, but not your workspace encryption password.'}><Input type="url" placeholder="https://your-worker.workers.dev/dav" value={draft.proxyUrl ?? defaultDavProxy(draft.url)} onChange={e => setDraft({ ...draft, proxyUrl: e.target.value })} /></Field>}
         <Button type="submit" variant="primary" size="touch">{busy ? (ru ? 'Открываем…' : 'Opening…') : (ru ? 'Загрузить и открыть' : 'Download and open')}</Button>

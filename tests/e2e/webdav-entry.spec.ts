@@ -16,14 +16,16 @@ for (const language of ['ru', 'en']) test(`WebDAV entry retains fields on denied
   const labels = language === 'ru'
     ? ['Адрес WebDAV (HTTPS)', 'Логин WebDAV', 'Пароль WebDAV', 'Код рабочего пространства', 'Пароль рабочего пространства']
     : ['WebDAV URL (HTTPS)', 'WebDAV username', 'WebDAV password', 'Workspace code', 'Workspace password'];
-  const values = ['https://entry-test.invalid/dav/', 'synthetic', 'synthetic-secret', '11111111-1111-4111-8111-111111111111', 'synthetic-sync-secret'];
+  const values = ['https://entry-test.invalid/dav/custom/@11111111-1111-4111-8111-111111111111', 'synthetic', 'synthetic-secret', '11111111-1111-4111-8111-111111111111', 'synthetic-sync-secret'];
   const controls = entry.locator('input:not([placeholder="https://your-worker.workers.dev/dav"])');
   await expect(controls).toHaveCount(labels.length);
   await controls.nth(0).focus();
   await page.keyboard.press('Tab');
   await expect(controls.nth(1)).toBeFocused();
   await expect(entry.locator('input[autocomplete="new-password"]')).toHaveCount(0);
-  for (let index = 0; index < labels.length; index++) await controls.nth(index).fill(values[index]!);
+  await controls.nth(0).fill(values[0]!);
+  await expect(controls.nth(3)).toHaveValue(values[3]!);
+  for (let index = 1; index < labels.length; index++) await controls.nth(index).fill(values[index]!);
   for (let index = 0; index < labels.length; index++) await expect(entry.getByLabel(labels[index]!, { exact: true })).toHaveValue(values[index]!);
   const layout = await entry.evaluate(node => {
     const root = node.getBoundingClientRect(); const fields = [...node.querySelectorAll('input')].map(field => field.getBoundingClientRect());
@@ -32,10 +34,12 @@ for (const language of ['ru', 'en']) test(`WebDAV entry retains fields on denied
   expect(layout.inset).toBeGreaterThan(0); expect(layout.fits).toBe(true); expect(layout.border).toBe('0px');
   await entry.locator(':scope > summary').scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('webdav-entry.png') });
-  await page.route('https://entry-test.invalid/**', route => route.fulfill({ status: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }));
+  const requested: string[] = [];
+  await page.route('https://entry-test.invalid/**', route => { requested.push(route.request().url()); return route.fulfill({ status: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' }); });
   const submit = entry.getByRole('button', { name: language === 'ru' ? 'Загрузить и открыть' : 'Download and open' });
   await submit.scrollIntoViewIfNeeded(); await submit.click();
   await expect(entry.getByRole('alert')).toContainText('403');
+  expect(requested.some(url => url.startsWith('https://entry-test.invalid/dav/custom/workspace-') && !url.includes('@'))).toBe(true);
   await expect(submit).toBeEnabled();
   await expect(controls.nth(0)).toHaveValue(values[0]!);
   await expect(page.locator('.lock-card')).toBeVisible();
