@@ -6,6 +6,15 @@ function request(method: string, target = 'https://dav.example/webdav/UniversalS
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('WebDAV HTTPS relay', () => {
+  it.each([['TimeoutError', 504, 'upstream-timeout'], ['TypeError', 502, 'upstream-network']] as const)('reports %s as a readable relay failure', async (name, status, code) => {
+    const error = new Error('private upstream error'); error.name = name;
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error));
+    const response = await worker.fetch(request('GET'), env);
+    expect(response.status).toBe(status);
+    expect(response.headers.get('X-UTM-WebDAV-Error')).toBe(code);
+    expect(response.headers.get('Access-Control-Expose-Headers')).toContain('X-UTM-WebDAV-Error');
+    expect(await response.text()).not.toContain('private upstream error');
+  });
   it('requests an uncompressed representation and preserves the origin validator for large files', async () => {
     const fetch = vi.fn().mockResolvedValue(new Response('x'.repeat(1_700_000), { headers: { ETag: '"origin"' } })); vi.stubGlobal('fetch', fetch);
     const response = await worker.fetch(request('GET'), env);

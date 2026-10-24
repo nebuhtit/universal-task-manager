@@ -2,6 +2,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { davRequest, defaultDavProxy, hasLocalDavEndpoint } from './webdavTransport';
 afterEach(() => vi.unstubAllGlobals());
 const connection = (id: string, proxyUrl = 'https://relay.example/dav') => ({ url: 'https://dav.example/webdav/', folder: id, username: 'u', password: 'p', proxyUrl });
+it('preserves readable upstream relay errors instead of reporting browser CORS', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('CORS')).mockResolvedValue(new Response('timeout', { status: 504, headers: { 'X-UTM-WebDAV-Error': 'upstream-timeout' } })));
+  await expect(davRequest(connection('relay-timeout'), 'GET', 'workspace-test.json')).rejects.toThrow('webdav-proxy-upstream-timeout');
+});
 it('uses the original relay ETag when downstream compression weakens the HTTP ETag', async () => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('CORS')).mockResolvedValue(new Response('encrypted', { headers: { ETag: 'W/"origin"', 'X-UTM-WebDAV-ETag': '"origin"' } })));
   expect((await davRequest(connection('compressed'), 'GET', 'workspace-test.json')).etag).toBe('"origin"');

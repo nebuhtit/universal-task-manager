@@ -120,6 +120,11 @@ describe('WebDAV three-way merge', () => {
 });
 
 describe('encrypted WebDAV protocol', () => {
+  it('reports the actual connection safety-check stages', async () => {
+    server(); const stages: string[] = [];
+    await testDavConnection(settings(), stage => stages.push(stage));
+    expect(stages).toEqual(['folder', 'create', 'read', 'conditions', 'lock', 'locked-write']);
+  });
   it('retains an interrupted owned lease and releases it before the next exchange', async () => {
     const remote = server(), a = device(fixture().workspace);
     const originalFetch = remote.fetcher.getMockImplementation()!;

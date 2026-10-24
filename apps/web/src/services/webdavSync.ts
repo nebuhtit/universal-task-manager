@@ -73,6 +73,7 @@ export async function decodeDavState(source: string, password: string, workspace
   return payload;
 }
 export interface DavPorts {
+  connectionProgress?: (stage: DavConnectionStage) => void;
   leaseJournal?: {
     read: (scope: string) => Promise<{ path: string; token: string } | null>;
     write: (scope: string, lease: { path: string; token: string } | null) => Promise<void>;
@@ -91,17 +92,23 @@ function connectionVerified(settings: DavSettings): boolean {
   if (verifiedTransport !== globalThis.fetch) { verifiedTransport = globalThis.fetch; verifiedConnections.clear(); }
   return verifiedConnections.has(connectionKey(settings));
 }
-export async function testDavConnection(settings: DavSettings): Promise<void> {
+export type DavConnectionStage = 'folder' | 'create' | 'read' | 'conditions' | 'lock' | 'locked-write';
+export async function testDavConnection(settings: DavSettings, progress?: (stage: DavConnectionStage) => void): Promise<void> {
+  const stage = (value: DavConnectionStage) => { auditDav('connection-check-stage', { stage: value }); progress?.(value); };
   connectionVerified(settings);
+  stage('folder');
   await ensureDavFolder(settings);
   const path = `probe-${crypto.randomUUID()}.json`;
+  stage('create');
   const created = await davCreate(settings, path, '{"test":"utm-webdav-conditional-write"}');
   if (created.status === 412) throw new Error('webdav-conditional-writes-required');
   davStatus(created);
+  stage('read');
   const read = await davRequest(settings, 'GET', path); davStatus(read);
   if (!read.etag || read.etag.startsWith('W/')) throw new Error('webdav-etag-required');
   let cleanupEtag = read.etag;
   try {
+    stage('conditions');
     const duplicate = await davCreate(settings, path, '{}');
     const stale = await davRequest(settings, 'PUT', path, '{}', { etag: `"utm-never-match-${crypto.randomUUID()}"` });
     const checked = await davRequest(settings, 'GET', path); davStatus(checked);
@@ -109,12 +116,14 @@ export async function testDavConnection(settings: DavSettings): Promise<void> {
     // Some embedded servers race If-Match checks. Require a server-enforced
     // exclusive lock as well, including protection against tokenless writers.
     const bodies = ['{"test":"concurrent-a"}', '{"test":"concurrent-b"}'];
+    stage('lock');
     const lease = await acquireDavLock(settings, path);
     try {
       const denied = await davRequest(settings, 'LOCK', path, '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>');
       const blocked = await davRequest(settings, 'PUT', path, bodies[1]);
       if ((denied.status >= 200 && denied.status < 300) || blocked.status !== 423) throw new Error('webdav-lock-required');
       await lease.refresh();
+      stage('locked-write');
       davStatus(await davRequest(settings, 'PUT', path, bodies[0], { etag: read.etag, lockToken: lease.token }));
       const final = await davRequest(settings, 'GET', path); davStatus(final);
       if (final.text !== bodies[0] || !strongEtag(final.etag) || final.etag === read.etag) throw new Error('webdav-conditional-writes-required');
@@ -155,7 +164,7 @@ export async function runDavSync(settings: DavSettings, ports: DavPorts, choice?
     await ports.leaseJournal!.write(leaseScope, null);
     auditDav('lock-recovery-complete', { runId });
   }
-  if (!connectionVerified(settings)) await timed('network', () => testDavConnection(settings));
+  if (!connectionVerified(settings)) await timed('network', () => testDavConnection(settings, ports.connectionProgress));
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 100 + Math.floor(Math.random() * 400 * attempt)));
     const lease = await timed('network', () => acquireDavLock(settings, path));

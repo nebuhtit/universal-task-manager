@@ -95,6 +95,7 @@ private final class WebDAVTransfer: NSObject, URLSessionDataDelegate, URLSession
         var result: [String: Any] = ["status": response.statusCode, "text": text]
         if let etag = response.value(forHTTPHeaderField: "ETag") { result["etag"] = etag }
         if let etag = response.value(forHTTPHeaderField: "X-UTM-WebDAV-ETag") { result["originEtag"] = etag }
+        if let code = response.value(forHTTPHeaderField: "X-UTM-WebDAV-Error") { result["proxyError"] = code }
         if let token = response.value(forHTTPHeaderField: "Lock-Token") { result["lockToken"] = token }
         if let timeout = response.value(forHTTPHeaderField: "Timeout") { result["lockTimeout"] = timeout }
         completion(result)

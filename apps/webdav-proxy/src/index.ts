@@ -30,8 +30,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = request.headers.get('Origin') ?? '';
     if (!origin || !env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).includes(origin)) return new Response('Origin denied', { status: 403 });
-    const cors = { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Cache-Control': 'no-store, no-transform', 'Access-Control-Expose-Headers': 'ETag, X-UTM-WebDAV-ETag, Lock-Token, Timeout' };
-    const reply = (message: string, status: number) => new Response(message, { status, headers: cors });
+    const cors = { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Cache-Control': 'no-store, no-transform', 'Access-Control-Expose-Headers': 'ETag, X-UTM-WebDAV-ETag, X-UTM-WebDAV-Error, Lock-Token, Timeout' };
+    const reply = (message: string, status: number, code?: string) => new Response(message, { status, headers: { ...cors, ...(code ? { 'X-UTM-WebDAV-Error': code } : {}) } });
     if (new URL(request.url).pathname !== '/dav') return reply('Not found', 404);
     if (request.method === 'OPTIONS' && request.headers.has('Access-Control-Request-Method')) {
       if (!methods.includes(request.headers.get('Access-Control-Request-Method')!)) return reply('Method denied', 405);
@@ -40,7 +40,7 @@ export default {
     if (!methods.includes(request.method)) return reply('Method denied', 405);
     const bases = env.UPSTREAM_BASES.split(',').map(s => s.trim()).filter(Boolean);
     const target = allowedTarget(request.headers.get('X-UTM-WebDAV-Target') ?? '', bases);
-    if (!target) return reply('Server is not allowed by this proxy', 403);
+    if (!target) return reply('Server is not allowed by this proxy', 403, 'target-denied');
     if (!/^Basic [A-Za-z0-9+/]+=*$/.test(request.headers.get('Authorization') ?? '')) return reply('WebDAV authentication required', 401);
     const headers = new Headers();
     for (const name of forwarded) { const value = request.headers.get(name); if (value !== null) headers.set(name, value); }
@@ -50,16 +50,22 @@ export default {
       const destination = allowedTarget(headers.get('Destination') ?? '', bases);
       if (!destination || destination.origin !== target.origin) return reply('Destination denied', 403);
     }
+    // Return a readable CORS response before the client's 30-second deadline.
+    const upstreamDeadline = AbortSignal.timeout(20_000);
     try {
       const bytes = await bounded(request.body);
-      const upstream = await fetch(target.href, { method: request.method, headers, redirect: 'manual', signal: AbortSignal.timeout(30_000), ...(request.method === 'GET' || !bytes.length ? {} : { body: bytes }) });
-      if (upstream.status >= 300 && upstream.status < 400 && upstream.status !== 304) { await upstream.body?.cancel(); return reply('Upstream redirect refused', 502); }
+      const upstream = await fetch(target.href, { method: request.method, headers, redirect: 'manual', signal: upstreamDeadline, ...(request.method === 'GET' || !bytes.length ? {} : { body: bytes }) });
+      if (upstream.status >= 300 && upstream.status < 400 && upstream.status !== 304) { await upstream.body?.cancel(); return reply('Upstream redirect refused', 502, 'redirect'); }
       const responseHeaders = new Headers(cors);
       const upstreamEtag = upstream.headers.get('ETag');
       if (upstreamEtag) responseHeaders.set('X-UTM-WebDAV-ETag', upstreamEtag);
       for (const name of ['ETag', 'Lock-Token', 'Timeout', 'Content-Type']) { const value = upstream.headers.get(name); if (value !== null) responseHeaders.set(name, value); }
       const payload = await bounded(upstream.body);
       return new Response([204, 205, 304].includes(upstream.status) ? null : payload, { status: upstream.status, headers: responseHeaders });
-    } catch (error) { return reply(error instanceof Error && error.message === 'too-large' ? 'Payload exceeds 20 MiB' : 'WebDAV upstream unavailable', error instanceof Error && error.message === 'too-large' ? 413 : 502); }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'too-large') return reply('Payload exceeds 20 MiB', 413, 'payload-too-large');
+      const timedOut = upstreamDeadline.aborted || (error instanceof Error && error.name === 'TimeoutError');
+      return timedOut ? reply('WebDAV server timed out', 504, 'upstream-timeout') : reply('WebDAV upstream unavailable', 502, 'upstream-network');
+    }
   },
 };
