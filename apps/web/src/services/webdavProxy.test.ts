@@ -2,6 +2,26 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { davRequest, defaultDavProxy, hasLocalDavEndpoint } from './webdavTransport';
 afterEach(() => vi.unstubAllGlobals());
 const connection = (id: string, proxyUrl = 'https://relay.example/dav') => ({ url: 'https://dav.example/webdav/', folder: id, username: 'u', password: 'p', proxyUrl });
+it('identifies a relay timeout and never replays a mutation', async () => {
+  const fetch = vi.fn().mockRejectedValueOnce(new TypeError('CORS')).mockRejectedValueOnce(new DOMException('deadline', 'TimeoutError')); vi.stubGlobal('fetch', fetch);
+  const progress: string[] = [];
+  await expect(davRequest({ ...connection('relay-no-response'), onTransportProgress: step => progress.push(step) }, 'PUT', 'probe.json', '{}')).rejects.toThrow('webdav-relay-response-timeout');
+  expect(progress).toEqual(['relay-request']);
+  expect(fetch.mock.calls.map(call => call[1].method)).toEqual(['OPTIONS', 'PUT']);
+});
+it('reports relay response only after accessible headers arrive', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('CORS')).mockResolvedValueOnce(new Response(null, { status: 412 })));
+  const progress: string[] = [];
+  await davRequest({ ...connection('relay-received'), onTransportProgress: step => progress.push(step) }, 'PUT', 'probe.json', '{}');
+  expect(progress).toEqual(['relay-request', 'relay-response']);
+});
+it('distinguishes a body timeout after relay headers from no relay response', async () => {
+  const body = new ReadableStream({ start(controller) { controller.error(new DOMException('deadline', 'TimeoutError')); } });
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('CORS')).mockResolvedValueOnce(new Response(body)));
+  const progress: string[] = [];
+  await expect(davRequest({ ...connection('relay-body-timeout'), onTransportProgress: step => progress.push(step) }, 'PUT', 'probe.json', '{}')).rejects.toThrow('webdav-relay-body-timeout');
+  expect(progress).toEqual(['relay-request', 'relay-response']);
+});
 it('preserves readable upstream relay errors instead of reporting browser CORS', async () => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('CORS')).mockResolvedValue(new Response('timeout', { status: 504, headers: { 'X-UTM-WebDAV-Error': 'upstream-timeout' } })));
   await expect(davRequest(connection('relay-timeout'), 'GET', 'workspace-test.json')).rejects.toThrow('webdav-proxy-upstream-timeout');

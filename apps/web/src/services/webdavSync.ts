@@ -73,7 +73,8 @@ export async function decodeDavState(source: string, password: string, workspace
   return payload;
 }
 export interface DavPorts {
-  connectionProgress?: (stage: DavConnectionStage) => void;
+  connectionProgress?: (stage: DavConnectionStage, completed?: boolean) => void;
+  transportProgress?: DavConnection['onTransportProgress'];
   leaseJournal?: {
     read: (scope: string) => Promise<{ path: string; token: string } | null>;
     write: (scope: string, lease: { path: string; token: string } | null) => Promise<void>;
@@ -87,13 +88,14 @@ export interface DavPorts {
 }
 let verifiedTransport: typeof fetch | undefined;
 const verifiedConnections = new Set<string>();
-const connectionKey = (settings: DavSettings) => JSON.stringify([settings.url, settings.folder, settings.username, settings.password]);
+const connectionKey = (settings: DavSettings) => JSON.stringify([settings.url, settings.folder, settings.username, settings.password, settings.proxyUrl]);
 function connectionVerified(settings: DavSettings): boolean {
   if (verifiedTransport !== globalThis.fetch) { verifiedTransport = globalThis.fetch; verifiedConnections.clear(); }
   return verifiedConnections.has(connectionKey(settings));
 }
 export type DavConnectionStage = 'folder' | 'create' | 'read' | 'conditions' | 'lock' | 'locked-write';
-export async function testDavConnection(settings: DavSettings, progress?: (stage: DavConnectionStage) => void): Promise<void> {
+export async function testDavConnection(settings: DavSettings, progress?: (stage: DavConnectionStage, completed?: boolean) => void, transportProgress?: DavConnection['onTransportProgress']): Promise<void> {
+  if (transportProgress) settings = { ...settings, onTransportProgress: transportProgress };
   const stage = (value: DavConnectionStage) => { auditDav('connection-check-stage', { stage: value }); progress?.(value); };
   connectionVerified(settings);
   stage('folder');
@@ -130,6 +132,8 @@ export async function testDavConnection(settings: DavSettings, progress?: (stage
       cleanupEtag = final.etag;
     } finally { await lease.release(); }
     verifiedConnections.add(connectionKey(settings));
+    auditDav('connection-check-succeeded');
+    progress?.('locked-write', true);
   } finally {
     // Delete only the random probe created by this check, and only while its
     // ETag still matches. A server without DELETE may retain this tiny probe.
@@ -164,7 +168,7 @@ export async function runDavSync(settings: DavSettings, ports: DavPorts, choice?
     await ports.leaseJournal!.write(leaseScope, null);
     auditDav('lock-recovery-complete', { runId });
   }
-  if (!connectionVerified(settings)) await timed('network', () => testDavConnection(settings, ports.connectionProgress));
+  if (!connectionVerified(settings)) await timed('network', () => testDavConnection(settings, ports.connectionProgress, ports.transportProgress));
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 100 + Math.floor(Math.random() * 400 * attempt)));
     const lease = await timed('network', () => acquireDavLock(settings, path));

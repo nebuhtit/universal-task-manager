@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { readLocalDeviceSecret, writeLocalDeviceSecret } from '@utm/sdk';
 import type { WorkspaceDocument } from '@utm/core';
 import { DavConflict, runDavSync, safeDavLog, testDavConnection, uploadDavLog, type DavSettings } from '../services/webdavSync';
-import { davBase, hasLocalDavEndpoint } from '../services/webdavTransport';
+import { davBase, hasLocalDavEndpoint, type DavTransportStep } from '../services/webdavTransport';
 import { resolveDavAddress } from '../services/webdavAddress';
 import { recordDiagnostic } from '../services/diagnostics';
 import { auditDav, setDavDiagnosticsEnabled } from '../services/webdavDiagnostics';
@@ -41,12 +41,22 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
   const [logError, setLogError] = useState(false);
   const [failureStage, setFailureStage] = useState<string | null>(null);
   const stage = useRef<string | null>(null);
+  const [connectionSteps, setConnectionSteps] = useState<string[]>([]);
+  const [connectionComplete, setConnectionComplete] = useState(false);
+  const [transportStep, setTransportStep] = useState<DavTransportStep | null>(null);
+  const resetTrace = () => { setConnectionSteps([]); setConnectionComplete(false); setTransportStep(null); };
+  const traceStage = (next: string, epoch: number, completed = false) => {
+    if (completed) { if (epoch === generation.current) setConnectionComplete(true); return; }
+    const id = `webdav-test-${next}`; stage.current = id;
+    if (epoch === generation.current) { setStatus(id); setConnectionSteps(previous => previous.includes(id) ? previous : [...previous, id]); }
+  };
   const workspaceId = ports.workspace?.workspaceId, dataKey = ports.dataKey;
   useEffect(() => {
     const epoch = ++generation.current;
     pending.current = false; retryAt.current = 0; failures.current = 0; lastLog.current = 0;
     pauseRequested.current = false; setPaused(false); setStopping(false); stopPromise.current = null;
     config.current = null; setSettings(null); setConflict(null); setRunning(false); setLogError(false); setFailureStage(null); setStatus('webdav-not-configured'); setLastSuccess('');
+    resetTrace();
     if (!workspaceId || !dataKey) return;
     void readLocalDeviceSecret<DavSettings>(`webdav-${workspaceId}`, dataKey).then(value => {
       if (generation.current !== epoch || !value) return;
@@ -112,6 +122,7 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
     davBase(next);
     if (next.syncPassword.length < 10) throw new Error('webdav-sync-password');
     busy.current = true; setRunning(true); setStatus('webdav-saving-settings'); setFailureStage(null); stage.current = 'webdav-saving-settings';
+    resetTrace();
     logDav('connection', 'started', 'webdav-saving-settings');
     // Persist the user's explicit choice independently of network availability.
     // A failed probe must not silently restore a retired server address.
@@ -123,8 +134,9 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
     if (busy.current || stopPromise.current) return;
     const epoch = generation.current;
     busy.current = true; setRunning(true); setStatus('webdav-testing'); setFailureStage(null); stage.current = 'webdav-testing';
+    resetTrace();
     logDav('connection', 'started', 'webdav-testing');
-    try { value = resolveDavAddress(value, current.current.workspace?.workspaceId); await testDavConnection(value, next => { stage.current = `webdav-test-${next}`; if (epoch === generation.current) setStatus(stage.current); }); logDav('connection', 'succeeded', 'webdav-ready'); if (epoch === generation.current) setStatus('webdav-ready'); }
+    try { value = resolveDavAddress(value, current.current.workspace?.workspaceId); await testDavConnection(value, (next, completed) => traceStage(next, epoch, completed), next => { if (epoch === generation.current) setTransportStep(next); }); logDav('connection', 'succeeded', 'webdav-ready'); if (epoch === generation.current) { setStatus('webdav-ready'); setConnectionComplete(true); } }
     catch (error) { logDav('connection', 'failed', davCode(error)); auditDav('connection-check-failed', { stage: stage.current, code: davCode(error) }); if (epoch === generation.current) { setFailureStage(stage.current); setStatus(davCode(error)); } }
     finally { busy.current = false; if (epoch === generation.current) setRunning(false); notifyIdle(); }
   };
@@ -139,6 +151,7 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
     pending.current = false;
     const epoch = generation.current;
     busy.current = true; setRunning(true); setStatus('webdav-syncing'); setFailureStage(null); stage.current = 'webdav-checking';
+    resetTrace();
     const started = performance.now(); let result = 'webdav-succeeded';
     logDav('sync', 'started', 'webdav-syncing');
     try {
@@ -157,13 +170,14 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
         },
         timing: (stage, duration) => logDav('sync', 'succeeded', `webdav-stage-${stage}`, duration),
         progress: next => { stage.current = `webdav-${next}`; logDav('sync', 'started', stage.current); if (epoch === generation.current) setStatus(stage.current); },
-        connectionProgress: next => { stage.current = `webdav-test-${next}`; if (epoch === generation.current) setStatus(stage.current); },
+        connectionProgress: (next, completed) => traceStage(next, epoch, completed),
+        transportProgress: next => { if (epoch === generation.current) setTransportStep(next); },
         getWorkspace: () => epoch === generation.current ? current.current.getWorkspace() : undefined,
         flush: () => current.current.flush(),
         commit: (message, mutation) => epoch === generation.current && current.current.commit(message, mutation),
         checkpoint: next => persist(next, epoch),
       }, choice && conflict ? { resolution: choice, etag: conflict.etag } : undefined);
-      if (epoch === generation.current) { failures.current = 0; retryAt.current = 0; setStatus(result); setLastSuccess(new Date().toISOString()); setConflict(null); }
+      if (epoch === generation.current) { failures.current = 0; retryAt.current = 0; setStatus(result); setLastSuccess(new Date().toISOString()); setConflict(null); setConnectionComplete(true); }
     } catch (error) {
       result = error instanceof Error && /^webdav-[a-z0-9-]+$/.test(error.message) ? error.message : 'webdav-unexpected';
       if (epoch === generation.current && !pauseRequested.current && /network|timeout|http-5|http-423|http-412|server-busy|concurrent-write-retry/.test(result)) {
@@ -209,6 +223,6 @@ export function useWebDavSync(ports: { workspace: WorkspaceDocument | undefined;
     const timer = setTimeout(() => { if ((navigator.onLine || Boolean(config.current && hasLocalDavEndpoint(config.current))) && document.visibilityState === 'visible') void synchronize(); }, 5_000);
     return () => clearTimeout(timer);
   }, [ports.workspace, settings?.enabled, paused, conflict, synchronize]);
-  return { settings, save, check, synchronize, stop, resume, paused, stopping, running, status, failureStage, lastSuccess, conflict, logError, workspaceId };
+  return { settings, save, check, synchronize, stop, resume, paused, stopping, running, status, failureStage, connectionSteps, connectionComplete, transportStep, lastSuccess, conflict, logError, workspaceId };
 }
 export type WebDavController = ReturnType<typeof useWebDavSync>;

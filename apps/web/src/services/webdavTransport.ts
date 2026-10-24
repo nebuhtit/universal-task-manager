@@ -1,5 +1,6 @@
 import { auditDav } from './webdavDiagnostics';
-export interface DavConnection { url: string; folder: string; username: string; password: string; proxyUrl?: string }
+export type DavTransportStep = 'direct-request' | 'relay-request' | 'direct-response' | 'relay-response';
+export interface DavConnection { url: string; folder: string; username: string; password: string; proxyUrl?: string; onTransportProgress?: (step: DavTransportStep) => void }
 export interface DavResult { status: number; text: string; etag: string | null; lockToken?: string | undefined; lockTimeout?: string | undefined }
 type NativeReply = { id: string; status?: number; text?: string; etag?: string; originEtag?: string; proxyError?: string; lockToken?: string; lockTimeout?: string; error?: string; errorCode?: number; errorCategory?: string };
 const relayFailure = (value: string | null | undefined) => value && ['target-denied', 'redirect', 'upstream-timeout', 'upstream-network', 'payload-too-large'].includes(value) ? `webdav-proxy-${value}` : undefined;
@@ -49,7 +50,7 @@ export async function davRequest(connection: DavConnection, method: DavMethod, p
     const fingerprint = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), byte => byte.toString(16).padStart(2, '0')).join('').slice(0, 16);
     // Correlate old/new destinations across devices without exporting addresses.
     auditDav('request-endpoint', { requestId, endpointId: await fingerprint(davBase(connection).href), relayConfigured: Boolean((connection.proxyUrl ?? defaultDavProxy(connection.url)).trim()) });
-    const result = await performDavRequest(connection, method, path, body, condition);
+    const result = await performDavRequest(connection, method, path, body, condition, requestId);
     auditDav('request-complete', { requestId, method, resource, durationMs: performance.now() - started, status: result.status, etag: result.etag, downloadBytes: new TextEncoder().encode(result.text).length });
     return result;
   } catch (error) {
@@ -57,7 +58,7 @@ export async function davRequest(connection: DavConnection, method: DavMethod, p
     throw error;
   }
 }
-async function performDavRequest(connection: DavConnection, method: DavMethod, path = '', body?: string, condition?: DavCondition): Promise<DavResult> {
+async function performDavRequest(connection: DavConnection, method: DavMethod, path = '', body?: string, condition?: DavCondition, requestId?: string): Promise<DavResult> {
   const base = davBase(connection);
   if (body !== undefined && new TextEncoder().encode(body).byteLength > 20 * 1024 * 1024) throw new Error('webdav-too-large');
   if (method === 'DELETE' && !/^probe-[a-f0-9-]{36}\.json$/.test(path)) throw new Error('webdav-invalid-path');
@@ -115,6 +116,10 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
   const routeKey = JSON.stringify([Boolean(handler), base.href, connection.username, proxyUrl]);
   const remembered = browserRoutes.get(routeKey);
   let useProxy = Boolean(proxyUrl && remembered?.proxy && remembered.until > Date.now());
+  let responseReceived = false;
+  const relayNetworkCode = (error: unknown) => error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)
+    ? responseReceived ? 'webdav-relay-body-timeout' : 'webdav-relay-response-timeout'
+    : 'webdav-relay-network-or-cors';
   const readOnly = method === 'GET' || method === 'OPTIONS' || method === 'PROPFIND';
   // Decide with a read-only probe before sending a first write. A lost write
   // response must never cause the same mutation to be replayed via a relay.
@@ -126,6 +131,8 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
     } catch { useProxy = true; rememberRoute(routeKey, true); auditDav('proxy-fallback', { reason: 'direct-probe-network-or-cors' }); }
   }
   const send = async (relay: boolean): Promise<DavResult> => {
+    responseReceived = false;
+    connection.onTransportProgress?.(relay ? 'relay-request' : 'direct-request');
     let endpoint = url.href;
     const requestHeaders = { ...headers };
     if (relay) {
@@ -135,16 +142,30 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
       if (((handler || !loopback) && proxy.protocol !== 'https:') || proxy.username || proxy.password || proxy.search || proxy.hash) throw new Error('webdav-invalid-proxy');
       endpoint = proxy.href;
       requestHeaders['X-UTM-WebDAV-Target'] = url.href;
+      if (!handler && requestId) requestHeaders['X-UTM-WebDAV-Request-Id'] = requestId;
       if (handler) requestHeaders.Origin = 'https://nebuhtit.github.io';
-      auditDav('proxy-request', { method, local: loopback, native: Boolean(handler) });
+      const relayId = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(proxy.href))), byte => byte.toString(16).padStart(2, '0')).join('').slice(0, 16);
+      auditDav('proxy-request', { method, local: loopback, native: Boolean(handler), relayId });
     }
     if (handler) {
       const reply = await nativeRequest(endpoint, method, requestHeaders, body);
+      connection.onTransportProgress?.(relay ? 'relay-response' : 'direct-response');
+      auditDav('response-headers', { method, relay, status: reply.status });
       const failure = relay ? relayFailure(reply.proxyError) : undefined;
       if (failure) throw new Error(failure);
       return { status: reply.status ?? 0, text: reply.text ?? '', etag: (relay ? reply.originEtag : undefined) ?? reply.etag ?? null, lockToken: reply.lockToken, lockTimeout: reply.lockTimeout };
     }
     const response = await fetch(endpoint, { method, headers: requestHeaders, ...(body === undefined ? {} : { body }), redirect: 'error', credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(30_000) });
+    responseReceived = true;
+    if (relay) {
+      const id = response.headers.get('X-UTM-Relay-Id');
+      const version = response.headers.get('X-UTM-Relay-Version');
+      const serverStage = response.headers.get('X-UTM-Relay-Stage');
+      const duration = response.headers.get('X-UTM-Relay-Duration');
+      auditDav('relay-report', { requestId, relayRequestId: id && /^[a-f0-9-]{36}$/.test(id) ? id : undefined, version: version && /^\d+\.\d+\.\d+$/.test(version) ? version : undefined, stage: serverStage && ['received', 'health', 'request-body', 'upstream-headers', 'upstream-body', 'complete'].includes(serverStage) ? serverStage : undefined, durationMs: duration && /^\d{1,8}$/.test(duration) ? Number(duration) : undefined, status: response.status });
+    }
+    connection.onTransportProgress?.(relay ? 'relay-response' : 'direct-response');
+    auditDav('response-headers', { method, relay, status: response.status });
     const relayError = relay ? relayFailure(response.headers.get('X-UTM-WebDAV-Error')) : undefined;
     if (relayError) { await response.body?.cancel(); throw new Error(relayError); }
     const reader = response.body?.getReader(), decoder = new TextDecoder();
@@ -174,8 +195,10 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
       auditDav('proxy-fallback', { reason: 'direct-network-or-cors', replay: readOnly });
       if (readOnly) try { return await send(true); } catch (fallbackError) {
         if (fallbackError instanceof Error && (['webdav-too-large', 'webdav-invalid-proxy'].includes(fallbackError.message) || fallbackError.message.startsWith('webdav-proxy-'))) throw fallbackError;
+        if (!handler) throw new Error(relayNetworkCode(fallbackError));
       }
     }
+    if (!handler && useProxy) throw new Error(relayNetworkCode(error));
     throw new Error(handler ? (error instanceof Error && error.message === 'webdav-timeout' ? 'webdav-timeout' : 'webdav-network') : 'webdav-network-or-cors');
   }
 }

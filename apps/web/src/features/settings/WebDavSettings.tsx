@@ -43,7 +43,7 @@ export function WebDavSettings({ controller, language }: { controller: WebDavCon
   const labels: Record<string, string> = {
     'webdav-saving-settings': ru ? 'Сохранение настроек на этом устройстве…' : 'Saving settings on this device…',
     'webdav-settings-saved': ru ? 'Настройки сохранены на этом устройстве. Подключение ещё не проверено.' : 'Settings saved on this device. Connection has not been verified.',
-    'webdav-test-folder': ru ? 'Проверка доступа к папке (MKCOL)' : 'Checking folder access (MKCOL)',
+    'webdav-test-folder': ru ? 'Подготовка пути к папке (MKCOL при необходимости)' : 'Preparing folder path (MKCOL if needed)',
     'webdav-test-create': ru ? 'Безопасное создание тестового файла (PUT / MOVE)' : 'Safely creating a test file (PUT / MOVE)',
     'webdav-test-read': ru ? 'Чтение тестового файла (GET)' : 'Reading the test file (GET)',
     'webdav-test-conditions': ru ? 'Проверка защиты от перезаписи (If-Match)' : 'Checking overwrite protection (If-Match)',
@@ -56,6 +56,9 @@ export function WebDavSettings({ controller, language }: { controller: WebDavCon
     'webdav-proxy-redirect': ru ? 'WebDAV-сервер перенаправляет запрос. Укажите конечный HTTPS-адрес.' : 'The WebDAV server redirects requests. Enter its final HTTPS address.',
     'webdav-proxy-payload-too-large': ru ? 'Размер данных превышает лимит посредника 20 МиБ.' : 'The payload exceeds the relay limit of 20 MiB.',
     'webdav-invalid-proxy': ru ? 'Укажите HTTPS-адрес посредника или http://127.0.0.1:8788/dav для локального запуска.' : 'Enter an HTTPS proxy URL, or http://127.0.0.1:8788/dav for a local relay.',
+    'webdav-relay-response-timeout': ru ? 'Браузер отправил запрос через посредник, но за 30 секунд не получил ответ. Получение запроса посредником не подтверждено. Запись не повторялась автоматически.' : 'The browser sent a relay request but received no response within 30 seconds. Receipt by the relay is unconfirmed. The write was not automatically replayed.',
+    'webdav-relay-body-timeout': ru ? 'Ответ посредника начался, но загрузка данных зависла и превысила 30 секунд. Доступ к посреднику подтверждён, получение полного результата — нет.' : 'The relay response started, but its body stalled beyond 30 seconds. Relay access is confirmed; receipt of the complete result is not.',
+    'webdav-relay-network-or-cors': ru ? 'Браузер не получил доступного ответа от посредника: возможна ошибка сети, TLS или CORS. Получение запроса посредником не подтверждено.' : 'The browser received no accessible relay response: network, TLS or CORS may be responsible. Receipt by the relay is unconfirmed.',
     'webdav-not-configured': ru ? 'Не настроено' : 'Not configured',
     'webdav-ready': ru ? 'Готово к обмену' : 'Ready',
     'webdav-paused': ru ? 'Автоматический обмен выключен' : 'Automatic sync is off',
@@ -126,6 +129,19 @@ export function WebDavSettings({ controller, language }: { controller: WebDavCon
     <Button disabled={controller.running || controller.stopping || !draft.url || codeMismatch} onClick={() => void controller.check({ ...draft })}>{ru ? 'Проверить подключение' : 'Test connection'}</Button>
     {controller.running && <progress aria-label={ru ? 'Обмен WebDAV' : 'WebDAV operation'} />}
     <p role="status">{message}</p>{error && <p className="error" role="alert">{error}</p>}
+    {controller.connectionSteps?.length > 0 && <ol aria-label={ru ? 'Этапы проверки WebDAV' : 'WebDAV check stages'}>{['folder', 'create', 'read', 'conditions', 'lock', 'locked-write'].map(name => {
+      const key = `webdav-test-${name}`, index = controller.connectionSteps.indexOf(key);
+      const passed = index >= 0 && (controller.connectionComplete || index < controller.connectionSteps.length - 1);
+      const failed = !controller.connectionComplete && controller.failureStage === key;
+      const state = passed ? (ru ? 'Пройдено' : 'Passed') : failed ? (ru ? 'Ошибка' : 'Failed') : index >= 0 ? (ru ? 'Выполняется' : 'In progress') : (ru ? 'Не начато' : 'Not started');
+      return <li key={key}>{passed ? '✓' : failed ? '✕' : index >= 0 ? '→' : '○'} {labels[key]} — {state}</li>;
+    })}</ol>}
+    {controller.transportStep && <div className="hint">{({
+      'direct-request': ru ? 'Прямой запрос отправлен; ждём ответ.' : 'Direct request sent; awaiting a response.',
+      'relay-request': ru ? 'Запрос через посредник отправлен. Ответ посредника пока не получен.' : 'Relay request sent. No relay response received yet.',
+      'direct-response': ru ? 'Ответ напрямую от WebDAV получен.' : 'Direct WebDAV response received.',
+      'relay-response': ru ? 'Ответ через посредник получен: доступ к посреднику подтверждён.' : 'Relay response received: relay access confirmed.',
+    })[controller.transportStep]}</div>}
     {controller.failureStage && <p className="error" role="alert">{ru ? 'Этап сбоя: ' : 'Failed stage: '}{labels[controller.failureStage] ?? controller.failureStage}</p>}
     {controller.lastSuccess && <p>{ru ? 'Последний успешный обмен: ' : 'Last successful sync: '}{new Date(controller.lastSuccess).toLocaleString(ru ? 'ru' : 'en')}</p>}
     {controller.logError && <p className="error" role="alert">{ru ? 'Отправить лог не удалось. Это не отменяет результат обмена данными.' : 'Log upload failed. This does not undo the data synchronization result.'}</p>}

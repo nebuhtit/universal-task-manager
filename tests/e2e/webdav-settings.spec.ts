@@ -59,7 +59,11 @@ test('WebDAV drafts do not redirect an active exchange; stop drains and persists
   await expect(form.getByRole('button', { name: 'Sync now', exact: true })).toBeDisabled();
   await form.getByRole('button', { name: 'Resume', exact: true }).click();
   await expect.poll(() => requests.some(value => value.startsWith('https://new-sync.invalid/'))).toBe(true);
-  await expect(form.getByRole('alert')).toContainText('Checking folder access (MKCOL)');
+  await expect(form.getByRole('alert')).toContainText('Preparing folder path (MKCOL if needed)');
+  const stages = form.getByRole('list', { name: 'WebDAV check stages' });
+  await expect(stages).toBeVisible();
+  await expect(stages.getByRole('listitem').first()).toContainText('Failed');
+  await expect(stages.getByRole('listitem').nth(1)).toContainText('Not started');
 });
 
 for (const language of ['en', 'ru'] as const) test(`WebDAV private settings and safe failure: ${language}`, async ({ page }, info) => {

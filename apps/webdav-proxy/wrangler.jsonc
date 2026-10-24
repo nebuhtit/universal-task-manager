@@ -2,7 +2,7 @@
   "name": "universal-task-manager-webdav",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-23",
-  "observability": { "enabled": false },
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
   "vars": {
     "ALLOWED_ORIGINS": "https://nebuhtit.github.io,http://127.0.0.1:4173",
     "UPSTREAM_BASES": "https://kaksam.keenetic.pro/webdav/,https://kaksam.netcraze.pro/webdav/"
