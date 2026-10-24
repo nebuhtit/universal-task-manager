@@ -2,6 +2,16 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { davRequest, defaultDavProxy, hasLocalDavEndpoint } from './webdavTransport';
 afterEach(() => vi.unstubAllGlobals());
 const connection = (id: string, proxyUrl = 'https://relay.example/dav') => ({ url: 'https://dav.example/webdav/', folder: id, username: 'u', password: 'p', proxyUrl });
+it('uses the original relay ETag when downstream compression weakens the HTTP ETag', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('CORS')).mockResolvedValue(new Response('encrypted', { headers: { ETag: 'W/"origin"', 'X-UTM-WebDAV-ETag': '"origin"' } })));
+  expect((await davRequest(connection('compressed'), 'GET', 'workspace-test.json')).etag).toBe('"origin"');
+});
+it('does not strengthen weak origin validators or trust relay headers from a direct server', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('encrypted', { headers: { ETag: 'W/"weak"', 'X-UTM-WebDAV-ETag': '"fake"' } })));
+  expect((await davRequest(connection('untrusted-header'), 'GET', 'workspace-test.json')).etag).toBe('W/"weak"');
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('CORS')).mockResolvedValue(new Response('encrypted', { headers: { ETag: 'W/"weak"', 'X-UTM-WebDAV-ETag': 'W/"weak"' } })));
+  expect((await davRequest(connection('weak-upstream'), 'GET', 'workspace-test.json')).etag).toBe('W/"weak"');
+});
 it('allows LAN retries even when browser online detection reports no internet', () => {
   expect(hasLocalDavEndpoint(connection('lan', 'http://127.0.0.1:8788/dav'))).toBe(true);
   expect(hasLocalDavEndpoint(connection('lan', 'https://192.168.1.20:8788/dav'))).toBe(true);

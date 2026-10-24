@@ -48,7 +48,7 @@ import { useWebDavSync } from './hooks/useWebDavSync';
 import { WebDavSettings } from './features/settings/WebDavSettings';
 import { WebDavEntry } from './features/settings/WebDavEntry';
 import { downloadDavWorkspace } from './services/webdavSync';
-import { DAV_DIAGNOSTICS_CHANGED_EVENT, readDavDiagnostics } from './services/webdavDiagnostics';
+import { auditDav, DAV_DIAGNOSTICS_CHANGED_EVENT, readDavDiagnostics } from './services/webdavDiagnostics';
 import { fromJSON as workspaceContainerFromJSON, writeLocalDeviceSecret } from '@utm/sdk';
 import { SaveStatusSubscription } from './components/SaveStatusSubscription';
 import { PersistenceStatusBanner } from './components/PersistenceStatusBanner';
@@ -1408,6 +1408,7 @@ export default function App() {
   };
   const captureView = page === 'home' && focusedViewId ? workspace.views[focusedViewId] : page === 'organization' ? paraCaptureView : undefined;
   const persistQuickItem = (item: UniversalItem) => {
+    auditDav('quick-capture-created', { itemId: item.id, page, viewedDate: page === 'calendar' ? calendarCaptureDate : undefined, schedule: { startAt: item.schedule?.startAt, endAt: item.schedule?.endAt, dueAt: item.schedule?.dueAt, plannedDate: item.schedule?.plannedDate }, persistence: 'pending' });
     const saved = commit('Quick capture', (draft) => { draft.items[item.id] = clean(item); runAutomationEvents(draft, [{ id: createId(), type: 'item.created', at: item.createdAt, itemId: item.id, after: clean(item), causationId: createId(), depth: 0 }]); });
     if (!saved) throw new Error('Не удалось сохранить item. Текст остаётся в строке ввода.');
     if (workspace.calendarPreferences.googleCalendar && item.schedule?.startAt && item.schedule.endAt) setToast(workspace.calendarPreferences.language === 'ru'

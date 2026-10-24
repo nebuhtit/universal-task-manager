@@ -1,8 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { createItem, createWorkspace, softDeleteItemTree } from '@utm/core';
+import { createItem, createOccurrence, createWorkspace, softDeleteItemTree } from '@utm/core';
 import { nativeReminderSchedule } from './nativeReminders';
 
 describe('native reminder scheduling', () => {
+  it('plans weekly reminders before activation, without materializing future items or using stale relative at', () => {
+    const now = new Date('2026-10-23T07:00:00Z');
+    const workspace = createWorkspace('Recurring reminders', now); workspace.items = {};
+    const series = createItem('Private title', 'event', now);
+    series.role = 'series_template';
+    series.recurrence = { rrule: 'FREQ=WEEKLY;INTERVAL=1', timezone: 'Europe/Moscow', activationOffset: 'PT0M', anchor: 'schedule', autoRenew: true, closeAt: 'next_activation', exdates: [], rdates: [] };
+    series.schedule = { startAt: '2026-10-24T08:30:00Z', endAt: '2026-10-24T09:00:00Z', availableFrom: '2026-10-24T08:30:00Z', timezone: 'Europe/Moscow' };
+    series.reminders = [
+      { id: 'half-hour', mode: 'relative', relativeTo: 'start', offset: '-PT30M', at: '2026-10-10T08:30:00Z', repeatUntilAcknowledged: false },
+      { id: 'five-minutes', mode: 'relative', relativeTo: 'start', offset: '-PT5M', repeatUntilAcknowledged: false },
+      { id: 'previous-day', mode: 'relative', relativeTo: 'start', offset: '-P1D', repeatUntilAcknowledged: false },
+    ];
+    workspace.items[series.id] = series;
+    const before = JSON.stringify(workspace);
+    const entries = nativeReminderSchedule(workspace, now);
+    expect(entries.slice(0, 3).map(e => e.at)).toEqual(['2026-10-23T08:30:00.000Z', '2026-10-24T08:00:00.000Z', '2026-10-24T08:25:00.000Z']);
+    expect(entries.some(e => e.at === '2026-10-31T08:00:00.000Z')).toBe(true);
+    expect(JSON.stringify(workspace)).toBe(before);
+    const occurrence = createOccurrence(series, new Date('2026-10-24T08:30:00Z'), 0);
+    workspace.items[occurrence.id] = occurrence;
+    expect(nativeReminderSchedule(workspace, now).filter(e => e.at === '2026-10-24T08:00:00.000Z')).toHaveLength(1);
+    occurrence.state = 'done';
+    expect(nativeReminderSchedule(workspace, now).some(e => e.at === '2026-10-24T08:00:00.000Z')).toBe(false);
+  });
   it('keeps alarm delivery through rescheduling and removes completed/acknowledged alarms', () => {
     const now = new Date('2026-09-26T09:00:00Z');
     const workspace = createWorkspace('Alarm', now); workspace.items = {};

@@ -108,7 +108,9 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
         center.getPendingNotificationRequests { [weak self] requests in
             guard let self else { return }
             let oldIdentifiers = requests.map(\.identifier).filter { $0.hasPrefix(self.identifierPrefix) && !$0.hasPrefix("utm:timer:") }
-            self.center.removePendingNotificationRequests(withIdentifiers: oldIdentifiers)
+            // Replace matching IDs in place; never empty the whole queue before
+            // new requests have been accepted by iOS.
+            let desiredIdentifiers = Set(rawItems.compactMap { $0["id"] as? String })
             let group = DispatchGroup()
             var firstError: Error?
             let errorLock = NSLock()
@@ -136,8 +138,15 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
                 }
             }
             group.notify(queue: .main) {
-                if let firstError { self.sendStatus(id: id, error: firstError.localizedDescription) }
-                else { self.sendStatus(id: id, scheduled: scheduled, error: alarmError) }
+                if firstError == nil {
+                    self.center.removePendingNotificationRequests(withIdentifiers: oldIdentifiers.filter { !desiredIdentifiers.contains($0) })
+                }
+                self.center.getNotificationSettings { settings in
+                    let authorization = [UNAuthorizationStatus.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus) ? "granted" : "denied"
+                    self.center.getPendingNotificationRequests { pending in
+                        self.sendStatus(id: id, authorization: authorization, scheduled: scheduled, pendingIds: pending.map(\.identifier).filter { $0.hasPrefix(self.identifierPrefix) }, error: firstError?.localizedDescription ?? alarmError)
+                    }
+                }
             }
         }
     }
@@ -202,10 +211,11 @@ final class NativeReminderBridge: NSObject, WKScriptMessageHandler, UNUserNotifi
         completionHandler([.banner, .list, .sound])
     }
 
-    private func sendStatus(id: String, authorization: String? = nil, scheduled: Int? = nil, error: String? = nil) {
+    private func sendStatus(id: String, authorization: String? = nil, scheduled: Int? = nil, pendingIds: [String]? = nil, error: String? = nil) {
         var payload: [String: Any] = ["id": id, "ok": error == nil]
         if let authorization { payload["authorization"] = authorization }
         if let scheduled { payload["scheduled"] = scheduled }
+        if let pendingIds { payload["pendingIds"] = pendingIds }
         if let error { payload["error"] = error }
         guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
         DispatchQueue.main.async { [weak self] in

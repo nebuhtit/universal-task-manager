@@ -30,7 +30,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = request.headers.get('Origin') ?? '';
     if (!origin || !env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).includes(origin)) return new Response('Origin denied', { status: 403 });
-    const cors = { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Cache-Control': 'no-store', 'Access-Control-Expose-Headers': 'ETag, Lock-Token, Timeout' };
+    const cors = { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin', 'Cache-Control': 'no-store, no-transform', 'Access-Control-Expose-Headers': 'ETag, X-UTM-WebDAV-ETag, Lock-Token, Timeout' };
     const reply = (message: string, status: number) => new Response(message, { status, headers: cors });
     if (new URL(request.url).pathname !== '/dav') return reply('Not found', 404);
     if (request.method === 'OPTIONS' && request.headers.has('Access-Control-Request-Method')) {
@@ -44,6 +44,8 @@ export default {
     if (!/^Basic [A-Za-z0-9+/]+=*$/.test(request.headers.get('Authorization') ?? '')) return reply('WebDAV authentication required', 401);
     const headers = new Headers();
     for (const name of forwarded) { const value = request.headers.get(name); if (value !== null) headers.set(name, value); }
+    // Preserve the original validator even if downstream compression weakens ETag.
+    headers.set('Accept-Encoding', 'identity');
     if (request.method === 'MOVE') {
       const destination = allowedTarget(headers.get('Destination') ?? '', bases);
       if (!destination || destination.origin !== target.origin) return reply('Destination denied', 403);
@@ -53,6 +55,8 @@ export default {
       const upstream = await fetch(target.href, { method: request.method, headers, redirect: 'manual', signal: AbortSignal.timeout(30_000), ...(request.method === 'GET' || !bytes.length ? {} : { body: bytes }) });
       if (upstream.status >= 300 && upstream.status < 400 && upstream.status !== 304) { await upstream.body?.cancel(); return reply('Upstream redirect refused', 502); }
       const responseHeaders = new Headers(cors);
+      const upstreamEtag = upstream.headers.get('ETag');
+      if (upstreamEtag) responseHeaders.set('X-UTM-WebDAV-ETag', upstreamEtag);
       for (const name of ['ETag', 'Lock-Token', 'Timeout', 'Content-Type']) { const value = upstream.headers.get(name); if (value !== null) responseHeaders.set(name, value); }
       const payload = await bounded(upstream.body);
       return new Response([204, 205, 304].includes(upstream.status) ? null : payload, { status: upstream.status, headers: responseHeaders });

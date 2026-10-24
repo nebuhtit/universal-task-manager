@@ -1,5 +1,6 @@
-import { itemDeletionTime, reminderTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
+import { createOccurrence, itemDeletionTime, projectOccurrences, reminderTime, type UniversalItem, type WorkspaceDocument } from '@utm/core';
 import { measureProfile } from './performanceProfile';
+import { auditDav } from './webdavDiagnostics';
 
 export interface NativeReminderEntry {
   id: string;
@@ -17,7 +18,7 @@ type NativeReminderMessage =
   | { id: string; kind: 'timer.schedule'; timerId: string; title: string; at: string }
   | { id: string; kind: 'timer.cancel'; timerId: string };
 
-type NativeReminderStatus = { id: string; ok: boolean; authorization?: string; scheduled?: number; error?: string };
+type NativeReminderStatus = { id: string; ok: boolean; authorization?: string; scheduled?: number; pendingIds?: string[]; error?: string };
 const handlerName = 'utmNativeReminders';
 const maximumPendingReminders = 60;
 const pending = new Map<string, { resolve: (status: NativeReminderStatus) => void; reject: (reason: Error) => void }>();
@@ -43,13 +44,14 @@ function setupListener() {
   }) as EventListener);
 }
 
-function send(message: NativeReminderMessage, timeoutMs?: number): Promise<NativeReminderStatus> {
+function send(message: NativeReminderMessage, timeoutMs = 30_000): Promise<NativeReminderStatus> {
   const target = handler();
   if (!target) return Promise.reject(new Error('Native reminders are available only in the Universal iOS app'));
   setupListener();
+  auditDav('reminders-native-request', { requestId: message.id, kind: message.kind });
   const completion = new Promise<NativeReminderStatus>((resolve, reject) => {
-    const timeout = timeoutMs === undefined ? undefined : setTimeout(() => { pending.delete(message.id); reject(new Error('Native reminder status timed out')); }, timeoutMs);
-    pending.set(message.id, { resolve: status => { clearTimeout(timeout); resolve(status); }, reject: reason => { clearTimeout(timeout); reject(reason); } });
+    const timeout = setTimeout(() => { pending.delete(message.id); auditDav('reminders-native-timeout', { requestId: message.id, kind: message.kind }); reject(new Error('Native reminder status timed out')); }, timeoutMs);
+    pending.set(message.id, { resolve: status => { clearTimeout(timeout); auditDav('reminders-native-confirmed', { requestId: message.id, kind: message.kind, authorization: status.authorization, scheduled: status.scheduled, pendingIds: status.pendingIds }); resolve(status); }, reject: reason => { clearTimeout(timeout); auditDav('reminders-native-failed', { requestId: message.id, kind: message.kind }); reject(reason); } });
     try { target.postMessage(message); }
     catch (reason) { pending.get(message.id)?.reject(reason instanceof Error ? reason : new Error('Native reminder operation failed')); pending.delete(message.id); }
   });
@@ -76,17 +78,41 @@ export function nativeReminderSchedule(workspace: WorkspaceDocument, now = new D
   return measureProfile('reminders.prepare', () => prepareReminderSchedule(workspace, now), value => ({ rows: value.length }));
 }
 
+export function reminderCandidates(workspace: WorkspaceDocument, now: Date): UniversalItem[] {
+  const items = new Map(Object.values(workspace.items).map(item => [item.id, item]));
+  const known = new Set(Object.values(workspace.items).filter(item => item.occurrence).map(item => `${item.occurrence!.seriesId}:${item.occurrence!.recurrenceId}`));
+  let projected: ReturnType<typeof projectOccurrences> = [];
+  try { projected = projectOccurrences(workspace, new Date(now.getTime() - 86_400_000), new Date(now.getTime() + 45 * 86_400_000)); }
+  catch { auditDav('reminders-projection-failed'); }
+  for (const row of projected) {
+    if (!row.virtual || !row.seriesId || !row.recurrenceId || known.has(`${row.seriesId}:${row.recurrenceId}`)) continue;
+    const series = workspace.items[row.sourceItemId];
+    if (series?.state !== 'open') continue;
+    const item = createOccurrence(series, new Date(row.recurrenceId), 0);
+    items.set(item.id, item);
+  }
+  return [...items.values()];
+}
+
+export function reminderDeliveryTime(item: UniversalItem, at: string): number {
+  // Activation controls list visibility, not advance reminders for a cycle.
+  const available = !item.occurrence && item.schedule?.availableFrom ? Date.parse(item.schedule.availableFrom) : Number.NEGATIVE_INFINITY;
+  return Math.max(Date.parse(at), Number.isFinite(available) ? available : Number.NEGATIVE_INFINITY);
+}
+
 function prepareReminderSchedule(workspace: WorkspaceDocument, now: Date): NativeReminderEntry[] {
   const nowTime = now.getTime();
-  return Object.values(workspace.items).flatMap((item) => {
-    if (itemDeletionTime(workspace, item) || item.state !== 'open' || item.role === 'series_template') return [];
-    const availableAt = item.schedule?.availableFrom ? Date.parse(item.schedule.availableFrom) : Number.NEGATIVE_INFINITY;
+  const skipped: object[] = [];
+  const entries = reminderCandidates(workspace, now).flatMap((item) => {
+    if (itemDeletionTime(workspace, item) || item.state !== 'open' || item.role === 'series_template') {
+      if (item.reminders.length) skipped.push({ itemId: item.id, reason: itemDeletionTime(workspace, item) ? 'deleted' : item.role === 'series_template' ? 'template' : 'closed' });
+      return [];
+    }
     return (item.reminders ?? []).flatMap((reminder) => {
       const resolvedAt = reminderTime(item, reminder);
-      if (!resolvedAt) return [];
-      const resolvedTime = Date.parse(resolvedAt);
-      const deliveryTime = Math.max(resolvedTime, Number.isFinite(availableAt) ? availableAt : Number.NEGATIVE_INFINITY);
-      if (!Number.isFinite(deliveryTime) || deliveryTime <= nowTime) return [];
+      if (!resolvedAt) { skipped.push({ itemId: item.id, reminderId: reminder.id, reason: reminder.acknowledgedAt ? 'acknowledged' : 'unresolved' }); return []; }
+      const deliveryTime = reminderDeliveryTime(item, resolvedAt);
+      if (!Number.isFinite(deliveryTime) || deliveryTime <= nowTime) { skipped.push({ itemId: item.id, reminderId: reminder.id, at: resolvedAt, reason: 'past-or-invalid' }); return []; }
       return [{
         id: `utm:${workspace.workspaceId}:${item.id}:${reminder.id}`,
         itemId: item.id,
@@ -96,7 +122,10 @@ function prepareReminderSchedule(workspace: WorkspaceDocument, now: Date): Nativ
         ...(reminder.delivery ? { delivery: reminder.delivery } : {}),
       } satisfies NativeReminderEntry];
     });
-  }).sort((left, right) => Date.parse(left.at) - Date.parse(right.at)).slice(0, maximumPendingReminders);
+  }).sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+  const selected = entries.slice(0, maximumPendingReminders);
+  auditDav('reminders-plan', { now: now.toISOString(), candidates: entries.length, truncated: entries.length - selected.length, selected: selected.map(({ id, itemId, at, delivery }) => ({ id, itemId, at, delivery })), skipped });
+  return selected;
 }
 
 export function requestNativeReminderPermission(): Promise<NativeReminderStatus> {

@@ -6,6 +6,15 @@ function request(method: string, target = 'https://dav.example/webdav/UniversalS
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('WebDAV HTTPS relay', () => {
+  it('requests an uncompressed representation and preserves the origin validator for large files', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response('x'.repeat(1_700_000), { headers: { ETag: '"origin"' } })); vi.stubGlobal('fetch', fetch);
+    const response = await worker.fetch(request('GET'), env);
+    expect(fetch.mock.calls[0]![1].headers.get('Accept-Encoding')).toBe('identity');
+    expect(response.headers.get('X-UTM-WebDAV-ETag')).toBe('"origin"');
+    expect(response.headers.get('Access-Control-Expose-Headers')).toContain('X-UTM-WebDAV-ETag');
+    expect(response.headers.get('Cache-Control')).toContain('no-transform');
+    expect((await response.text()).length).toBe(1_700_000);
+  });
   it('answers browser preflight without forwarding authentication', async () => {
     const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
     const response = await worker.fetch(request('OPTIONS', undefined, { 'Access-Control-Request-Method': 'LOCK' }), env);

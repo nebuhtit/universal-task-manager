@@ -162,7 +162,11 @@ export async function runDavSync(settings: DavSettings, ports: DavPorts, choice?
     const notModified = response.status === 304 && cache !== undefined;
     if (response.status !== 404 && !notModified) davStatus(response);
     const etag = notModified ? cache!.etag : response.etag;
-    if (response.status !== 404 && !strongEtag(etag)) throw new Error('webdav-etag-required');
+    const rejectedValidatorReason = etag?.startsWith('W/') ? 'weak' : 'missing-or-invalid';
+    if (response.status !== 404 && !strongEtag(etag)) {
+      auditDav('validator-rejected', { runId, reason: rejectedValidatorReason, status: response.status });
+      throw new Error('webdav-etag-required');
+    }
     const remote = response.status === 404 ? local : notModified ? cache!.snapshot : (await timed('decrypt', () => decodeDavState(response.text, settings.syncPassword, source))).snapshot;
     cache = response.status !== 404 ? { scope, etag: etag!, snapshot: remote } : undefined;
     const selected = choice && choice.etag === etag ? choice.resolution : undefined;

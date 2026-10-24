@@ -86,6 +86,8 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
   }
   const handler = native();
   if (handler) {
+    // URLSession can request identity; browser fetch cannot set this header.
+    headers['Accept-Encoding'] = 'identity';
     if (!listening) {
       window.addEventListener('utm-webdav-response', ((event: CustomEvent<NativeReply>) => waiting.get(event.detail.id)?.(event.detail)) as EventListener);
       listening = true;
@@ -136,7 +138,10 @@ async function performDavRequest(connection: DavConnection, method: DavMethod, p
       }
       text += decoder.decode();
     } finally { reader.releaseLock(); }
-    return { status: response.status, text, etag: response.headers.get('etag'), lockToken: response.headers.get('lock-token') ?? undefined, lockTimeout: response.headers.get('timeout') ?? undefined };
+    // Accept the original validator only from the selected trusted relay.
+    // Never strip W/ or synthesize a strong ETag from a weak one.
+    const etag = (relay ? response.headers.get('x-utm-webdav-etag') : null) ?? response.headers.get('etag');
+    return { status: response.status, text, etag, lockToken: response.headers.get('lock-token') ?? undefined, lockTimeout: response.headers.get('timeout') ?? undefined };
   };
   try {
     const result = await send(useProxy);

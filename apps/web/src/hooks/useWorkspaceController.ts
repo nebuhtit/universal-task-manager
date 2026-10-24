@@ -21,12 +21,13 @@ import { syncTrace } from '../services/syncTrace';
 import { LatestPersistenceQueue, persistWorkspace, type PersistenceOperation } from '../services/workspacePersistence';
 import { reconcileOffMainThread } from '../services/recurrenceWorker';
 import { scheduleWorkspaceTime } from '../services/workspaceTimers';
-import { nativeReminderSchedule, notificationItemMomentBody } from '../services/nativeReminders';
+import { nativeReminderSchedule, notificationItemMomentBody, reminderCandidates, reminderDeliveryTime } from '../services/nativeReminders';
 import { hasPasswordBypassHint, setPasswordBypassHint } from '../services/passwordBypassHint';
 import { acknowledgeObsidianFlush, persistObsidianWorkspace, syncObsidianReminders } from '../services/obsidianBridge';
 import { currentProfileActionId, measureProfile } from '../services/performanceProfile';
 import { createSaveStatusStore } from '../services/saveStatusStore';
 import { recordEntityChanges } from '../services/entityJournal';
+import { auditDav } from '../services/webdavDiagnostics';
 
 const ACTIVATION_PERSISTENCE_WAIT_MS = 5_000;
 
@@ -48,10 +49,12 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
       async ({ session: target, profileActionId }) => persistWorkspace(target, profileActionId ?? null),
       ({ session: target, message, startedAt }) => {
         durableDocument.current = target.document;
+        auditDav('local-save-confirmed', { itemCount: Object.keys(target.document.items).length, updatedAt: target.document.updatedAt });
         if (sessionRef.current?.document === target.document) { clearPendingSave(); setSaveStatus('saved'); }
         recordDiagnostic({ kind: 'result', message: 'Workspace operation persisted', operation: message, outcome: 'succeeded', durationMs: Math.round(performance.now() - startedAt) });
       },
       (reason, { message, startedAt }) => {
+        auditDav('local-save-failed', { code: diagnosticFailureCode(reason) });
         setSaveStatus('error');
         recordDiagnostic({ kind: 'error', message: 'Workspace persistence is delayed and retained for retry', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
         onToast(`Save is delayed; your latest change remains open and will retry: ${reason instanceof Error ? reason.message : String(reason)}`);
@@ -123,11 +126,13 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
   const commit = (message: string, mutation: (draft: WorkspaceDocument) => void, profileActionId: number | null = currentProfileActionId() ?? null): boolean => {
     const currentSession = sessionRef.current;
     if (!currentSession) return false;
+    auditDav('local-commit-start', { itemCount: Object.keys(currentSession.document.items).length });
     const startedAt = performance.now();
     recordDiagnostic({ kind: 'action', message: 'Workspace operation started', operation: message, outcome: 'started' });
     let document: Automerge.Doc<WorkspaceDocument>;
     try { syncTrace('commit-start'); document = measureProfile('workspace.commit', () => commitWorkspaceDocument(currentSession.document as Automerge.Doc<WorkspaceDocument>, message, mutation), undefined, profileActionId); syncTrace('commit-end'); }
     catch (reason) {
+      auditDav('local-commit-failed', { code: diagnosticFailureCode(reason) });
       const details = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
       recordDiagnostic({ kind: 'error', message: 'Workspace operation failed before persistence', operation: message, outcome: 'failed', durationMs: Math.round(performance.now() - startedAt), details: message === 'Sync Google Calendar' ? googleCalendarFailureDetails('save', reason) : details });
       onToast(`Save failed: ${reason instanceof Error ? reason.message : String(reason)}`); return false;
@@ -236,7 +241,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     }
     const groups = new Map<string, { count: number; reminderIds: string[] }>();
     for (const item of Object.values(updated.items)) { if (itemDeletionTime(updated, item) || item.state !== 'open' || item.role === 'series_template' || (item.schedule?.availableFrom && new Date(item.schedule.availableFrom) > now)) continue; for (const reminder of item.reminders) { const at = reminderTime(item, reminder); if (at && new Date(at) <= now) { const group = groups.get(item.id); if (!group) groups.set(item.id, { count: 1, reminderIds: [reminder.id] }); else { group.count += 1; group.reminderIds.push(reminder.id); } } } }
-    groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(id)); notifications.push({ title: item.title, body: notificationItemMomentBody(updated, item, now, `${group.count > 1 ? ` · ${group.count}` : ''}`), itemId, reminderIds: group.reminderIds }); } });
+    groups.forEach((group, itemId) => { const item = updated.items[itemId]; if (item) { group.reminderIds.forEach((id) => deliveredReminderIds.current.add(`${itemId}:${id}`)); notifications.push({ title: item.title, body: notificationItemMomentBody(updated, item, now, `${group.count > 1 ? ` · ${group.count}` : ''}`), itemId, reminderIds: group.reminderIds }); } });
     activationStage = 'persistence';
     startupCheckpoint('preparation', 'completed');
     startupCheckpoint('persistence', 'started');
@@ -321,15 +326,16 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     const recurrenceSignature = workspaceIndex.recurrence.seriesTemplates
       .filter((item) => item.recurrence)
       .map((item) => `${item.id}:${item.revision}`).sort().join('|');
-    const reminderQueue = workspaceIndex.reminders.resolved.flatMap(({ itemId, reminder, resolvedAt }) => {
-      const item = workspaceIndex.itemById.get(itemId);
-      if (!item || item.state !== 'open' || item.role === 'series_template') return [];
-      const availableAt = item.schedule?.availableFrom ? Date.parse(item.schedule.availableFrom) : Number.NEGATIVE_INFINITY;
-      if (deliveredReminderIds.current.has(reminder.id)) return [];
+    const reminderItems = new Map(reminderCandidates(workspace, effectiveWorkspaceNow(workspace)).map(item => [item.id, item]));
+    const reminderQueue = [...reminderItems.values()].flatMap(item => item.reminders.flatMap(reminder => {
+      if (itemDeletionTime(workspace, item) || item.state !== 'open' || item.role === 'series_template') return [];
+      const resolvedAt = reminderTime(item, reminder);
+      if (!resolvedAt) return [];
+      if (deliveredReminderIds.current.has(`${item.id}:${reminder.id}`)) return [];
       const reminderAt = Date.parse(resolvedAt);
       if (!Number.isFinite(reminderAt)) return [];
-      return [{ itemId: item.id, reminderId: reminder.id, at: Math.max(reminderAt, Number.isFinite(availableAt) ? availableAt : Number.NEGATIVE_INFINITY) }];
-    }).sort((left, right) => left.at - right.at);
+      return [{ itemId: item.id, reminderId: `${item.id}:${reminder.id}`, sourceReminderId: reminder.id, at: reminderDeliveryTime(item, resolvedAt) }];
+    })).sort((left, right) => left.at - right.at);
     let reminderCursor = 0;
     let cancelReminderTimer: () => void = () => undefined;
     let cancelRecurrenceTimer: () => void = () => undefined;
@@ -341,13 +347,14 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
         const candidate = reminderQueue[reminderCursor++]!;
         if (deliveredReminderIds.current.has(candidate.reminderId)) continue;
         deliveredReminderIds.current.add(candidate.reminderId);
-        dueByItem.set(candidate.itemId, [...(dueByItem.get(candidate.itemId) ?? []), candidate.reminderId]);
+        dueByItem.set(candidate.itemId, [...(dueByItem.get(candidate.itemId) ?? []), candidate.sourceReminderId]);
       }
       const due = [...dueByItem].flatMap(([itemId, reminderIds]) => {
-        const item = workspace.items[itemId];
+        const item = reminderItems.get(itemId);
         return item ? [{ id: createId(), title: item.title, body: notificationItemMomentBody(workspace, item, now, reminderIds.length > 1 ? ` · ${reminderIds.length}` : ''), at: now.toISOString(), itemId, reminderIds } satisfies AppNotice] : [];
       });
       if (due.length) {
+        auditDav('reminders-foreground-delivered', { items: due.map(({ itemId, reminderIds }) => ({ itemId, reminderIds })), permission: 'Notification' in window ? Notification.permission : 'unavailable' });
         setNotices((current) => [...current, ...due]);
         recordDiagnostic({ kind: 'result', message: 'Local reminders delivered', operation: 'Local reminder check', outcome: 'succeeded', details: JSON.stringify({ notices: due.length, reminders: due.reduce((total, notice) => total + (notice.reminderIds?.length ?? 0), 0), accelerated: Boolean(workspace.calendarPreferences.testClock?.enabled) }) });
         if ('Notification' in window && Notification.permission === 'granted') due.forEach((notice) => new Notification(notice.title, { body: notice.body, tag: `reminder:${notice.itemId}` }));
@@ -454,7 +461,7 @@ export function useWorkspaceController({ onToast, setNotices }: Options) {
     durableDocument.current = next.document;
     deliveredReminderIds.current.clear(); sessionRef.current = next; setSession(next); setBoot('ready'); void refreshPasswordProtection();
   };
-  const resetReminderDelivery = (ids: string[]) => ids.forEach((id) => deliveredReminderIds.current.delete(id));
+  const resetReminderDelivery = (ids: string[]) => { for (const key of deliveredReminderIds.current) if (ids.some(id => key.endsWith(`:${id}`))) deliveredReminderIds.current.delete(key); };
   const getCurrentWorkspace = () => (sessionRef.current?.document as WorkspaceDocument | undefined) ?? null;
   const getCurrentSessionKey = () => sessionRef.current?.dataKey ?? null;
   return { boot, session, workspace, saveStatusStore, passwordProtection, refreshPasswordProtection, activate, commit, flushPersistence, getUnsavedItems, lockWorkspace, adoptSession, resetReminderDelivery, getCurrentWorkspace, getCurrentSessionKey };

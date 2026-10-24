@@ -26,7 +26,7 @@ final class NativeWebDAVBridge: NSObject, WKScriptMessageHandler {
                 respond(id, ["error": "invalid-destination"]); return
             }
         }
-        for (key, value) in headers where ["authorization", "content-type", "if-match", "if-none-match", "destination", "overwrite", "if", "lock-token", "depth", "timeout"].contains(key.lowercased()) {
+        for (key, value) in headers where ["authorization", "content-type", "accept-encoding", "if-match", "if-none-match", "destination", "overwrite", "if", "lock-token", "depth", "timeout"].contains(key.lowercased()) {
             guard !value.contains("\r"), !value.contains("\n") else { respond(id, ["error": "invalid-header"]); return }
             request.setValue(value, forHTTPHeaderField: key)
         }

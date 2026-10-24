@@ -40,7 +40,7 @@ export function createLocalProxy(config) {
     let hostname;
     try { hostname = new URL(`http://${req.headers.host}`).hostname; } catch { res.writeHead(403).end(); return; }
     if (!expectedHosts.includes(hostname) || !origins.includes(origin)) { res.writeHead(403).end(); return; }
-    const headers = { 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Cache-Control': 'no-store', 'Access-Control-Expose-Headers': 'ETag, Lock-Token, Timeout' };
+    const headers = { 'Access-Control-Allow-Origin': origin, Vary: 'Origin', 'Cache-Control': 'no-store, no-transform', 'Access-Control-Expose-Headers': 'ETag, X-UTM-WebDAV-ETag, Lock-Token, Timeout' };
     const reply = (status, message) => { res.writeHead(status, headers); res.end(message); };
     if (req.url !== '/dav') { reply(404, 'Not found'); return; }
     if (req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
@@ -53,6 +53,7 @@ export function createLocalProxy(config) {
     try {
       target = mapTarget(req.headers['x-utm-webdav-target']);
       for (const name of forwarded) if (typeof req.headers[name] === 'string') requestHeaders[name] = req.headers[name];
+      requestHeaders['accept-encoding'] = 'identity';
       if (req.method === 'MOVE') requestHeaders.destination = mapTarget(req.headers.destination);
     } catch { reply(403, 'Target denied'); return; }
     const started = Date.now();
@@ -62,6 +63,7 @@ export function createLocalProxy(config) {
       if (response.status >= 300 && response.status < 400 && response.status !== 304) { await response.body?.cancel(); reply(502, 'Redirect refused'); return; }
       const bytes = await bounded(response.body);
       for (const name of ['etag', 'lock-token', 'timeout', 'content-type']) if (response.headers.has(name)) headers[name] = response.headers.get(name);
+      if (response.headers.has('etag')) headers['X-UTM-WebDAV-ETag'] = response.headers.get('etag');
       res.writeHead(response.status, headers); res.end([204, 205, 304].includes(response.status) ? undefined : bytes);
       if (config.DIAGNOSTICS === '1') console.info(JSON.stringify({ method: req.method, status: response.status, durationMs: Date.now() - started }));
     } catch (error) { reply(error.message === 'too-large' ? 413 : 502, error.message === 'too-large' ? 'Payload exceeds 20 MiB' : 'WebDAV connection failed'); }
